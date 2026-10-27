@@ -1,5 +1,7 @@
 //! Package-manager and app-source adapters, one module each, behind a trait.
 
+pub mod appimage;
+pub mod flatpak;
 pub mod pacman;
 
 /// An installed system package.

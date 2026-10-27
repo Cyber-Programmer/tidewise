@@ -269,6 +269,7 @@ name = "tidewise-adapters"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",
+ "tempfile",
  "thiserror",
 ]
 

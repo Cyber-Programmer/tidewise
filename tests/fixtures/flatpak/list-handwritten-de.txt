@@ -1,0 +1,2 @@
+org.gimp.GIMP	GIMP	1,2 GB	system
+org.kde.kate	Kate – Texteditor	84,7 MB	system
