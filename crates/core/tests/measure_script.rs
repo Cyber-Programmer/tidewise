@@ -11,6 +11,10 @@ fn measure_script_summing_logic() {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(stdout.contains("ok   pss of the whole tree"), "{stdout}");
 }
