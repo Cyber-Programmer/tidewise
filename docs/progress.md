@@ -22,7 +22,7 @@ Blockers: none. No task was skipped.
 
 ### Morning summary
 
-**Final checks (this machine, after the last commit):** `cargo fmt --check` exit 0 · `cargo clippy --all-targets -- -D warnings` exit 0 · `cargo test --all` exit 0 (44 tests) · `cargo audit` exit 0 · `cargo deny check` exit 0 (it warns about two `syn` versions, which is allowed).
+**Final checks (this machine, after the last commit):** `cargo fmt --check` exit 0 · `cargo clippy --all-targets -- -D warnings` exit 0 · `cargo test --all` exit 0 (44 tests) · `cargo audit` exit 0 · `cargo deny check` exit 0 (it warns about two `syn` versions, which is allowed). Audit and deny were re-run on the final commit.
 
 **What exists**
 - `crates/core`: `rates` (pure rate maths), `diskstats`, `stats::LiveStats`, `distro`. Tests include one real two-sample run.
@@ -54,7 +54,7 @@ cd spikes/tauri && cargo build --release --features custom-protocol
 ./target/release/tidewise-spike-tauri
 
 # Measure (about 2 minutes per run)
-spikes/measure.sh --header /bin/true >/dev/null 2>&1   # prints the CSV header only with no command
+spikes/measure.sh --header                              # with no command, prints only the CSV header
 MEASURE_LABEL=tauri spikes/measure.sh "$PWD/spikes/tauri/target/release/tidewise-spike-tauri"
 MEASURE_LABEL=slint-software SLINT_BACKEND=winit-software spikes/measure.sh "$PWD/spikes/slint/target/release/tidewise-spike-slint"
 ```
