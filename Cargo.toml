@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/adapters", "crates/app"]
+# Spikes have their own Cargo.lock and target dir so their heavy dependencies stay out of
+# `cargo test --all`, clippy, audit and deny. They are throwaway comparisons for the UI toolkit decision.
+exclude = ["spikes/slint", "spikes/tauri"]
 
 [workspace.package]
 version = "0.1.0"

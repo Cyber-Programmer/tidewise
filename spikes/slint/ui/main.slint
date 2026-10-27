@@ -1,0 +1,301 @@
+// Spike: the Performance screen (docs/design/screens/Performance.dc.html), dark theme.
+// Colours and sizes come from docs/design/tokens.md. Geist is not bundled in the spike;
+// the system sans/monospace fonts stand in.
+import { ListView } from "std-widgets.slint";
+
+global Tokens {
+    out property <color> bg: #0D0F13;
+    out property <color> sidebar: #111419;
+    out property <color> surface: #161A21;
+    out property <color> surface-sunk: #12161C;
+    out property <color> border: #232933;
+    out property <color> text: #ECEEF2;
+    out property <color> text-2: #A9B0BC;
+    out property <color> text-3: #808897;
+    out property <color> accent: #5DDCB0;
+    out property <string> mono: "monospace";
+}
+
+export struct MetricCard {
+    label: string,
+    value: string,
+    unit: string,
+    mood: string,
+    color: color,
+    spark: string,
+}
+
+export struct ProcessRow {
+    name: string,
+    pid: string,
+    cpu: string,
+    memory: string,
+}
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    height: 44px;
+    border-radius: 10px;
+    background: root.active ? #1E232C : transparent;
+    Text {
+        x: 12px;
+        text: root.label;
+        color: root.active ? #F2F4F7 : #B4BAC5;
+        font-size: 14px;
+        font-weight: root.active ? 600 : 500;
+        vertical-alignment: center;
+    }
+}
+
+component Card inherits Rectangle {
+    in property <MetricCard> data;
+    in property <bool> selected;
+    callback clicked();
+    min-height: 92px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: root.selected ? root.data.color : Tokens.border;
+    background: root.selected ? #1C222B : Tokens.surface;
+    accessible-role: tab;
+    accessible-label: root.data.label;
+    accessible-checked: root.selected;
+    VerticalLayout {
+        padding: 14px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        HorizontalLayout {
+            Text { text: root.data.label; color: Tokens.text-2; font-size: 13px; }
+            Text {
+                text: root.data.mood;
+                color: root.data.color;
+                font-size: 13px;
+                horizontal-alignment: right;
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                Text {
+                    text: root.data.value;
+                    color: Tokens.text;
+                    font-family: Tokens.mono;
+                    font-size: 22px;
+                    vertical-alignment: bottom;
+                }
+                Text {
+                    text: root.data.unit;
+                    color: Tokens.text-2;
+                    font-size: 13px;
+                    vertical-alignment: bottom;
+                }
+            }
+            Path {
+                width: 110px;
+                height: 30px;
+                viewbox-width: 120;
+                viewbox-height: 32;
+                commands: root.data.spark;
+                stroke: root.data.color;
+                stroke-width: 2px;
+            }
+        }
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Tidewise spike (Slint)";
+    min-width: 900px;
+    min-height: 600px;
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    background: Tokens.bg;
+
+    in property <[MetricCard]> cards;
+    in property <int> selected: 0;
+    in property <string> headline;
+    in property <string> big-value;
+    in property <string> big-unit;
+    in property <string> axis-label;
+    in property <color> accent-color: Tokens.accent;
+    in property <string> line-commands;
+    in property <string> area-commands;
+    in property <[ProcessRow]> processes;
+    callback pick(int);
+
+    HorizontalLayout {
+        // Sidebar
+        Rectangle {
+            width: 220px;
+            background: Tokens.sidebar;
+            VerticalLayout {
+                padding: 20px;
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 4px;
+                Text {
+                    text: "Tidewise";
+                    color: Tokens.text;
+                    font-size: 18px;
+                    font-weight: 650;
+                    height: 52px;
+                    x: 10px;
+                }
+                NavItem { label: "Home"; }
+                NavItem { label: "Clean up"; }
+                NavItem { label: "Apps"; }
+                NavItem { label: "Storage"; }
+                NavItem { label: "Performance"; active: true; }
+                NavItem { label: "Processes"; }
+                NavItem { label: "Startup apps"; }
+                NavItem { label: "Services"; }
+                Rectangle { vertical-stretch: 1; }
+                NavItem { label: "History"; }
+                NavItem { label: "Settings"; }
+            }
+        }
+        Rectangle { width: 1px; background: #1F242D; }
+
+        // Content
+        VerticalLayout {
+            padding: 28px;
+            padding-left: 36px;
+            padding-right: 36px;
+            padding-bottom: 24px;
+            spacing: 20px;
+            VerticalLayout {
+                spacing: 6px;
+                vertical-stretch: 0;
+                alignment: start;
+                Text {
+                    text: "Performance";
+                    color: Tokens.text;
+                    font-size: 26px;
+                    font-weight: 650;
+                }
+                Text {
+                    text: "Live · last 60 seconds";
+                    color: Tokens.text-2;
+                    font-size: 14px;
+                }
+            }
+            HorizontalLayout {
+                spacing: 20px;
+                vertical-stretch: 1;
+                VerticalLayout {
+                    width: 280px;
+                    spacing: 10px;
+                    alignment: start;
+                    for card[i] in root.cards: Card {
+                        data: card;
+                        selected: i == root.selected;
+                        clicked => { root.pick(i); }
+                    }
+                }
+                Rectangle {
+                    background: Tokens.surface;
+                    border-radius: 18px;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    VerticalLayout {
+                        padding: 22px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 16px;
+                        HorizontalLayout {
+                            VerticalLayout {
+                                Text { text: root.cards[root.selected].label; color: Tokens.text-2; font-size: 13px; }
+                                Text { text: root.headline; color: Tokens.text; font-size: 22px; font-weight: 650; }
+                            }
+                            HorizontalLayout {
+                                alignment: end;
+                                spacing: 4px;
+                                Text {
+                                    text: root.big-value;
+                                    color: root.accent-color;
+                                    font-family: Tokens.mono;
+                                    font-size: 34px;
+                                    vertical-alignment: bottom;
+                                }
+                                Text {
+                                    text: root.big-unit;
+                                    color: Tokens.text-2;
+                                    font-size: 14px;
+                                    vertical-alignment: bottom;
+                                }
+                            }
+                        }
+                        Rectangle {
+                            height: 180px;
+                            for y in [0.025, 0.5, 0.975]: Rectangle {
+                                y: parent.height * y;
+                                height: 1px;
+                                background: Tokens.border;
+                            }
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: 600;
+                                viewbox-height: 200;
+                                commands: root.area-commands;
+                                fill: root.accent-color.with-alpha(0.12);
+                            }
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: 600;
+                                viewbox-height: 200;
+                                commands: root.line-commands;
+                                stroke: root.accent-color;
+                                stroke-width: 2.2px;
+                            }
+                        }
+                        HorizontalLayout {
+                            Text { text: "60 seconds ago"; color: Tokens.text-3; font-size: 11px; }
+                            Text {
+                                text: "top of chart: " + root.axis-label;
+                                color: Tokens.text-3;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                            }
+                            Text { text: "now"; color: Tokens.text-3; font-size: 11px; horizontal-alignment: right; }
+                        }
+                        Text {
+                            text: "All processes (" + root.processes.length + ")";
+                            color: Tokens.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+                        Rectangle {
+                            background: Tokens.surface-sunk;
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Tokens.border;
+                            clip: true;
+                            ListView {
+                                for p in root.processes: Rectangle {
+                                    height: 36px;
+                                    HorizontalLayout {
+                                        padding-left: 14px;
+                                        padding-right: 14px;
+                                        spacing: 12px;
+                                        Text { text: p.name; color: Tokens.text; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                        Text { text: p.pid; width: 70px; color: Tokens.text-3; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: p.cpu; width: 70px; color: #C9CED6; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: p.memory; width: 90px; color: #C9CED6; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
