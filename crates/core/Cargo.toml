@@ -1,0 +1,11 @@
+[package]
+name = "tidewise-core"
+description = "Scanning, sizes and live stats. No UI, no root."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
