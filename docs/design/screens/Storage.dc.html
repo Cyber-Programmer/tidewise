@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Storage</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.row:hover{background:#1A1F27}
+.tile:hover{filter:brightness(1.12)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;">
+<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg>
+<span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span>
+</div>
+<a class="nav" href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #1E232C; color: #F2F4F7; text-decoration: none; font-size: 14px; font-weight: 600;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;">
+<div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>
+KDE Plasma 6 · pacman + Flatpak
+</div>
+<a class="nav" href="History.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Storage</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;">What's taking space, and what's safe to clear.</p>
+</div>
+<div role="group" aria-label="Drive" style="display: flex; gap: 6px; padding: 4px; border-radius: 12px; background: #161A21; border: 1px solid #232933;">
+<button type="button" aria-pressed="true" style="min-height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: #262D38; color: #ECEEF2; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;">Main drive · 476 GB</button>
+<button type="button" aria-pressed="false" style="min-height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: transparent; color: #A9B0BC; font: inherit; font-size: 13px; cursor: pointer;">Data · 2 TB</button>
+</div>
+</div>
+
+<section aria-labelledby="drive" style="padding: 22px 24px; border-radius: 18px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 10px;">
+<h2 id="drive" style="margin: 0; font-size: 15px; font-weight: 600;">Main drive</h2>
+<div style="font-size: 14px; color: #A9B0BC;"><span style="font-family: 'Geist Mono', monospace; font-size: 20px; color: #ECEEF2;">381 GB</span> used · <span style="color: #ECEEF2;">95 GB free</span></div>
+</div>
+<div role="img" aria-label="Drive usage: your files 142 GB, apps and system 98 GB, Docker images 54 GB, Flatpak apps 41 GB, junk 12.6 GB, other 33 GB, free 95 GB" style="display: flex; height: 18px; border-radius: 6px; overflow: hidden; gap: 2px; background: #0F1217;">
+<div style="width: 29.8%; background: #C3A2FF;"></div>
+<div style="width: 20.6%; background: #7AA7FF;"></div>
+<div style="width: 11.3%; background: #4D72B8;"></div>
+<div style="width: 8.6%; background: #8E6FD6;"></div>
+<div style="width: 2.6%; background: #5DDCB0;"></div>
+<div style="width: 7%; background: #5A6272;"></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: #B4BAC5;">
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #C3A2FF;"></span>Your files <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">142 GB</b></span>
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #7AA7FF;"></span>Apps &amp; system <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">98 GB</b></span>
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #4D72B8;"></span>Docker images <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">54 GB</b></span>
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #8E6FD6;"></span>Flatpak apps <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">41 GB</b></span>
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #5DDCB0;"></span>Junk you can clean <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">12.6 GB</b></span>
+<span style="display: flex; align-items: center; gap: 7px;"><span style="width: 10px; height: 10px; border-radius: 3px; background: #5A6272;"></span>Other <b style="font-family: 'Geist Mono', monospace; font-weight: 500; color: #ECEEF2;">33 GB</b></span>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+
+<section aria-label="Folder map" style="flex: 999 1 480px; min-width: 0; padding: 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<sc-if value="{{atRoot}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px;">
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #A9B0BC;"><a href="#drive" style="color: #A9B0BC; text-decoration: none;">Main drive</a><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg><h2 id="map" style="margin: 0; font-size: 14px; font-weight: 600; color: #ECEEF2;">Your files · 142 GB</h2></nav>
+<span style="font-size: 12px; color: #808897;">Click a block to look inside</span>
+</div>
+<div style="display: flex; gap: 6px; height: 340px;">
+<a class="tile" href="#steam" style="flex: 0 0 36.6%; box-sizing: border-box; border-radius: 12px; background: #2E2547; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; color: #ECEEF2; text-decoration: none;">
+<span style="font-size: 14px; font-weight: 600;">Steam games</span>
+<span><span style="display: block; font-family: 'Geist Mono', monospace; font-size: 24px;">52 GB</span><span style="font-size: 12px; color: #C9BCEB;">9 games installed</span></span>
+</a>
+<div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+<div style="flex: 66 1 0; display: flex; gap: 6px; min-height: 0;">
+<button class="tile" type="button" onClick="{{openDownloads}}" style="flex: 38 1 0; min-width: 0; box-sizing: border-box; border-radius: 12px; border: 0; background: #3A2E14; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; color: #ECEEF2; font: inherit; text-align: left; cursor: pointer;">
+<span style="font-size: 14px; font-weight: 600;">Downloads</span>
+<span><span style="display: block; font-family: 'Geist Mono', monospace; font-size: 22px;">38 GB</span><span style="font-size: 12px; color: #E6CF9E;">22 GB not opened in 6 months</span></span>
+</button>
+<a class="tile" href="#videos" style="flex: 21 1 0; min-width: 0; box-sizing: border-box; border-radius: 12px; background: #1B2A45; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; color: #ECEEF2; text-decoration: none;">
+<span style="font-size: 14px; font-weight: 600;">Videos</span>
+<span style="display: block; font-family: 'Geist Mono', monospace; font-size: 20px;">21 GB</span>
+</a>
+</div>
+<div style="flex: 34 1 0; display: flex; gap: 6px; min-height: 0;">
+<a class="tile" href="#pictures" style="flex: 12 1 0; min-width: 0; box-sizing: border-box; border-radius: 12px; background: #173A2F; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; color: #ECEEF2; text-decoration: none;">
+<span style="font-size: 13px; font-weight: 600;">Pictures</span>
+<span style="font-family: 'Geist Mono', monospace; font-size: 16px;">12 GB</span>
+</a>
+<a class="tile" href="#other" style="flex: 10 1 0; min-width: 0; box-sizing: border-box; border-radius: 12px; background: #262B34; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; color: #ECEEF2; text-decoration: none;">
+<span style="font-size: 13px; font-weight: 600;">Other</span>
+<span style="font-family: 'Geist Mono', monospace; font-size: 16px;">10 GB</span>
+</a>
+<a class="tile" href="#documents" style="flex: 9 1 0; min-width: 0; box-sizing: border-box; border-radius: 12px; background: #23303F; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; color: #ECEEF2; text-decoration: none;">
+<span style="font-size: 13px; font-weight: 600;">Documents</span>
+<span style="font-family: 'Geist Mono', monospace; font-size: 16px;">9 GB</span>
+</a>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: #1E1A10; border: 1px solid #3A2E14;">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2B84B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>
+<span style="flex: 1 1 260px; font-size: 13px; color: #E6CF9E; line-height: 1.5;">Downloads has 22 GB of files you haven't opened in 6 months. Old installers (.iso, .deb, .AppImage) make up most of it.</span>
+<button class="ghost" type="button" onClick="{{openDownloads}}" style="display: flex; align-items: center; height: 38px; padding: 0 14px; border-radius: 10px; background: #2A2312; border: 1px solid #4A3B1A; color: #F5D898; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;">Review them</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{inDownloads}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px;">
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: #A9B0BC;"><button type="button" onClick="{{goRoot}}" style="min-height: 32px; padding: 0 4px; border: 0; background: transparent; color: #A9B0BC; font: inherit; font-size: 14px; cursor: pointer;">Your files</button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg><h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #ECEEF2;">Downloads · 38 GB</h2></nav>
+<div style="font-size: 13px; color: #A9B0BC;">Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.</div>
+<div style="display: flex; flex-direction: column; border-radius: 12px; border: 1px solid #232933; overflow: hidden;">
+<sc-for list="{{dl}}" as="f" hint-placeholder-count="7">
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #12161C; border-bottom: 1px solid #1E232B;">
+<input type="checkbox" id="{{f.id}}" checked="{{f.checked}}" onChange="{{f.toggle}}" style="width: 17px; height: 17px; margin: 0; accent-color: #5DDCB0; flex-shrink: 0;">
+<label for="{{f.id}}" style="flex: 1 1 auto; min-width: 0; cursor: pointer;"><span style="display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{f.name}}</span><span style="display: block; font-size: 12px; color: {{f.metaFg}}; margin-top: 2px;">{{f.meta}}</span></label>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px; color: #C9CED6; white-space: nowrap;">{{f.size}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+<span style="font-size: 13px; color: #A9B0BC;">Goes to Trash first. Empty the Trash from Clean up to get the space back.</span>
+<button class="btn" type="button" style="height: 42px; padding: 0 18px; border-radius: 11px; border: 0; background: #5DDCB0; color: #052B1F; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;">Move {{selCount}} to Trash · {{selSize}}</button>
+</div>
+</div>
+</sc-if>
+</section>
+
+<section aria-labelledby="big" style="flex: 1 1 320px; min-width: 0; border-radius: 16px; background: #161A21; border: 1px solid #232933; overflow: hidden;">
+<h2 id="big" style="margin: 0; padding: 18px 18px 12px; font-size: 15px; font-weight: 600;">Biggest files</h2>
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-top: 1px solid #1E232B;">
+<div style="flex: 1 1 auto; min-width: 0;"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">ubuntu-24.04-desktop-amd64.iso</div><div style="font-size: 12px; color: #808897; margin-top: 2px;">Downloads · opened 8 months ago</div></div>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px;">6.1 GB</span>
+<button type="button" aria-label="Move ubuntu-24.04-desktop-amd64.iso to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-top: 1px solid #1E232B;">
+<div style="flex: 1 1 auto; min-width: 0;"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">screen-recording-march.mkv</div><div style="font-size: 12px; color: #808897; margin-top: 2px;">Videos · opened 7 months ago</div></div>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px;">3.8 GB</span>
+<button type="button" aria-label="Move screen-recording-march.mkv to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-top: 1px solid #1E232B;">
+<div style="flex: 1 1 auto; min-width: 0;"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">backup-2025.tar.gz</div><div style="font-size: 12px; color: #808897; margin-top: 2px;">Documents · opened 1 year ago</div></div>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px;">2.9 GB</span>
+<button type="button" aria-label="Move backup-2025.tar.gz to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-top: 1px solid #1E232B;">
+<div style="flex: 1 1 auto; min-width: 0;"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">node_modules · 14 folders</div><div style="font-size: 12px; color: #808897; margin-top: 2px;">Projects · rebuilt with npm install</div></div>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px;">1.9 GB</span>
+<button type="button" aria-label="Move node_modules folders to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<div class="row" style="display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-top: 1px solid #1E232B;">
+<div style="flex: 1 1 auto; min-width: 0;"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">archlinux-x86_64.iso</div><div style="font-size: 12px; color: #808897; margin-top: 2px;">Downloads · opened 10 months ago</div></div>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px;">1.4 GB</span>
+<button type="button" aria-label="Move archlinux-x86_64.iso to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<p style="margin: 0; padding: 12px 18px 16px; border-top: 1px solid #1E232B; font-size: 12px; color: #808897; line-height: 1.5;">Your own files always go to Trash first, never deleted straight away.</p>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { folder: null, sel: { iso: true, vm: true, zip: true, debs: true, arch: true, appimg: true, data: false, lect: false } };
+  }
+  renderVals() {
+    var self = this;
+    var files = [
+      { id: 'data', name: 'datasets', meta: 'Folder · opened yesterday', gb: 12.4, old: false },
+      { id: 'vm', name: 'old-vm-disk.qcow2', meta: 'Virtual machine disk · not opened in 1 year', gb: 6.3, old: true },
+      { id: 'iso', name: 'ubuntu-24.04-desktop-amd64.iso', meta: 'Installer · not opened in 8 months', gb: 6.1, old: true },
+      { id: 'zip', name: 'vacation-photos.zip', meta: 'Archive · not opened in 9 months', gb: 4.2, old: true },
+      { id: 'debs', name: 'Setup files (.deb, .rpm) · 23 files', meta: 'Installers already used · 6+ months', gb: 3.9, old: true },
+      { id: 'lect', name: 'lecture-recordings', meta: 'Folder · opened 3 weeks ago', gb: 3.6, old: false },
+      { id: 'arch', name: 'archlinux-x86_64.iso', meta: 'Installer · not opened in 10 months', gb: 1.4, old: true },
+      { id: 'appimg', name: 'Obsidian-1.8.AppImage', meta: 'Older copy of an app you have · 7 months', gb: 0.1, old: true }
+    ];
+    var sel = this.state.sel;
+    var n = 0, tot = 0;
+    var dl = files.map(function (f) {
+      var on = !!sel[f.id];
+      if (on) { n += 1; tot += f.gb; }
+      return Object.assign({}, f, {
+        id: 'dl-' + f.id,
+        checked: on,
+        size: f.gb.toFixed(1) + ' GB',
+        metaFg: f.old ? '#E6CF9E' : '#808897',
+        toggle: function () { var s = Object.assign({}, self.state.sel); s[f.id] = !s[f.id]; self.setState({ sel: s }); }
+      });
+    });
+    return {
+      atRoot: this.state.folder !== 'downloads',
+      inDownloads: this.state.folder === 'downloads',
+      openDownloads: function () { self.setState({ folder: 'downloads' }); },
+      goRoot: function () { self.setState({ folder: null }); },
+      dl: dl,
+      selCount: n,
+      selSize: tot.toFixed(1) + ' GB'
+    };
+  }
+}
+</script>
+</body>
+</html>

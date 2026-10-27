@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Tokens and components</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}
+</style>
+</helmet>
+<div style="width: 1360px; min-height: 2000px; box-sizing: border-box; padding: 48px; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif; display: flex; flex-direction: column; gap: 32px;">
+
+<div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -0.02em;">Tokens &amp; components</h1>
+<p style="margin: 6px 0 0; font-size: 14px; color: #A9B0BC;">The handoff sheet for building Tidewise. Names on the left become variables in code; every screen uses only these.</p>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Colour · dark (default) and light</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; font-size: 13px;">
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center; color: #808897; font-size: 12px;"><span>Token</span><span>Dark</span><span>Light</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center; color: #808897; font-size: 12px;"><span>Token</span><span>Dark</span><span>Light</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">bg</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #0D0F13; border: 1px solid #2A303B;"></span>#0D0F13</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #F5F6F8; border: 1px solid #2A303B;"></span>#F5F6F8</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">sidebar</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #111419; border: 1px solid #2A303B;"></span>#111419</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #ECEEF2; border: 1px solid #2A303B;"></span>#ECEEF2</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">surface</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #161A21; border: 1px solid #2A303B;"></span>#161A21</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #FFFFFF; border: 1px solid #2A303B;"></span>#FFFFFF</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">surface-sunk</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #12161C; border: 1px solid #2A303B;"></span>#12161C</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #F0F2F5; border: 1px solid #2A303B;"></span>#F0F2F5</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">border</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #232933; border: 1px solid #2A303B;"></span>#232933</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #E1E4EA; border: 1px solid #2A303B;"></span>#E1E4EA</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">text</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #ECEEF2; border: 1px solid #2A303B;"></span>#ECEEF2</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #14171C; border: 1px solid #2A303B;"></span>#14171C</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">text-2 / text-3</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #A9B0BC;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #808897;"></span>#A9B0BC · #808897</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #4A5260;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #5F6775;"></span>#4A5260 · #5F6775</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">accent (safe, go)</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #5DDCB0;"></span>#5DDCB0 · on #052B1F</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #12B886;"></span>#12B886 · text #0B7A5A</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">warn (review, admin)</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #F2B84B;"></span>#F2B84B</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #9A6700;"></span>#9A6700</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">danger (remove, end)</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #FF8A80;"></span>#FF8A80 · on #3A0B07</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #C73A2E;"></span>#C73A2E · on #FFFFFF</span></div>
+<div style="display: grid; grid-template-columns: 160px 1fr 1fr; gap: 8px; align-items: center;"><span style="font-family: 'Geist Mono', monospace;">data: cpu · mem · disk</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #7AA7FF;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #F2B84B;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #C3A2FF;"></span>net uses accent</span><span style="display: flex; gap: 8px; align-items: center;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #2F5FD0;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #9A6700;"></span><span style="width: 22px; height: 22px; border-radius: 6px; background: #7048C8;"></span></span></div>
+</div>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0 0 6px; font-size: 17px; font-weight: 650;">Type · Geist and Geist Mono</h2>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-family: 'Geist Mono', monospace; font-size: 34px;">82</span><span style="font-size: 12px; color: #808897;">display-num · Mono 34</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Page title</span><span style="font-size: 12px; color: #808897;">h1 · 26 / 650</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-size: 22px; font-weight: 650; letter-spacing: -0.015em;">Dialog title</span><span style="font-size: 12px; color: #808897;">h2 · 22 / 650</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-size: 15px; font-weight: 600;">Row title</span><span style="font-size: 12px; color: #808897;">title · 15 / 600</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-size: 14px;">Body text that explains things</span><span style="font-size: 12px; color: #808897;">body · 14 / 400</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-size: 13px; color: #A9B0BC;">Secondary description</span><span style="font-size: 12px; color: #808897;">small · 13</span></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between;"><span style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #B9C0CB;">~/.cache · paccache -rk2</span><span style="font-size: 12px; color: #808897;">code · Mono 12</span></div>
+<p style="margin: 6px 0 0; font-size: 12px; color: #808897; line-height: 1.5;">Fonts ship inside the app (no network). Numbers always in Mono so columns line up.</p>
+</section>
+
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Spacing, radius, motion</h2>
+<div style="display: flex; align-items: flex-end; gap: 10px;">
+<span style="width: 4px; height: 4px; background: #5DDCB0;"></span><span style="width: 8px; height: 8px; background: #5DDCB0;"></span><span style="width: 12px; height: 12px; background: #5DDCB0;"></span><span style="width: 16px; height: 16px; background: #5DDCB0;"></span><span style="width: 20px; height: 20px; background: #5DDCB0;"></span><span style="width: 24px; height: 24px; background: #5DDCB0;"></span><span style="width: 28px; height: 28px; background: #5DDCB0;"></span><span style="width: 36px; height: 36px; background: #5DDCB0;"></span>
+<span style="font-size: 12px; color: #808897; margin-left: 8px;">4 · 8 · 12 · 16 · 20 · 24 · 28 · 36</span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="width: 44px; height: 44px; border-radius: 6px; background: #232933;"></span><span style="width: 44px; height: 44px; border-radius: 10px; background: #232933;"></span><span style="width: 44px; height: 44px; border-radius: 14px; background: #232933;"></span><span style="width: 44px; height: 44px; border-radius: 16px; background: #232933;"></span><span style="width: 44px; height: 44px; border-radius: 20px; background: #232933;"></span>
+<span style="font-size: 12px; color: #808897;">6 chip · 10 button · 14 row · 16 card · 20 dialog</span>
+</div>
+<ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #A9B0BC; line-height: 1.7;">
+<li>Motion 120–200 ms, ease-out; none when the system asks for reduced motion</li>
+<li>No blur, glow or gradients: keeps the GPU idle and the app light</li>
+<li>Charts redraw at most once a second; paused when the window is hidden</li>
+<li>Touch/click targets at least 40 px tall (44 px in dialogs)</li>
+</ul>
+</section>
+</div>
+
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Buttons</h2>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+<button type="button" style="height: 44px; padding: 0 20px; border-radius: 11px; border: 0; background: #5DDCB0; color: #052B1F; font: inherit; font-size: 15px; font-weight: 650;">Primary</button>
+<button type="button" style="height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px;">Secondary</button>
+<button type="button" style="height: 44px; padding: 0 20px; border-radius: 11px; border: 0; background: #FF8A80; color: #3A0B07; font: inherit; font-size: 15px; font-weight: 650;">Destructive</button>
+<button type="button" disabled style="height: 44px; padding: 0 20px; border-radius: 11px; border: 0; background: #232933; color: #808897; font: inherit; font-size: 15px; font-weight: 650;">Disabled</button>
+<a href="#link" style="font-size: 14px; font-weight: 600; text-decoration: none;">Text link</a>
+<button type="button" aria-label="Move to Trash" style="width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2A303B; background: #1A1F27; color: #B4BAC5; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+</div>
+<p style="margin: 0; font-size: 13px; color: #A9B0BC;">One primary per screen. Destructive buttons always say what they remove ("Uninstall GIMP", never "OK").</p>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Chips</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #5DDCB0; background: #173A2F;">Safe</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #F2B84B; background: #3A2E14;">Review</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; color: #C9CED6; background: #232933;">Admin</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #FF8A80; background: #3A1714;">Failed</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #5DDCB0; background: #173A2F;">Running</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #A9B0BC; background: #232933;">Off</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<span style="padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #7AA7FF; background: #1B2A45;">System</span>
+<span style="padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #C3A2FF; background: #2C2342;">Flatpak</span>
+<span style="padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #F2B84B; background: #3A2E14;">AppImage</span>
+<span style="padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #C9CED6; background: #2A303B;">Snap</span>
+</div>
+<p style="margin: 0; font-size: 12px; color: #808897;">Meaning is always in the word, never colour alone.</p>
+</section>
+
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Controls</h2>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px;">
+<span role="img" aria-label="Switch on" style="position: relative; width: 46px; height: 28px; border-radius: 99px; background: #5DDCB0;"><span style="position: absolute; top: 4px; left: 22px; width: 20px; height: 20px; border-radius: 99px; background: #ECEEF2;"></span></span>
+<span role="img" aria-label="Switch off" style="position: relative; width: 46px; height: 28px; border-radius: 99px; background: #2A303B;"><span style="position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 99px; background: #ECEEF2;"></span></span>
+<label style="display: flex; align-items: center; gap: 8px; font-size: 14px;"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #5DDCB0;">Checkbox</label>
+<span role="img" aria-label="Segmented control" style="display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #12161C; border: 1px solid #232933;"><span style="padding: 8px 14px; border-radius: 9px; background: #262D38; font-size: 13px;">On</span><span style="padding: 8px 14px; border-radius: 9px; font-size: 13px; color: #A9B0BC;">Off</span></span>
+</div>
+<div role="progressbar" aria-label="Example progress" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" style="height: 10px; border-radius: 99px; background: #252B35; overflow: hidden;"><div style="width: 62%; height: 100%; background: #5DDCB0; border-radius: 99px;"></div></div>
+<div role="status" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #1E2A27; border: 1px solid #3E7D69; font-size: 13px;"><span style="flex: 1 1 auto;">Toast: what happened</span><span style="color: #5DDCB0; font-weight: 650;">Undo</span></div>
+</section>
+</div>
+
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 17px; font-weight: 650;">Icons · 24 px grid, 1.8 stroke, round caps</h2>
+<div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; font-size: 11px; color: #A9B0BC; text-align: center;">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>home</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path></svg>clean</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>apps</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>storage</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>performance</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>processes</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>startup</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>services</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>history</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>settings</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"></path></svg>admin</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>protected</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>trash</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>warning</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>search</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ECEEF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>done</div>
+</div>
+</section>
+
+<section style="padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-wrap: wrap; gap: 24px; align-items: center;">
+<div style="flex: 1 1 360px;">
+<h2 style="margin: 0 0 8px; font-size: 17px; font-weight: 650;">Window sizes</h2>
+<p style="margin: 0; font-size: 13px; color: #A9B0BC; line-height: 1.6;">Minimum window 900 × 600. Below 1100 px wide the sidebar becomes an icon rail (labels show on hover and to screen readers). Side panels drop below their list under 1000 px. Content stops growing at 1120 px and centres.</p>
+</div>
+<div role="img" aria-label="Icon rail sidebar for narrow windows" style="display: flex; gap: 0; width: 340px; height: 180px; border-radius: 12px; overflow: hidden; border: 1px solid #2A303B;">
+<div style="width: 60px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 12px;">
+<span style="width: 22px; height: 22px; border-radius: 6px; background: #5DDCB0;"></span>
+<span style="width: 36px; height: 30px; border-radius: 8px; background: #1E232C;"></span>
+<span style="width: 18px; height: 18px; border-radius: 4px; background: #2A303B;"></span>
+<span style="width: 18px; height: 18px; border-radius: 4px; background: #2A303B;"></span>
+<span style="width: 18px; height: 18px; border-radius: 4px; background: #2A303B;"></span>
+</div>
+<div style="flex: 1 1 auto; background: #0D0F13; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+<span style="width: 90px; height: 12px; border-radius: 4px; background: #2A303B;"></span>
+<span style="height: 60px; border-radius: 8px; background: #161A21;"></span>
+<span style="height: 30px; border-radius: 8px; background: #161A21;"></span>
+</div>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":2000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

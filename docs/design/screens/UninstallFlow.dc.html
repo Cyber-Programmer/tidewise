@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Uninstall flow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+.jump:hover{background:#262D38}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="position: relative; min-height: 960px; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif; overflow: hidden;">
+
+<div aria-hidden="true" style="display: flex; flex-wrap: wrap; min-height: 960px; opacity: 0.3;">
+<div style="flex: 1 1 220px; background: #111419; border-right: 1px solid #1F242D;"></div>
+<div style="flex: 999 1 560px; padding: 84px 40px; box-sizing: border-box; display: flex; gap: 20px;">
+<div style="flex: 2; display: flex; flex-direction: column; gap: 8px;"><div style="height: 56px; border-radius: 10px; background: #161A21;"></div><div style="height: 56px; border-radius: 10px; background: #161A21;"></div><div style="height: 56px; border-radius: 10px; background: #1C2A26;"></div><div style="height: 56px; border-radius: 10px; background: #161A21;"></div><div style="height: 56px; border-radius: 10px; background: #161A21;"></div></div>
+<div style="flex: 1; height: 520px; border-radius: 16px; background: #161A21;"></div>
+</div>
+</div>
+
+<div style="position: absolute; inset: 0; background: rgba(6, 7, 10, 0.6); display: flex; flex-direction: column; align-items: center; padding: 20px 16px 32px; box-sizing: border-box; gap: 48px;">
+
+<div role="group" aria-label="Prototype: jump to step" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px; border-radius: 12px; background: #1A1F27; border: 1px dashed #3A414D; font-size: 12px; color: #A9B0BC;">
+<span style="padding: 0 8px;">Prototype step</span>
+<sc-for list="{{jumps}}" as="j" hint-placeholder-count="5">
+<button class="jump" type="button" onClick="{{j.go}}" aria-pressed="{{j.pressed}}" style="min-height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: {{j.bg}}; color: {{j.fg}}; font: inherit; font-size: 12px; cursor: pointer;">{{j.label}}</button>
+</sc-for>
+</div>
+
+<div role="dialog" aria-modal="true" aria-label="Uninstall" style="width: 100%; max-width: 540px; box-sizing: border-box; border-radius: 20px; background: #161A21; border: 1px solid #2E3541; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); padding: 28px; display: flex; flex-direction: column; gap: 18px;">
+
+<sc-if value="{{isConfirm}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: center; gap: 14px;"><span aria-hidden="true" style="width: 48px; height: 48px; border-radius: 13px; background: #F2B84B; color: #0D0F13; display: flex; align-items: center; justify-content: center; font-size: 21px; font-weight: 700;">G</span><h2 style="margin: 0; font-size: 22px; font-weight: 650;">Uninstall GIMP?</h2></div>
+<div style="display: flex; flex-direction: column; border-radius: 12px; border: 1px solid #232933; overflow: hidden;">
+<div style="display: flex; justify-content: space-between; padding: 11px 14px; background: #12161C; border-bottom: 1px solid #1E232B; font-size: 14px;"><span>GIMP app</span><span style="font-family: 'Geist Mono', monospace; color: #C9CED6;">412 MB</span></div>
+<div style="display: flex; justify-content: space-between; padding: 11px 14px; background: #12161C; border-bottom: 1px solid #1E232B; font-size: 14px;"><span>Shared parts only GIMP used</span><span style="font-family: 'Geist Mono', monospace; color: #C9CED6;">320 MB</span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; background: #12161C; font-size: 14px;"><span style="display: flex; align-items: center; gap: 10px;"><input type="checkbox" id="rm" checked="{{rmSettings}}" onChange="{{toggleRm}}" style="width: 17px; height: 17px; margin: 0; accent-color: #5DDCB0;"><label for="rm">Also delete my settings &amp; brushes</label></span><span style="font-family: 'Geist Mono', monospace; color: #808897;">86 MB</span></div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #A9B0BC; line-height: 1.5;">{{keepNote}}</p>
+<div style="display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
+<a class="ghost" href="Apps.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; text-decoration: none; font-size: 14px; box-sizing: border-box;">Cancel</a>
+<button class="btn" type="button" onClick="{{toRemoving}}" style="height: 44px; padding: 0 20px; border-radius: 11px; border: 0; background: #FF8A80; color: #3A0B07; font: inherit; font-size: 15px; font-weight: 650; cursor: pointer;">Uninstall · free {{freed}}</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isRemoving}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px;" aria-live="polite">
+<h2 style="margin: 0; font-size: 22px; font-weight: 650;">Removing GIMP…</h2>
+<div role="progressbar" aria-label="Uninstall progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{pct}}" style="height: 10px; border-radius: 99px; background: #252B35; overflow: hidden;"><div style="width: {{pctW}}; height: 100%; border-radius: 99px; background: #FF8A80; transition: width 300ms;"></div></div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #808897;">flatpak uninstall org.gimp.GIMP</div>
+<p style="margin: 0; font-size: 13px; color: #A9B0BC;">If GIMP is open, save your work. Tidewise closes it before removing.</p>
+</div>
+</sc-if>
+
+<sc-if value="{{isDone}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px; align-items: flex-start;">
+<span style="width: 52px; height: 52px; border-radius: 99px; background: #173A2F; display: flex; align-items: center; justify-content: center;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
+<h2 style="margin: 0; font-size: 22px; font-weight: 650;">GIMP is uninstalled</h2>
+<p style="margin: 0; font-size: 14px; color: #A9B0BC; line-height: 1.5;">{{doneText}}</p>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+<a class="btn" href="Apps.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 11px; background: #5DDCB0; color: #052B1F; text-decoration: none; font-size: 15px; font-weight: 650;">Back to Apps</a>
+<a class="ghost" href="History.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; text-decoration: none; font-size: 14px; box-sizing: border-box;">Reinstall from History</a>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isBlocked}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px; align-items: flex-start;">
+<span style="width: 52px; height: 52px; border-radius: 99px; background: #232933; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C9CED6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></span>
+<h2 style="margin: 0; font-size: 22px; font-weight: 650;">Python can't be removed on its own</h2>
+<p style="margin: 0; font-size: 14px; color: #A9B0BC; line-height: 1.55;">38 installed apps need it, including Kdenlive, Steam's tools and parts of your desktop. Removing it would break them, so Tidewise won't. Remove those apps first if you really don't need them.</p>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><div style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; background: #0F1217; border: 1px solid #222832; font-family: 'Geist Mono', monospace; font-size: 11px; color: #B9C0CB; line-height: 1.7; white-space: pre; overflow-x: auto;">pacman -Qi python
+Required By : kdenlive  python-pip  plasma-workspace  … (38 total)
+check runs before anything is removed</div></sc-if>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+<a class="btn" href="Apps.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 11px; background: #5DDCB0; color: #052B1F; text-decoration: none; font-size: 15px; font-weight: 650;">OK</a>
+<button class="ghost" type="button" onClick="{{toggleDetails}}" style="height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">{{detailsLabel}}</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isBusy}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 14px; align-items: flex-start;">
+<span style="width: 52px; height: 52px; border-radius: 99px; background: #1B2A45; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7AA7FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+<h2 style="margin: 0; font-size: 22px; font-weight: 650;">Waiting for another installer</h2>
+<p style="margin: 0; font-size: 14px; color: #A9B0BC; line-height: 1.55;">Something else is installing or updating software right now, and only one program can do that at a time. Tidewise will remove LibreOffice automatically as soon as it finishes.</p>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><div style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; background: #0F1217; border: 1px solid #222832; font-family: 'Geist Mono', monospace; font-size: 11px; color: #B9C0CB; line-height: 1.7;">lock held: /var/lib/pacman/db.lck · held by: pacman (PID 9120)<br>Tidewise never deletes this lock file itself.</div></sc-if>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+<a class="ghost" href="Apps.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; text-decoration: none; font-size: 14px; box-sizing: border-box;">Cancel uninstall</a>
+<button class="ghost" type="button" onClick="{{toggleDetails}}" style="height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">{{detailsLabel}}</button>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { step: 'confirm', pct: 0, rm: false, details: false };
+  }
+  componentWillUnmount() { if (this.timer) clearInterval(this.timer); }
+  go(step) {
+    var self = this;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (step === 'removing') {
+      this.setState({ step: 'removing', pct: 0 });
+      this.timer = setInterval(function () {
+        var p = Math.min(100, self.state.pct + 7);
+        if (p >= 100) { clearInterval(self.timer); self.timer = null; self.setState({ pct: 100, step: 'done' }); }
+        else self.setState({ pct: p });
+      }, 200);
+    } else {
+      this.setState({ step: step, details: false });
+    }
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state.step;
+    var jumps = [['confirm', '1 Confirm'], ['removing', '2 Removing'], ['done', '3 Done'], ['blocked', 'Blocked: needed by others'], ['busy', 'Busy: other installer']].map(function (j) {
+      var on = st === j[0];
+      return { label: j[1], pressed: on ? 'true' : 'false', bg: on ? '#5DDCB0' : 'transparent', fg: on ? '#052B1F' : '#C9CED6', go: function () { self.go(j[0]); } };
+    });
+    var rm = this.state.rm;
+    var d = this.state.details;
+    return {
+      jumps: jumps,
+      isConfirm: st === 'confirm', isRemoving: st === 'removing', isDone: st === 'done', isBlocked: st === 'blocked', isBusy: st === 'busy',
+      rmSettings: rm,
+      toggleRm: function () { self.setState({ rm: !self.state.rm }); },
+      keepNote: rm ? 'Your GIMP settings and brushes will be deleted too. This part cannot be undone.' : 'Your settings and brushes are kept, so reinstalling later brings everything back.',
+      freed: rm ? '818 MB' : '732 MB',
+      doneText: rm ? '818 MB freed. Your settings were deleted as well.' : '732 MB freed. Your settings were kept, so reinstalling restores everything.',
+      pct: this.state.pct,
+      pctW: this.state.pct + '%',
+      toRemoving: function () { self.go('removing'); },
+      details: d,
+      detailsLabel: d ? 'Hide details' : 'Show details',
+      toggleDetails: function () { self.setState({ details: !self.state.details }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

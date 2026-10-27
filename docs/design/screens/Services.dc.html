@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Services</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav{display:flex;align-items:center;gap:12px;min-height:44px;box-sizing:border-box;padding:0 12px;border-radius:10px;color:#B4BAC5;text-decoration:none;font-size:14px;font-weight:500}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.nav svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav.on{background:#1E232C;color:#F2F4F7;font-weight:600}
+.nav.on svg{stroke:#5DDCB0}
+.row:hover{background:#1A1F27}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+input::placeholder{color:#808897}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg><span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span></div>
+<a class="nav" href="Main.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav on" aria-current="page" href="Services.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;"><div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>KDE Plasma 6 · pacman + Flatpak</div>
+<a class="nav" href="History.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px;">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Services</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;">Programs your system runs in the background. Most should be left alone; we point out the few worth a look.</p>
+</div>
+<button type="button" onClick="{{toggleDetails}}" aria-pressed="{{detailsStr}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; background: transparent; border: 0; color: #A9B0BC; font: inherit; font-size: 14px; cursor: pointer;"><span style="position: relative; width: 38px; height: 22px; border-radius: 99px; background: {{dTrack}};"><span style="position: absolute; top: 3px; left: {{dKnob}}; width: 16px; height: 16px; border-radius: 99px; background: #ECEEF2;"></span></span>Show technical details</button>
+</div>
+
+<div role="group" aria-label="Show" style="display: flex; flex-wrap: wrap; gap: 8px;">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button type="button" onClick="{{t.pick}}" aria-pressed="{{t.pressed}}" style="display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid {{t.border}}; background: {{t.bg}}; color: {{t.fg}}; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;">{{t.label}}<span style="font-family: 'Geist Mono', monospace; color: {{t.countFg}};">{{t.count}}</span></button>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+<section aria-label="Service list" style="flex: 999 1 460px; min-width: 0; border-radius: 16px; background: #161A21; border: 1px solid #232933; overflow: hidden;">
+<sc-for list="{{rows}}" as="s" hint-placeholder-count="6">
+<button type="button" class="row" onClick="{{s.pick}}" aria-pressed="{{s.pressed}}" style="display: flex; align-items: center; gap: 14px; width: 100%; box-sizing: border-box; padding: 14px 18px; border: 0; border-bottom: 1px solid #1E232B; background: {{s.bg}}; color: #ECEEF2; font: inherit; text-align: left; cursor: pointer;">
+<span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 99px; background: {{s.dot}}; flex-shrink: 0;"></span>
+<span style="flex: 1 1 auto; min-width: 0;">
+<span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;"><span style="font-size: 14px; font-weight: 600;">{{s.name}}</span>
+<sc-if value="{{s.protected}}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A9B0BC" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Protected"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></sc-if></span>
+<span style="display: block; font-size: 12px; color: #A9B0BC; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{s.line}}</span>
+</span>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: {{s.stFg}}; background: {{s.stBg}}; white-space: nowrap;">{{s.stateLabel}}</span>
+</button>
+</sc-for>
+</section>
+
+<aside aria-label="Service details" style="flex: 1 1 320px; min-width: 0; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 16px;">
+<div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;"><h2 style="margin: 0; font-size: 19px; font-weight: 650;">{{sel.name}}</h2><span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: {{sel.stFg}}; background: {{sel.stBg}};">{{sel.stateLabel}}</span></div>
+<p style="margin: 8px 0 0; font-size: 14px; color: #C9CED6; line-height: 1.55;">{{sel.desc}}</p>
+</div>
+<sc-if value="{{sel.hasTip}}" hint-placeholder-val="{{ true }}">
+<div style="padding: 12px 14px; border-radius: 12px; background: #13221D; border: 1px solid #1F3A31; font-size: 13px; color: #B9D9CC; line-height: 1.5;"><b style="color: #8BEACB;">Suggestion:</b> {{sel.tip}}</div>
+</sc-if>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+<div style="padding: 12px; border-radius: 10px; background: #12161C; border: 1px solid #222832;"><div style="font-size: 12px; color: #808897;">Starts with your PC</div><div style="font-size: 14px; margin-top: 4px;">{{sel.bootLabel}}</div></div>
+<div style="padding: 12px; border-radius: 10px; background: #12161C; border: 1px solid #222832;"><div style="font-size: 12px; color: #808897;">Memory</div><div style="font-family: 'Geist Mono', monospace; font-size: 14px; margin-top: 4px;">{{sel.mem}}</div></div>
+</div>
+<sc-if value="{{sel.protected}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 12px; background: #232933; color: #C9CED6; font-size: 13px; line-height: 1.45;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>Your system needs this to work, so Tidewise won't stop it.</div>
+</sc-if>
+<sc-if value="{{sel.changeable}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<button class="btn" type="button" style="flex: 1 1 120px; height: 44px; border-radius: 11px; border: 0; background: #5DDCB0; color: #052B1F; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;">{{sel.primary}}</button>
+<button class="ghost" type="button" style="flex: 1 1 120px; height: 44px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;">{{sel.secondary}}</button>
+</div>
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A9B0BC;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2B84B" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"></path></svg>Needs your password · you can undo it from History</div>
+</div>
+</sc-if>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="padding: 10px 12px; border-radius: 8px; background: #0F1217; border: 1px solid #222832; font-family: 'Geist Mono', monospace; font-size: 12px; color: #B9C0CB; line-height: 1.7; overflow-x: auto; white-space: nowrap;">unit: {{sel.unit}}<br>{{sel.cmd}}</div>
+<div style="font-size: 12px; color: #808897;">Recent log</div>
+<div style="padding: 10px 12px; border-radius: 8px; background: #0F1217; border: 1px solid #222832; font-family: 'Geist Mono', monospace; font-size: 11px; color: #9AA1AD; line-height: 1.7; overflow-x: auto; white-space: pre;">{{sel.log}}</div>
+</div>
+</sc-if>
+</aside>
+</div>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'review', selected: 'docker', details: false };
+  }
+  renderVals() {
+    var self = this;
+    var all = [
+      { id: 'docker', name: 'Docker', group: 'review', state: 'running', boot: true, mem: '640 MB', protected: false, desc: 'Runs containers for developer tools. It uses memory all the time, even when you are not using any containers.', tip: 'Turn off "Start with your PC" and start it only when you need it.', unit: 'docker.service', primary: 'Stop now', secondary: "Don't start with PC", cmd: 'systemctl stop docker.service && systemctl disable docker.service', log: '19:02 dockerd: API listen on /run/docker.sock\n19:02 dockerd: Daemon has completed initialization' },
+      { id: 'fwupd', name: 'Firmware update check', group: 'review', state: 'failed', boot: false, mem: '—', protected: false, desc: 'Checks for firmware updates for your devices. It failed 2 hours ago because there was no internet connection. It will try again tomorrow, and nothing is broken.', tip: 'Try again now that you are online, or hide this warning.', unit: 'fwupd-refresh.service', primary: 'Try again', secondary: 'Hide warning', cmd: 'systemctl start fwupd-refresh.service', log: '17:12 fwupdmgr: Failed to download metadata: Could not resolve host\n17:12 systemd: fwupd-refresh.service: Failed with result exit-code' },
+      { id: 'cups', name: 'Printing', group: 'review', state: 'running', boot: true, mem: '24 MB', protected: false, desc: 'Lets you print. If you never print from this PC, it does not need to run.', tip: 'Turn it off if you have no printer. Turn it back on any time.', unit: 'cups.service', primary: 'Stop now', secondary: "Don't start with PC", cmd: 'systemctl disable --now cups.service', log: '19:02 cupsd: Listening on /run/cups/cups.sock' },
+      { id: 'bluetooth', name: 'Bluetooth', group: 'review', state: 'running', boot: true, mem: '12 MB', protected: false, desc: 'Connects Bluetooth headphones, mice and keyboards.', tip: 'Safe to turn off only if you never use Bluetooth.', unit: 'bluetooth.service', primary: 'Stop now', secondary: "Don't start with PC", cmd: 'systemctl disable --now bluetooth.service', log: '19:02 bluetoothd: Bluetooth management interface initialized' },
+      { id: 'avahi', name: 'Network device discovery', group: 'other', state: 'running', boot: true, mem: '8 MB', protected: false, desc: 'Finds printers and shared devices on your home network automatically.', tip: '', unit: 'avahi-daemon.service', primary: 'Stop now', secondary: "Don't start with PC", cmd: 'systemctl disable --now avahi-daemon.service', log: '19:02 avahi-daemon: Server startup complete' },
+      { id: 'sshd', name: 'Remote login (SSH)', group: 'other', state: 'off', boot: false, mem: '—', protected: false, desc: 'Lets other computers log in to yours over the network. It is off, which is the safe default unless you need it.', tip: '', unit: 'sshd.service', primary: 'Start now', secondary: 'Start with PC', cmd: 'systemctl enable --now sshd.service', log: '(no entries since boot)' },
+      { id: 'nm', name: 'Network', group: 'other', state: 'running', boot: true, mem: '22 MB', protected: true, desc: 'Keeps you connected to Wi-Fi and wired networks.', tip: '', unit: 'NetworkManager.service', primary: '', secondary: '', cmd: '(protected: no actions offered)', log: '19:02 NetworkManager: device (wlan0): state change: activated' },
+      { id: 'journal', name: 'System log', group: 'other', state: 'running', boot: true, mem: '30 MB', protected: true, desc: 'Records what your system does so problems can be traced.', tip: '', unit: 'systemd-journald.service', primary: '', secondary: '', cmd: '(protected: no actions offered)', log: '19:02 systemd-journald: Journal started' }
+    ];
+    var stateMap = {
+      running: { label: 'Running', fg: '#5DDCB0', bg: '#173A2F', dot: '#5DDCB0' },
+      failed: { label: 'Failed', fg: '#FF8A80', bg: '#3A1714', dot: '#FF8A80' },
+      off: { label: 'Off', fg: '#A9B0BC', bg: '#232933', dot: '#5A6272' }
+    };
+    var tab = this.state.tab;
+    var counts = { review: 4, running: 47, all: 212 };
+    var tabs = [['review', 'Worth a look'], ['running', 'Running'], ['all', 'All']].map(function (t) {
+      var on = tab === t[0];
+      return { label: t[1], count: counts[t[0]], pressed: on ? 'true' : 'false', bg: on ? '#1E2A27' : '#161A21', border: on ? '#3E7D69' : '#252B35', fg: on ? '#ECEEF2' : '#B4BAC5', countFg: on ? '#5DDCB0' : '#808897', pick: function () { self.setState({ tab: t[0] }); } };
+    });
+    var deco = function (s) {
+      var st = stateMap[s.state];
+      return Object.assign({}, s, {
+        stateLabel: st.label, stFg: st.fg, stBg: st.bg, dot: st.dot,
+        line: (s.boot ? 'Starts with your PC' : 'Does not start with your PC') + ' · ' + (s.protected ? 'needed by your system' : s.desc.split('.')[0]),
+        bootLabel: s.boot ? 'Yes' : 'No',
+        hasTip: !!s.tip,
+        changeable: !s.protected
+      });
+    };
+    var list = all.filter(function (s) {
+      if (tab === 'review') return s.group === 'review';
+      if (tab === 'running') return s.state === 'running';
+      return true;
+    });
+    var rows = list.map(function (s) {
+      var on = self.state.selected === s.id;
+      return Object.assign(deco(s), { pressed: on ? 'true' : 'false', bg: on ? '#1C2A26' : 'transparent', pick: function () { self.setState({ selected: s.id }); } });
+    });
+    var selRaw = all.filter(function (s) { return s.id === self.state.selected; })[0] || all[0];
+    var d = this.state.details;
+    return {
+      tabs: tabs,
+      rows: rows,
+      sel: deco(selRaw),
+      details: d,
+      detailsStr: d ? 'true' : 'false',
+      dTrack: d ? '#5DDCB0' : '#2A303B',
+      dKnob: d ? '19px' : '3px',
+      toggleDetails: function () { self.setState({ details: !self.state.details }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

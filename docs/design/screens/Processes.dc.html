@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Processes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.prow:hover{background:#1A1F27}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+input::placeholder{color:#808897}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;">
+<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg>
+<span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span>
+</div>
+<a class="nav" href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #1E232C; color: #F2F4F7; text-decoration: none; font-size: 14px; font-weight: 600;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;">
+<div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>
+KDE Plasma 6 · pacman + Flatpak
+</div>
+<a class="nav" href="History.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px;">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Processes</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;">214 running, grouped by the app they belong to.</p>
+</div>
+<button type="button" onClick="{{toggleDetails}}" aria-pressed="{{detailsStr}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; background: transparent; border: 0; color: #A9B0BC; font: inherit; font-size: 14px; cursor: pointer;">
+<span style="position: relative; width: 38px; height: 22px; border-radius: 99px; background: {{trackBg}};"><span style="position: absolute; top: 3px; left: {{knobLeft}}; width: 16px; height: 16px; border-radius: 99px; background: #ECEEF2;"></span></span>
+Show technical details
+</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px;">
+<div role="group" aria-label="Show" style="display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #161A21; border: 1px solid #232933;">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button type="button" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="min-height: 36px; padding: 0 14px; border-radius: 9px; border: 0; background: {{t.bg}}; color: {{t.fg}}; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;">{{t.label}}</button>
+</sc-for>
+</div>
+<label for="pq" style="display: flex; align-items: center; gap: 8px; height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #161A21; border: 1px solid #252B35; color: #808897; min-width: 240px;">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+<input id="pq" type="search" aria-label="Search processes" placeholder="Search processes" style="flex-grow: 1; background: transparent; border: 0; outline: none; color: #ECEEF2; font: inherit; font-size: 14px;">
+</label>
+</div>
+
+<section aria-label="Process list" style="border-radius: 16px; background: #161A21; border: 1px solid #232933; overflow-x: auto;">
+<div style="min-width: {{minW}};">
+<div style="display: grid; grid-template-columns: {{cols}}; gap: 12px; padding: 12px 18px; font-size: 12px; color: #A9B0BC; border-bottom: 1px solid #232933;">
+<span>Name</span>
+<span style="text-align: right;">Processor</span><span style="text-align: right;">Memory</span><span style="text-align: right;">Disk</span><span style="text-align: right;">Network</span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+<button type="button" class="prow" onClick="{{r.pick}}" aria-pressed="{{r.pressed}}" style="display: grid; grid-template-columns: {{cols}}; gap: 12px; align-items: center; width: 100%; box-sizing: border-box; padding: 10px 18px; border: 0; border-bottom: 1px solid #1E232B; background: {{r.bg}}; color: #ECEEF2; font: inherit; text-align: left; cursor: pointer;">
+<span style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+<span aria-hidden="true" style="width: 32px; height: 32px; border-radius: 9px; background: {{r.av}}; color: #0D0F13; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0;">{{r.letter}}</span>
+<span style="min-width: 0;">
+<span style="display: flex; align-items: center; gap: 6px;"><span style="font-size: 14px; font-weight: 600; white-space: nowrap;">{{r.name}}</span>
+<sc-if value="{{r.protected}}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A9B0BC" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Protected"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></sc-if>
+</span>
+<span style="display: block; font-size: 12px; color: #A9B0BC; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{r.sub}}</span>
+</span>
+</span>
+<span style="text-align: right; font-family: 'Geist Mono', monospace; font-size: 13px; color: {{r.cpuFg}};">{{r.cpu}}</span>
+<span style="text-align: right; font-family: 'Geist Mono', monospace; font-size: 13px; color: {{r.memFg}};">{{r.mem}}</span>
+<span style="text-align: right; font-family: 'Geist Mono', monospace; font-size: 13px; color: #B9C0CB;">{{r.disk}}</span>
+<span style="text-align: right; font-family: 'Geist Mono', monospace; font-size: 13px; color: #B9C0CB;">{{r.net}}</span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Selected process" style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 20px; border-radius: 16px; background: #1A2028; border: 1px solid #2A313C;">
+<span aria-hidden="true" style="width: 40px; height: 40px; border-radius: 11px; background: {{sel.av}}; color: #0D0F13; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700;">{{sel.letter}}</span>
+<div style="flex: 1 1 280px; min-width: 0;">
+<div style="font-size: 15px; font-weight: 600;">{{sel.name}}</div>
+<div style="font-size: 13px; color: #A9B0BC; margin-top: 2px; line-height: 1.45;">{{sel.note}}</div>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><div style="margin-top: 6px; font-family: 'Geist Mono', monospace; font-size: 12px; color: #B9C0CB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{sel.cmd}}</div></sc-if>
+</div>
+<sc-if value="{{sel.protected}}" hint-placeholder-val="{{ false }}">
+<span style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: #232933; color: #C9CED6; font-size: 13px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>Protected · part of your system</span>
+</sc-if>
+<sc-if value="{{sel.endable}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><button class="ghost" type="button" style="height: 42px; padding: 0 14px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Force quit</button></sc-if>
+<a class="btn" href="EndTask.dc.html" style="display: flex; align-items: center; height: 42px; padding: 0 18px; border-radius: 10px; background: #FF8A80; color: #3A0B07; text-decoration: none; font-size: 14px; font-weight: 650;">End {{sel.name}}</a>
+</div>
+</sc-if>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { filter: 'all', selected: 'firefox', details: false };
+  }
+  renderVals() {
+    var self = this;
+    var all = [
+      { id: 'firefox', name: 'Firefox', kind: 'App', group: 'apps', count: '14 processes', cpu: 6.2, mem: '2.1 GB', memHot: true, disk: '0.6 MB/s', net: '420 KB/s', pid: '2231', user: 'you', av: '#FFB38A', protected: false, note: 'Web browser. Ending it closes all windows; Firefox can restore your tabs next time.', cmd: '/usr/lib/firefox/firefox  ·  14 child processes' },
+      { id: 'code', name: 'Visual Studio Code', kind: 'App', group: 'apps', count: '9 processes', cpu: 1.8, mem: '1.3 GB', memHot: true, disk: '0', net: '0', pid: '3410', user: 'you', av: '#7AA7FF', protected: false, note: 'Code editor. Unsaved files may be lost if you end it.', cmd: '/opt/visual-studio-code/code  ·  9 child processes' },
+      { id: 'steam', name: 'Steam', kind: 'App', group: 'apps', count: '6 processes', cpu: 1.2, mem: '0.9 GB', memHot: false, disk: '9 MB/s', net: '1.9 MB/s', pid: '4102', user: 'you', av: '#9FC1FF', protected: false, note: 'Downloading a game update. Ending it pauses the download.', cmd: 'flatpak run com.valvesoftware.Steam' },
+      { id: 'spotify', name: 'Spotify', kind: 'App', group: 'apps', count: '5 processes', cpu: 0.6, mem: '410 MB', memHot: false, disk: '0', net: '80 KB/s', pid: '5120', user: 'you', av: '#8BEACB', protected: false, note: 'Music app. Safe to end; music stops.', cmd: '/snap/spotify/current/usr/share/spotify/spotify' },
+      { id: 'docker', name: 'Docker', kind: 'Background service', group: 'bg', count: '4 processes', cpu: 0.2, mem: '640 MB', memHot: false, disk: '0', net: '0', pid: '812', user: 'root', av: '#7FB2E5', protected: false, note: 'Runs containers. Stopping it frees memory if you are not using containers. Needs your password.', cmd: '/usr/bin/dockerd -H fd://' },
+      { id: 'baloo', name: 'File indexer', kind: 'Background service', group: 'bg', count: '1 process', cpu: 0.3, mem: '120 MB', memHot: false, disk: '2 MB/s', net: '0', pid: '1544', user: 'you', av: '#C3A2FF', protected: false, note: 'Makes file search fast. Safe to pause; it picks up later.', cmd: '/usr/bin/baloo_file' },
+      { id: 'plasma', name: 'Plasma desktop', kind: 'System', group: 'bg', count: '3 processes', cpu: 2.1, mem: '380 MB', memHot: false, disk: '0', net: '0', pid: '1203', user: 'you', av: '#B4BAC5', protected: true, note: 'Draws your desktop, panel and windows. Ending it would close your session, so Tidewise won’t.', cmd: '/usr/bin/plasmashell' },
+      { id: 'pipewire', name: 'Sound system', kind: 'System', group: 'bg', count: '3 processes', cpu: 0.4, mem: '48 MB', memHot: false, disk: '0', net: '0', pid: '988', user: 'you', av: '#F2B84B', protected: true, note: 'PipeWire plays every sound on your PC. Ending it would cut audio, so Tidewise won’t.', cmd: '/usr/bin/pipewire  ·  pipewire-pulse  ·  wireplumber' }
+    ];
+    var f = this.state.filter;
+    var tabs = [['apps', 'Apps'], ['bg', 'Background'], ['all', 'All']].map(function (t) {
+      var on = f === t[0];
+      return { label: t[1], pressed: on ? 'true' : 'false', bg: on ? '#262D38' : 'transparent', fg: on ? '#ECEEF2' : '#A9B0BC', pick: function () { self.setState({ filter: t[0] }); } };
+    });
+    var d = this.state.details;
+    var rows = all.filter(function (r) { return f === 'all' || r.group === f; }).map(function (r) {
+      var on = self.state.selected === r.id;
+      return Object.assign({}, r, {
+        letter: r.name.charAt(0),
+        sub: d ? (r.kind + ' · PID ' + r.pid + ' · user ' + r.user) : (r.kind + ' · ' + r.count),
+        cpu: r.cpu.toFixed(1) + '%',
+        cpuFg: r.cpu >= 5 ? '#F2B84B' : '#B9C0CB',
+        memFg: r.memHot ? '#F2B84B' : '#B9C0CB',
+        bg: on ? '#1C2A26' : 'transparent',
+        pressed: on ? 'true' : 'false',
+        pick: function () { self.setState({ selected: r.id }); }
+      });
+    });
+    var s = all.filter(function (r) { return r.id === self.state.selected; })[0] || all[0];
+    var sel = Object.assign({}, s, { letter: s.name.charAt(0), endable: !s.protected });
+    return {
+      tabs: tabs,
+      rows: rows,
+      sel: sel,
+      details: d,
+      cols: 'minmax(240px, 1fr) 90px 90px 90px 100px',
+      minW: '720px',
+      detailsStr: d ? 'true' : 'false',
+      trackBg: d ? '#5DDCB0' : '#2A303B',
+      knobLeft: d ? '19px' : '3px',
+      toggleDetails: function () { self.setState({ details: !self.state.details }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

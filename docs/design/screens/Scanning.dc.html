@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Scanning</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav{display:flex;align-items:center;gap:12px;min-height:44px;box-sizing:border-box;padding:0 12px;border-radius:10px;color:#B4BAC5;text-decoration:none;font-size:14px;font-weight:500}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.nav svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav.on{background:#1E232C;color:#F2F4F7;font-weight:600}
+.nav.on svg{stroke:#5DDCB0}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg><span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span></div>
+<a class="nav on" aria-current="page" href="Main.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;"><div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>KDE Plasma 6 · pacman + Flatpak</div>
+<a class="nav" href="History.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Home</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;">{{subtitle}}</p>
+</div>
+
+<section aria-label="Scan progress" aria-live="polite" style="display: flex; flex-wrap: wrap; gap: 28px; padding: 28px; border-radius: 18px; background: #161A21; border: 1px solid #232933;">
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 14px;">
+<p style="margin: 0; font-size: 13px; font-weight: 600; color: #5DDCB0; letter-spacing: 0.04em; text-transform: uppercase;">{{kicker}}</p>
+<h2 style="margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.015em;">{{headline}}</h2>
+<div role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{pct}}" style="height: 10px; border-radius: 99px; background: #252B35; overflow: hidden;"><div style="width: {{pctW}}; height: 100%; border-radius: 99px; background: #5DDCB0; transition: width 400ms;"></div></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px; color: #A9B0BC;"><span style="font-family: 'Geist Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80%;">{{current}}</span><span style="font-family: 'Geist Mono', monospace;">{{pct}}%</span></div>
+<p style="margin: 0; font-size: 13px; color: #808897; line-height: 1.5;">Scanning only looks. Nothing is changed. You can keep using Tidewise while it runs.</p>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+<sc-if value="{{done}}" hint-placeholder-val="{{ false }}"><a class="btn" href="Main.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 11px; background: #5DDCB0; color: #052B1F; text-decoration: none; font-size: 15px; font-weight: 650;">See results</a></sc-if>
+<sc-if value="{{running}}" hint-placeholder-val="{{ true }}"><a class="ghost" href="Main.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; text-decoration: none; font-size: 14px; box-sizing: border-box;">Stop scan</a></sc-if>
+<sc-if value="{{done}}" hint-placeholder-val="{{ false }}"><button class="ghost" type="button" onClick="{{restart}}" style="height: 44px; padding: 0 18px; border-radius: 11px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Replay</button></sc-if>
+</div>
+</div>
+<ol style="flex: 1 1 280px; min-width: 0; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px;">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="5">
+<li style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; background: {{s.bg}};">
+<span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 99px; border: 2px solid {{s.ring}}; background: {{s.fill}}; box-sizing: border-box; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#052B1F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: {{s.tickOp}};"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
+<span style="flex: 1 1 auto; font-size: 14px; color: {{s.fg}};">{{s.label}}</span>
+<span style="font-family: 'Geist Mono', monospace; font-size: 13px; color: #A9B0BC;">{{s.result}}</span>
+</li>
+</sc-for>
+</ol>
+</section>
+
+<section aria-label="Suggestions loading" aria-busy="{{busy}}" style="display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600; color: #A9B0BC;">Suggestions</h2>
+<div style="height: 74px; border-radius: 14px; background: #14181E; border: 1px solid #1F242D; display: flex; align-items: center; gap: 16px; padding: 0 18px;"><span style="width: 42px; height: 42px; border-radius: 11px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px;"><span style="width: 42%; height: 12px; border-radius: 6px; background: #1E232C;"></span><span style="width: 70%; height: 10px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+<div style="height: 74px; border-radius: 14px; background: #14181E; border: 1px solid #1F242D; display: flex; align-items: center; gap: 16px; padding: 0 18px;"><span style="width: 42px; height: 42px; border-radius: 11px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px;"><span style="width: 36%; height: 12px; border-radius: 6px; background: #1E232C;"></span><span style="width: 62%; height: 10px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+<div style="height: 74px; border-radius: 14px; background: #14181E; border: 1px solid #1F242D; display: flex; align-items: center; gap: 16px; padding: 0 18px;"><span style="width: 42px; height: 42px; border-radius: 11px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px;"><span style="width: 48%; height: 12px; border-radius: 6px; background: #1E232C;"></span><span style="width: 66%; height: 10px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { pct: 8 };
+  }
+  componentDidMount() { this.start(); }
+  componentWillUnmount() { if (this.timer) clearInterval(this.timer); }
+  start() {
+    var self = this;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = setInterval(function () {
+      var p = Math.min(100, self.state.pct + 4);
+      self.setState({ pct: p });
+      if (p >= 100) { clearInterval(self.timer); self.timer = null; }
+    }, 450);
+  }
+  renderVals() {
+    var self = this;
+    var p = this.state.pct;
+    var defs = [
+      { label: 'Old package downloads', from: 0, to: 20, result: '6.8 GB', cur: '/var/cache/pacman/pkg' },
+      { label: 'App caches and logs', from: 20, to: 40, result: '5.8 GB', cur: '~/.cache/mozilla/firefox' },
+      { label: 'Your files', from: 40, to: 70, result: '142 GB', cur: '~/Videos/Screen recordings' },
+      { label: 'Apps from 4 sources', from: 70, to: 88, result: '143 apps', cur: 'flatpak list --app' },
+      { label: 'Services and health checks', from: 88, to: 100, result: '1 issue', cur: 'systemctl --failed' }
+    ];
+    var current = 'Finishing up';
+    var steps = defs.map(function (d) {
+      var done = p >= d.to, active = p >= d.from && p < d.to;
+      if (active) current = d.cur;
+      return {
+        label: d.label,
+        result: done ? d.result : (active ? 'checking…' : ''),
+        bg: active ? '#1C222B' : 'transparent',
+        ring: done ? '#5DDCB0' : (active ? '#5DDCB0' : '#3A414D'),
+        fill: done ? '#5DDCB0' : 'transparent',
+        tickOp: done ? '1' : '0',
+        fg: done || active ? '#ECEEF2' : '#808897'
+      };
+    });
+    var done = p >= 100;
+    return {
+      pct: p,
+      pctW: p + '%',
+      steps: steps,
+      current: done ? 'All checks complete' : current,
+      done: done,
+      running: !done,
+      busy: done ? 'false' : 'true',
+      kicker: done ? 'Scan complete' : 'Checking your PC',
+      headline: done ? 'Found 12.6 GB to clean and 3 suggestions' : 'Looking for junk, big files and anything that needs attention…',
+      subtitle: done ? 'Just now' : 'Scanning · usually under a minute',
+      restart: function () { self.setState({ pct: 0 }); self.start(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

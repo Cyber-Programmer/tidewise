@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Health score</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav{display:flex;align-items:center;gap:12px;min-height:44px;box-sizing:border-box;padding:0 12px;border-radius:10px;color:#B4BAC5;text-decoration:none;font-size:14px;font-weight:500}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.nav svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav.on{background:#1E232C;color:#F2F4F7;font-weight:600}
+.nav.on svg{stroke:#5DDCB0}
+.row:hover{background:#1A1F27}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg><span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span></div>
+<a class="nav on" aria-current="page" href="Main.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;"><div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>KDE Plasma 6 · pacman + Flatpak</div>
+<a class="nav" href="History.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 48px;">
+<div style="max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: 14px; color: #A9B0BC; text-decoration: none; width: fit-content;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Home</a>
+
+<section aria-label="Score" style="display: flex; flex-wrap: wrap; align-items: center; gap: 28px; padding: 26px 28px; border-radius: 18px; background: #161A21; border: 1px solid #232933;">
+<div style="position: relative; width: 132px; height: 132px; flex-shrink: 0;">
+<svg width="132" height="132" viewBox="0 0 132 132" role="img" aria-label="Health score 82 out of 100"><circle cx="66" cy="66" r="56" fill="none" stroke="#252B35" stroke-width="12"></circle><circle cx="66" cy="66" r="56" fill="none" stroke="#5DDCB0" stroke-width="12" stroke-linecap="round" stroke-dasharray="289 352" transform="rotate(-90 66 66)"></circle></svg>
+<div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;"><span style="font-family: 'Geist Mono', monospace; font-size: 34px; line-height: 1;">82</span><span style="font-size: 12px; color: #A9B0BC; margin-top: 4px;">of 100</span></div>
+</div>
+<div style="flex: 1 1 340px; min-width: 0;">
+<h1 style="margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.02em;">Why your score is 82</h1>
+<p style="margin: 8px 0 0; font-size: 14px; color: #A9B0BC; line-height: 1.6;">Every PC starts at 100. Each problem below takes off a fixed number of points, and nothing else affects the score. Open any item to see exactly what was checked.</p>
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 14px; font-family: 'Geist Mono', monospace; font-size: 14px;"><span>100</span><span style="color: #F2B84B;">− 8</span><span style="color: #F2B84B;">− 5</span><span style="color: #FF8A80;">− 3</span><span style="color: #C9CED6;">− 2</span><span style="color: #A9B0BC;">=</span><span style="color: #5DDCB0;">82</span></div>
+</div>
+</section>
+
+<section aria-labelledby="lower" style="display: flex; flex-direction: column; gap: 10px;">
+<h2 id="lower" style="margin: 0; font-size: 15px; font-weight: 600; color: #A9B0BC;">What lowered it</h2>
+<sc-for list="{{issues}}" as="i" hint-placeholder-count="4">
+<div style="border-radius: 14px; background: #161A21; border: 1px solid #232933; overflow: hidden;">
+<button type="button" class="row" onClick="{{i.toggle}}" aria-expanded="{{i.expanded}}" style="display: flex; align-items: center; gap: 14px; width: 100%; box-sizing: border-box; padding: 16px 18px; border: 0; background: transparent; color: #ECEEF2; font: inherit; text-align: left; cursor: pointer;">
+<span style="font-family: 'Geist Mono', monospace; font-size: 15px; min-width: 36px; color: {{i.color}};">{{i.points}}</span>
+<span style="flex: 1 1 auto; min-width: 0;"><span style="display: block; font-size: 15px; font-weight: 600;">{{i.title}}</span><span style="display: block; font-size: 13px; color: #A9B0BC; margin-top: 3px;">{{i.desc}}</span></span>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#808897" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{i.chev}}"></path></svg>
+</button>
+<sc-if value="{{i.open}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 0 18px 18px 68px; display: flex; flex-direction: column; gap: 12px;">
+<div style="padding: 10px 12px; border-radius: 8px; background: #0F1217; border: 1px solid #222832; font-family: 'Geist Mono', monospace; font-size: 12px; color: #B9C0CB; line-height: 1.7; white-space: pre-wrap;">{{i.check}}</div>
+<a class="btn" href="{{i.href}}" style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 10px; background: #5DDCB0; color: #052B1F; text-decoration: none; font-size: 14px; font-weight: 650; width: fit-content;">{{i.action}}</a>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</section>
+
+<section aria-labelledby="ok" style="display: flex; flex-wrap: wrap; gap: 12px;">
+<h2 id="ok" style="flex: 1 1 100%; margin: 0; font-size: 15px; font-weight: 600; color: #A9B0BC;">Checks that passed</h2>
+<div style="flex: 1 1 200px; display: flex; gap: 10px; align-items: center; padding: 14px 16px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 13px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Memory isn't under pressure</div>
+<div style="flex: 1 1 200px; display: flex; gap: 10px; align-items: center; padding: 14px 16px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 13px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Temperatures are normal</div>
+<div style="flex: 1 1 200px; display: flex; gap: 10px; align-items: center; padding: 14px 16px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 13px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Start-up is quick (18 s)</div>
+</section>
+
+<section aria-labelledby="nc" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 14px; background: #161A21; border: 1px dashed #3A414D;">
+<div style="flex: 1 1 320px; min-width: 0;"><h2 id="nc" style="margin: 0; font-size: 15px; font-weight: 600;">Not checked: drive health</h2><p style="margin: 4px 0 0; font-size: 13px; color: #A9B0BC; line-height: 1.5;">Reading your drive's own health report needs admin rights. It doesn't change your score either way until you run it.</p></div>
+<button class="ghost" type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F2B84B" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"></path></svg>Check now</button>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1040}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: { disk: true } };
+  }
+  renderVals() {
+    var self = this;
+    var defs = [
+      { id: 'disk', points: '−8', color: '#F2B84B', title: 'Main drive is 80% full', desc: '95 GB free. Below about 15% free, updates and apps can start failing.', check: 'free space on /: 80.0% used\nrule: −2 points for every 5% above 60% used', action: "See what's using space", href: 'Storage.dc.html' },
+      { id: 'junk', points: '−5', color: '#F2B84B', title: '12.6 GB of junk files', desc: 'Old package downloads, app caches and logs you can safely remove.', check: 'found by the same scan as Clean up\nrule: −1 point per 2.5 GB, at most −8', action: 'Clean up', href: 'Cleaner.dc.html' },
+      { id: 'svc', points: '−3', color: '#FF8A80', title: '1 service failed', desc: 'The firmware update check failed 2 hours ago (no internet at the time).', check: 'systemctl --failed → fwupd-refresh.service\nrule: −3 points per failed service', action: 'Open Services', href: 'Services.dc.html' },
+      { id: 'upd', points: '−2', color: '#C9CED6', title: '23 updates waiting', desc: "Tidewise doesn't install updates. Use your software center, or your usual update command.", check: 'checkupdates → 23 packages\n(reads a temporary copy of the package list; never touches yours)\nrule: −2 points if updates are older than 7 days', action: 'How to update safely', href: '#update-guide' }
+    ];
+    var open = this.state.open;
+    var issues = defs.map(function (d) {
+      var o = !!open[d.id];
+      return Object.assign({}, d, {
+        open: o,
+        expanded: o ? 'true' : 'false',
+        chev: o ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6',
+        toggle: function () { var n = Object.assign({}, self.state.open); n[d.id] = !n[d.id]; self.setState({ open: n }); }
+      });
+    });
+    return { issues: issues };
+  }
+}
+</script>
+</body>
+</html>

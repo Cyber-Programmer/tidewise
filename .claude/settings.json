@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(pkexec *)",
+      "Bash(su *)",
+      "Bash(git push *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(paccache *)",
+      "Bash(pacman -R *)",
+      "Bash(pacman -S *)",
+      "Bash(apt-get *)",
+      "Bash(systemctl *)",
+      "Bash(journalctl --vacuum *)",
+      "Edit(crates/helper/**)",
+      "Edit(crates/helper-protocol/**)",
+      "Edit(packaging/polkit/**)"
+    ]
+  }
+}

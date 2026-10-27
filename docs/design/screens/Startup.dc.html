@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Startup apps</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav{display:flex;align-items:center;gap:12px;min-height:44px;box-sizing:border-box;padding:0 12px;border-radius:10px;color:#B4BAC5;text-decoration:none;font-size:14px;font-weight:500}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.nav svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.nav.on{background:#1E232C;color:#F2F4F7;font-weight:600}
+.nav.on svg{stroke:#5DDCB0}
+.row:hover{background:#1A1F27}
+.btn:hover{filter:brightness(1.08)}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+input::placeholder{color:#808897}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg><span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span></div>
+<a class="nav" href="Main.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav on" aria-current="page" href="Startup.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;"><div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>KDE Plasma 6 · pacman + Flatpak</div>
+<a class="nav" href="History.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Startup apps</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;">These open on their own when you log in. Fewer means a faster, calmer start.</p>
+</div>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+<button type="button" onClick="{{toggleDetails}}" aria-pressed="{{detailsStr}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; background: transparent; border: 0; color: #A9B0BC; font: inherit; font-size: 14px; cursor: pointer;"><span style="position: relative; width: 38px; height: 22px; border-radius: 99px; background: {{dTrack}};"><span style="position: absolute; top: 3px; left: {{dKnob}}; width: 16px; height: 16px; border-radius: 99px; background: #ECEEF2;"></span></span>Show technical details</button>
+<button class="ghost" type="button" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add an app</button>
+</div>
+</div>
+
+<section aria-label="Summary" style="display: flex; flex-wrap: wrap; gap: 12px;">
+<div style="flex: 1 1 220px; padding: 18px 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933;">
+<div style="font-size: 13px; color: #A9B0BC;">Starting with your PC</div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 30px; margin-top: 4px;">{{onCount}} <span style="font-size: 15px; color: #A9B0BC;">of 8 apps</span></div>
+</div>
+<div style="flex: 1 1 220px; padding: 18px 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933;">
+<div style="font-size: 13px; color: #A9B0BC;">Memory they use right after login</div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 30px; margin-top: 4px;">{{onMem}}</div>
+</div>
+<div style="flex: 1 1 220px; padding: 18px 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933;">
+<div style="font-size: 13px; color: #A9B0BC;">Last start-up took</div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 30px; margin-top: 4px;">18.4 s</div>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><div style="font-family: 'Geist Mono', monospace; font-size: 11px; color: #808897; margin-top: 4px;">systemd-analyze: firmware + loader + kernel + userspace</div></sc-if>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+<section aria-label="Startup list" style="flex: 999 1 520px; min-width: 0; border-radius: 16px; background: #161A21; border: 1px solid #232933; overflow: hidden;">
+<div style="display: flex; justify-content: space-between; padding: 12px 18px; font-size: 12px; color: #A9B0BC; border-bottom: 1px solid #232933;"><span>App</span><span>Impact · Starts at login</span></div>
+<sc-for list="{{items}}" as="it" hint-placeholder-count="8">
+<div class="row" style="display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid #1E232B;">
+<span aria-hidden="true" style="width: 38px; height: 38px; border-radius: 10px; background: {{it.av}}; color: #0D0F13; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex-shrink: 0; opacity: {{it.op}};">{{it.letter}}</span>
+<div style="flex: 1 1 auto; min-width: 0;">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;"><span style="font-size: 14px; font-weight: 600; color: {{it.nameFg}};">{{it.name}}</span>
+<sc-if value="{{it.system}}" hint-placeholder-val="{{ false }}"><span style="padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #C9CED6; background: #232933;">Part of your desktop</span></sc-if></div>
+<div style="font-size: 12px; color: #A9B0BC; margin-top: 2px;">{{it.desc}}</div>
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}"><div style="font-family: 'Geist Mono', monospace; font-size: 11px; color: #B9C0CB; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{it.path}}</div></sc-if>
+</div>
+<span style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: {{it.impFg}}; background: {{it.impBg}}; white-space: nowrap;">{{it.impact}}</span>
+<button type="button" role="switch" aria-checked="{{it.checkedStr}}" aria-label="{{it.label}}" onClick="{{it.toggle}}" style="position: relative; width: 46px; height: 28px; border-radius: 99px; border: 0; background: {{it.track}}; cursor: pointer; flex-shrink: 0;"><span style="position: absolute; top: 4px; left: {{it.knob}}; width: 20px; height: 20px; border-radius: 99px; background: #ECEEF2;"></span></button>
+</div>
+</sc-for>
+</section>
+
+<aside style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 14px;">
+<sc-if value="{{toast}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: #1E2A27; border: 1px solid #3E7D69;">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+<span style="flex: 1 1 auto; font-size: 13px;">{{toastText}}</span>
+<button type="button" onClick="{{undo}}" style="min-height: 36px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: #5DDCB0; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;">Undo</button>
+</div>
+</sc-if>
+<div style="padding: 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933;">
+<h2 style="margin: 0 0 10px; font-size: 15px; font-weight: 600;">Good to know</h2>
+<ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #A9B0BC; line-height: 1.6; display: flex; flex-direction: column; gap: 6px;">
+<li>Turning an app off here doesn't uninstall it. You can still open it any time.</li>
+<li><b style="color: #ECEEF2; font-weight: 600;">Impact</b> is measured from the memory and processor each app used in the first minute after your last login.</li>
+<li>Items marked "Part of your desktop" keep things like search, phone linking and update alerts working. Leave them on unless you're sure.</li>
+</ul>
+</div>
+<div style="padding: 16px 20px; border-radius: 16px; background: #161A21; border: 1px solid #232933; font-size: 13px; color: #A9B0BC; line-height: 1.5;">Looking for background programs like Docker or printing? Those are <a href="Services.dc.html">Services</a>.</div>
+</aside>
+</div>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { on: { discord: true, steam: true, spotify: true, nextcloud: true, kdeconnect: true, updates: true, bt: true, flameshot: false }, details: false, toast: '' };
+  }
+  renderVals() {
+    var self = this;
+    var base = [
+      { id: 'discord', name: 'Discord', desc: 'Chat app · added by the app itself', mb: 410, impact: 'High', av: '#9FB1FF', path: '~/.config/autostart/discord.desktop', system: false },
+      { id: 'steam', name: 'Steam', desc: 'Game launcher · added by the app itself', mb: 520, impact: 'High', av: '#7AA7FF', path: '~/.config/autostart/com.valvesoftware.Steam.desktop', system: false },
+      { id: 'spotify', name: 'Spotify', desc: 'Music · added by the app itself', mb: 230, impact: 'Medium', av: '#8BEACB', path: '~/.config/autostart/spotify.desktop', system: false },
+      { id: 'nextcloud', name: 'Nextcloud', desc: 'File sync · added by you', mb: 120, impact: 'Medium', av: '#7FB2E5', path: '~/.config/autostart/com.nextcloud.desktopclient.nextcloud.desktop', system: false },
+      { id: 'flameshot', name: 'Flameshot', desc: 'Screenshot tool · added by you', mb: 40, impact: 'Low', av: '#FFB38A', path: '~/.config/autostart/org.flameshot.Flameshot.desktop', system: false },
+      { id: 'kdeconnect', name: 'KDE Connect', desc: 'Links your phone · from your desktop', mb: 60, impact: 'Low', av: '#C3A2FF', path: '/etc/xdg/autostart/org.kde.kdeconnect.daemon.desktop', system: true },
+      { id: 'updates', name: 'Update notifier', desc: 'Tells you when updates are ready · from your desktop', mb: 35, impact: 'Low', av: '#F2B84B', path: '/etc/xdg/autostart/org.kde.discover.notifier.desktop', system: true },
+      { id: 'bt', name: 'File search indexer', desc: 'Makes file search fast · from your desktop', mb: 18, impact: 'Low', av: '#B4BAC5', path: '/etc/xdg/autostart/baloo_file.desktop', system: true }
+    ];
+    var on = this.state.on;
+    var onCount = 0, onMb = 0;
+    var items = base.map(function (b) {
+      var v = !!on[b.id];
+      if (v) { onCount += 1; onMb += b.mb; }
+      var hi = b.impact === 'High', md = b.impact === 'Medium';
+      return Object.assign({}, b, {
+        letter: b.name.charAt(0),
+        checkedStr: v ? 'true' : 'false',
+        label: 'Start ' + b.name + ' at login',
+        track: v ? '#5DDCB0' : '#2A303B',
+        knob: v ? '22px' : '4px',
+        op: v ? '1' : '0.45',
+        nameFg: v ? '#ECEEF2' : '#A9B0BC',
+        impFg: hi ? '#F2B84B' : (md ? '#C9CED6' : '#8BEACB'),
+        impBg: hi ? '#3A2E14' : (md ? '#232933' : '#173A2F'),
+        toggle: function () {
+          var next = Object.assign({}, self.state.on);
+          next[b.id] = !next[b.id];
+          var msg = next[b.id] ? (b.name + ' will start at login again.') : (b.name + " won't start at login anymore.");
+          self.setState({ on: next, toast: msg, last: b.id });
+        }
+      });
+    });
+    var d = this.state.details;
+    return {
+      items: items,
+      onCount: onCount,
+      onMem: (onMb >= 1000 ? (onMb / 1000).toFixed(1) + ' GB' : onMb + ' MB'),
+      details: d,
+      detailsStr: d ? 'true' : 'false',
+      dTrack: d ? '#5DDCB0' : '#2A303B',
+      dKnob: d ? '19px' : '3px',
+      toggleDetails: function () { self.setState({ details: !self.state.details }); },
+      toast: !!this.state.toast,
+      toastText: this.state.toast,
+      undo: function () {
+        var id = self.state.last;
+        if (!id) return;
+        var next = Object.assign({}, self.state.on);
+        next[id] = !next[id];
+        self.setState({ on: next, toast: '' });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

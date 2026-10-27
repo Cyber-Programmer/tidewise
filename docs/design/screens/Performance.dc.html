@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — Performance</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+.nav:hover{background:#1A1F27;color:#ECEEF2}
+.row:hover{background:#1A1F27}
+.ghost:hover{background:#222833}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 960px; display: flex; flex-wrap: wrap; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif;">
+
+<nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: #111419; border-right: 1px solid #1F242D; display: flex; flex-direction: column; gap: 4px;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px;">
+<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="#5DDCB0"></rect><path d="M7 14c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path><path d="M7 21c3 0 3-3 6-3s3 3 6 3 3-3 6-3" fill="none" stroke="#0D0F13" stroke-width="2.6" stroke-linecap="round"></path></svg>
+<span style="font-size: 18px; font-weight: 650; letter-spacing: -0.01em;">Tidewise</span>
+</div>
+<a class="nav" href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"></path><path d="M5 10v10h14V10"></path></svg>Home</a>
+<a class="nav" href="Cleaner.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"></path><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"></path></svg>Clean up</a>
+<a class="nav" href="Apps.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"></rect><rect x="14" y="4" width="6" height="6" rx="1.5"></rect><rect x="4" y="14" width="6" height="6" rx="1.5"></rect><rect x="14" y="14" width="6" height="6" rx="1.5"></rect></svg>Apps</a>
+<a class="nav" href="Storage.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"></path></svg>Storage</a>
+<a class="nav" href="Performance.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #1E232C; color: #F2F4F7; text-decoration: none; font-size: 14px; font-weight: 600;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Performance</a>
+<a class="nav" href="Processes.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Processes</a>
+<a class="nav" href="Startup.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 7.5a8 8 0 1 0 11.4 0"></path></svg>Startup apps</a>
+<a class="nav" href="Services.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>Services</a>
+<div style="flex-grow: 1; min-height: 24px;"></div>
+<div style="padding: 14px; border-radius: 12px; background: #161A21; border: 1px solid #232933; font-size: 12px; color: #A9B0BC; line-height: 1.5; margin-bottom: 6px;">
+<div style="color: #ECEEF2; font-weight: 600; font-size: 13px;">Arch Linux</div>
+KDE Plasma 6 · pacman + Flatpak
+</div>
+<a class="nav" href="History.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>History</a>
+<a class="nav" href="Settings.dc.html"style="display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-size: 14px; font-weight: 500;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 36px 40px;">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px;">
+
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em;">Performance</h1>
+<p style="margin: 6px 0 0; color: #A9B0BC; font-size: 14px;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 99px; background: #5DDCB0; margin-right: 6px;"></span>Live · last 60 seconds. Your PC is calm; memory is the busiest part.</p>
+</div>
+<button type="button" onClick="{{toggleDetails}}" aria-pressed="{{detailsStr}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; background: transparent; border: 0; color: #A9B0BC; font: inherit; font-size: 14px; cursor: pointer;">
+<span style="position: relative; width: 38px; height: 22px; border-radius: 99px; background: {{trackBg}};"><span style="position: absolute; top: 3px; left: {{knobLeft}}; width: 16px; height: 16px; border-radius: 99px; background: #ECEEF2;"></span></span>
+Show technical details
+</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+
+<div role="tablist" aria-label="Resource" style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 10px;">
+<sc-for list="{{metrics}}" as="m" hint-placeholder-count="4">
+<button type="button" role="tab" aria-selected="{{m.selected}}" onClick="{{m.pick}}" style="display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box; padding: 14px 16px; border-radius: 14px; border: 1px solid {{m.border}}; background: {{m.bg}}; color: #ECEEF2; font: inherit; text-align: left; cursor: pointer;">
+<span style="display: flex; justify-content: space-between; width: 100%; font-size: 13px; color: #A9B0BC;"><span>{{m.label}}</span><span style="color: {{m.color}};">{{m.mood}}</span></span>
+<span style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; width: 100%;">
+<span style="font-family: 'Geist Mono', monospace; font-size: 22px;">{{m.value}} <span style="font-size: 13px; color: #A9B0BC;">{{m.unit}}</span></span>
+<svg width="110" height="30" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{m.spark}}" fill="none" stroke="{{m.color}}" stroke-width="2" stroke-linejoin="round"></polyline></svg>
+</span>
+</button>
+</sc-for>
+</div>
+
+<section role="tabpanel" aria-label="{{cur.label}}" style="flex: 999 1 520px; min-width: 0; padding: 22px 24px; border-radius: 18px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px;">
+<div>
+<div style="font-size: 13px; color: #A9B0BC;">{{cur.label}}</div>
+<h2 style="margin: 4px 0 0; font-size: 22px; font-weight: 650; letter-spacing: -0.015em;">{{cur.headline}}</h2>
+</div>
+<div style="text-align: right;"><span style="font-family: 'Geist Mono', monospace; font-size: 34px; color: {{cur.color}};">{{cur.value}}</span><span style="font-size: 14px; color: #A9B0BC;"> {{cur.unit}}</span></div>
+</div>
+<div style="position: relative;">
+<svg width="100%" height="220" viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="{{cur.label}} over the last 60 seconds">
+<line x1="0" y1="5" x2="600" y2="5" stroke="#232933" stroke-width="1"></line>
+<line x1="0" y1="100" x2="600" y2="100" stroke="#232933" stroke-width="1"></line>
+<line x1="0" y1="195" x2="600" y2="195" stroke="#2A303B" stroke-width="1"></line>
+<polygon points="{{cur.area}}" fill="{{cur.color}}" fill-opacity="0.12"></polygon>
+<polyline points="{{cur.line}}" fill="none" stroke="{{cur.color}}" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+</svg>
+<div style="display: flex; justify-content: space-between; font-size: 11px; color: #808897; margin-top: 6px;"><span>60 seconds ago</span><span>top of chart: {{cur.axis}}</span><span>now</span></div>
+</div>
+<p style="margin: 0; padding: 14px 16px; border-radius: 12px; background: #12161C; border: 1px solid #222832; font-size: 14px; color: #C9CED6; line-height: 1.55;">{{cur.explain}}</p>
+
+<sc-if value="{{details}}" hint-placeholder-val="{{ false }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+<sc-for list="{{cur.facts}}" as="f" hint-placeholder-count="4">
+<div style="padding: 12px 14px; border-radius: 10px; background: #12161C; border: 1px solid #222832;"><div style="font-size: 12px; color: #808897;">{{f.k}}</div><div style="font-family: 'Geist Mono', monospace; font-size: 13px; margin-top: 4px;">{{f.v}}</div></div>
+</sc-for>
+</div>
+<sc-if value="{{showCores}}" hint-placeholder-val="{{ false }}">
+<div>
+<div style="font-size: 12px; color: #808897; margin-bottom: 8px;">Each thread</div>
+<div style="display: flex; align-items: flex-end; gap: 6px; height: 64px;">
+<sc-for list="{{cores}}" as="c" hint-placeholder-count="12">
+<div title="{{c.t}}" style="flex: 1 1 0; height: {{c.h}}; min-height: 3px; border-radius: 4px 4px 2px 2px; background: #7AA7FF;"></div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</sc-if>
+
+<div>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;"><h3 style="margin: 0; font-size: 14px; font-weight: 600;">Using the most right now</h3><a href="Processes.dc.html" style="font-size: 13px; text-decoration: none; font-weight: 600;">All processes</a></div>
+<div style="display: flex; flex-direction: column; border-radius: 12px; border: 1px solid #232933; overflow: hidden;">
+<sc-for list="{{cur.top}}" as="t" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #12161C; border-bottom: 1px solid #1E232B;">
+<span style="flex: 0 0 150px; font-size: 13px; font-weight: 500;">{{t.n}}</span>
+<span style="flex: 1 1 auto; height: 6px; border-radius: 99px; background: #232933; overflow: hidden;"><span style="display: block; width: {{t.w}}; height: 100%; border-radius: 99px; background: {{cur.color}};"></span></span>
+<span style="flex: 0 0 90px; text-align: right; font-family: 'Geist Mono', monospace; font-size: 13px; color: #C9CED6;">{{t.v}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { metric: 'cpu', details: false };
+  }
+  series(seed, base, amp, spikeAt, spikeH) {
+    var out = [];
+    for (var i = 0; i < 60; i++) {
+      var v = base + Math.sin(i * 0.37 + seed) * amp + Math.sin(i * 1.13 + seed * 2) * amp * 0.6;
+      for (var s = 0; s < spikeAt.length; s++) {
+        var dist = Math.abs(i - spikeAt[s]);
+        if (dist < 3) v += spikeH * (1 - dist / 3);
+      }
+      out.push(Math.max(1, Math.min(98, v)));
+    }
+    return out;
+  }
+  pts(vals, w, h, pad) {
+    return vals.map(function (v, i) {
+      var x = (i * w / (vals.length - 1)).toFixed(1);
+      var y = (h - pad - v / 100 * (h - pad * 2)).toFixed(1);
+      return x + ',' + y;
+    }).join(' ');
+  }
+  renderVals() {
+    var self = this;
+    var defs = [
+      { id: 'cpu', label: 'Processor', value: '14', unit: '%', mood: 'Idle', color: '#7AA7FF', vals: this.series(1, 14, 5, [18, 44], 30), axis: '100%',
+        headline: 'Mostly idle',
+        explain: 'Your processor has plenty of room. The short spikes are apps opening or pages loading, which is normal. If it sits near the top for minutes, check Processes to see which app is busy.',
+        facts: [{ k: 'Model', v: 'AMD Ryzen 5 5600H' }, { k: 'Cores · threads', v: '6 · 12' }, { k: 'Speed now', v: '3.3 GHz' }, { k: 'Temperature', v: '52 °C · normal' }],
+        top: [{ n: 'Firefox', v: '6.2%', w: '62%' }, { n: 'Plasma desktop', v: '2.1%', w: '21%' }, { n: 'Visual Studio Code', v: '1.8%', w: '18%' }] },
+      { id: 'mem', label: 'Memory', value: '9.8', unit: 'of 16 GB', mood: 'Busy', color: '#F2B84B', vals: this.series(2, 60, 2, [], 0), axis: '16 GB',
+        headline: 'Busy, but fine',
+        explain: 'Apps are using 9.8 GB. Linux also borrows spare memory to make things faster and hands it back the moment an app needs it, so a high number alone is not a problem.',
+        facts: [{ k: 'Used by apps', v: '9.8 GB' }, { k: 'Borrowed as cache', v: '4.1 GB (given back on demand)' }, { k: 'Completely free', v: '2.1 GB' }, { k: 'Swap', v: '0.4 of 8 GB (zram)' }],
+        top: [{ n: 'Firefox', v: '2.1 GB', w: '84%' }, { n: 'Visual Studio Code', v: '1.3 GB', w: '52%' }, { n: 'Steam', v: '0.9 GB', w: '36%' }] },
+      { id: 'net', label: 'Network', value: '2.4', unit: 'MB/s down', mood: 'Downloading', color: '#5DDCB0', vals: this.series(3, 35, 14, [30], 25), axis: '10 MB/s',
+        headline: 'Steam is downloading',
+        explain: 'Most of the traffic is a Steam game update. Uploads are light. If the internet feels slow in other apps, pausing the download will help.',
+        facts: [{ k: 'Connection', v: 'Wi-Fi · wlan0' }, { k: 'Upload now', v: '180 KB/s' }, { k: 'Today', v: '3.1 GB down · 240 MB up' }, { k: 'Local address', v: '192.168.1.24' }],
+        top: [{ n: 'Steam', v: '1.9 MB/s', w: '80%' }, { n: 'Firefox', v: '420 KB/s', w: '18%' }, { n: 'Spotify', v: '80 KB/s', w: '4%' }] },
+      { id: 'disk', label: 'Disk', value: '12', unit: 'MB/s', mood: 'Quiet', color: '#C3A2FF', vals: this.series(4, 6, 3, [30, 31], 18), axis: '100% busy',
+        headline: 'Barely working',
+        explain: 'Your drive is only busy 3% of the time. If this stays near the top for a long time, apps will open slowly. Usually that means a large copy, an update or the file indexer.',
+        facts: [{ k: 'Drive', v: 'NVMe SSD · 476 GB' }, { k: 'Read · write now', v: '11 · 1 MB/s' }, { k: 'Busy', v: '3%' }, { k: 'Health check', v: 'Needs admin to read' }],
+        top: [{ n: 'Steam', v: '9 MB/s', w: '75%' }, { n: 'File indexer', v: '2 MB/s', w: '17%' }, { n: 'Firefox', v: '0.6 MB/s', w: '5%' }] }
+    ];
+    var curId = this.state.metric;
+    var metrics = defs.map(function (d) {
+      var on = d.id === curId;
+      return Object.assign({}, d, {
+        spark: self.pts(d.vals.slice(30), 120, 32, 2),
+        selected: on ? 'true' : 'false',
+        bg: on ? '#1C222B' : '#161A21',
+        border: on ? d.color : '#232933',
+        pick: function () { self.setState({ metric: d.id }); }
+      });
+    });
+    var c = defs.filter(function (d) { return d.id === curId; })[0];
+    var line = this.pts(c.vals, 600, 200, 5);
+    var cur = Object.assign({}, c, { line: line, area: '0,195 ' + line + ' 600,195' });
+    var coreVals = [22, 8, 31, 5, 12, 46, 9, 4, 18, 7, 26, 11];
+    var cores = coreVals.map(function (v, i) { return { h: v + '%', t: 'Thread ' + (i + 1) + ': ' + v + '%' }; });
+    var d = this.state.details;
+    return {
+      metrics: metrics,
+      cur: cur,
+      cores: cores,
+      showCores: curId === 'cpu',
+      details: d,
+      detailsStr: d ? 'true' : 'false',
+      trackBg: d ? '#5DDCB0' : '#2A303B',
+      knobLeft: d ? '19px' : '3px',
+      toggleDetails: function () { self.setState({ details: !self.state.details }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

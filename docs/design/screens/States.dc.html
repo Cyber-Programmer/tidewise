@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewise — States</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0D0F13}
+a{color:#5DDCB0}a:hover{color:#8BEACB}
+:focus-visible{outline:2px solid #5DDCB0;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 1360px; min-height: 1300px; box-sizing: border-box; padding: 48px; background: #0D0F13; color: #ECEEF2; font-family: 'Geist', system-ui, sans-serif; display: flex; flex-direction: column; gap: 28px;">
+<div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -0.02em;">Empty, error and edge states</h1>
+<p style="margin: 6px 0 0; font-size: 14px; color: #A9B0BC;">Every message says what happened, whether anything broke, and the one thing to do next. The tag on each card says where it appears.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px;">
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Clean up · nothing found</span>
+<div style="flex-grow: 1; padding: 28px 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;">
+<span style="width: 52px; height: 52px; border-radius: 99px; background: #173A2F; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
+<div style="font-size: 17px; font-weight: 650;">Already tidy</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">Nothing worth cleaning right now. Junk builds up slowly; check back in a few weeks.</div>
+<button type="button" style="margin-top: 4px; height: 40px; padding: 0 16px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Check again</button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Apps · a source isn't installed</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 14px;">
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<span style="padding: 8px 12px; border-radius: 10px; border: 1px solid #252B35; font-size: 13px;">Flatpak <span style="font-family: 'Geist Mono', monospace; color: #808897;">24</span></span>
+<span style="padding: 8px 12px; border-radius: 10px; border: 1px dashed #3A414D; font-size: 13px; color: #808897;">Snap <span style="font-family: 'Geist Mono', monospace;">—</span></span>
+</div>
+<div style="padding: 12px 14px; border-radius: 12px; background: #12161C; border: 1px solid #222832; font-size: 13px; color: #A9B0BC; line-height: 1.5;"><b style="color: #ECEEF2; font-weight: 600;">Snap isn't installed on this PC.</b> That's normal on many distros. If you install it later, its apps appear here automatically.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Performance · sensor not available</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 13px; color: #808897;">Temperature</div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 26px; color: #808897;">—</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">This PC doesn't share its temperature with Linux. Common on some laptops and virtual machines. Nothing is wrong.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Any admin item · access not set up</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center; gap: 10px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2B84B" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"></path></svg><span style="font-size: 15px; font-weight: 600;">This needs admin access</span></div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">You skipped admin setup earlier. Set it up once with your password, or leave this item for now.</div>
+<div style="display: flex; gap: 8px;"><button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 0; background: #5DDCB0; color: #052B1F; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;">Set up</button><button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Skip this item</button></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Storage · folders not readable</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 15px; font-weight: 600;">2 folders couldn't be measured</div>
+<div style="font-family: 'Geist Mono', monospace; font-size: 12px; color: #B9C0CB; line-height: 1.7;">/var/lib/docker<br>/root</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">They belong to the system. Their size is counted as "Other" until you measure them.</div>
+<button type="button" style="align-self: flex-start; height: 40px; padding: 0 16px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Measure with admin</button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Apps · unsupported package manager</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 12px;">
+<div style="font-size: 15px; font-weight: 600;">System apps on Void Linux aren't supported yet</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">Tidewise doesn't know how to safely remove apps installed with xbps. Flatpak and AppImage apps, cleaning, storage and performance all still work.</div>
+<a href="#request-support" style="font-size: 14px; font-weight: 600; text-decoration: none;">Ask for xbps support on GitHub</a>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Home · drive critically full</span>
+<div role="alert" style="flex-grow: 1; padding: 20px 22px; border-radius: 16px; background: #2A1412; border: 1px solid #6B2A24; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF8A80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg><span style="font-size: 15px; font-weight: 650; color: #FFC2BC;">Main drive almost full: 2.1 GB left</span></div>
+<div style="font-size: 13px; color: #E8B4AE; line-height: 1.5;">Updates and apps can fail when a drive is this full. Clearing junk alone would free 12.6 GB.</div>
+<a href="Cleaner.dc.html" style="align-self: flex-start; display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 10px; background: #FF8A80; color: #3A0B07; text-decoration: none; font-size: 14px; font-weight: 650;">Free up space</a>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Any screen · update ready</span>
+<div style="flex-grow: 1; padding: 20px 22px; border-radius: 16px; background: #161A21; border: 1px solid #2D3E5E; display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 600;">Tidewise 0.2.0 is ready</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">Downloaded and verified. It takes effect the next time Tidewise opens.</div>
+<div style="display: flex; gap: 8px;"><button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 0; background: #7AA7FF; color: #0B1A33; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;">Restart Tidewise</button><a href="#changes" style="display: flex; align-items: center; height: 40px; padding: 0 12px; font-size: 14px; text-decoration: none;">What's new</a></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Settings · offline</span>
+<div style="flex-grow: 1; padding: 20px 22px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 14px;">Version <span style="font-family: 'Geist Mono', monospace;">0.1.0</span></div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">Couldn't check for updates because you're offline. Tidewise will try again tomorrow; nothing else needs the internet.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Any reversible action · toast</span>
+<div style="flex-grow: 1; padding: 22px; border-radius: 16px; background: #12161C; border: 1px dashed #2A303B; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;">
+<div role="status" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #1E2A27; border: 1px solid #3E7D69;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5DDCB0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span style="flex: 1 1 auto; font-size: 13px;">3 files moved to Trash</span><button type="button" style="min-height: 36px; padding: 0 10px; border: 0; background: transparent; color: #5DDCB0; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;">Undo</button></div>
+<div style="font-size: 12px; color: #808897;">Stays 8 seconds, longer while hovered. Also saved in History.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Any list · loading</span>
+<div aria-busy="true" style="flex-grow: 1; padding: 18px; border-radius: 16px; background: #161A21; border: 1px solid #232933; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center; gap: 12px;"><span style="width: 36px; height: 36px; border-radius: 10px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 7px;"><span style="width: 50%; height: 11px; border-radius: 6px; background: #1E232C;"></span><span style="width: 75%; height: 9px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+<div style="display: flex; align-items: center; gap: 12px;"><span style="width: 36px; height: 36px; border-radius: 10px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 7px;"><span style="width: 40%; height: 11px; border-radius: 6px; background: #1E232C;"></span><span style="width: 68%; height: 9px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+<div style="display: flex; align-items: center; gap: 12px;"><span style="width: 36px; height: 36px; border-radius: 10px; background: #1E232C;"></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 7px;"><span style="width: 56%; height: 11px; border-radius: 6px; background: #1E232C;"></span><span style="width: 60%; height: 9px; border-radius: 6px; background: #1A1F27;"></span></span></div>
+<div style="font-size: 12px; color: #808897;">No spinners on lists; shapes keep the layout steady.</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<span style="font-size: 12px; font-weight: 600; color: #808897; text-transform: uppercase; letter-spacing: 0.05em;">Any action · failed</span>
+<div role="alert" style="flex-grow: 1; padding: 20px 22px; border-radius: 16px; background: #161A21; border: 1px solid #4A2420; display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 600;">Couldn't clear Steam's cache</div>
+<div style="font-size: 13px; color: #A9B0BC; line-height: 1.5;">Steam was using some of those files. Everything else was cleaned. Close Steam and try this one again.</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;"><button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 0; background: #5DDCB0; color: #052B1F; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;">Try again</button><button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; background: #1A1F27; border: 1px solid #2A303B; color: #ECEEF2; font: inherit; font-size: 14px; cursor: pointer;">Copy error details</button></div>
+</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
