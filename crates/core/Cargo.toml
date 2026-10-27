@@ -7,5 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+sysinfo = "0.39.6"
 
 [dev-dependencies]
+pretty_assertions.workspace = true
