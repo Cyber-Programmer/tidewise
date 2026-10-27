@@ -1,0 +1,8 @@
+asar
+bun
+cmake
+docker-desktop-debug
+go
+hyprwayland-scanner
+intltool
+linux-wallpaperengine-git-debug

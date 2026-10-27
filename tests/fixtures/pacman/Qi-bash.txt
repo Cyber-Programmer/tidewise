@@ -1,0 +1,22 @@
+Name            : bash
+Version         : 5.3.20-1
+Description     : The GNU Bourne Again shell
+Architecture    : x86_64
+URL             : https://www.gnu.org/software/bash/bash.html
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : sh
+Depends On      : readline  libreadline.so=8-64  glibc  ncurses
+Optional Deps   : bash-completion: for tab completion
+Required By     : 7zip  alsa-utils  antigravity-ide  appmenu-gtk-module  arduino-ide-bin  at-spi2-core  audit  aurorae  autoconf  automake  avahi  base  bison  bzip2  ca-certificates-utils  cairo  codex-desktop-git  db5.3  dconf  device-mapper  diffutils  djvulibre  dkms  dtc  e2fsprogs  ebook-tools  elfutils  fakeroot  fftw  figlet  firefox  flatpak  flex  fontconfig  fzf  gawk  gdb  gdbm  gettext  ghostscript  glib2  gnupg  gparted  gpm  gpu-screen-recorder  grub  gtk-doc  gtk-update-icon-cache  gtk4  gzip  hdf5  hunspell  hyprshot  icu  ijs  iptables  java-runtime-common  kate  kde-cli-tools  kde-gtk-config  keyutils  kinfocenter  kio-extras  krb5  kwallet-pam  libassuan  libcups  libgpg-error  libksba  libmakepkg-dropins  libmbim  libnet  libpcap  libpng  libpulse  libqmi  libreoffice-still  libteam  libtool  libxml2  libxslt  lm_sensors  lsb-release  lxc  mbedtls3  meson  mkinitcpio  modemmanager  nemo  netpbm  networkmanager  npth  nspr  nss  obsidian  ostree  pacman  pcre  pipewire-jack  plasma-login-manager  plasma-workspace  plymouth  pps-tools  pyenv  rasqal  rdma-core  redland  rofi  sddm  smartmontools  source-highlight  spirv-tools  srt  steam  systemd  taglib  texinfo  unzip  uwsm  vala  vlc  vlc-cli  vlc-gui-qt  which  wimlib  wxwidgets-gtk3  xapp  xdg-utils  xmlsec  xorg-server  xz
+Optional For    : kitty-shell-integration  mdadm  ncurses  openssh  pcre2  tzdata  usbutils  vim-runtime
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 9.59 MiB
+Packager        : Tobias Powalowski <tpowa@archlinux.org>
+Build Date      : Wed Sep 16 00:47:19 2026
+Install Date    : Tue Sep 22 21:38:36 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : Yes
+Validated By    : Signature
+
