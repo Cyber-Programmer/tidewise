@@ -11,3 +11,4 @@ sysinfo = "0.39.6"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+tempfile.workspace = true
