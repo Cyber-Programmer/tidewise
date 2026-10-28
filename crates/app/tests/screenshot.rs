@@ -138,3 +138,41 @@ fn home_renders_and_unfinished_pages_say_so() {
         }
     }
 }
+
+/// Rows (top to bottom) of the sidebar's right-hand strip that have the active-item colour.
+fn active_nav_rows(png: &std::path::Path) -> Vec<u32> {
+    const NAV_ACTIVE_BG: [u8; 3] = [0x1E, 0x23, 0x2C];
+    let img = image::open(png).unwrap().to_rgb8();
+    (0..img.height())
+        .filter(|&y| img.get_pixel(196, y).0 == NAV_ACTIVE_BG)
+        .collect()
+}
+
+#[test]
+fn settings_is_inside_the_window_at_600_px_tall() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("settings.png");
+    run_screen("settings", &out, &["--height", "600"]);
+    let rows = active_nav_rows(&out);
+    let (first, last) = (rows.first().copied(), rows.last().copied());
+    assert!(
+        rows.len() >= 36,
+        "the active Settings item is not (fully) visible: {} rows, {first:?}..{last:?}",
+        rows.len()
+    );
+    assert_eq!(
+        rows.len() as u32,
+        last.unwrap() - first.unwrap() + 1,
+        "one block"
+    );
+    assert!(last.unwrap() < 600 - 8, "Settings touches the window edge");
+}
+
+#[test]
+fn settings_item_is_the_same_at_960_px() {
+    // Guards the check above: at the design height the same item is found.
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("settings.png");
+    run_screen("settings", &out, &[]);
+    assert!(active_nav_rows(&out).len() >= 36);
+}

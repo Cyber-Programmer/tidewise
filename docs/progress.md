@@ -148,3 +148,7 @@ Tick cost measured with temporary timing: sysinfo process refresh 31–33 ms for
 Kept: light sample (Home 3.8 → 0.7 %), `core::procfs` reader (Performance 4.3 → 2.2 %), `NameCache`, in-place row updates (Processes 4.1 → 3.6 %), drive cache, lazy `PerfData`.
 Not done: Performance/Home models still replace nested models each tick (small); software-renderer dirty-region check was not separately verified (no `perf` installed; Home at 0.7 % suggests no full repaint).
 Tests for `procfs`, `NameCache`, `sync_model`, `sample_light`, `--page` were written together with their code, not shown failing first (the old sysinfo path is covered by the R3-T1 red tests that still pass).
+
+### R3-T3 done
+Red: `settings_is_inside_the_window_at_600_px_tall` (0 rows of the active Settings item at 1360×600). The logo and the card, History and Settings stay fixed; the other eight items sit in a `Flickable`.
+At 960 px the Home and Settings screenshots are byte-identical to before (`cmp`), so design-check scores cannot have moved.

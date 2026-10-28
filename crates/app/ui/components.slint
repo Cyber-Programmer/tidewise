@@ -72,15 +72,32 @@ export component Sidebar inherits Rectangle {
                 vertical-alignment: center;
             }
         }
-        NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0; clicked => { Shell.navigate(0); } }
-        NavItem { label: "Clean up"; icon: @image-url("icons/clean.svg"); active: Shell.page == 1; clicked => { Shell.navigate(1); } }
-        NavItem { label: "Apps"; icon: @image-url("icons/apps.svg"); active: Shell.page == 2; clicked => { Shell.navigate(2); } }
-        NavItem { label: "Storage"; icon: @image-url("icons/storage.svg"); active: Shell.page == 3; clicked => { Shell.navigate(3); } }
-        NavItem { label: "Performance"; icon: @image-url("icons/performance.svg"); active: Shell.page == 4; clicked => { Shell.navigate(4); } }
-        NavItem { label: "Processes"; icon: @image-url("icons/processes.svg"); active: Shell.page == 5; clicked => { Shell.navigate(5); } }
-        NavItem { label: "Startup apps"; icon: @image-url("icons/startup.svg"); active: Shell.page == 6; clicked => { Shell.navigate(6); } }
-        NavItem { label: "Services"; icon: @image-url("icons/services.svg"); active: Shell.page == 7; clicked => { Shell.navigate(7); } }
-        Rectangle { vertical-stretch: 1; min-height: 24px; }
+        // The main items scroll when the window is too short for all of them; the logo above and
+        // the card, History and Settings below always stay on screen. Tall windows look the same
+        // as before: the region keeps at least the old 24 px gap below the last item.
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 0;
+            preferred-height: nav.preferred-height + 28px;
+            Flickable {
+                width: parent.width;
+                height: parent.height;
+                viewport-width: self.width;
+                viewport-height: nav.preferred-height;
+                nav := VerticalLayout {
+                    width: parent.viewport-width;
+                    spacing: 4px;
+                    NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0; clicked => { Shell.navigate(0); } }
+                    NavItem { label: "Clean up"; icon: @image-url("icons/clean.svg"); active: Shell.page == 1; clicked => { Shell.navigate(1); } }
+                    NavItem { label: "Apps"; icon: @image-url("icons/apps.svg"); active: Shell.page == 2; clicked => { Shell.navigate(2); } }
+                    NavItem { label: "Storage"; icon: @image-url("icons/storage.svg"); active: Shell.page == 3; clicked => { Shell.navigate(3); } }
+                    NavItem { label: "Performance"; icon: @image-url("icons/performance.svg"); active: Shell.page == 4; clicked => { Shell.navigate(4); } }
+                    NavItem { label: "Processes"; icon: @image-url("icons/processes.svg"); active: Shell.page == 5; clicked => { Shell.navigate(5); } }
+                    NavItem { label: "Startup apps"; icon: @image-url("icons/startup.svg"); active: Shell.page == 6; clicked => { Shell.navigate(6); } }
+                    NavItem { label: "Services"; icon: @image-url("icons/services.svg"); active: Shell.page == 7; clicked => { Shell.navigate(7); } }
+                }
+            }
+        }
         Rectangle {
             height: card-text.preferred-height + 6px;
             Rectangle {
