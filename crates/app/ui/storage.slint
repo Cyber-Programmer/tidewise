@@ -32,6 +32,8 @@ export global StorageState {
     in property <[CrumbPart]> crumbs;
     in property <string> folder-help;
     in property <[FolderRow]> rows;
+    // The row the keyboard is on.
+    in property <int> cursor;
     in property <string> trash-label;
     in property <bool> trash-enabled: true;
     in property <[BigRow]> big;
@@ -244,15 +246,22 @@ component ListRow inherits Rectangle {
 
 export component StorageScreen inherits Rectangle {
     background: Theme.bg;
-    VerticalLayout {
+    // The page scrolls when the window is shorter than its content; the open folder's list fills
+    // the rest of the window.
+    page := Flickable {
+        viewport-width: self.width;
+        viewport-height: max(self.height, content.min-height);
+        content := VerticalLayout {
+        width: page.width;
+        height: max(page.height, self.min-height);
         padding-top: 26px;
         padding-bottom: 40px;
         padding-left: 36px;
         padding-right: 36px;
         spacing: 20px;
-        alignment: start;
         // Header with the drive switcher
         HorizontalLayout {
+            vertical-stretch: 0;
             VerticalLayout {
                 horizontal-stretch: 0;
                 alignment: end;
@@ -265,6 +274,7 @@ export component StorageScreen inherits Rectangle {
         }
         // Drive bar
         Card {
+            vertical-stretch: 0;
             border-radius: Theme.radius-hero;
             VerticalLayout {
                 padding: 26px;
@@ -311,13 +321,15 @@ export component StorageScreen inherits Rectangle {
         // Folder map and biggest files
         HorizontalLayout {
             spacing: 20px;
+            vertical-stretch: StorageState.in-folder ? 1 : 0;
+            min-height: StorageState.in-folder ? 380px : 0px;
             Card {
                 border-radius: Theme.radius-card;
                 horizontal-stretch: 1;
                 VerticalLayout {
                     padding: 20px;
                     spacing: 14px;
-                    alignment: start;
+                    alignment: StorageState.in-folder ? LayoutAlignment.stretch : LayoutAlignment.start;
                     if StorageState.state == 1: VerticalLayout {
                         spacing: 10px;
                         height: 340px;
@@ -398,10 +410,12 @@ export component StorageScreen inherits Rectangle {
                     }
                     if StorageState.state == 0 && StorageState.in-folder: VerticalLayout {
                         spacing: 14px;
+                        vertical-stretch: 1;
                         Crumbs { }
                         Text { text: StorageState.folder-help; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
                         FocusScope {
-                            height: StorageState.rows.length * 56px + 2px;
+                            vertical-stretch: 1;
+                            min-height: 112px;
                             init => { self.focus(); }
                             key-pressed(e) => {
                                 if (StorageState.key(e.text, e.modifiers.alt)) { accept } else { reject }
@@ -411,8 +425,28 @@ export component StorageScreen inherits Rectangle {
                                 border-width: 1px;
                                 border-color: Theme.border;
                                 clip: true;
-                                VerticalLayout {
+                                list := ListView {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    property <int> cur: StorageState.cursor;
+                                    changed cur => {
+                                        if (self.cur * 56px < -self.viewport-y) {
+                                            self.viewport-y = -self.cur * 56px;
+                                        } else if ((self.cur + 1) * 56px > -self.viewport-y + self.visible-height) {
+                                            self.viewport-y = -((self.cur + 1) * 56px - self.visible-height);
+                                        }
+                                    }
                                     for r[i] in StorageState.rows: ListRow { r: r; index: i; }
+                                }
+                                // The widget's own thumb is nearly invisible on the dark surface: draw one
+                                // in the tokens' colours, only when the rows don't fit.
+                                if list.viewport-height > list.visible-height + 1px: Rectangle {
+                                    x: parent.width - 10px;
+                                    width: 4px;
+                                    border-radius: 2px;
+                                    background: Theme.text-3;
+                                    height: max(28px, list.visible-height * list.visible-height / list.viewport-height);
+                                    y: (-list.viewport-y) / (list.viewport-height - list.visible-height) * (list.visible-height - self.height);
                                 }
                             }
                         }
@@ -445,6 +479,13 @@ export component StorageScreen inherits Rectangle {
                         height: 54px;
                         Text { x: 18px; y: 18px; text: "Biggest files"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
                     }
+                    bigscroll := Flickable {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        viewport-height: bigcol.preferred-height;
+                        preferred-height: bigcol.preferred-height;
+                        bigcol := VerticalLayout {
+                            width: parent.width;
                     for b[i] in StorageState.big: VerticalLayout {
                         Rectangle { height: 1px; background: Theme.row-divider; }
                         HorizontalLayout {
@@ -484,8 +525,28 @@ export component StorageScreen inherits Rectangle {
                         Rectangle { height: 1px; background: Theme.row-divider; }
                         note := Text { x: 18px; y: 12px; width: parent.width - 36px; text: StorageState.big-note; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.4; }
                     }
+                        }
+                        if bigscroll.viewport-height > bigscroll.height + 1px: Rectangle {
+                            x: parent.width - 8px;
+                            width: 4px;
+                            border-radius: 2px;
+                            background: Theme.text-3;
+                            height: max(28px, bigscroll.height * bigscroll.height / bigscroll.viewport-height);
+                            y: (-bigscroll.viewport-y) / (bigscroll.viewport-height - bigscroll.height) * (bigscroll.height - self.height);
+                        }
+                    }
                 }
             }
         }
+        Rectangle { vertical-stretch: StorageState.in-folder ? 0 : 1; }
+        }
+    }
+    if page.viewport-height > page.height + 1px: Rectangle {
+        x: parent.width - 8px;
+        width: 4px;
+        border-radius: 2px;
+        background: Theme.text-3;
+        height: max(28px, page.height * page.height / page.viewport-height);
+        y: (-page.viewport-y) / (page.viewport-height - page.height) * (page.height - self.height);
     }
 }

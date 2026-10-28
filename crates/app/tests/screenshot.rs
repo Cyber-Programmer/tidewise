@@ -300,7 +300,7 @@ fn has_scrollbar(png: &PathBuf) -> bool {
                 run = 0;
             } else {
                 run += 1;
-                if run >= 30 {
+                if run >= 20 {
                     return true;
                 }
             }

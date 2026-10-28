@@ -355,6 +355,12 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
                 })
                 .collect(),
         ));
+        st.set_cursor(
+            f.rows
+                .iter()
+                .position(|r| r.focused)
+                .map_or(0, |i| i as i32),
+        );
         let (count, bytes) = storage::selection(&f.rows);
         st.set_trash_label(storage::trash_label(count, bytes).into());
         st.set_trash_enabled(count > 0);

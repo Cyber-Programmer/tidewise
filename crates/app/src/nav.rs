@@ -126,17 +126,25 @@ pub struct Level {
     pub rest: Option<(usize, u64)>,
 }
 
+/// How many items were left out of a cut list, and their bytes.
+pub type Rest = Option<(usize, u64)>;
+
 /// The first `cap` children, and how many more there were with their bytes.
-pub fn split_cap(
-    children: &[(PathBuf, u64)],
-    _cap: usize,
-) -> (&[(PathBuf, u64)], Option<(usize, u64)>) {
-    (children, None)
+pub fn split_cap(children: &[(PathBuf, u64)], cap: usize) -> (&[(PathBuf, u64)], Rest) {
+    if children.len() <= cap {
+        return (children, None);
+    }
+    let (shown, left) = children.split_at(cap);
+    (shown, Some((left.len(), left.iter().map(|c| c.1).sum())))
 }
 
 /// "and 35 smaller items · 12 MB".
-pub fn rest_text(_count: usize, _bytes: u64) -> String {
-    String::new()
+pub fn rest_text(count: usize, bytes: u64) -> String {
+    format!(
+        "and {count} smaller item{} \u{b7} {}",
+        if count == 1 { "" } else { "s" },
+        storage::fmt_size(bytes)
+    )
 }
 
 /// Read what kind of thing each child is and when it was last used. Things that vanished are left out.
@@ -184,11 +192,12 @@ fn items_from(
     items
 }
 
-pub fn level_from(r: &ScanResult, now: SystemTime, by_access: bool, _cap: usize) -> Level {
+pub fn level_from(r: &ScanResult, now: SystemTime, by_access: bool, cap: usize) -> Level {
+    let (shown, rest) = split_cap(&r.children, cap);
     Level {
-        items: items_from(&r.children, &r.other_drives, now, by_access),
+        items: items_from(shown, &r.other_drives, now, by_access),
         total: r.total_bytes,
-        rest: None,
+        rest,
     }
 }
 
@@ -198,13 +207,14 @@ pub fn other_level(
     max_blocks: usize,
     now: SystemTime,
     by_access: bool,
-    _cap: usize,
+    cap: usize,
 ) -> Level {
     let members = storage::other_members(root, max_blocks);
+    let (shown, rest) = split_cap(&members, cap);
     Level {
         total: members.iter().map(|m| m.1).sum(),
-        items: items_from(&members, &[], now, by_access),
-        rest: None,
+        items: items_from(shown, &[], now, by_access),
+        rest,
     }
 }
 

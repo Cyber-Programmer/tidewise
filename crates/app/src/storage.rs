@@ -262,7 +262,6 @@ pub enum RowKind {
     /// A folder on another file system: listed, never entered.
     OtherDrive,
     /// "and N smaller items": the last row of a list that was cut short.
-    #[allow(dead_code)] // built in R5-T2
     Summary,
 }
 
@@ -633,7 +632,23 @@ pub fn live_data(
                 row.focused = i == f.cursor;
                 row
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let mut rows = rows;
+        if let Some((count, bytes)) = f.rest {
+            let text = crate::nav::rest_text(count, bytes);
+            rows.push(FolderRow {
+                name: text.clone(),
+                meta: String::new(),
+                size: String::new(),
+                old: false,
+                checked: false,
+                bytes: 0,
+                path: None,
+                kind: RowKind::Summary,
+                label: text,
+                focused: false,
+            });
+        }
         data.folder = Some(Folder {
             crumbs: f.crumbs,
             help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
