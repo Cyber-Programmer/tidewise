@@ -15,6 +15,7 @@ mod live;
 mod perf;
 mod procs;
 mod screenshot;
+mod storage;
 mod view;
 
 slint::include_modules!();
