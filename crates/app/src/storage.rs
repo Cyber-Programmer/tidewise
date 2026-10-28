@@ -238,6 +238,19 @@ pub struct Tile {
     pub path: Option<PathBuf>,
 }
 
+/// What a row of the drill-in list is, and so what clicking it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowKind {
+    File,
+    Folder,
+    /// A symbolic link: listed, ticked like a file, never followed.
+    Link,
+    /// A folder on another file system: listed, never entered.
+    OtherDrive,
+    /// "and N smaller items": the last row of a list that was cut short.
+    Summary,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FolderRow {
     pub name: String,

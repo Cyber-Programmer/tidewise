@@ -12,12 +12,17 @@ mod cli;
 mod demo;
 mod home;
 mod live;
+mod nav;
 mod perf;
 mod procs;
 mod screenshot;
 mod storage;
 mod storage_live;
 mod view;
+
+#[cfg(test)]
+#[path = "../tests/support/fixture.rs"]
+mod fixture;
 
 slint::include_modules!();
 

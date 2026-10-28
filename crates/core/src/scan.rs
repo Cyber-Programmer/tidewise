@@ -60,6 +60,9 @@ pub struct ScanResult {
     pub stale_files: Vec<FileEntry>,
     /// True when the modification time stood in for the access time.
     pub used_modified_time: bool,
+    /// Folders directly inside the root that sit on another file system (mounts). Not counted, not
+    /// entered; the caller can still list them.
+    pub other_drives: Vec<PathBuf>,
     /// Things that could not be read (permissions, vanished files). Not an error.
     pub skipped: u64,
     /// True when the scan was cancelled and the numbers are partial.
@@ -514,5 +517,33 @@ mod tests {
         let ours = run(dir.path(), &ScanOptions::default()).total_bytes as f64
             + fs::metadata(dir.path()).unwrap().blocks() as f64 * 512.0;
         assert!((ours - du).abs() / du < 0.01, "ours {ours}, du {du}");
+    }
+
+    #[test]
+    fn folders_on_another_file_system_are_listed_not_counted() {
+        // /dev/shm (tmpfs) and /dev/pts (devpts) are separate file systems inside /dev.
+        let r = run(Path::new("/dev"), &ScanOptions::default());
+        let shm = Path::new("/dev/shm");
+        if shm.is_dir() {
+            assert!(
+                r.other_drives.contains(&shm.to_path_buf()),
+                "{:?}",
+                r.other_drives
+            );
+            assert!(!r.children.iter().any(|(p, _)| p == shm));
+        }
+        for p in &r.other_drives {
+            let (a, b) = (fs::metadata(p).unwrap(), fs::metadata("/dev").unwrap());
+            assert_ne!(a.dev(), b.dev(), "{p:?} is on the same file system");
+        }
+    }
+
+    #[test]
+    fn a_normal_tree_has_no_other_drives() {
+        let dir = disk_tempdir();
+        write(&dir.path().join("a/b.bin"), 10_000);
+        assert!(run(dir.path(), &ScanOptions::default())
+            .other_drives
+            .is_empty());
     }
 }
