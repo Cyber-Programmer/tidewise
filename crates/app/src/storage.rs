@@ -530,6 +530,8 @@ pub struct FolderIn<'a> {
     pub cursor: usize,
     /// Smaller items left out of `entries`: how many, and their bytes.
     pub rest: Option<(usize, u64)>,
+    /// One more line for the help text under the breadcrumb.
+    pub note: Option<&'static str>,
 }
 
 /// Whole days between two moments; 0 if `then` is in the future.
@@ -1127,6 +1129,7 @@ mod tests {
                 checked: &[false, true],
                 cursor: 1,
                 rest: None,
+                note: None,
             }),
             Path::new("/home/ali"),
             SystemTime::now(),
@@ -1144,6 +1147,35 @@ mod tests {
             f.rows.iter().map(|r| r.focused).collect::<Vec<_>>(),
             [false, true]
         );
+    }
+
+    #[test]
+    fn a_note_about_shared_files_goes_under_the_help_text() {
+        let scan = scan_with(&[("x", 20)]);
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let help = |note| {
+            live_data(
+                &drives,
+                0,
+                Phase::Done(&scan),
+                Some(FolderIn {
+                    crumbs: Vec::new(),
+                    entries: &[],
+                    checked: &[],
+                    cursor: 0,
+                    rest: None,
+                    note,
+                }),
+                Path::new("/home/ali"),
+                SystemTime::now(),
+            )
+            .unwrap()
+            .folder
+            .unwrap()
+            .help
+        };
+        assert!(!help(None).contains("hard link"));
+        assert!(help(Some("Shared by hard links.")).ends_with(" Shared by hard links."));
     }
 
     #[test]
@@ -1169,6 +1201,7 @@ mod tests {
                     checked: &[true],
                     cursor: 0,
                     rest,
+                    note: None,
                 }),
                 Path::new("/home/ali"),
                 SystemTime::now(),

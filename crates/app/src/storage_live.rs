@@ -160,6 +160,7 @@ impl Ctl {
                 checked: self.browser.checked(),
                 cursor: self.browser.cursor(),
                 rest: self.browser.level().and_then(|l| l.rest),
+                note: self.browser.level().and_then(nav::overlap_note),
             }),
             _ => None,
         };

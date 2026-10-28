@@ -218,6 +218,12 @@ pub fn other_level(
     }
 }
 
+/// One line for when the rows add up to more than the folder's total: files shared by hard links
+/// sit in several rows but take space once.
+pub fn overlap_note(_level: &Level) -> Option<&'static str> {
+    None
+}
+
 /// Levels already scanned, so going back is instant.
 #[derive(Default)]
 pub struct Cache(HashMap<Place, Rc<Level>>);
@@ -595,6 +601,7 @@ pub fn selectable(kind: RowKind) -> bool {
 mod tests {
     use super::*;
     use crate::fixture::{self, DEEP};
+    use std::os::unix::fs::MetadataExt;
     use std::path::Path;
     use std::time::Duration;
 
@@ -794,9 +801,14 @@ mod tests {
         );
         assert_eq!(photos.items.len(), 45);
         assert!(photos.items.iter().all(|i| i.kind == RowKind::File));
+        // The total is the rows plus the folder's own blocks, like `du -s`.
+        let own = std::fs::metadata(fx.root.join("Documents/Photos"))
+            .unwrap()
+            .blocks()
+            * 512;
         assert_eq!(
             photos.total,
-            photos.items.iter().map(|i| i.bytes).sum::<u64>()
+            photos.items.iter().map(|i| i.bytes).sum::<u64>() + own
         );
     }
 
@@ -951,6 +963,60 @@ mod tests {
             .iter()
             .any(|i| i.name == "build.bin"));
         let _ = DEEP;
+    }
+
+    #[test]
+    fn every_block_equals_the_total_shown_when_it_is_opened() {
+        let fx = fixture::build();
+        let mut b = browser(&fx);
+        let blocks = crate::storage::blocks_from(&scan(&fx.root), MAP_BLOCKS);
+        let mut opened = 0;
+        for (i, block) in blocks.iter().enumerate() {
+            if block.path.is_none() {
+                continue;
+            }
+            assert!(b.open_block(i));
+            wait(&mut b);
+            assert_eq!(b.level().unwrap().total, block.bytes, "{}", block.name);
+            b.jump(0);
+            opened += 1;
+        }
+        assert!(opened >= 5);
+    }
+
+    #[test]
+    fn rows_that_add_up_to_more_than_the_total_say_why_in_one_line() {
+        let item = |bytes| Item {
+            name: "x".into(),
+            path: "/x".into(),
+            bytes,
+            kind: RowKind::File,
+            days_unused: 1,
+        };
+        let more = Level {
+            items: vec![item(100), item(50)],
+            total: 100,
+            rest: None,
+        };
+        let note = overlap_note(&more).expect("a note");
+        assert!(note.contains("hard link") && !note.contains('\n'), "{note}");
+        let same = Level {
+            items: vec![item(60), item(40)],
+            total: 100,
+            rest: None,
+        };
+        assert_eq!(overlap_note(&same), None);
+        let less = Level {
+            items: vec![item(60)],
+            total: 100 + 4096,
+            rest: None,
+        };
+        assert_eq!(
+            overlap_note(&less),
+            None,
+            "the folder's own blocks are not a row"
+        );
+        assert_eq!(overlap_note(&Level::default()), None);
     }
 
     #[test]
