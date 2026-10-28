@@ -1,0 +1,49 @@
+name: Release
+
+# Builds the AppImage on the oldest supported base (Ubuntu 22.04) when a tag like v0.1.0 is pushed,
+# and attaches it with a .sha256 to a DRAFT pre-release. Nothing is published until a human does it.
+# Signing comes later (the human holds the key).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # only this job may create the release
+    env:
+      APPIMAGETOOL_VERSION: "1.9.1"
+      # sha256 of appimagetool-x86_64.AppImage 1.9.1 as downloaded on 2026-10-28; verify it once by hand.
+      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch; pinned by commit)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install appimagetool (checksum pinned)
+        run: |
+          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  appimagetool" | sha256sum --check -
+          sudo install -m 0755 appimagetool /usr/local/bin/appimagetool
+      - run: cargo test --all --locked
+      - name: Build the AppImage
+        # No FUSE on the runner: appimagetool itself runs extracted.
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          packaging/appimage/build.sh
+          cd dist
+          sha256sum Tidewise-*-x86_64.AppImage > "$(ls Tidewise-*-x86_64.AppImage).sha256"
+          ls -la
+      - name: Draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/Tidewise-*-x86_64.AppImage dist/Tidewise-*-x86_64.AppImage.sha256 \
+            --draft --prerelease --title "Tidewise $TAG" --notes "Draft pre-release built by CI. Not signed yet."

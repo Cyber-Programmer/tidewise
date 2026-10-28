@@ -61,3 +61,9 @@ Below about 700 px the main nav items scroll with the wheel or touch; Slint's Fl
 1. Score bands (Good shape ≥ 80, Could be better 60–79, Needs attention < 60) and the memory threshold (an app group using ≥ 1 GB private memory gets a suggestion, no points) are mine. Recommended: keep, or give me the intended numbers.
 2. Until the cleaner exists the score ignores junk, services and updates, and says so on Home. Recommended: keep the honest stub.
 3. `tools/measure.sh` was not re-run for Home after adding the 30-second process read. Recommended: run it once.
+
+## R4-T6 — AppImage: what is not done or not verified
+1. `appimagetool` is not installed here, so the real AppImage was **not built**; its test skips itself (it passes by skipping). The script, desktop file, icon, AppDir test (starts the AppDir's `AppRun --screenshot home`, 1360×960) and `release.yml` are in place. Install appimagetool and run `packaging/appimage/build.sh`.
+2. The script bundles only the Tidewise binary, not shared libraries (fontconfig, xkbcommon, Wayland/X11 …). It relies on the host's, built on Ubuntu 22.04 for old-glibc compatibility. Recommended: add `linuxdeploy` to bundle libraries before v1.0 (new tool, so your call).
+3. `release.yml` downloads appimagetool 1.9.1 and checks a sha256 I computed from my own download today (trust on first use, not run). Please verify the hash against a download you trust.
+4. The workflow was only syntax-checked, never run on GitHub.
