@@ -48,3 +48,27 @@ fn a_state_variant_changes_the_picture() {
     run(&b, &["--state", "memory"]);
     assert_ne!(fs::read(&a).unwrap(), fs::read(&b).unwrap());
 }
+
+#[test]
+fn every_performance_variant_renders() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut seen = Vec::new();
+    for state in ["details", "memory", "memory-details", "network", "disk"] {
+        let out = dir.path().join(format!("{state}.png"));
+        run(&out, &["--state", state]);
+        seen.push(fs::read(&out).unwrap());
+    }
+    for (i, a) in seen.iter().enumerate() {
+        for b in &seen[i + 1..] {
+            assert_ne!(a, b, "two variants look identical");
+        }
+    }
+}
+
+#[test]
+fn height_can_be_raised_for_tall_artboards() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("tall.png");
+    run(&out, &["--state", "details", "--height", "1005"]);
+    assert_eq!(png_size(&fs::read(&out).unwrap()), (1360, 1005));
+}

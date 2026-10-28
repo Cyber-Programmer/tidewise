@@ -5,6 +5,9 @@ pub struct Screenshot {
     pub screen: String,
     pub state: Option<String>,
     pub out: String,
+    /// Window height in pixels. The width is always 1360; the default height is 960. Artboards
+    /// that grow with their content (e.g. Performance with details) are taller than that.
+    pub height: u32,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -19,6 +22,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let mut screen = None;
     let mut state = None;
     let mut file = None;
+    let mut height = 960;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--demo" => out.demo = true,
@@ -31,6 +35,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             }
             "--state" => state = Some(args.next().ok_or("--state needs a value")?),
             "--out" => file = Some(args.next().ok_or("--out needs a file name")?),
+            "--height" => {
+                height = args
+                    .next()
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .filter(|h| (400..=4000).contains(h))
+                    .ok_or("--height needs a number of pixels between 400 and 4000")?;
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -41,6 +52,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             screen,
             state,
             out: out_file,
+            height,
         });
     } else if state.is_some() || file.is_some() {
         return Err("--state and --out only work with --screenshot".into());
@@ -82,10 +94,43 @@ mod tests {
             Some(Screenshot {
                 screen: "performance".into(),
                 state: Some("details".into()),
-                out: "a.png".into()
+                out: "a.png".into(),
+                height: 960
             })
         );
         assert!(a.demo, "a screenshot always uses demo data");
+    }
+
+    #[test]
+    fn screenshot_height_can_be_set() {
+        let a = args(&[
+            "--screenshot",
+            "performance",
+            "--out",
+            "a.png",
+            "--height",
+            "1005",
+        ])
+        .unwrap();
+        assert_eq!(a.screenshot.unwrap().height, 1005);
+    }
+
+    #[test]
+    fn height_must_be_a_sane_number() {
+        for bad in ["abc", "0", "100", "20000"] {
+            assert!(
+                args(&[
+                    "--screenshot",
+                    "performance",
+                    "--out",
+                    "a.png",
+                    "--height",
+                    bad
+                ])
+                .is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,137 @@
+// Shared pieces: the sidebar and the switch.
+import { Theme } from "theme.slint";
+
+export global Shell {
+    in property <string> distro-name: "Linux";
+    in property <string> distro-detail: "";
+    in-out property <int> page: 4;
+    callback navigate(int);
+}
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> active: false;
+    callback clicked();
+    height: 44px;
+    border-radius: Theme.radius-button;
+    background: root.active ? Theme.nav-active-bg : (touch.has-hover ? Theme.row-hover : transparent);
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    HorizontalLayout {
+        padding-left: 12px;
+        spacing: 12px;
+        alignment: start;
+        Image {
+            source: root.icon;
+            width: 20px;
+            height: 20px;
+            y: (parent.height - self.height) / 2;
+            colorize: root.active ? Theme.accent : Theme.nav-text;
+        }
+        Text {
+            text: root.label;
+            color: root.active ? Theme.nav-active-text : Theme.nav-text;
+            font-size: Theme.size-body;
+            font-weight: root.active ? 600 : 500;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    background: Theme.sidebar;
+    width: Theme.sidebar-width;
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.sidebar-border;
+    }
+    VerticalLayout {
+        padding-top: 20px;
+        padding-bottom: 20px;
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 4px;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-top: 6px;
+            padding-bottom: 22px;
+            spacing: 10px;
+            Image { source: @image-url("icons/logo.svg"); width: 28px; height: 28px; }
+            Text {
+                text: "Tidewise";
+                color: Theme.text;
+                font-size: 18px;
+                font-weight: 600;
+                letter-spacing: -0.18px;
+                vertical-alignment: center;
+            }
+        }
+        NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0; clicked => { Shell.navigate(0); } }
+        NavItem { label: "Clean up"; icon: @image-url("icons/clean.svg"); active: Shell.page == 1; clicked => { Shell.navigate(1); } }
+        NavItem { label: "Apps"; icon: @image-url("icons/apps.svg"); active: Shell.page == 2; clicked => { Shell.navigate(2); } }
+        NavItem { label: "Storage"; icon: @image-url("icons/storage.svg"); active: Shell.page == 3; clicked => { Shell.navigate(3); } }
+        NavItem { label: "Performance"; icon: @image-url("icons/performance.svg"); active: Shell.page == 4; clicked => { Shell.navigate(4); } }
+        NavItem { label: "Processes"; icon: @image-url("icons/processes.svg"); active: Shell.page == 5; clicked => { Shell.navigate(5); } }
+        NavItem { label: "Startup apps"; icon: @image-url("icons/startup.svg"); active: Shell.page == 6; clicked => { Shell.navigate(6); } }
+        NavItem { label: "Services"; icon: @image-url("icons/services.svg"); active: Shell.page == 7; clicked => { Shell.navigate(7); } }
+        Rectangle { vertical-stretch: 1; min-height: 24px; }
+        Rectangle {
+            height: card-text.preferred-height + 6px;
+            Rectangle {
+                y: 0;
+                height: card-text.preferred-height;
+                background: Theme.surface;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.border;
+                card-text := VerticalLayout {
+                    padding: 14px;
+                    alignment: start;
+                    Text { text: Shell.distro-name; color: Theme.text; font-size: Theme.size-small; font-weight: 600; line-height-factor: 1.2; }
+                    Text { text: Shell.distro-detail; color: Theme.text-2; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.2; }
+                }
+            }
+        }
+        NavItem { label: "History"; icon: @image-url("icons/history.svg"); active: Shell.page == 8; clicked => { Shell.navigate(8); } }
+        NavItem { label: "Settings"; icon: @image-url("icons/settings.svg"); active: Shell.page == 9; clicked => { Shell.navigate(9); } }
+    }
+}
+
+// The 38×22 switch with its label, as on "Show technical details".
+export component DetailsSwitch inherits Rectangle {
+    in-out property <bool> on;
+    in property <string> label: "Show technical details";
+    height: 44px;
+    accessible-role: switch;
+    accessible-label: root.label;
+    accessible-checked: root.on;
+    accessible-action-default => { root.on = !root.on; }
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 10px;
+        Rectangle {
+            width: 38px;
+            height: 22px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius-pill;
+            background: root.on ? Theme.accent : Theme.track-off;
+            Rectangle {
+                x: root.on ? 19px : 3px;
+                y: 3px;
+                width: 16px;
+                height: 16px;
+                border-radius: Theme.radius-pill;
+                background: Theme.text;
+            }
+        }
+        Text { text: root.label; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
+    }
+    TouchArea { clicked => { root.on = !root.on; } }
+}

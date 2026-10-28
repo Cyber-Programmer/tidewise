@@ -1,13 +1,11 @@
 //! Data behind the Performance screen. Plain Rust, no Slint types: demo mode and live mode both
 //! produce a `PerfData`, and the UI only draws it.
 
-#[allow(dead_code)] // read by the Performance screen in M1-T3
 pub struct Fact {
     pub k: String,
     pub v: String,
 }
 
-#[allow(dead_code)] // read by the Performance screen in M1-T3
 pub struct TopRow {
     pub name: String,
     pub value: String,
@@ -15,7 +13,6 @@ pub struct TopRow {
     pub width: f64,
 }
 
-#[allow(dead_code)] // read by the Performance screen in M1-T3
 pub struct Metric {
     pub label: String,
     pub value: String,
@@ -30,7 +27,6 @@ pub struct Metric {
     pub top: Vec<TopRow>,
 }
 
-#[allow(dead_code)] // read by the Performance screen in M1-T3
 pub struct PerfData {
     pub subtitle: String,
     /// Processor, Memory, Network, Disk — in that order.

@@ -67,3 +67,4 @@ Then `ui/theme.slint` with a `Theme` global (dark default, light via the same `d
 Plan T2: tests first (red): `demo::series` against values computed with node from the artboard's own `series()`, `cli` parsing, and a binary-level test that `--screenshot` writes a 1360×960 PNG twice with identical bytes.
 Then `cli.rs` (hand-rolled flags, no new dependency), `perf.rs` (pure metric data shared by demo and live), `demo.rs`, `screenshot.rs` (`MinimalSoftwareWindow` + software renderer + `image` PNG encode), wired into `main.rs`.
 Plan T3 (Performance): rebuild `ui/performance.slint` + shared shell (sidebar) to the artboard's px values, drive it from `perf::PerfData`, loop with design_diff on all six images.
+Plan T4 (Processes): read artboard + fixtures; TDD `procs` grouping/naming from `/proc` fixtures, then `processes.slint`, demo data, four variants, design loop.

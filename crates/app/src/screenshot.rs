@@ -9,7 +9,6 @@ use slint::platform::{Platform, PlatformError, WindowAdapter};
 use slint::{PhysicalSize, Rgb8Pixel};
 
 pub const WIDTH: u32 = 1360;
-pub const HEIGHT: u32 = 960;
 
 struct Headless(Rc<MinimalSoftwareWindow>);
 
@@ -20,18 +19,18 @@ impl Platform for Headless {
 }
 
 /// Install the headless platform. Call once, before creating any component.
-pub fn install() -> Result<Rc<MinimalSoftwareWindow>, Box<dyn Error>> {
+pub fn install(height: u32) -> Result<Rc<MinimalSoftwareWindow>, Box<dyn Error>> {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-    window.set_size(PhysicalSize::new(WIDTH, HEIGHT));
+    window.set_size(PhysicalSize::new(WIDTH, height));
     slint::platform::set_platform(Box::new(Headless(window.clone())))
         .map_err(|e| format!("cannot install the headless platform: {e}"))?;
     Ok(window)
 }
 
 /// Render the window's current contents and write them as a PNG.
-pub fn save(window: &MinimalSoftwareWindow, out: &Path) -> Result<(), Box<dyn Error>> {
+pub fn save(window: &MinimalSoftwareWindow, height: u32, out: &Path) -> Result<(), Box<dyn Error>> {
     slint::platform::update_timers_and_animations();
-    let mut pixels = vec![Rgb8Pixel::default(); (WIDTH * HEIGHT) as usize];
+    let mut pixels = vec![Rgb8Pixel::default(); (WIDTH * height) as usize];
     let drawn = window.draw_if_needed(|renderer| {
         renderer.render(&mut pixels, WIDTH as usize);
     });
@@ -39,7 +38,7 @@ pub fn save(window: &MinimalSoftwareWindow, out: &Path) -> Result<(), Box<dyn Er
         return Err("nothing was drawn".into());
     }
     let bytes: Vec<u8> = pixels.iter().flat_map(|p| [p.r, p.g, p.b]).collect();
-    let img = image::RgbImage::from_raw(WIDTH, HEIGHT, bytes).ok_or("bad pixel buffer")?;
+    let img = image::RgbImage::from_raw(WIDTH, height, bytes).ok_or("bad pixel buffer")?;
     img.save_with_format(out, image::ImageFormat::Png)?;
     Ok(())
 }
