@@ -156,3 +156,34 @@ At 960 px the Home and Settings screenshots are byte-identical to before (`cmp`)
 ### R3-T4 done
 Red: `extra_shades_use_the_names_and_hex_of_tokens_md` and `old_names_of_the_extra_shades_are_gone_everywhere`. Renamed: selected-bg → tab-selected-bg, inset-border → border-subtle, divider → row-divider, track-off and grid-base (same hex) → control-border, row-hover → control-bg. The other four names already matched.
 Home screenshot at 960 px is byte-identical to before; design-check scores unchanged.
+
+### R3-T5 (stretch)
+Task 1 done: `core::scan` (per-folder sizes, biggest files, files not used for 6 months, hard links once, symlinks not followed, one filesystem, cancel + progress on a background thread, `du -sx` within 1 % test). Written together with its tests (all 12 passed first run), so no red run was shown.
+Not reached: the drive totals (statvfs), the access-time-reliability check (`noatime` in `/proc/mounts`; the scanner takes `use_access_time` and reports `used_modified_time`), M2 task 2 (Storage screen). The scanner is not wired into the app and has no UI.
+
+### CPU before → after (`tools/measure.sh`, release + LTO, live mode, 15 s warm-up, 30 s window, one run each, % of one core)
+
+| Renderer | Page | Before | After |
+| --- | --- | --- | --- |
+| software | Home | 3.8 | 0.7 |
+| software | Performance | 4.3 | 2.2 |
+| software | Processes | 5.6 | 3.6 |
+| FemtoVG | Home | 3.8 | 0.8 |
+| FemtoVG | Performance | 3.9 | 2.1 |
+| FemtoVG | Processes | 7.0 | 3.8 |
+
+Home target (< 2 % with the software renderer) met. The 7.2 % in the M1 entry was a cold first run: repeating it gave 3.6–3.8 %. Warm-up and window are shorter than the M1 runs (60 s each). Memory (PSS) is 25–27 MB with the software renderer, about 1 MB lower than before.
+Where time still goes on Processes (3.6 %): a full process read (about 160 processes, two small files each) and repainting rows whose numbers change every second. `perf` is not installed, so the split between sampling and painting was measured with temporary timing only (sampling 31 ms before the `/proc` reader, ~3 ms after).
+
+## Morning summary (run 3)
+- **R3-T1 fixed the wrong numbers.** Threads are no longer listed as processes (that, with shared memory counted per process, summed to 306 GB on this 16 GB machine). Memory per row is private memory from `statm`; CPU is a share of the whole PC (0–100). "x % of one core" and resident size are in the technical-details line. Invariant tests run on the real machine.
+- **R3-T2:** idle CPU on Home 3.8 → 0.7 %. Biggest win: sysinfo's per-process refresh cost ~32 ms a tick even when asked for nothing, so process data now comes from `/proc` directly (`core::procfs`).
+- **R3-T3:** the sidebar scrolls its main items when the window is short; History and Settings stay visible at 600 px. 960 px output is byte-identical.
+- **R3-T4:** Theme names now match `tokens.md`; tests cover the extra-shades table.
+- **R3-T5:** disk scanner only (see above).
+- Design-check scores unchanged (Main 1.3 %, Performance 4.7–6.2 %, Processes 0.1–0.6 %).
+- Deviations: several unit tests were written together with their code, not shown red first (listed per task). I did not run `cargo audit` / `cargo deny` or the AppImage build. Nothing was pushed or merged. No new dependencies.
+- Follow-ups for you: `docs/questions.md` (R3 entries).
+
+**Next:** M2 task 2 (Storage screen) on top of `core::scan`, plus drive totals and the `noatime` check.
+**Blockers:** none.
