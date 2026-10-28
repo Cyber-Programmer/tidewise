@@ -1,10 +1,10 @@
 #!/bin/bash
-# Tests for the pure functions in spikes/measure.sh, using the fake /proc tree in tests/fixtures/proc-tree.
+# Tests for the pure functions in tools/measure.sh, using the fake /proc tree in tests/fixtures/proc-tree.
 set -u
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/../.." && pwd)
-# shellcheck source=../../spikes/measure.sh
-source "$root/spikes/measure.sh"
+# shellcheck source=../../tools/measure.sh
+source "$root/tools/measure.sh"
 fake="$root/tests/fixtures/proc-tree"
 fail=0
 check() { # name expected actual

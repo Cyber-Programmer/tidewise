@@ -59,3 +59,6 @@ MEASURE_LABEL=tauri spikes/measure.sh "$PWD/spikes/tauri/target/release/tidewise
 MEASURE_LABEL=slint-software SLINT_BACKEND=winit-software spikes/measure.sh "$PWD/spikes/slint/target/release/tidewise-spike-slint"
 ```
 Numbers from one run: Slint FemtoVG 58 MB, Slint software 23 MB, Tauri 313 MB (3 processes), see the ADR for caveats.
+
+## 2026-10-28 — Overnight run 2 (plans)
+Plan T0: point the measure-script test at `tools/measure.sh` first (red), then `git mv` the script, port spike code into `crates/app` (binary `tidewise`), delete `spikes/`, drop the workspace `exclude`.

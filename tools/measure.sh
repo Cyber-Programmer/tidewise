@@ -1,7 +1,7 @@
 #!/bin/bash
 # Measure a GUI app for the UI-toolkit comparison.
 #
-#   spikes/measure.sh [--header] <command> [args...]
+#   tools/measure.sh [--header] <command> [args...]
 #
 # Starts the command, waits 60 s, then prints one CSV line:
 #   label,binary_bytes,pss_kb,cpu_percent,processes
