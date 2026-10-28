@@ -882,6 +882,33 @@ mod tests {
         assert!(folder_row("x", p, 1, RowKind::File, 183).old);
     }
 
+    /// Width of the folder map for a window this wide: window − sidebar − page padding − Biggest files
+    /// − gap − card padding and border (686 px at 1360, matching the screenshot).
+    fn map_width(window: f64) -> f64 {
+        window - 220.0 - 72.0 - 320.0 - 20.0 - 42.0
+    }
+
+    #[test]
+    fn the_fixture_has_a_short_wide_block_at_both_window_widths() {
+        let fx = crate::fixture::build();
+        let scan = tidewise_core::scan::scan(
+            &fx.root,
+            &tidewise_core::scan::ScanOptions::default(),
+            &tidewise_core::scan::Progress::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let blocks = blocks_from(&scan, 6);
+        let sizes: Vec<u64> = blocks.iter().map(|b| b.bytes).collect();
+        let rects = treemap(&sizes, 2.0);
+        for window in [1360.0, 1920.0] {
+            let found = rects.iter().zip(&blocks).any(|(r, _)| {
+                let (w, h) = (r.w * map_width(window), r.h * 340.0);
+                h >= 40.0 && h < crate::tiles::stacked_height(3, 16.0, false) && w >= 150.0
+            });
+            assert!(found, "no short, wide block at {window} px: {rects:?}");
+        }
+    }
+
     #[test]
     fn rows_say_what_clicking_them_does() {
         let p = Path::new("/x");

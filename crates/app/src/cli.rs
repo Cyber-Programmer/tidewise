@@ -8,6 +8,8 @@ pub struct Screenshot {
     /// Window height in pixels. The width is always 1360; the default height is 960. Artboards
     /// that grow with their content (e.g. Performance with details) are taller than that.
     pub height: u32,
+    /// Window width in pixels (default 1360).
+    pub width: u32,
     /// `--open <relative/path>`: the folder of the live Storage screen to show.
     pub open: Option<String>,
 }
@@ -74,6 +76,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             state,
             out: out_file,
             height,
+            width: 1360,
             open,
         });
     } else if state.is_some() || file.is_some() || open.is_some() {
@@ -147,6 +150,7 @@ mod tests {
                 state: Some("details".into()),
                 out: "a.png".into(),
                 height: 960,
+                width: 1360,
                 open: None
             })
         );
@@ -251,5 +255,21 @@ mod tests {
             storage_root(true, Some(std::ffi::OsStr::new("relative"))),
             None
         );
+    }
+
+    #[test]
+    fn width_can_be_set_and_must_be_sane() {
+        assert_eq!(
+            shot(&["--width", "1920"])
+                .unwrap()
+                .screenshot
+                .unwrap()
+                .width,
+            1920
+        );
+        assert_eq!(shot(&[]).unwrap().screenshot.unwrap().width, 1360);
+        for bad in ["abc", "0", "300", "99999"] {
+            assert!(shot(&["--width", bad]).is_err(), "{bad}");
+        }
     }
 }

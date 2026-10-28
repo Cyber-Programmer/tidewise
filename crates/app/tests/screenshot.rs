@@ -326,3 +326,11 @@ fn a_long_folder_scrolls_and_a_short_one_does_not() {
         assert!(!has_scrollbar(&short), "3 rows at {height} px should not");
     }
 }
+
+#[test]
+fn width_can_be_raised_for_wide_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("wide.png");
+    run_screen("storage", &out, &["--width", "1920"]);
+    assert_eq!(png_size(&fs::read(&out).unwrap()), (1920, 960));
+}

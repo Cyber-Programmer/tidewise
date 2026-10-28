@@ -18,6 +18,7 @@ mod procs;
 mod screenshot;
 mod storage;
 mod storage_live;
+mod tiles;
 mod view;
 
 #[cfg(test)]
