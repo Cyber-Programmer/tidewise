@@ -197,3 +197,12 @@ Red test on a disk-backed temp dir (under `target/test-tmp`, not tmpfs) reproduc
 Why CI failed: `Walk::dir` added `meta.blocks()*512` of every sub-folder to the total, but progress only counted files. On tmpfs (`/tmp` here) a folder has 0 blocks so the two agreed; on ext4 each folder is 4096 → exactly the 4096 difference. Red locally: both tests failed (204800 vs 208896; nested 98304 vs 118784). Green after adding folder blocks to progress.
 Other `tempdir()` users (distro, procfs, procs, appimage, screenshot tests) parse text/PNG and never depend on block counts; `scan` tests that do (du comparison, folder sizes) now use the disk-backed dir.
 Actions: checkout v7.0.1, rust-cache v2.9.3, rust-toolchain pinned to the `stable` branch commit (it has no version tags; `toolchain: stable` passed explicitly). Human checks GitHub after pushing.
+
+### R4-T1 done
+Threat model (`docs/security/threat-model.md`, B1–B6 with STRIDE tables; M3 rows marked TODO), `SECURITY.md`, `forbid(unsafe_code)` in core/adapters, `deny(unsafe_code)` in app (Slint's generated code compiled without any `allow`). `fuzz/` with six targets, 5 min each, 0 crashes (`docs/security/fuzzing.md`). No `.desktop` *file* parser exists yet; the `desktop` target covers the desktop-name list parser. `cargo install cargo-fuzz` done (pre-approved). `libfuzzer-sys` is only in `fuzz/` (own workspace), so `cargo deny` on the main workspace does not see it.
+
+### R4-T2 plan
+New `core::mounts` (parse `/proc/mounts`, octal escapes; longest mount wins; `noatime` → modified time, relatime/strictatime → access time) and `drive::drives_from` (skip pseudo fs and size 0, one entry per device, `/` first). Red commit with stubs first.
+
+### R4-T2 done
+Red: 9 mounts tests + 3 drive tests failed on assertions against stubs. The broken-input test then caught that "this line is not a mount" parsed as a mount; fixed by requiring numeric dump/pass fields. Decision: `relatime` counts as reliable for a six-month limit (it updates atime when older than mtime or a day old). Fixtures in `tests/fixtures/mounts/` (Arch relatime with `\040` and tmpfs/squashfs, btrfs noatime with Japanese paths, broken).
