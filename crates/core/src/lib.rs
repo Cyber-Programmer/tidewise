@@ -4,6 +4,7 @@
 pub mod diskstats;
 pub mod distro;
 pub mod drive;
+pub mod health;
 pub mod mounts;
 pub mod procfs;
 pub mod rates;
