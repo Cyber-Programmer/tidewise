@@ -903,7 +903,7 @@ mod tests {
         for window in [1360.0, 1920.0] {
             let found = rects.iter().zip(&blocks).any(|(r, _)| {
                 let (w, h) = (r.w * map_width(window), r.h * 340.0);
-                h >= 40.0 && h < crate::tiles::stacked_height(3, 16.0, false) && w >= 150.0
+                h >= 40.0 && h < crate::tiles::stacked_height(3, 16.0, false) as f64 && w >= 150.0
             });
             assert!(found, "no short, wide block at {window} px: {rects:?}");
         }
