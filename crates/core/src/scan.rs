@@ -275,6 +275,7 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::os::unix::fs::MetadataExt;
     use std::process::Command;
     use std::time::SystemTime;
 
@@ -549,5 +550,77 @@ mod tests {
         assert!(run(dir.path(), &ScanOptions::default())
             .other_drives
             .is_empty());
+    }
+
+    /// Folders `a` and `b` share one file by a hard link; `a/deep` has another inside itself.
+    fn linked_tree(dir: &Path) {
+        write(&dir.join("a/one.bin"), 100_000);
+        write(&dir.join("a/deep/two.bin"), 50_000);
+        write(&dir.join("b/three.bin"), 80_000);
+        write(&dir.join("c/x/y/four.bin"), 30_000);
+        fs::hard_link(dir.join("a/one.bin"), dir.join("b/shared.bin")).unwrap();
+        fs::hard_link(dir.join("a/deep/two.bin"), dir.join("a/deep/two-again.bin")).unwrap();
+    }
+
+    fn check_blocks_equal_opened_totals(dir: &Path) {
+        let r = run(dir, &ScanOptions::default());
+        for (child, bytes) in r.children.iter().filter(|c| c.0.is_dir()) {
+            let opened = run(child, &ScanOptions::default());
+            assert_eq!(
+                opened.total_bytes,
+                *bytes,
+                "{} as a block and when opened",
+                child.display()
+            );
+            check_blocks_equal_opened_totals(child);
+        }
+    }
+
+    #[test]
+    fn a_folders_size_is_the_total_shown_when_it_is_opened_at_every_depth() {
+        let dir = disk_tempdir();
+        linked_tree(dir.path());
+        check_blocks_equal_opened_totals(dir.path());
+    }
+
+    #[test]
+    fn a_link_shared_by_two_folders_is_in_both_but_once_in_the_total() {
+        let dir = disk_tempdir();
+        linked_tree(dir.path());
+        let r = run(dir.path(), &ScanOptions::default());
+        let shared = fs::metadata(dir.path().join("a/one.bin")).unwrap().blocks() * 512;
+        let own = fs::metadata(dir.path()).unwrap().blocks() * 512;
+        let sum: u64 = r.children.iter().map(|c| c.1).sum();
+        assert_eq!(
+            r.total_bytes + shared,
+            sum + own,
+            "shared once, the folder's own blocks added"
+        );
+        let (a, b) = (size_of(&r, "a"), size_of(&r, "b"));
+        let b_alone = run(&dir.path().join("b"), &ScanOptions::default());
+        assert_eq!(
+            b_alone.total_bytes, b,
+            "b counts the shared file even though a has it too"
+        );
+        assert!(a > shared && b > shared);
+    }
+
+    #[test]
+    fn the_total_counts_the_scanned_folders_own_blocks_like_du() {
+        let dir = disk_tempdir();
+        write(&dir.path().join("f.bin"), 10_000);
+        let r = run(dir.path(), &ScanOptions::default());
+        let du = Command::new("du")
+            .arg("-sB1")
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        let du: u64 = String::from_utf8_lossy(&du.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(r.total_bytes, du);
     }
 }
