@@ -4,36 +4,39 @@
 //! Real today: drive fullness. Junk is a stub until the cleaner exists (M3): callers pass `None`
 //! and no points are taken off. Services and updates are not measured yet either.
 
-const GB: f64 = 1_000_000_000.0;
-
 /// −2 points for every 5 % above 60 % used (whole steps only).
-pub fn disk_points(_used_fraction: f64) -> u32 {
-    0
+pub fn disk_points(used_fraction: f64) -> u32 {
+    if !used_fraction.is_finite() {
+        return 0;
+    }
+    // Whole tenths of a percent, so 0.65 is exactly 650 and not 649.999….
+    let tenths = (used_fraction.clamp(0.0, 1.0) * 1000.0).round() as u32;
+    tenths.saturating_sub(600) / 50 * 2
 }
 
 /// −1 point per 2.5 GB of junk, at most −8.
-pub fn junk_points(_junk_bytes: u64) -> u32 {
-    0
+pub fn junk_points(junk_bytes: u64) -> u32 {
+    (junk_bytes / 2_500_000_000).min(8) as u32
 }
 
 /// 100 minus the points, never below 0.
-pub fn score(_points: &[u32]) -> u32 {
-    0
+pub fn score(points: &[u32]) -> u32 {
+    let lost = points.iter().fold(0u32, |sum, p| sum.saturating_add(*p));
+    100u32.saturating_sub(lost)
 }
 
 /// The word under the ring.
-pub fn tag(_score: u32) -> &'static str {
-    ""
+pub fn tag(score: u32) -> &'static str {
+    match score {
+        80.. => "Good shape",
+        60..=79 => "Could be better",
+        _ => "Needs attention",
+    }
 }
 
 /// Is one app using enough memory to be worth a suggestion? From 1 GB up.
-pub fn is_big_memory(_app_bytes: u64) -> bool {
-    false
-}
-
-/// Bytes in a "GB" as the screens write it (decimal).
-pub const fn gb() -> f64 {
-    GB
+pub fn is_big_memory(app_bytes: u64) -> bool {
+    app_bytes >= 1_000_000_000
 }
 
 #[cfg(test)]
