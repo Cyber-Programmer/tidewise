@@ -1,0 +1,440 @@
+// The Storage screen (docs/design/screens/Storage.dc.html).
+import { Theme } from "theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct DriveTab { label: string, on: bool }
+export struct DriveSeg { start: float, frac: float, hue: int }
+export struct DriveLegend { hue: int, label: string, value: string }
+// x, y, w, h are fractions of the map. `size-tier`: 0 biggest … 3 smallest (type size and padding).
+export struct MapTile { name: string, size: string, note: string, hue: int, x: float, y: float, w: float, h: float, tier: int }
+export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool }
+export struct BigRow { name: string, meta: string, size: string }
+
+export global StorageState {
+    in property <[DriveTab]> drives;
+    in property <string> drive-name;
+    in property <string> used-text;
+    in property <string> free-text;
+    in property <string> bar-label;
+    in property <[DriveSeg]> segs;
+    in property <[DriveLegend]> legend;
+    // 0 ready, 1 scanning, 2 error, 3 nothing found
+    in property <int> state: 0;
+    in property <string> message;
+    in property <string> map-title;
+    in property <[MapTile]> tiles;
+    in property <string> hint;
+    in property <string> hint-button;
+    in property <bool> in-folder: false;
+    in property <string> folder-parent;
+    in property <string> folder-title;
+    in property <string> folder-help;
+    in property <[FolderRow]> rows;
+    in property <string> trash-label;
+    in property <bool> trash-enabled: true;
+    in property <[BigRow]> big;
+    in property <string> big-note;
+    callback pick-drive(int);
+    callback open-block(int);
+    callback open-hint();
+    callback go-root();
+    callback toggle(int);
+    callback trash-selected();
+    callback trash-one(int);
+    callback cancel-scan();
+}
+
+component Card inherits Rectangle {
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+}
+
+component Mono inherits Text {
+    font-family: Theme.mono;
+    vertical-alignment: center;
+}
+
+component Check inherits Rectangle {
+    in property <bool> on;
+    width: 17px;
+    height: 17px;
+    border-radius: 4px;
+    background: root.on ? Theme.accent : Theme.bg;
+    border-width: root.on ? 0px : 1.5px;
+    border-color: Theme.text-3;
+    if root.on: Image {
+        source: @image-url("icons/done.svg");
+        width: 13px;
+        height: 13px;
+        x: 2px;
+        y: 2px;
+        colorize: Theme.on-accent;
+    }
+}
+
+component DriveSwitch inherits Rectangle {
+    width: row.preferred-width + 2px;
+    height: 46px;
+    background: Theme.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border;
+    row := HorizontalLayout {
+        padding: 4px;
+        spacing: 6px;
+        alignment: start;
+        for d[i] in StorageState.drives: Rectangle {
+            height: 36px;
+            width: label.preferred-width + 28px;
+            border-radius: 9px;
+            background: d.on ? Theme.segment-on : transparent;
+            accessible-role: button;
+            accessible-label: d.label;
+            accessible-checked: d.on;
+            accessible-action-default => { StorageState.pick-drive(i); }
+            label := Text {
+                x: 14px;
+                text: d.label;
+                color: d.on ? Theme.text : Theme.text-2;
+                font-size: Theme.size-small;
+                font-weight: d.on ? 600 : 400;
+                vertical-alignment: center;
+            }
+            TouchArea { clicked => { StorageState.pick-drive(i); } }
+        }
+    }
+}
+
+component Tile inherits Rectangle {
+    in property <MapTile> t;
+    in property <length> map-w;
+    in property <length> map-h;
+    callback clicked();
+    property <length> pad: t.tier >= 3 ? 12px : 14px;
+    property <bool> gap-left: t.x > 0.001;
+    property <bool> gap-top: t.y > 0.001;
+    x: t.x * map-w + (gap-left ? 3px : 0px);
+    y: t.y * map-h + (gap-top ? 3px : 0px);
+    width: t.w * map-w - (gap-left ? 3px : 0px) - (t.x + t.w < 0.999 ? 3px : 0px);
+    height: t.h * map-h - (gap-top ? 3px : 0px) - (t.y + t.h < 0.999 ? 3px : 0px);
+    border-radius: 12px;
+    background: Theme.tile-bg(t.hue);
+    accessible-role: button;
+    accessible-label: t.name + ", " + t.size;
+    accessible-action-default => { root.clicked(); }
+    Text {
+        x: root.pad;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        text: t.name;
+        color: Theme.text;
+        font-size: t.tier >= 3 ? 13px : 14px;
+        font-weight: 600;
+        overflow: elide;
+    }
+    VerticalLayout {
+        x: root.pad;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: parent.height - 2 * root.pad;
+        alignment: end;
+        Mono {
+            text: t.size;
+            color: Theme.text;
+            font-size: t.tier == 0 ? 24px : (t.tier == 1 ? 22px : (t.tier == 2 ? 20px : 16px));
+            overflow: elide;
+        }
+        if t.note != "": Text {
+            text: t.note;
+            color: Theme.tile-note(t.hue);
+            font-size: Theme.size-caption;
+            line-height-factor: 1.35;
+            overflow: elide;
+        }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component Crumb inherits HorizontalLayout {
+    in property <string> parent-label;
+    in property <string> title;
+    in property <bool> link: false;
+    callback clicked();
+    spacing: 6px;
+    alignment: start;
+    min-height: root.link ? 32px : 22px;
+    padding-left: root.link ? 4px : 0px;
+    Rectangle {
+        width: p.preferred-width;
+        p := Text { text: root.parent-label; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
+        accessible-role: button;
+        accessible-label: root.parent-label;
+        accessible-action-default => { root.clicked(); }
+        if root.link: TouchArea { clicked => { root.clicked(); } }
+    }
+    Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
+    Text { text: root.title; color: Theme.text; font-size: Theme.size-body; font-weight: 600; vertical-alignment: center; }
+}
+
+export component StorageScreen inherits Rectangle {
+    background: Theme.bg;
+    VerticalLayout {
+        padding-top: 26px;
+        padding-bottom: 40px;
+        padding-left: 36px;
+        padding-right: 36px;
+        spacing: 20px;
+        alignment: start;
+        // Header with the drive switcher
+        HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                spacing: 6px;
+                Text { text: "Storage"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                Text { text: "What's taking space, and what's safe to clear."; color: Theme.text-2; font-size: Theme.size-body; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { alignment: end; DriveSwitch { } }
+        }
+        // Drive bar
+        Card {
+            border-radius: Theme.radius-hero;
+            VerticalLayout {
+                padding: 26px;
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 22px;
+                spacing: 12px;
+                HorizontalLayout {
+                    Text { text: StorageState.drive-name; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    HorizontalLayout {
+                        spacing: 5px;
+                        Mono { text: StorageState.used-text; color: Theme.text; font-size: 20px; }
+                        Text { text: "used ·"; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
+                        Text { text: StorageState.free-text; color: Theme.text; font-size: Theme.size-body; vertical-alignment: center; }
+                    }
+                }
+                bar := Rectangle {
+                    height: 18px;
+                    preferred-width: 100px;
+                    border-radius: 6px;
+                    background: Theme.drive-track;
+                    clip: true;
+                    accessible-role: image;
+                    accessible-label: StorageState.bar-label;
+                    for s[i] in StorageState.segs: Rectangle {
+                        x: s.start * bar.width + i * 2px;
+                        width: s.frac * bar.width;
+                        background: Theme.seg-color(s.hue);
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 20px;
+                    alignment: start;
+                    for l in StorageState.legend: HorizontalLayout {
+                        spacing: 7px;
+                        Rectangle { width: 10px; height: 10px; y: (parent.height - self.height) / 2; border-radius: 3px; background: Theme.seg-color(l.hue); }
+                        Text { text: l.label; color: Theme.nav-text; font-size: Theme.size-small; vertical-alignment: center; }
+                        Mono { text: l.value; color: Theme.text; font-size: Theme.size-small; font-weight: 500; }
+                    }
+                }
+            }
+        }
+        // Folder map and biggest files
+        HorizontalLayout {
+            spacing: 20px;
+            Card {
+                border-radius: Theme.radius-card;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 14px;
+                    alignment: start;
+                    if StorageState.state == 1: VerticalLayout {
+                        spacing: 10px;
+                        height: 340px;
+                        alignment: center;
+                        Text { text: "Looking at your files…"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; horizontal-alignment: center; }
+                        Text { text: StorageState.message; color: Theme.text-2; font-size: Theme.size-small; horizontal-alignment: center; }
+                        HorizontalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 96px;
+                                height: 38px;
+                                border-radius: Theme.radius-button;
+                                background: Theme.control-bg;
+                                border-width: 1px;
+                                border-color: Theme.control-border;
+                                accessible-role: button;
+                                accessible-label: "Stop looking";
+                                accessible-action-default => { StorageState.cancel-scan(); }
+                                Text { text: "Stop"; color: Theme.text; font-size: Theme.size-small; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { StorageState.cancel-scan(); } }
+                            }
+                        }
+                    }
+                    if StorageState.state == 2 || StorageState.state == 3: VerticalLayout {
+                        spacing: 8px;
+                        height: 340px;
+                        alignment: center;
+                        Text { text: StorageState.state == 2 ? "Couldn't look at this drive" : "Nothing big here"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; horizontal-alignment: center; }
+                        Text { text: StorageState.message; color: Theme.text-2; font-size: Theme.size-small; horizontal-alignment: center; wrap: word-wrap; }
+                    }
+                    if StorageState.state == 0 && !StorageState.in-folder: VerticalLayout {
+                        spacing: 14px;
+                        HorizontalLayout {
+                            Crumb { parent-label: StorageState.drive-name; title: StorageState.map-title; }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text { text: "Click a block to look inside"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                        }
+                        map := Rectangle {
+                            height: 340px;
+                            preferred-width: 100px;
+                            for tl[i] in StorageState.tiles: Tile {
+                                t: tl;
+                                map-w: map.width;
+                                map-h: map.height;
+                                clicked => { StorageState.open-block(i); }
+                            }
+                        }
+                        if StorageState.hint != "": Rectangle {
+                            background: Theme.warn-banner-bg;
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Theme.warn-tint;
+                            height: 70px;
+                            hint-row := HorizontalLayout {
+                                padding-top: 14px;
+                                padding-bottom: 14px;
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                spacing: 14px;
+                                Image { source: @image-url("icons/info.svg"); width: 20px; height: 20px; y: (parent.height - self.height) / 2; colorize: Theme.warn; }
+                                Text { text: StorageState.hint; color: Theme.warn-note; font-size: Theme.size-small; wrap: word-wrap; vertical-alignment: center; line-height-factor: 1.2; horizontal-stretch: 1; }
+                                Rectangle {
+                                    width: btn-label.preferred-width + 28px;
+                                    height: 38px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: Theme.radius-button;
+                                    background: Theme.warn-button-bg;
+                                    border-width: 1px;
+                                    border-color: Theme.warn-button-border;
+                                    accessible-role: button;
+                                    accessible-label: StorageState.hint-button;
+                                    accessible-action-default => { StorageState.open-hint(); }
+                                    btn-label := Text { x: 14px; text: StorageState.hint-button; color: Theme.warn-button-text; font-size: Theme.size-small; font-weight: 600; vertical-alignment: center; }
+                                    TouchArea { clicked => { StorageState.open-hint(); } }
+                                }
+                            }
+                        }
+                    }
+                    if StorageState.state == 0 && StorageState.in-folder: VerticalLayout {
+                        spacing: 14px;
+                        Crumb { parent-label: StorageState.folder-parent; title: StorageState.folder-title; link: true; clicked => { StorageState.go-root(); } }
+                        Text { text: StorageState.folder-help; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+                        Rectangle {
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            clip: true;
+                            height: StorageState.rows.length * 56px + 2px;
+                            VerticalLayout {
+                                for r[i] in StorageState.rows: Rectangle {
+                                    height: 56px;
+                                    background: touch.has-hover ? Theme.control-bg : Theme.surface-sunk;
+                                    accessible-role: checkbox;
+                                    accessible-label: r.name;
+                                    accessible-checked: r.checked;
+                                    accessible-action-default => { StorageState.toggle(i); }
+                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                                    Check { x: 14px; y: (parent.height - self.height) / 2; on: r.checked; }
+                                    VerticalLayout {
+                                        x: 43px;
+                                        width: parent.width - 43px - 110px;
+                                        alignment: center;
+                                        spacing: 2px;
+                                        Text { text: r.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
+                                        Text { text: r.meta; color: r.old ? Theme.warn-note : Theme.text-3; font-size: Theme.size-caption; overflow: elide; }
+                                    }
+                                    Mono { x: parent.width - 100px; width: 86px; text: r.size; color: Theme.text-soft; font-size: Theme.size-small; horizontal-alignment: right; }
+                                    touch := TouchArea { clicked => { StorageState.toggle(i); } }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text { text: "Goes to Trash first. Empty the Trash from Clean up to get the space back."; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                            Rectangle {
+                                horizontal-stretch: 0;
+                                width: go-label.preferred-width + 36px;
+                                height: 42px;
+                                border-radius: 11px;
+                                background: StorageState.trash-enabled ? Theme.accent : Theme.control-border;
+                                accessible-role: button;
+                                accessible-label: StorageState.trash-label;
+                                accessible-enabled: StorageState.trash-enabled;
+                                accessible-action-default => { StorageState.trash-selected(); }
+                                go-label := Text { x: 18px; text: StorageState.trash-label; color: StorageState.trash-enabled ? Theme.on-accent : Theme.text-3; font-size: Theme.size-body; font-weight: 700; vertical-alignment: center; }
+                                TouchArea { enabled: StorageState.trash-enabled; clicked => { StorageState.trash-selected(); } }
+                            }
+                        }
+                    }
+                }
+            }
+            Card {
+                width: 320px;
+                border-radius: Theme.radius-card;
+                VerticalLayout {
+                    alignment: start;
+                    Rectangle {
+                        height: 54px;
+                        Text { x: 18px; y: 18px; text: "Biggest files"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                    }
+                    for b[i] in StorageState.big: VerticalLayout {
+                        Rectangle { height: 1px; background: Theme.row-divider; }
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            padding-top: 11px;
+                            padding-bottom: 11px;
+                            spacing: 12px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 2px;
+                                Text { text: b.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
+                                Text { text: b.meta; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
+                            }
+                            Mono { text: b.size; width: 47px; color: Theme.text; font-size: Theme.size-small; horizontal-alignment: right; }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 36px;
+                                    height: 36px;
+                                    border-radius: 9px;
+                                    border-width: 1px;
+                                    border-color: Theme.control-border;
+                                    background: Theme.control-bg;
+                                    accessible-role: button;
+                                    accessible-label: "Move " + b.name + " to Trash";
+                                    accessible-action-default => { StorageState.trash-one(i); }
+                                    Image { source: @image-url("icons/trash.svg"); width: 16px; height: 16px; x: 10px; y: 10px; colorize: Theme.nav-text; }
+                                    TouchArea { clicked => { StorageState.trash-one(i); } }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: note.preferred-height + 28px;
+                        Rectangle { height: 1px; background: Theme.row-divider; }
+                        note := Text { x: 18px; y: 12px; width: parent.width - 36px; text: StorageState.big-note; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.4; }
+                    }
+                }
+            }
+        }
+    }
+}

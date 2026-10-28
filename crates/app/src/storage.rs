@@ -213,6 +213,199 @@ pub fn trash_label(count: usize, bytes: u64) -> String {
     format!("Move {count} to Trash · {}", fmt_gb1(bytes))
 }
 
+/// Not opened for this many days counts as "not opened in 6 months".
+pub const OLD_DAYS: u64 = 183;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    Ready,
+    Scanning,
+    Error,
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tile {
+    pub name: String,
+    pub size: String,
+    pub note: String,
+    pub hue: i32,
+    pub rect: Rect,
+    pub tier: i32,
+    pub path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FolderRow {
+    pub name: String,
+    pub meta: String,
+    pub size: String,
+    pub old: bool,
+    pub checked: bool,
+    pub bytes: u64,
+    pub path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BigFile {
+    pub name: String,
+    pub meta: String,
+    pub size: String,
+    pub path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Folder {
+    pub parent: String,
+    pub title: String,
+    pub help: String,
+    pub rows: Vec<FolderRow>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageData {
+    pub drives: Vec<(String, bool)>,
+    pub drive_name: String,
+    pub used: String,
+    pub free: String,
+    pub bar_label: String,
+    /// (share of the drive, drive-bar colour number)
+    pub segs: Vec<(f64, i32)>,
+    pub legend: Vec<(i32, String, String)>,
+    pub state: State,
+    pub message: String,
+    pub map_title: String,
+    pub tiles: Vec<Tile>,
+    pub hint: Option<(String, String)>,
+    pub folder: Option<Folder>,
+    pub big: Vec<BigFile>,
+    pub big_note: String,
+}
+
+/// Type size and padding step of a block, from its share of the map.
+pub fn tile_tier(share: f64) -> i32 {
+    match share {
+        s if s >= 0.33 => 0,
+        s if s >= 0.2 => 1,
+        s if s >= 0.12 => 2,
+        _ => 3,
+    }
+}
+
+/// Colour number of each block: Downloads is amber and "Other" grey, the rest cycle.
+pub fn assign_hues(names: &[&str]) -> Vec<i32> {
+    let mut cycle = [0, 2, 3, 5].into_iter().cycle();
+    names
+        .iter()
+        .map(|n| match *n {
+            "Downloads" => 1,
+            "Other" => 4,
+            _ => cycle.next().unwrap_or(0),
+        })
+        .collect()
+}
+
+/// What kind of thing this is, in plain words.
+pub fn kind_of(name: &str, is_dir: bool) -> &'static str {
+    if is_dir {
+        return "Folder";
+    }
+    let lower = name.to_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    match ext {
+        "iso" | "img" | "deb" | "rpm" | "appimage" => "Installer",
+        "qcow2" | "vdi" | "vmdk" | "vhd" => "Virtual machine disk",
+        "zip" | "gz" | "tgz" | "xz" | "bz2" | "7z" | "rar" | "tar" | "zst" => "Archive",
+        "mkv" | "mp4" | "mov" | "avi" | "webm" => "Video",
+        "jpg" | "jpeg" | "png" | "raw" | "heic" => "Picture",
+        _ => "File",
+    }
+}
+
+/// One line of the drill-in list. Things not opened in six months start ticked.
+pub fn folder_row(
+    name: &str,
+    path: &Path,
+    bytes: u64,
+    is_dir: bool,
+    days_unused: u64,
+) -> FolderRow {
+    let old = days_unused >= OLD_DAYS;
+    let kind = kind_of(name, is_dir);
+    let meta = match (old, age_amount(days_unused)) {
+        (true, Some(amount)) => format!("{kind} · not opened in {amount}"),
+        _ => format!("{kind} · opened {}", age_ago(days_unused)),
+    };
+    FolderRow {
+        name: name.to_string(),
+        meta,
+        size: fmt_gb1(bytes),
+        old,
+        checked: old,
+        bytes,
+        path: Some(path.to_path_buf()),
+    }
+}
+
+/// How many rows are ticked and how many bytes they hold.
+pub fn selection(rows: &[FolderRow]) -> (usize, u64) {
+    rows.iter()
+        .filter(|r| r.checked)
+        .fold((0, 0), |(n, b), r| (n + 1, b + r.bytes))
+}
+
+/// The drive switcher's label: `Main drive · 476 GB`, `Data · 2 TB`.
+pub fn drive_label(mount_point: &str, name: &str, total: u64) -> String {
+    let who = if mount_point == "/" {
+        "Main drive".to_string()
+    } else {
+        Path::new(mount_point)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| name.to_string())
+    };
+    format!("{who} · {}", fmt_size(total))
+}
+
+/// Drive bar from what we can measure: the part of the drive holding the scanned folder, the rest
+/// of what is used, and (implicitly) the free space. `scanned` is None while measuring.
+pub fn drive_bar(
+    total: u64,
+    used: u64,
+    scanned: Option<(&str, u64)>,
+) -> (Vec<(f64, i32)>, Vec<(i32, String, String)>) {
+    if total == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let share = |b: u64| (b as f64 / total as f64).clamp(0.0, 1.0);
+    let Some((label, files)) = scanned else {
+        return (vec![(share(used), 5)], Vec::new());
+    };
+    let files = files.min(used);
+    let rest = used - files;
+    let mut segs = vec![(share(files), 0)];
+    let mut legend = vec![(0, label.to_string(), fmt_size(files))];
+    if rest > 0 {
+        segs.push((share(rest), 1));
+        legend.push((1, "Apps & system".into(), fmt_size(rest)));
+    }
+    (segs, legend)
+}
+
+/// Spoken version of the bar, for screen readers.
+pub fn bar_label(legend: &[(i32, String, String)], free: &str) -> String {
+    let parts: Vec<_> = legend
+        .iter()
+        .map(|(_, l, v)| format!("{} {v}", l.to_lowercase()))
+        .collect();
+    format!(
+        "Drive usage: {}{}free {free}",
+        parts.join(", "),
+        if parts.is_empty() { "" } else { ", " }
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +569,108 @@ mod tests {
         assert_eq!(trash_label(6, 22_000_000_000), "Move 6 to Trash · 22.0 GB");
         assert_eq!(trash_label(1, 6_100_000_000), "Move 1 to Trash · 6.1 GB");
         assert_eq!(trash_label(0, 0), "Nothing ticked");
+    }
+
+    #[test]
+    fn block_size_steps_follow_the_share_of_the_map() {
+        assert_eq!(tile_tier(0.366), 0);
+        assert_eq!(tile_tier(0.268), 1);
+        assert_eq!(tile_tier(0.148), 2);
+        assert_eq!(tile_tier(0.085), 3);
+        assert_eq!(tile_tier(0.33), 0);
+        assert_eq!(tile_tier(0.2), 1);
+        assert_eq!(tile_tier(0.12), 2);
+    }
+
+    #[test]
+    fn downloads_is_amber_other_is_grey_the_rest_cycle() {
+        assert_eq!(
+            assign_hues(&[
+                "Steam",
+                "Downloads",
+                "Videos",
+                "Pictures",
+                "Other",
+                "Documents"
+            ]),
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(assign_hues(&["a", "b", "c", "d", "e"]), [0, 2, 3, 5, 0]);
+    }
+
+    #[test]
+    fn rows_not_opened_for_six_months_start_ticked() {
+        let p = Path::new("/home/ali/Downloads/ubuntu.iso");
+        let old = folder_row("ubuntu.iso", p, 6_100_000_000, false, 245);
+        assert!(old.old && old.checked);
+        assert_eq!(old.meta, "Installer · not opened in 8 months");
+        assert_eq!(old.size, "6.1 GB");
+        let young = folder_row("datasets", p, 12_400_000_000, true, 1);
+        assert!(!young.old && !young.checked);
+        assert_eq!(young.meta, "Folder · opened yesterday");
+        // The boundary: 182 days is still recent, 183 is old.
+        assert!(!folder_row("x", p, 1, false, 182).old);
+        assert!(folder_row("x", p, 1, false, 183).old);
+    }
+
+    #[test]
+    fn the_selection_counts_only_ticked_rows() {
+        let p = Path::new("/x");
+        let mut rows = vec![
+            folder_row("a", p, 5, false, 400),
+            folder_row("b", p, 7, false, 1),
+            folder_row("c", p, 11, false, 400),
+        ];
+        assert_eq!(selection(&rows), (2, 16));
+        rows[1].checked = true;
+        rows[0].checked = false;
+        assert_eq!(selection(&rows), (2, 18));
+        assert_eq!(selection(&[]), (0, 0));
+    }
+
+    #[test]
+    fn drive_labels_name_the_main_drive_and_others_by_folder() {
+        assert_eq!(
+            drive_label("/", "/dev/nvme0n1p2", 476_000_000_000),
+            "Main drive · 476 GB"
+        );
+        assert_eq!(
+            drive_label("/run/media/ali/Data", "/dev/sdb1", 2_000_000_000_000),
+            "Data · 2 TB"
+        );
+        assert_eq!(drive_label("/", "x", 0), "Main drive · 0 MB");
+    }
+
+    #[test]
+    fn the_drive_bar_splits_used_space_and_never_exceeds_the_drive() {
+        let (segs, legend) = drive_bar(1000, 800, Some(("Your files", 300)));
+        assert_eq!(segs, [(0.3, 0), (0.5, 1)]);
+        assert_eq!(legend.len(), 2);
+        // A scan can see more than the drive reports (hard links, snapshots): clamp, never overflow.
+        let (segs, _) = drive_bar(1000, 800, Some(("Your files", 5000)));
+        assert!(segs.iter().map(|s| s.0).sum::<f64>() <= 0.8 + 1e-9);
+        assert_eq!(drive_bar(1000, 800, None).0, [(0.8, 5)]);
+        assert!(drive_bar(0, 0, None).0.is_empty());
+    }
+
+    #[test]
+    fn the_spoken_bar_ends_with_the_free_space() {
+        let (_, legend) = drive_bar(
+            1_000_000_000_000,
+            800_000_000_000,
+            Some(("Your files", 300_000_000_000)),
+        );
+        let text = bar_label(&legend, "95 GB");
+        assert!(text.starts_with("Drive usage: your files 300 GB"), "{text}");
+        assert!(text.ends_with("free 95 GB"), "{text}");
+    }
+
+    #[test]
+    fn kinds_are_plain_words() {
+        assert_eq!(kind_of("a.ISO", false), "Installer");
+        assert_eq!(kind_of("disk.qcow2", false), "Virtual machine disk");
+        assert_eq!(kind_of("x.tar.gz", false), "Archive");
+        assert_eq!(kind_of("x.iso", true), "Folder");
+        assert_eq!(kind_of("noext", false), "File");
     }
 }

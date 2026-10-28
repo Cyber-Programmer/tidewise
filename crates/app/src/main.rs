@@ -152,6 +152,14 @@ fn show_demo(
             ctl.refresh(ui);
             ui.global::<ProcState>().set_details(view.details);
         }
+        "storage" => {
+            let downloads = match state {
+                None => false,
+                Some("downloads") => true,
+                Some(other) => return Err(format!("unknown storage state '{other}'").into()),
+            };
+            view::apply_storage(ui, &demo::storage(downloads));
+        }
         "home" => {
             if let Some(other) = state {
                 return Err(format!("unknown home state '{other}'").into());

@@ -6,6 +6,8 @@ use crate::chart;
 use crate::home::{self, HomeData};
 use crate::perf::{PerfData, View};
 use crate::procs::{self, ProcData};
+use crate::storage::{self, StorageData};
+use crate::{BigRow, DriveLegend, DriveSeg, DriveTab, FolderRow, MapTile, StorageState};
 use crate::{
     Fact, HomeChip, HomeState, HomeSuggestion, HomeTile, MainWindow, PerfMetric, PerfState,
     ProcRow, ProcState, TopRow,
@@ -285,4 +287,110 @@ mod tests {
     fn chart_width_stops_growing_at_the_content_limit() {
         assert_eq!(chart_width(3000.0), 1120.0 - 330.0);
     }
+}
+
+fn list<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
+    ModelRc::new(VecModel::from(v))
+}
+
+/// Copy the Storage data into `StorageState`.
+pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
+    let st = ui.global::<StorageState>();
+    st.set_drives(list(
+        d.drives
+            .iter()
+            .map(|(l, on)| DriveTab {
+                label: l.as_str().into(),
+                on: *on,
+            })
+            .collect(),
+    ));
+    st.set_drive_name(d.drive_name.as_str().into());
+    st.set_used_text(d.used.as_str().into());
+    st.set_free_text(d.free.as_str().into());
+    st.set_bar_label(d.bar_label.as_str().into());
+    let mut start = 0.0;
+    st.set_segs(list(
+        d.segs
+            .iter()
+            .map(|(f, h)| {
+                let seg = DriveSeg {
+                    start: start as f32,
+                    frac: *f as f32,
+                    hue: *h,
+                };
+                start += f;
+                seg
+            })
+            .collect(),
+    ));
+    st.set_legend(list(
+        d.legend
+            .iter()
+            .map(|(h, l, v)| DriveLegend {
+                hue: *h,
+                label: l.as_str().into(),
+                value: v.as_str().into(),
+            })
+            .collect(),
+    ));
+    st.set_state(match d.state {
+        storage::State::Ready => 0,
+        storage::State::Scanning => 1,
+        storage::State::Error => 2,
+        storage::State::Empty => 3,
+    });
+    st.set_message(d.message.as_str().into());
+    st.set_map_title(d.map_title.as_str().into());
+    st.set_tiles(list(
+        d.tiles
+            .iter()
+            .map(|t| MapTile {
+                name: t.name.as_str().into(),
+                size: t.size.as_str().into(),
+                note: t.note.as_str().into(),
+                hue: t.hue,
+                x: t.rect.x as f32,
+                y: t.rect.y as f32,
+                w: t.rect.w as f32,
+                h: t.rect.h as f32,
+                tier: t.tier,
+            })
+            .collect(),
+    ));
+    let (hint, button) = d.hint.clone().unwrap_or_default();
+    st.set_hint(hint.into());
+    st.set_hint_button(button.into());
+    st.set_in_folder(d.folder.is_some());
+    if let Some(f) = &d.folder {
+        st.set_folder_parent(f.parent.as_str().into());
+        st.set_folder_title(f.title.as_str().into());
+        st.set_folder_help(f.help.as_str().into());
+        st.set_rows(list(
+            f.rows
+                .iter()
+                .map(|r| FolderRow {
+                    name: r.name.as_str().into(),
+                    meta: r.meta.as_str().into(),
+                    size: r.size.as_str().into(),
+                    old: r.old,
+                    checked: r.checked,
+                })
+                .collect(),
+        ));
+        let (count, bytes) = storage::selection(&f.rows);
+        st.set_trash_label(storage::trash_label(count, bytes).into());
+        st.set_trash_enabled(count > 0);
+    }
+    st.set_big(list(
+        d.big
+            .iter()
+            .map(|b| BigRow {
+                name: b.name.as_str().into(),
+                meta: b.meta.as_str().into(),
+                size: b.size.as_str().into(),
+            })
+            .collect(),
+    ));
+    st.set_big_note(d.big_note.as_str().into());
 }

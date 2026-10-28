@@ -1,13 +1,14 @@
 #!/bin/bash
 # Render every reference image of a screen in demo mode and print its LAYOUT MISMATCH.
-#   tools/design_check.sh performance|processes|home
+#   tools/design_check.sh performance|processes|home|storage
 set -eu
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 case "${1:-}" in
   performance) images="Performance: Performance--details:details Performance--memory:memory Performance--memory-details:memory-details Performance--network:network Performance--disk:disk" ; screen=performance ;;
   processes) images="Processes: Processes--details:details Processes--apps:apps Processes--protected-selected:protected-selected" ; screen=processes ;;
   home) images="Main:" ; screen=home ;;
-  *) echo "usage: $0 performance|processes|home" >&2; exit 2 ;;
+  storage) images="Storage: Storage--downloads:downloads" ; screen=storage ;;
+  *) echo "usage: $0 performance|processes|home|storage" >&2; exit 2 ;;
 esac
 out=target/design-check
 mkdir -p "$out"

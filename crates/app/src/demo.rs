@@ -4,6 +4,7 @@
 use crate::home::{Apps, HomeData, Hue, Icon, Scan, Suggestion, Tile};
 use crate::perf::{Fact, Metric, PerfData, TopRow};
 use crate::procs::{Kind, ProcData, Row};
+use crate::storage::StorageData;
 
 /// The artboard's `series(seed, base, amp, spikeAt, spikeH)`: 60 samples on a 0–100 scale.
 pub fn series(seed: f64, base: f64, amp: f64, spike_at: &[usize], spike_h: f64) -> Vec<f64> {
@@ -224,6 +225,140 @@ pub fn home() -> HomeData {
             sub: "Tidewise finds apps from every place Linux installs them, so you can remove them the same way.".into(),
             chips: vec![("System".into(), 112), ("Flatpak".into(), 24), ("AppImage".into(), 5), ("Snap".into(), 2)],
         }),
+    }
+}
+
+/// The Storage artboard's sample data. `downloads` shows the drill-in (Storage--downloads.png).
+pub fn storage(downloads: bool) -> StorageData {
+    use crate::storage::{BigFile, Folder, FolderRow, Rect, State, Tile};
+    let r = |x, y, w, h| Rect { x, y, w, h };
+    let tile = |name: &str, size: &str, note: &str, hue, rect, tier| Tile {
+        name: name.into(),
+        size: size.into(),
+        note: note.into(),
+        hue,
+        rect,
+        tier,
+        path: None,
+    };
+    let legend = |hue, label: &str, value: &str| (hue, label.to_string(), value.to_string());
+    let row = |name: &str, meta: &str, gb: f64, old: bool, checked: bool| FolderRow {
+        name: name.into(),
+        meta: meta.into(),
+        size: format!("{gb:.1} GB"),
+        old,
+        checked,
+        bytes: (gb * 1e9) as u64,
+        path: None,
+    };
+    let big = |name: &str, meta: &str, size: &str| BigFile {
+        name: name.into(),
+        meta: meta.into(),
+        size: size.into(),
+        path: None,
+    };
+    let rows = vec![
+        row(
+            "datasets",
+            "Folder \u{b7} opened yesterday",
+            12.4,
+            false,
+            false,
+        ),
+        row(
+            "old-vm-disk.qcow2",
+            "Virtual machine disk \u{b7} not opened in 1 year",
+            6.3,
+            true,
+            true,
+        ),
+        row(
+            "ubuntu-24.04-desktop-amd64.iso",
+            "Installer \u{b7} not opened in 8 months",
+            6.1,
+            true,
+            true,
+        ),
+        row(
+            "vacation-photos.zip",
+            "Archive \u{b7} not opened in 9 months",
+            4.2,
+            true,
+            true,
+        ),
+        row(
+            "Setup files (.deb, .rpm) \u{b7} 23 files",
+            "Installers already used \u{b7} 6+ months",
+            3.9,
+            true,
+            true,
+        ),
+        row(
+            "lecture-recordings",
+            "Folder \u{b7} opened 3 weeks ago",
+            3.6,
+            false,
+            false,
+        ),
+        row(
+            "archlinux-x86_64.iso",
+            "Installer \u{b7} not opened in 10 months",
+            1.4,
+            true,
+            true,
+        ),
+        row(
+            "Obsidian-1.8.AppImage",
+            "Older copy of an app you have \u{b7} 7 months",
+            0.1,
+            true,
+            true,
+        ),
+    ];
+    StorageData {
+        drives: vec![("Main drive \u{b7} 476 GB".into(), true), ("Data \u{b7} 2 TB".into(), false)],
+        drive_name: "Main drive".into(),
+        used: "381 GB".into(),
+        free: "95 GB free".into(),
+        bar_label: "Drive usage: your files 142 GB, apps and system 98 GB, Docker images 54 GB, Flatpak apps 41 GB, junk 12.6 GB, other 33 GB, free 95 GB".into(),
+        segs: vec![(0.298, 0), (0.206, 1), (0.113, 2), (0.086, 3), (0.026, 4), (0.07, 5)],
+        legend: vec![
+            legend(0, "Your files", "142 GB"),
+            legend(1, "Apps & system", "98 GB"),
+            legend(2, "Docker images", "54 GB"),
+            legend(3, "Flatpak apps", "41 GB"),
+            legend(4, "Junk you can clean", "12.6 GB"),
+            legend(5, "Other", "33 GB"),
+        ],
+        state: State::Ready,
+        message: String::new(),
+        map_title: "Your files \u{b7} 142 GB".into(),
+        tiles: vec![
+            tile("Steam games", "52 GB", "9 games installed", 0, r(0.0, 0.0, 0.366, 1.0), 0),
+            tile("Downloads", "38 GB", "22 GB not opened in 6 months", 1, r(0.366, 0.0, 0.408, 0.66), 1),
+            tile("Videos", "21 GB", "", 2, r(0.774, 0.0, 0.226, 0.66), 2),
+            tile("Pictures", "12 GB", "", 3, r(0.366, 0.66, 0.2454, 0.34), 3),
+            tile("Other", "10 GB", "", 4, r(0.6114, 0.66, 0.2045, 0.34), 3),
+            tile("Documents", "9 GB", "", 5, r(0.8159, 0.66, 0.1841, 0.34), 3),
+        ],
+        hint: Some((
+            "Downloads has 22 GB of files you haven't opened in 6 months. Old installers (.iso, .deb, .AppImage) make up most of it.".into(),
+            "Review them".into(),
+        )),
+        folder: downloads.then(|| Folder {
+            parent: "Your files".into(),
+            title: "Downloads \u{b7} 38 GB".into(),
+            help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
+            rows,
+        }),
+        big: vec![
+            big("ubuntu-24.04-desktop-amd64.iso", "Downloads \u{b7} opened 8 months ago", "6.1 GB"),
+            big("screen-recording-march.mkv", "Videos \u{b7} opened 7 months ago", "3.8 GB"),
+            big("backup-2025.tar.gz", "Documents \u{b7} opened 1 year ago", "2.9 GB"),
+            big("node_modules \u{b7} 14 folders", "Projects \u{b7} rebuilt with npm install", "1.9 GB"),
+            big("archlinux-x86_64.iso", "Downloads \u{b7} opened 10 months ago", "1.4 GB"),
+        ],
+        big_note: "Your own files always go to Trash first, never deleted straight away.".into(),
     }
 }
 
