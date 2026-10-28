@@ -118,8 +118,13 @@ struct Walk<'a> {
     progress: &'a Progress,
     cancel: &'a AtomicBool,
     device: u64,
-    /// (device, inode) of files with several hard links that we already counted.
+    /// (device, inode) of files with several hard links that we already counted in the total.
     seen: HashSet<(u64, u64)>,
+    /// The same, but only for the child of the root being walked: a file shared by two children is
+    /// in the size of both, so a child's size is what you get when you open it.
+    seen_child: HashSet<(u64, u64)>,
+    /// Everything counted once: the root's own blocks and every inode once.
+    total: u64,
     out: ScanResult,
     stale_cut: SystemTime,
 }
@@ -137,6 +142,8 @@ pub fn scan(
         cancel,
         device: 0,
         seen: HashSet::new(),
+        seen_child: HashSet::new(),
+        total: 0,
         out: ScanResult {
             root: root.to_path_buf(),
             used_modified_time: !options.use_access_time,
@@ -154,12 +161,17 @@ pub fn scan(
     walk.device = meta.dev();
     let mut children: HashMap<PathBuf, u64> = HashMap::new();
     if meta.is_dir() {
+        // Like `du -s`, the folder's own blocks are part of its size.
+        let own = meta.blocks() * 512;
+        walk.progress.bytes.fetch_add(own, Ordering::Relaxed);
+        walk.total += own;
         walk.dir(root, root, &mut children);
     } else {
-        let size = walk.file(root, &meta);
-        children.insert(root.to_path_buf(), size);
+        let (in_child, in_total) = walk.file(root, &meta);
+        walk.total += in_total;
+        children.insert(root.to_path_buf(), in_child);
     }
-    walk.out.total_bytes = children.values().sum();
+    walk.out.total_bytes = walk.total;
     let mut children: Vec<_> = children.into_iter().collect();
     children.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     walk.out.children = children;
@@ -190,6 +202,9 @@ impl Walk<'_> {
             if self.cancel.load(Ordering::Relaxed) {
                 return;
             }
+            if dir == root {
+                self.seen_child.clear();
+            }
             let Ok(entry) = entry else {
                 self.out.skipped += 1;
                 continue;
@@ -218,25 +233,34 @@ impl Walk<'_> {
                 let bytes = meta.blocks() * 512;
                 self.progress.bytes.fetch_add(bytes, Ordering::Relaxed);
                 *children.entry(top).or_insert(0) += bytes;
+                self.total += bytes;
                 self.dir(root, &path, children);
             } else {
-                let size = self.file(&path, &meta);
-                *children.entry(top).or_insert(0) += size;
+                let (in_child, in_total) = self.file(&path, &meta);
+                *children.entry(top).or_insert(0) += in_child;
+                self.total += in_total;
             }
         }
     }
 
     /// Count one non-directory (a symlink counts as itself, not its target). Returns the bytes to
-    /// add: 0 for a hard link whose inode was already counted.
-    fn file(&mut self, path: &Path, meta: &fs::Metadata) -> u64 {
-        if meta.nlink() > 1 && !self.seen.insert((meta.dev(), meta.ino())) {
-            return 0;
-        }
+    /// add to the child being walked and to the total: a hard link already seen counts 0 in the
+    /// total, and 0 in the child only if that child has it already.
+    fn file(&mut self, path: &Path, meta: &fs::Metadata) -> (u64, u64) {
         let bytes = meta.blocks() * 512;
+        let (in_total, in_child) = if meta.nlink() > 1 {
+            let key = (meta.dev(), meta.ino());
+            (self.seen.insert(key), self.seen_child.insert(key))
+        } else {
+            (true, true)
+        };
+        if !in_total {
+            return (if in_child { bytes } else { 0 }, 0);
+        }
         self.progress.files.fetch_add(1, Ordering::Relaxed);
         self.progress.bytes.fetch_add(bytes, Ordering::Relaxed);
         if !meta.is_file() {
-            return bytes;
+            return (bytes, bytes);
         }
         let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let last_used = if self.options.use_access_time {
@@ -255,7 +279,7 @@ impl Walk<'_> {
         if last_used < self.stale_cut && bytes >= self.options.stale_min_bytes {
             self.out.stale_files.push(entry());
         }
-        bytes
+        (bytes, bytes)
     }
 
     /// Keep memory bounded: hold at most twice the wanted number, trimming now and then.
@@ -337,8 +361,13 @@ mod tests {
         )
         .unwrap();
         let r = run(dir.path(), &ScanOptions::default());
-        let both = size_of(&r, "one") + size_of(&r, "two");
-        assert!((500_000..540_000).contains(&both), "{both}");
+        // The total counts the shared file once; each folder counts it, so opening either shows it.
+        assert!(
+            (500_000..540_000).contains(&r.total_bytes),
+            "{}",
+            r.total_bytes
+        );
+        assert!(size_of(&r, "one") >= 500_000 && size_of(&r, "two") >= 500_000);
     }
 
     #[test]
