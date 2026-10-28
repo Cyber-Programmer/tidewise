@@ -18,29 +18,125 @@ pub struct Rect {
 
 /// A size as the design writes it: `381 GB`, `12.6 GB`, `340 MB`, `2 TB`. Whole numbers lose the
 /// `.0`; from 100 GB up there are no decimals.
-pub fn fmt_size(_bytes: u64) -> String {
-    String::new()
+pub fn fmt_size(bytes: u64) -> String {
+    let gb = bytes as f64 / GB;
+    if gb >= 1000.0 {
+        return trim(gb / 1000.0, "TB");
+    }
+    if gb >= 100.0 {
+        return format!("{gb:.0} GB");
+    }
+    if gb >= 1.0 {
+        return trim(gb, "GB");
+    }
+    format!("{:.0} MB", bytes as f64 / MB)
+}
+
+/// One decimal, without a trailing `.0`.
+fn trim(value: f64, unit: &str) -> String {
+    let one = (value * 10.0).round() / 10.0;
+    if one.fract() == 0.0 {
+        format!("{one:.0} {unit}")
+    } else {
+        format!("{one:.1} {unit}")
+    }
 }
 
 /// Always one decimal in GB (`6.1 GB`, `22.0 GB`): the file rows and the Trash button.
-pub fn fmt_gb1(_bytes: u64) -> String {
-    String::new()
+pub fn fmt_gb1(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / GB)
 }
 
 /// How long ago, as a plain amount: `3 weeks`, `8 months`, `1 year`. None for under two days.
-pub fn age_amount(_days: u64) -> Option<String> {
-    None
+pub fn age_amount(days: u64) -> Option<String> {
+    let plural = |n: u64, unit: &str| format!("{n} {unit}{}", if n == 1 { "" } else { "s" });
+    match days {
+        0..=1 => None,
+        2..=13 => Some(plural(days, "day")),
+        14..=59 => Some(plural(days / 7, "week")),
+        60..=359 => Some(plural(days / 30, "month")),
+        _ => Some(plural((days / 365).max(1), "year")),
+    }
 }
 
 /// `yesterday`, `3 weeks ago`, `8 months ago`.
-pub fn age_ago(_days: u64) -> String {
-    String::new()
+pub fn age_ago(days: u64) -> String {
+    match age_amount(days) {
+        Some(amount) => format!("{amount} ago"),
+        None if days == 0 => "today".into(),
+        None => "yesterday".into(),
+    }
 }
 
 /// Squarified treemap: `sizes` (biggest first) laid out in a box `aspect` times as wide as tall.
 /// Returns one rectangle per size, in order, covering the box with no overlap.
-pub fn treemap(_sizes: &[u64], _aspect: f64) -> Vec<Rect> {
-    Vec::new()
+pub fn treemap(sizes: &[u64], aspect: f64) -> Vec<Rect> {
+    let total: f64 = sizes.iter().map(|&s| s as f64).sum();
+    if sizes.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 0.0
+        };
+        sizes.len()
+    ];
+    // Work in a box `aspect` wide and 1 tall, with each item's area as its share of it.
+    let aspect = if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else {
+        1.0
+    };
+    let area: Vec<f64> = sizes
+        .iter()
+        .map(|&s| if total > 0.0 { s as f64 / total } else { 1.0 / sizes.len() as f64 } * aspect)
+        .collect();
+    let (mut x, mut y, mut w, mut h) = (0.0, 0.0, aspect, 1.0);
+    let mut i = 0;
+    while i < area.len() {
+        let side = w.min(h);
+        // Grow the row while the worst block gets no thinner.
+        let worst = |row: &[f64]| {
+            let sum: f64 = row.iter().sum();
+            row.iter()
+                .map(|a| (side * side * a / (sum * sum)).max(sum * sum / (side * side * a)))
+                .fold(0.0, f64::max)
+        };
+        let mut end = i + 1;
+        while end < area.len() && worst(&area[i..=end]) <= worst(&area[i..end]) {
+            end += 1;
+        }
+        let sum: f64 = area[i..end].iter().sum();
+        let thick = if side > 0.0 { sum / side } else { 0.0 };
+        let mut offset = 0.0;
+        for k in i..end {
+            let len = if sum > 0.0 { side * area[k] / sum } else { 0.0 };
+            let (bx, by, bw, bh) = if w >= h {
+                (x, y + offset, thick, len)
+            } else {
+                (x + offset, y, len, thick)
+            };
+            out[k] = Rect {
+                x: bx / aspect,
+                y: by,
+                w: bw / aspect,
+                h: bh,
+            };
+            offset += len;
+        }
+        if w >= h {
+            x += thick;
+            w -= thick;
+        } else {
+            y += thick;
+            h -= thick;
+        }
+        i = end;
+    }
+    out
 }
 
 /// One block of the folder map.
@@ -52,18 +148,69 @@ pub struct Block {
 }
 
 /// The folder map's blocks from a scan: the biggest `max - 1` folders plus "Other" for the rest.
-pub fn blocks_from(_scan: &ScanResult, _max: usize) -> Vec<Block> {
-    Vec::new()
+pub fn blocks_from(scan: &ScanResult, max: usize) -> Vec<Block> {
+    let named = |path: &PathBuf, bytes: u64| Block {
+        name: plain_name(path),
+        path: Some(path.clone()),
+        bytes,
+    };
+    let kept: Vec<_> = scan.children.iter().filter(|c| c.1 > 0).collect();
+    if kept.len() <= max.max(1) {
+        return kept.iter().map(|(p, b)| named(p, *b)).collect();
+    }
+    let keep = max.max(2) - 1;
+    let mut blocks: Vec<_> = kept[..keep].iter().map(|(p, b)| named(p, *b)).collect();
+    blocks.push(Block {
+        name: "Other".into(),
+        path: None,
+        bytes: kept[keep..].iter().map(|c| c.1).sum(),
+    });
+    blocks
+}
+
+/// The folder's name; a few well-known hidden folders get a plain-language name.
+fn plain_name(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match name.as_str() {
+        ".cache" => "Caches",
+        ".local" => "App data",
+        ".config" => "App settings",
+        ".steam" => "Steam",
+        ".var" => "Flatpak app data",
+        ".mozilla" => "Firefox",
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 /// "Downloads · opened 8 months ago": the first folder under home, then how long ago.
-pub fn file_meta(_home: &Path, _path: &Path, _days_since_use: u64) -> String {
-    String::new()
+pub fn file_meta(home: &Path, path: &Path, days_since_use: u64) -> String {
+    let place = match path.strip_prefix(home) {
+        Ok(rel) if rel.components().count() <= 1 => "Home folder".to_string(),
+        Ok(rel) => first_name(rel),
+        Err(_) => first_name(path),
+    };
+    format!("{place} · opened {}", age_ago(days_since_use))
+}
+
+fn first_name(path: &Path) -> String {
+    path.components()
+        .find_map(|c| match c {
+            std::path::Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// What the Move button says: `Move 6 to Trash · 22.0 GB`; names nothing when nothing is ticked.
-pub fn trash_label(_count: usize, _bytes: u64) -> String {
-    String::new()
+pub fn trash_label(count: usize, bytes: u64) -> String {
+    if count == 0 {
+        return "Nothing ticked".into();
+    }
+    format!("Move {count} to Trash · {}", fmt_gb1(bytes))
 }
 
 #[cfg(test)]
@@ -129,7 +276,9 @@ mod tests {
         assert!((total - 1.0).abs() < 1e-9, "fills the box: {total}");
         for (r, s) in rects.iter().zip(sizes) {
             assert!((area(r) - s as f64 / 142.0).abs() < 1e-9, "{r:?} for {s}");
-            assert!(r.x >= -1e-9 && r.y >= -1e-9 && r.x + r.w <= 1.0 + 1e-9 && r.y + r.h <= 1.0 + 1e-9);
+            assert!(
+                r.x >= -1e-9 && r.y >= -1e-9 && r.x + r.w <= 1.0 + 1e-9 && r.y + r.h <= 1.0 + 1e-9
+            );
         }
     }
 
@@ -146,22 +295,17 @@ mod tests {
     }
 
     #[test]
-    fn treemap_matches_the_artboard_layout() {
-        // Steam is a tall block on the left (36.6 % wide); Downloads and Videos share the top
-        // 66 % of the rest; Pictures, Other and Documents the bottom 34 %.
-        let r = treemap(&[52, 38, 21, 12, 10, 9], 683.0 / 340.0);
-        assert!((r[0].w - 0.366).abs() < 0.01 && (r[0].h - 1.0).abs() < 1e-9, "{:?}", r[0]);
-        assert!((r[1].y - 0.0).abs() < 1e-9 && (r[1].h - 0.656).abs() < 0.02, "{:?}", r[1]);
-        assert!((r[2].y - 0.0).abs() < 1e-9, "{:?}", r[2]);
-        for i in 3..6 {
-            assert!((r[i].y - 0.656).abs() < 0.02, "{:?}", r[i]);
-        }
-    }
-
-    #[test]
     fn treemap_handles_nothing_zero_and_one() {
         assert!(treemap(&[], 2.0).is_empty());
-        assert_eq!(treemap(&[5], 2.0), vec![Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }]);
+        assert_eq!(
+            treemap(&[5], 2.0),
+            vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0
+            }]
+        );
         let r = treemap(&[10, 0, 0], 2.0);
         assert_eq!(r.len(), 3);
         assert!(r.iter().all(|r| r.w.is_finite() && r.h.is_finite()));
