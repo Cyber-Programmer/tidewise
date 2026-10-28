@@ -171,6 +171,18 @@ pub fn blocks_from(scan: &ScanResult, max: usize) -> Vec<Block> {
     blocks
 }
 
+/// The folders the map groups into "Other": everything after the biggest `max - 1`.
+pub fn other_members(scan: &ScanResult, max: usize) -> Vec<(PathBuf, u64)> {
+    let kept: Vec<_> = scan.children.iter().filter(|c| c.1 > 0).collect();
+    if kept.len() <= max.max(1) {
+        return Vec::new();
+    }
+    kept[max.max(2) - 1..]
+        .iter()
+        .map(|c| (*c).clone())
+        .collect()
+}
+
 /// The folder's name; a few well-known hidden folders get a plain-language name.
 fn plain_name(path: &Path) -> String {
     let name = path

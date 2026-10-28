@@ -2,13 +2,18 @@
 //! cache, ticks and keys. Plain Rust, no Slint types, so it is tested without a window.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
-use tidewise_core::scan::ScanResult;
+use tidewise_core::mounts::{home_access_time, TimeSource};
+use tidewise_core::scan::{self, ScanHandle, ScanOptions, ScanResult};
 
-use crate::storage::RowKind;
+use crate::storage::{self, RowKind};
+
+/// How many blocks the folder map has (the last one may be "Other").
+pub const MAP_BLOCKS: usize = 6;
 
 /// Somewhere you can be below the map: a folder, or the "Other" block's list.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,18 +27,24 @@ pub enum Place {
 pub struct Trail(Vec<Place>);
 
 impl Trail {
-    pub fn push(&mut self, _place: Place) {}
-    pub fn pop(&mut self) {}
+    pub fn push(&mut self, place: Place) {
+        self.0.push(place);
+    }
+    pub fn pop(&mut self) {
+        self.0.pop();
+    }
     /// Keep the first `n` places.
-    pub fn jump(&mut self, _n: usize) {}
+    pub fn jump(&mut self, n: usize) {
+        self.0.truncate(n);
+    }
     pub fn len(&self) -> usize {
-        0
+        self.0.len()
     }
     pub fn is_empty(&self) -> bool {
-        true
+        self.0.is_empty()
     }
     pub fn current(&self) -> Option<&Place> {
-        None
+        self.0.last()
     }
     pub fn places(&self) -> &[Place] {
         &self.0
@@ -49,14 +60,47 @@ pub struct Crumb {
 }
 
 /// `Main drive › Your files › Documents › Creative Chaos`.
-pub fn crumbs(_drive: &str, _files: &str, _trail: &[String]) -> Vec<Crumb> {
-    Vec::new()
+pub fn crumbs(drive: &str, files: &str, trail: &[String]) -> Vec<Crumb> {
+    let mut out = vec![
+        Crumb {
+            label: drive.into(),
+            target: Some(0),
+        },
+        Crumb {
+            label: files.into(),
+            target: if trail.is_empty() { None } else { Some(0) },
+        },
+    ];
+    for (i, name) in trail.iter().enumerate() {
+        out.push(Crumb {
+            label: name.clone(),
+            target: if i + 1 == trail.len() {
+                None
+            } else {
+                Some(i + 1)
+            },
+        });
+    }
+    out
 }
 
 /// Shorten a breadcrumb that is longer than `max_chars` (parts joined by ` › `): keep the first
 /// part and the last two, put `…` in between.
-pub fn collapse(c: Vec<Crumb>, _max_chars: usize) -> Vec<Crumb> {
-    c
+pub fn collapse(c: Vec<Crumb>, max_chars: usize) -> Vec<Crumb> {
+    let n = c.len();
+    let width = c.iter().map(|c| c.label.chars().count()).sum::<usize>() + 3 * n.saturating_sub(1);
+    if n <= 3 || width <= max_chars {
+        return c;
+    }
+    vec![
+        c[0].clone(),
+        Crumb {
+            label: "\u{2026}".into(),
+            target: c[n - 3].target,
+        },
+        c[n - 2].clone(),
+        c[n - 1].clone(),
+    ]
 }
 
 /// One row of a level.
@@ -76,18 +120,70 @@ pub struct Level {
     pub total: u64,
 }
 
-pub fn level_from(_r: &ScanResult, _now: SystemTime, _by_access: bool) -> Level {
-    Level::default()
+/// Read what kind of thing each child is and when it was last used. Things that vanished are left out.
+fn items_from(
+    children: &[(PathBuf, u64)],
+    other_drives: &[PathBuf],
+    now: SystemTime,
+    by_access: bool,
+) -> Vec<Item> {
+    let mut items: Vec<Item> = children
+        .iter()
+        .filter_map(|(p, bytes)| {
+            let meta = std::fs::symlink_metadata(p).ok()?;
+            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let used = if by_access {
+                meta.accessed().unwrap_or(modified).max(modified)
+            } else {
+                modified
+            };
+            let kind = if meta.file_type().is_symlink() {
+                RowKind::Link
+            } else if meta.is_dir() {
+                RowKind::Folder
+            } else {
+                RowKind::File
+            };
+            Some(Item {
+                name: p.file_name()?.to_string_lossy().into_owned(),
+                path: p.clone(),
+                bytes: *bytes,
+                kind,
+                days_unused: storage::days_since(now, used),
+            })
+        })
+        .collect();
+    items.extend(other_drives.iter().filter_map(|p| {
+        Some(Item {
+            name: p.file_name()?.to_string_lossy().into_owned(),
+            path: p.clone(),
+            bytes: 0,
+            kind: RowKind::OtherDrive,
+            days_unused: 0,
+        })
+    }));
+    items
+}
+
+pub fn level_from(r: &ScanResult, now: SystemTime, by_access: bool) -> Level {
+    Level {
+        items: items_from(&r.children, &r.other_drives, now, by_access),
+        total: r.total_bytes,
+    }
 }
 
 /// The folders the map groups into "Other" (all but the biggest `max_blocks - 1`).
 pub fn other_level(
-    _root: &ScanResult,
-    _max_blocks: usize,
-    _now: SystemTime,
-    _by_access: bool,
+    root: &ScanResult,
+    max_blocks: usize,
+    now: SystemTime,
+    by_access: bool,
 ) -> Level {
-    Level::default()
+    let members = storage::other_members(root, max_blocks);
+    Level {
+        total: members.iter().map(|m| m.1).sum(),
+        items: items_from(&members, &[], now, by_access),
+    }
 }
 
 /// Levels already scanned, so going back is instant.
@@ -95,18 +191,30 @@ pub fn other_level(
 pub struct Cache(HashMap<Place, Rc<Level>>);
 
 impl Cache {
-    pub fn put(&mut self, _place: Place, _level: Rc<Level>) {}
-    pub fn get(&self, _place: &Place) -> Option<Rc<Level>> {
-        None
+    pub fn put(&mut self, place: Place, level: Rc<Level>) {
+        self.0.insert(place, level);
+    }
+    pub fn get(&self, place: &Place) -> Option<Rc<Level>> {
+        self.0.get(place).cloned()
     }
     /// Forget every level that holds one of these paths (its own size changed).
-    pub fn invalidate_for(&mut self, _paths: &[PathBuf]) {}
-    pub fn clear(&mut self) {}
+    pub fn invalidate_for(&mut self, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            return;
+        }
+        self.0.retain(|place, _| match place {
+            Place::Other => false,
+            Place::Folder(f) => !paths.iter().any(|p| p.starts_with(f)),
+        });
+    }
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
     pub fn len(&self) -> usize {
-        0
+        self.0.len()
     }
     pub fn is_empty(&self) -> bool {
-        true
+        self.0.is_empty()
     }
 }
 
@@ -120,56 +228,306 @@ pub enum KeyAction {
 }
 
 /// Enter opens, Space ticks, Backspace or Alt+Left goes up, arrows move.
-pub fn key_action(_text: &str, _alt: bool) -> Option<KeyAction> {
-    None
+pub fn key_action(text: &str, alt: bool) -> Option<KeyAction> {
+    match text {
+        "\n" | "\r" => Some(KeyAction::Open),
+        " " => Some(KeyAction::Toggle),
+        "\u{8}" => Some(KeyAction::Up),
+        "\u{F702}" if alt => Some(KeyAction::Up),
+        "\u{F700}" => Some(KeyAction::Prev),
+        "\u{F701}" => Some(KeyAction::Next),
+        _ => None,
+    }
 }
 
 /// The Storage page without any window: the map's scan, where you are, what is ticked.
 pub struct Browser {
-    _root: PathBuf,
+    root: PathBuf,
+    result: Option<ScanResult>,
+    root_job: Option<ScanHandle>,
+    level_job: Option<(ScanHandle, Place)>,
+    trail: Trail,
+    cache: Cache,
+    level: Option<Rc<Level>>,
+    checked: Vec<bool>,
+    cursor: usize,
+    scans: usize,
+    access_time: bool,
 }
 
 impl Browser {
     pub fn new(root: PathBuf) -> Self {
-        Browser { _root: root }
+        Browser {
+            root,
+            result: None,
+            root_job: None,
+            level_job: None,
+            trail: Trail::default(),
+            cache: Cache::default(),
+            level: None,
+            checked: Vec::new(),
+            cursor: 0,
+            scans: 0,
+            access_time: home_access_time().source == TimeSource::AccessTime,
+        }
     }
-    pub fn start(&mut self) {}
+
+    fn options(&self, biggest: usize) -> ScanOptions {
+        ScanOptions {
+            biggest,
+            use_access_time: self.access_time,
+            ..ScanOptions::default()
+        }
+    }
+
+    fn by_access(&self) -> bool {
+        self.access_time && !self.result.as_ref().is_some_and(|r| r.used_modified_time)
+    }
+
+    /// The folder the map is made from.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Change the folder the map is made from and measure it.
+    pub fn set_root(&mut self, root: PathBuf) {
+        self.root = root;
+        self.start();
+    }
+
+    /// Measure the root again from nothing: the map, and every level forgotten.
+    pub fn start(&mut self) {
+        self.cancel();
+        self.cache.clear();
+        self.trail = Trail::default();
+        self.level = None;
+        self.checked.clear();
+        self.cursor = 0;
+        self.result = None;
+        self.scans += 1;
+        self.root_job = Some(scan::start(self.root.clone(), self.options(500)));
+    }
+
+    pub fn result(&self) -> Option<&ScanResult> {
+        self.result.as_ref()
+    }
+
+    /// Bytes looked at so far by the scan that is running, if one is.
+    pub fn progress_bytes(&self) -> Option<u64> {
+        let h = self
+            .root_job
+            .as_ref()
+            .or(self.level_job.as_ref().map(|(h, _)| h))?;
+        Some(h.progress.bytes.load(Ordering::Relaxed))
+    }
+
+    /// True while the map itself is being measured.
+    pub fn measuring_root(&self) -> bool {
+        self.root_job.is_some()
+    }
+
+    /// Stop whatever is being scanned.
+    pub fn cancel(&mut self) {
+        if let Some(h) = &self.root_job {
+            h.cancel();
+        }
+        if let Some((h, _)) = &self.level_job {
+            h.cancel();
+        }
+        self.root_job = None;
+        self.level_job = None;
+    }
+
     /// Collect finished scans. True when something on screen changed.
     pub fn poll(&mut self) -> bool {
-        false
+        let mut changed = self.root_job.is_some() || self.level_job.is_some();
+        if self.root_job.as_ref().is_some_and(|h| h.is_finished()) {
+            if let Some(h) = self.root_job.take() {
+                self.result = Some(h.wait());
+            }
+            changed = true;
+            if !self.trail.is_empty() {
+                self.load_current();
+            }
+        }
+        if self
+            .level_job
+            .as_ref()
+            .is_some_and(|(h, _)| h.is_finished())
+        {
+            if let Some((h, place)) = self.level_job.take() {
+                let result = h.wait();
+                if !result.cancelled && self.trail.current() == Some(&place) {
+                    let level = Rc::new(level_from(&result, SystemTime::now(), self.by_access()));
+                    self.cache.put(place, level.clone());
+                    self.show(level);
+                }
+            }
+            changed = true;
+        }
+        changed
     }
+
     pub fn is_idle(&self) -> bool {
+        self.root_job.is_none() && self.level_job.is_none()
+    }
+
+    pub fn scans_started(&self) -> usize {
+        self.scans
+    }
+
+    pub fn trail(&self) -> &Trail {
+        &self.trail
+    }
+
+    pub fn level(&self) -> Option<&Level> {
+        self.level.as_deref()
+    }
+
+    pub fn checked(&self) -> &[bool] {
+        &self.checked
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn show(&mut self, level: Rc<Level>) {
+        self.checked = level
+            .items
+            .iter()
+            .map(|i| selectable(i.kind) && i.days_unused >= storage::OLD_DAYS)
+            .collect();
+        self.cursor = 0;
+        self.level = Some(level);
+    }
+
+    /// Put the place at the top of the trail on screen: from the cache, from the map's scan, or by scanning.
+    fn load_current(&mut self) {
+        if let Some((h, _)) = self.level_job.take() {
+            h.cancel();
+        }
+        self.level = None;
+        self.checked.clear();
+        self.cursor = 0;
+        let Some(place) = self.trail.current().cloned() else {
+            return;
+        };
+        if let Some(level) = self.cache.get(&place) {
+            self.show(level);
+            return;
+        }
+        match &place {
+            Place::Other => {
+                if let Some(r) = &self.result {
+                    let level = Rc::new(other_level(
+                        r,
+                        MAP_BLOCKS,
+                        SystemTime::now(),
+                        self.by_access(),
+                    ));
+                    self.cache.put(place, level.clone());
+                    self.show(level);
+                }
+            }
+            Place::Folder(path) => {
+                if self.result.is_some() {
+                    self.scans += 1;
+                    let h = scan::start(path.clone(), self.options(1));
+                    self.level_job = Some((h, place));
+                }
+            }
+        }
+    }
+
+    fn open_place(&mut self, place: Place) -> bool {
+        self.trail.push(place);
+        self.load_current();
         true
     }
-    pub fn scans_started(&self) -> usize {
-        0
-    }
-    pub fn trail(&self) -> &Trail {
-        unimplemented!()
-    }
-    pub fn level(&self) -> Option<&Level> {
-        None
-    }
-    pub fn checked(&self) -> &[bool] {
-        &[]
-    }
-    pub fn cursor(&self) -> usize {
-        0
-    }
+
     /// Click a block of the map.
-    pub fn open_block(&mut self, _i: usize) -> bool {
-        false
+    pub fn open_block(&mut self, i: usize) -> bool {
+        let Some(result) = &self.result else {
+            return false;
+        };
+        let place = match storage::blocks_from(result, MAP_BLOCKS).get(i) {
+            Some(b) => match &b.path {
+                Some(p) => Place::Folder(p.clone()),
+                None => Place::Other,
+            },
+            None => return false,
+        };
+        self.open_place(place)
     }
+
     /// Click a row: folders open.
-    pub fn open_row(&mut self, _i: usize) -> bool {
-        false
+    pub fn open_row(&mut self, i: usize) -> bool {
+        let place = match self.level.as_ref().and_then(|l| l.items.get(i)) {
+            Some(item) if item.kind == RowKind::Folder => Place::Folder(item.path.clone()),
+            _ => return false,
+        };
+        self.open_place(place)
     }
-    pub fn up(&mut self) {}
-    pub fn jump(&mut self, _n: usize) {}
-    pub fn toggle(&mut self, _i: usize) {}
-    pub fn key(&mut self, _a: KeyAction) {}
-    /// These paths were moved or put back: forget the levels that hold them and measure again.
-    pub fn forget(&mut self, _paths: &[PathBuf]) {}
+
+    pub fn up(&mut self) {
+        self.trail.pop();
+        self.load_current();
+    }
+
+    pub fn jump(&mut self, n: usize) {
+        self.trail.jump(n);
+        self.load_current();
+    }
+
+    pub fn toggle(&mut self, i: usize) {
+        let ok = self
+            .level
+            .as_ref()
+            .and_then(|l| l.items.get(i))
+            .is_some_and(|item| selectable(item.kind));
+        if let (true, Some(on)) = (ok, self.checked.get_mut(i)) {
+            *on = !*on;
+        }
+    }
+
+    pub fn key(&mut self, a: KeyAction) {
+        let rows = self.level.as_ref().map_or(0, |l| l.items.len());
+        match a {
+            KeyAction::Open => {
+                self.open_row(self.cursor);
+            }
+            KeyAction::Toggle => self.toggle(self.cursor),
+            KeyAction::Up => {
+                if !self.trail.is_empty() {
+                    self.up();
+                }
+            }
+            KeyAction::Prev => self.cursor = self.cursor.saturating_sub(1),
+            KeyAction::Next => self.cursor = (self.cursor + 1).min(rows.saturating_sub(1)),
+        }
+    }
+
+    /// These paths were moved or put back: forget the levels that hold them and measure the map again.
+    pub fn forget(&mut self, paths: &[PathBuf]) {
+        self.cache.invalidate_for(paths);
+        if let Some((h, _)) = self.level_job.take() {
+            h.cancel();
+        }
+        if let Some(h) = self.root_job.take() {
+            h.cancel();
+        }
+        self.level = None;
+        self.checked.clear();
+        self.result = None;
+        self.scans += 1;
+        self.root_job = Some(scan::start(self.root.clone(), self.options(500)));
+    }
+}
+
+/// Rows that can be ticked (and moved to the Trash).
+pub fn selectable(kind: RowKind) -> bool {
+    matches!(kind, RowKind::File | RowKind::Folder | RowKind::Link)
 }
 
 #[cfg(test)]

@@ -164,6 +164,7 @@ pub fn scan(
     children.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     walk.out.children = children;
     walk.out.cancelled = cancel.load(Ordering::Relaxed);
+    walk.out.other_drives.sort();
     walk.finish()
 }
 
@@ -208,6 +209,9 @@ impl Walk<'_> {
             if meta.is_dir() {
                 // Other filesystems (mounts, /proc, network shares) are not part of this folder.
                 if meta.dev() != self.device {
+                    if dir == root {
+                        self.out.other_drives.push(path);
+                    }
                     continue;
                 }
                 // A folder's own blocks count in the total and in progress: one rule, same as `du`.
