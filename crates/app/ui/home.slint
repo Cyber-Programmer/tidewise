@@ -50,10 +50,10 @@ component GhostButton inherits Rectangle {
     callback clicked();
     height: root.button-height;
     width: row.preferred-width;
-    background: Theme.row-hover;
+    background: Theme.control-bg;
     border-radius: Theme.radius-button;
     border-width: 1px;
-    border-color: Theme.track-off;
+    border-color: Theme.control-border;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -80,7 +80,7 @@ component SuggestionRow inherits Rectangle {
     in property <HomeSuggestion> s;
     height: 76px;
     border-radius: Theme.radius-row;
-    background: touch.has-hover ? Theme.row-hover : Theme.surface;
+    background: touch.has-hover ? Theme.control-bg : Theme.surface;
     border-width: 1px;
     border-color: Theme.border;
     accessible-role: button;
@@ -126,7 +126,7 @@ component Tile inherits Rectangle {
     callback clicked();
     height: 138px;
     border-radius: Theme.radius-row;
-    background: touch.has-hover ? Theme.row-hover : Theme.surface;
+    background: touch.has-hover ? Theme.control-bg : Theme.surface;
     border-width: 1px;
     border-color: Theme.border;
     accessible-role: button;
@@ -221,7 +221,7 @@ export component HomeScreen inherits Rectangle {
                             height: 20px;
                             border-radius: 5px;
                             border-width: 1px;
-                            border-color: Theme.track-off;
+                            border-color: Theme.control-border;
                             Text { text: "Ctrl K"; color: Theme.text-2; font-family: Theme.mono; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
@@ -294,9 +294,9 @@ export component HomeScreen inherits Rectangle {
                     Rectangle {
                         height: 44px;
                         border-radius: 11px;
-                        background: Theme.row-hover;
+                        background: Theme.control-bg;
                         border-width: 1px;
-                        border-color: Theme.track-off;
+                        border-color: Theme.control-border;
                         accessible-role: button;
                         accessible-label: "Why " + HomeState.score + "?";
                         Text { text: "Why " + HomeState.score + "?"; color: Theme.text; font-size: Theme.size-body; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }

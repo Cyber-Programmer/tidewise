@@ -38,7 +38,7 @@ component MetricTab inherits Rectangle {
     border-radius: Theme.radius-row;
     border-width: 1px;
     border-color: root.selected ? root.data.color : Theme.border;
-    background: root.selected ? Theme.selected-bg : Theme.surface;
+    background: root.selected ? Theme.tab-selected-bg : Theme.surface;
     accessible-role: tab;
     accessible-label: root.data.label;
     accessible-checked: root.selected;
@@ -85,7 +85,7 @@ component FactCell inherits Rectangle {
     border-radius: Theme.radius-button;
     background: Theme.surface-sunk;
     border-width: 1px;
-    border-color: Theme.inset-border;
+    border-color: Theme.border-subtle;
     Text { x: 14px; y: 12px; text: root.fact.k; color: Theme.text-3; font-size: Theme.size-caption; }
     value := Text {
         x: 14px;
@@ -198,7 +198,7 @@ export component PerformanceScreen inherits Rectangle {
                             for y in [5.5, 110, 214.5]: Rectangle {
                                 y: y * 1px - 0.5px;
                                 height: 1px;
-                                background: y > 200 ? Theme.grid-base : Theme.border;
+                                background: y > 200 ? Theme.control-border : Theme.border;
                             }
                             Path {
                                 width: PerfState.chart-width;
@@ -230,7 +230,7 @@ export component PerformanceScreen inherits Rectangle {
                         background: Theme.surface-sunk;
                         border-radius: 12px;
                         border-width: 1px;
-                        border-color: Theme.inset-border;
+                        border-color: Theme.border-subtle;
                         height: explain.preferred-height + 28px;
                         explain := Text {
                             x: 16px;
@@ -294,7 +294,7 @@ export component PerformanceScreen inherits Rectangle {
                                 for t in root.cur.top: Rectangle {
                                     height: 38px;
                                     background: Theme.surface-sunk;
-                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.divider; }
+                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
                                     HorizontalLayout {
                                         padding-left: 14px;
                                         padding-right: 14px;

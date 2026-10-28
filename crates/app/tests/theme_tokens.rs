@@ -121,3 +121,54 @@ fn icons_are_copies_of_the_design_icons() {
     }
     assert!(n >= 17);
 }
+
+/// (name, dark hex) for each row of the "Extra shades used by the artboards" table.
+fn extra_shades(tokens: &str) -> Vec<(String, String)> {
+    tokens
+        .lines()
+        .skip_while(|l| !l.starts_with("### Extra shades"))
+        .skip(1)
+        .take_while(|l| !l.starts_with('#'))
+        .filter(|l| l.starts_with('|'))
+        .map(|l| {
+            let cells: Vec<_> = l.trim_matches('|').split('|').map(str::trim).collect();
+            (cells[0].to_string(), cells[1].to_string())
+        })
+        .filter(|(name, _)| name != "Token" && !name.starts_with('-'))
+        .collect()
+}
+
+#[test]
+fn extra_shades_use_the_names_and_hex_of_tokens_md() {
+    let theme = read("crates/app/ui/theme.slint");
+    let shades = extra_shades(&read("docs/design/tokens.md"));
+    assert_eq!(shades.len(), 9, "{shades:?}");
+    for (name, dark) in &shades {
+        let line = format!("property <color> {name}: {dark};");
+        assert!(theme.contains(&line), "theme.slint should contain `{line}`");
+    }
+}
+
+#[test]
+fn old_names_of_the_extra_shades_are_gone_everywhere() {
+    for old in [
+        "selected-bg",
+        "inset-border",
+        "divider",
+        "track-off",
+        "grid-base",
+        "row-hover",
+    ] {
+        for entry in fs::read_dir(root().join("crates/app/ui")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "slint") {
+                let text = fs::read_to_string(&path).unwrap();
+                let (declared, used) = (format!("property <color> {old}:"), format!("Theme.{old}"));
+                assert!(
+                    !text.contains(&declared) && !text.contains(&used),
+                    "{path:?} still uses the old name `{old}`"
+                );
+            }
+        }
+    }
+}

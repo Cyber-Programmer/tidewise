@@ -152,3 +152,7 @@ Tests for `procfs`, `NameCache`, `sync_model`, `sample_light`, `--page` were wri
 ### R3-T3 done
 Red: `settings_is_inside_the_window_at_600_px_tall` (0 rows of the active Settings item at 1360×600). The logo and the card, History and Settings stay fixed; the other eight items sit in a `Flickable`.
 At 960 px the Home and Settings screenshots are byte-identical to before (`cmp`), so design-check scores cannot have moved.
+
+### R3-T4 done
+Red: `extra_shades_use_the_names_and_hex_of_tokens_md` and `old_names_of_the_extra_shades_are_gone_everywhere`. Renamed: selected-bg → tab-selected-bg, inset-border → border-subtle, divider → row-divider, track-off and grid-base (same hex) → control-border, row-hover → control-bg. The other four names already matched.
+Home screenshot at 960 px is byte-identical to before; design-check scores unchanged.
