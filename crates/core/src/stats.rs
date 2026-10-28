@@ -7,15 +7,27 @@ use sysinfo::{Networks, ProcessesToUpdate, System};
 
 use crate::diskstats::{parse_diskstats, DiskCounters};
 use crate::rates::rate_per_sec;
+use crate::statm::{page_size_from, parse_statm};
 
 /// One process as shown in the process list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcessSample {
     pub pid: u32,
     pub name: String,
-    /// Percent of one core, so it can go above 100 for busy multi-threaded programs.
+    /// Share of the whole PC, 0 to 100 (the per-core value divided by the logical CPU count).
     pub cpu_percent: f32,
+    /// Percent of one core, so it can go above 100 for busy multi-threaded programs.
+    /// Shown in technical details as "x % of one core".
+    pub cpu_core_percent: f32,
+    /// Private memory: (resident − shared) pages. Safe to add up across a group of processes.
     pub memory_bytes: u64,
+    /// Resident set size, including shared libraries. For technical details of a single process.
+    pub rss_bytes: u64,
+}
+
+/// Per-core percent (0 to 100 × cores) as a share of the whole machine, 0 to 100.
+pub fn cpu_share(core_percent: f32, logical_cpus: usize) -> f32 {
+    (core_percent / logical_cpus.max(1) as f32).clamp(0.0, 100.0)
 }
 
 /// Everything the Performance screen needs from one sampling.
@@ -75,6 +87,7 @@ impl LiveStats {
             net_down: self.networks.values().map(|n| n.total_received()).sum(),
             net_up: self.networks.values().map(|n| n.total_transmitted()).sum(),
         };
+        let cpus = self.system.cpus().len();
         let prev = self.previous.replace(now);
         let interval = prev.map(|p| now.at.duration_since(p.at));
         let rate =
@@ -92,11 +105,24 @@ impl LiveStats {
                 .system
                 .processes()
                 .values()
-                .map(|p| ProcessSample {
-                    pid: p.pid().as_u32(),
-                    name: p.name().to_string_lossy().into_owned(),
-                    cpu_percent: p.cpu_usage(),
-                    memory_bytes: p.memory(),
+                // On Linux sysinfo also lists threads, each with its parent's whole memory.
+                .filter(|p| p.thread_kind().is_none())
+                .map(|p| {
+                    let pid = p.pid().as_u32();
+                    let rss = p.memory();
+                    let private = fs::read_to_string(format!("/proc/{pid}/statm"))
+                        .ok()
+                        .and_then(|t| parse_statm(&t))
+                        .map(|m| m.private_bytes(page_size_from(rss, &m)))
+                        .unwrap_or(rss);
+                    ProcessSample {
+                        pid,
+                        name: p.name().to_string_lossy().into_owned(),
+                        cpu_percent: cpu_share(p.cpu_usage(), cpus),
+                        cpu_core_percent: p.cpu_usage(),
+                        memory_bytes: private,
+                        rss_bytes: rss,
+                    }
                 })
                 .collect(),
         }
@@ -115,4 +141,26 @@ fn read_disk_counters() -> DiskCounters {
     fs::read_to_string("/proc/diskstats")
         .map(|text| parse_diskstats(&text, is_whole_disk))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cpu_share;
+
+    #[test]
+    fn busy_on_all_cores_is_one_hundred_percent_of_the_pc() {
+        assert_eq!(cpu_share(1200.0, 12), 100.0);
+        assert_eq!(cpu_share(100.0, 12), 100.0 / 12.0);
+    }
+
+    #[test]
+    fn share_never_leaves_zero_to_one_hundred() {
+        assert_eq!(cpu_share(5000.0, 12), 100.0);
+        assert_eq!(cpu_share(-1.0, 12), 0.0);
+        assert_eq!(
+            cpu_share(50.0, 0),
+            50.0,
+            "zero cpus must not divide by zero"
+        );
+    }
 }

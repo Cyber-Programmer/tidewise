@@ -180,7 +180,9 @@ impl Sampler {
                     comm,
                     cmdline,
                     cpu: p.cpu_percent as f64,
+                    cpu_core: p.cpu_core_percent as f64,
                     mem: p.memory_bytes,
+                    rss: p.rss_bytes,
                 }
             })
             .collect();
@@ -345,7 +347,16 @@ pub fn row_from_group(g: &Group) -> Row {
         name: g.name.clone(),
         kind: g.kind,
         sub: format!("{kind} · {count}"),
-        sub_details: format!("{kind} · PID {}", g.pid),
+        sub_details: if g.rss > 0 {
+            format!(
+                "{kind} · PID {} · {:.1}% of one core · {} resident",
+                g.pid,
+                g.cpu_core,
+                fmt_bytes(g.rss)
+            )
+        } else {
+            format!("{kind} · PID {}", g.pid)
+        },
         color: avatar_color(&g.name),
         protected: g.protected,
         cpu: format!("{:.1}%", g.cpu),
@@ -397,7 +408,9 @@ mod tests {
             kind,
             count,
             cpu,
+            cpu_core: 0.0,
             mem,
+            rss: 0,
             protected: kind == Kind::System,
             pid: 42,
             cmd: "/usr/bin/firefox".into(),
@@ -412,6 +425,18 @@ mod tests {
         assert_eq!((r.cpu.as_str(), r.mem.as_str()), ("6.2%", "2.1 GB"));
         assert!(r.cpu_hot && r.mem_hot);
         assert!(r.cmd.ends_with("13 child processes"));
+    }
+
+    #[test]
+    fn live_details_show_per_core_cpu_and_resident_size() {
+        let mut g = group(2, Kind::App, 100_000_000, 3.0);
+        g.cpu_core = 36.0;
+        g.rss = 250_000_000;
+        let r = row_from_group(&g);
+        assert_eq!(
+            r.sub_details,
+            "App · PID 42 · 36.0% of one core · 250 MB resident"
+        );
     }
 
     #[test]

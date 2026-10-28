@@ -122,8 +122,14 @@ pub struct Proc {
     pub pid: u32,
     pub comm: String,
     pub cmdline: Vec<String>,
+    /// Share of the whole PC, 0 to 100.
     pub cpu: f64,
+    /// Percent of one core (technical details).
+    pub cpu_core: f64,
+    /// Private memory, safe to add up.
     pub mem: u64,
+    /// Resident size including shared libraries (technical details).
+    pub rss: u64,
 }
 
 #[derive(Debug)]
@@ -133,7 +139,10 @@ pub struct Group {
     pub kind: Kind,
     pub count: usize,
     pub cpu: f64,
+    pub cpu_core: f64,
     pub mem: u64,
+    /// Resident size of the lead (biggest) process.
+    pub rss: u64,
     pub protected: bool,
     pub pid: u32,
     pub cmd: String,
@@ -222,7 +231,9 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
                     kind,
                     count: 0,
                     cpu: 0.0,
+                    cpu_core: 0.0,
                     mem: 0,
+                    rss: 0,
                     protected: is_protected(&program),
                     pid: p.pid,
                     cmd: String::new(),
@@ -233,10 +244,12 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
         let g = &mut groups[at];
         g.count += 1;
         g.cpu += p.cpu;
+        g.cpu_core += p.cpu_core;
         g.mem += p.mem;
         if biggest.get(&key).is_none_or(|m| p.mem > *m) {
             biggest.insert(key, p.mem);
             g.pid = p.pid;
+            g.rss = p.rss;
             g.cmd = p.cmdline.join(" ").chars().take(200).collect();
         }
     }
@@ -499,7 +512,9 @@ mod tests {
                 .collect(),
             cmdline: s(cmd),
             cpu,
+            cpu_core: cpu * 12.0,
             mem,
+            rss: mem * 2,
         }
     }
 
@@ -521,6 +536,15 @@ mod tests {
         );
         assert!((ff.cpu - 6.2).abs() < 1e-9);
         assert_eq!(ff.mem, 1_500);
+        assert!(
+            (ff.cpu_core - 6.2 * 12.0).abs() < 1e-9,
+            "per-core values add up too"
+        );
+        assert_eq!(
+            ff.rss,
+            2 * 1_000,
+            "technical details show the lead process's RSS"
+        );
         assert_eq!(ff.pid, 10, "the biggest process stands for the group");
         assert_eq!(groups[1].kind, Kind::Background);
     }

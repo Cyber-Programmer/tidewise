@@ -124,3 +124,16 @@ cargo run -p tidewise-app -- --screenshot processes --state apps --out /tmp/p.pn
 tools/design_check.sh performance|processes|home
 tools/measure.sh "$PWD/target/release/tidewise"
 ```
+
+## 2026-10-29 — Overnight run 3 (R3)
+
+### R3-T1 plan
+Failing real-machine tests first (threads listed as processes; rows above RAM/100 % CPU), then: skip `thread_kind().is_some()`;
+CPU = per-core ÷ logical CPUs (`cpu_share`); memory = private `(resident − shared) × page` from `/proc/<pid>/statm`
+(`core::statm`, fixtures in `tests/fixtures/proc/`); RSS and "x % of one core" go to the technical-details line.
+
+### R3-T1 done
+Red: `threads_are_not_listed_as_processes` and `rows_never_exceed_the_machine` (summed 306 GB on a 16 GB machine). Green after the fix.
+`statm` parser and `cpu_share` unit tests were written together with their code (new module), not shown failing first.
+Page size is derived from sysinfo's resident bytes ÷ resident pages (4096 fallback), which avoids `unsafe`/a new dependency.
+Design-check scores unchanged (Main 1.3 %, Performance 4.7–6.2 %, Processes 0.1–0.6 %).
