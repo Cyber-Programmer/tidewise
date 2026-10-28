@@ -71,6 +71,30 @@ export global Theme {
     out property <color> mono-dim: #B9C0CB;
     out property <color> badge-bg: #232933;
 
+    // Shades of the Storage artboard that tokens.md does not list (docs/questions.md, R4-T3).
+    out property <color> drive-track: #0F1217;
+    out property <color> warn-note: #E6CF9E;
+    out property <color> warn-banner-bg: #1E1A10;
+    out property <color> warn-button-bg: #2A2312;
+    out property <color> warn-button-border: #4A3B1A;
+    out property <color> warn-button-text: #F5D898;
+
+    // Toast (artboard F)
+    out property <color> toast-bg: #1E2A27;
+    out property <color> toast-border: #3E7D69;
+
+    // Folder-map block colours by number: background, and the colour of the small note on it.
+    public pure function tile-bg(i: int) -> color {
+        i == 0 ? #2E2547 : (i == 1 ? #3A2E14 : (i == 2 ? #1B2A45 : (i == 3 ? #173A2F : (i == 4 ? #262B34 : #23303F))))
+    }
+    public pure function tile-note(i: int) -> color {
+        i == 0 ? #C9BCEB : (i == 1 ? #E6CF9E : text-2)
+    }
+    // Drive-bar segment colours by number.
+    public pure function seg-color(i: int) -> color {
+        i == 0 ? #C3A2FF : (i == 1 ? #7AA7FF : (i == 2 ? #4D72B8 : (i == 3 ? #8E6FD6 : (i == 4 ? #5DDCB0 : #5A6272))))
+    }
+
     // Data colour by number: 0 processor, 1 memory, 2 disk, 3 network, 4 muted text.
     public pure function hue(i: int) -> color {
         i == 0 ? data-cpu : (i == 1 ? data-memory : (i == 2 ? data-disk : (i == 3 ? data-network : text-2)))

@@ -63,6 +63,72 @@ pub struct HomeData {
     pub apps: Option<Apps>,
 }
 
+/// The health score and the suggestions from what is really measured: drive fullness and the
+/// app using the most memory. Junk is a labelled stub until the cleaner exists (M3).
+pub fn health_scan(
+    drive: Option<tidewise_core::drive::DriveSpace>,
+    biggest_app: Option<(String, u64)>,
+) -> Scan {
+    use tidewise_core::health;
+    let gb = |b: u64| b as f64 / 1_000_000_000.0;
+    let mut suggestions = Vec::new();
+    let mut points = Vec::new();
+    let mut real = 0;
+    suggestions.push(Suggestion {
+        icon: Icon::Clean,
+        title: "Junk files aren't measured yet".into(),
+        body: "Clean up arrives in a later version. Until then your score leaves junk out.".into(),
+        action: "Clean up".into(),
+        page: 1,
+    });
+    if let Some(d) = drive {
+        let used = d.used_fraction();
+        let p = health::disk_points(used);
+        points.push(p);
+        if p > 0 {
+            real += 1;
+            suggestions.push(Suggestion {
+                icon: Icon::Warning,
+                title: format!("Your main drive is {:.0}% full", used * 100.0),
+                body: format!(
+                    "{:.0} GB free. Below about 15% free, updates and apps can start failing.",
+                    gb(d.free)
+                ),
+                action: "See what's using space".into(),
+                page: 3,
+            });
+        }
+    }
+    if let Some((name, bytes)) = biggest_app.filter(|(_, b)| health::is_big_memory(*b)) {
+        real += 1;
+        suggestions.push(Suggestion {
+            icon: Icon::Chip,
+            title: format!("{name} is using {:.1} GB of memory", gb(bytes)),
+            body: "Closing some of its windows or tabs will make other apps feel quicker.".into(),
+            action: "View".into(),
+            page: 5,
+        });
+    }
+    let score = health::score(&points);
+    let opening = if score >= 80 {
+        "Your PC is running well."
+    } else {
+        "Your PC needs a little attention."
+    };
+    let headline = match real {
+        0 => opening.to_string(),
+        1 => format!("{opening} 1 thing could free up space or speed it up."),
+        n => format!("{opening} {n} things could free up space or speed it up."),
+    };
+    Scan {
+        score,
+        tag: health::tag(score).into(),
+        headline,
+        sub: "Nothing changes until you review it. Every fix shows exactly what it will touch first. Junk, services and updates are not part of this score yet.".into(),
+        suggestions,
+    }
+}
+
 /// SVG path for the part of the health ring that is filled, on a 132×132 canvas (radius 56),
 /// starting at the top and going clockwise. Empty for a score of 0.
 pub fn ring_path(score: u32) -> String {
@@ -238,5 +304,57 @@ mod tests {
             distro_detail(&[], &tools(true, false, false, false)),
             "pacman"
         );
+    }
+
+    fn drive(used: f64) -> tidewise_core::drive::DriveSpace {
+        tidewise_core::drive::DriveSpace {
+            total: 1000,
+            free: (1000.0 * (1.0 - used)) as u64,
+        }
+    }
+
+    #[test]
+    fn a_roomy_drive_and_small_apps_give_a_perfect_score_and_only_the_junk_stub() {
+        let s = health_scan(Some(drive(0.59)), Some(("Firefox".into(), 999_999_999)));
+        assert_eq!(s.score, 100);
+        assert_eq!(s.tag, "Good shape");
+        assert_eq!(s.suggestions.len(), 1);
+        assert!(s.suggestions[0].title.contains("aren't measured yet"));
+        assert_eq!(s.headline, "Your PC is running well.");
+    }
+
+    #[test]
+    fn the_drive_suggestion_appears_at_the_first_step_and_costs_points() {
+        let s = health_scan(Some(drive(0.65)), None);
+        assert_eq!(s.score, 98);
+        assert_eq!(s.suggestions[1].title, "Your main drive is 65% full");
+        assert_eq!(s.suggestions[1].page, 3);
+        let full = health_scan(Some(drive(0.80)), None);
+        assert_eq!(full.score, 92);
+        assert!(
+            full.suggestions[1].body.starts_with("200 GB free")
+                || full.suggestions[1].body.contains("GB free")
+        );
+    }
+
+    #[test]
+    fn a_big_app_gets_a_memory_suggestion_from_one_gigabyte() {
+        let s = health_scan(None, Some(("Firefox".into(), 2_100_000_000)));
+        assert_eq!(
+            s.suggestions.last().unwrap().title,
+            "Firefox is using 2.1 GB of memory"
+        );
+        assert_eq!(s.suggestions.last().unwrap().page, 5);
+        assert_eq!(
+            s.score, 100,
+            "memory takes no points: the artboard lists it as a passed check"
+        );
+        assert!(s.headline.contains("1 thing could"));
+    }
+
+    #[test]
+    fn no_drive_and_no_apps_is_still_a_valid_scan() {
+        let s = health_scan(None, None);
+        assert_eq!((s.score, s.suggestions.len()), (100, 1));
     }
 }

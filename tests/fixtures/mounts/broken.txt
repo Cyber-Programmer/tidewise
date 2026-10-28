@@ -1,0 +1,6 @@
+this line is not a mount
+/dev/sda1
+/dev/sda1 /
+
+/dev/sda2 /home ext4 0 0
+/dev/sda3 /data ext4 rw,relatime 0 0

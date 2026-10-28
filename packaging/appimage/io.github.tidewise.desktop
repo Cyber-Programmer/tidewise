@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Tidewise
+GenericName=PC manager
+Comment=Clean up junk, see what uses disk space and what slows your PC down
+Exec=tidewise
+Icon=io.github.tidewise
+Terminal=false
+Categories=System;Monitor;
+Keywords=cleaner;storage;disk;performance;processes;

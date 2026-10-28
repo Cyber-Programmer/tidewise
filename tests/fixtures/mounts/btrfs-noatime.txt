@@ -1,0 +1,4 @@
+/dev/mapper/cryptroot / btrfs rw,noatime,compress=zstd:3,ssd,space_cache=v2,subvolid=256,subvol=/@ 0 0
+/dev/mapper/cryptroot /home btrfs rw,noatime,compress=zstd:3,ssd,space_cache=v2,subvolid=257,subvol=/@home 0 0
+/dev/mapper/cryptroot /home/ユーザー/データ btrfs rw,relatime,compress=zstd:3,subvolid=258,subvol=/@data 0 0
+/dev/sdb1 /mnt/Big\040Disk ext4 rw,strictatime 0 0

@@ -1,0 +1,14 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+dev /dev devtmpfs rw,nosuid,relatime,size=8000000k,nr_inodes=2000000,mode=755 0 0
+/dev/nvme0n1p2 / ext4 rw,relatime 0 0
+securityfs /sys/kernel/security securityfs rw,nosuid,nodev,noexec,relatime 0 0
+tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,size=3200000k,mode=755 0 0
+cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0
+efivarfs /sys/firmware/efi/efivars efivarfs rw,nosuid,nodev,noexec,relatime 0 0
+/dev/nvme0n1p1 /boot vfat rw,relatime,fmask=0022,dmask=0022 0 2
+/dev/nvme0n1p3 /home ext4 rw,relatime 0 0
+/dev/loop3 /snap/core22/1380 squashfs ro,nodev,relatime,errors=continue 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev,size=8000000k,nr_inodes=1048576 0 0
+/dev/sda1 /run/media/ali/Mein\040Laufwerk exfat rw,nosuid,nodev,relatime,uid=1000,gid=1000 0 0

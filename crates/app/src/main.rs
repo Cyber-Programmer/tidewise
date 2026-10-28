@@ -1,4 +1,5 @@
 //! Tidewise UI. The toolkit is chosen in docs/decisions/0001-ui-toolkit.md.
+#![deny(unsafe_code)]
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,6 +15,8 @@ mod live;
 mod perf;
 mod procs;
 mod screenshot;
+mod storage;
+mod storage_live;
 mod view;
 
 slint::include_modules!();
@@ -150,6 +153,14 @@ fn show_demo(
             ctl.refresh(ui);
             ui.global::<ProcState>().set_details(view.details);
         }
+        "storage" => {
+            let downloads = match state {
+                None => false,
+                Some("downloads") => true,
+                Some(other) => return Err(format!("unknown storage state '{other}'").into()),
+            };
+            view::apply_storage(ui, &demo::storage(downloads));
+        }
         "home" => {
             if let Some(other) = state {
                 return Err(format!("unknown home state '{other}'").into());
@@ -197,9 +208,18 @@ struct Live {
 
 /// Draw the page on screen from the latest sample. Other pages are not touched: the process
 /// list in particular reads `/proc` for every process, so it is only built when it is shown.
-fn show_page(ui: &MainWindow, live: &mut Live, ctl: &mut ProcsCtl) {
+fn show_page(
+    ui: &MainWindow,
+    live: &mut Live,
+    ctl: &mut ProcsCtl,
+    storage: &mut storage_live::Ctl,
+) {
     match ui.global::<Shell>().get_page() {
-        0 => view::apply_home(ui, &live.sampler.home()),
+        3 => storage.poll(ui),
+        0 => {
+            live.sampler.refresh_biggest(&live.desktop);
+            view::apply_home(ui, &live.sampler.home());
+        }
         4 => {
             if let Some(perf) = live.sampler.perf() {
                 view::apply_perf(ui, &perf);
@@ -221,8 +241,32 @@ fn show_page(ui: &MainWindow, live: &mut Live, ctl: &mut ProcsCtl) {
     }
 }
 
+/// `--add-to-menu` / `--remove-from-menu`: files go in the user's own data folder only.
+fn app_menu(action: cli::MenuAction) -> Result<(), Box<dyn std::error::Error>> {
+    use tidewise_core::appmenu;
+    let data = appmenu::data_home().ok_or("cannot find your data folder (HOME is not set)")?;
+    match action {
+        cli::MenuAction::Add => {
+            // Inside an AppImage the running binary is a temporary mount; the launcher must start the AppImage.
+            let exe = std::env::var_os("APPIMAGE")
+                .map(std::path::PathBuf::from)
+                .map_or_else(std::env::current_exe, Ok)?;
+            appmenu::install(&data, &exe)?;
+            println!("Tidewise added to your app menu ({}).", data.display());
+        }
+        cli::MenuAction::Remove => {
+            appmenu::remove(&data)?;
+            println!("Tidewise removed from your app menu.");
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::parse(std::env::args().skip(1))?;
+    if let Some(action) = args.menu {
+        return app_menu(action);
+    }
     if let Some(shot) = &args.screenshot {
         return run_screenshot(shot);
     }
@@ -251,6 +295,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
         show_demo(&ui, "performance", None)?;
         show_demo(&ui, "home", None)?;
+        show_demo(&ui, "storage", None)?;
+        for (open, folder) in [(true, true), (false, false)] {
+            let state = ui.global::<StorageState>();
+            let weak = ui.as_weak();
+            let show = move || {
+                if let Some(ui) = weak.upgrade() {
+                    view::apply_storage(&ui, &demo::storage(folder));
+                }
+            };
+            if open {
+                state.on_open_hint(show.clone());
+                state.on_open_block({
+                    let show = show.clone();
+                    move |_| show()
+                });
+            } else {
+                state.on_go_root(show);
+            }
+        }
         let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
         ctl.borrow_mut().refresh(&ui);
         wire_procs(&ui, &ctl);
@@ -273,6 +336,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows: Vec::new(),
     })));
     wire_procs(&ui, &ctl);
+    let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
+    storage_live::wire(&ui, &storage);
     let sample = {
         let (live, weak) = (live.clone(), ui.as_weak());
         move || {
@@ -287,7 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl) = (ui.as_weak(), live.clone(), ctl.clone());
+        let (weak, live, ctl, storage) = (ui.as_weak(), live.clone(), ctl.clone(), storage.clone());
         move |page| {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Shell>().set_page(page);
@@ -295,11 +360,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The last sample may be a light one; the page needs the process table now.
                     live.borrow_mut().sampler.sample(true);
                 }
-                show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+                if page == 3 {
+                    storage.borrow_mut().enter(&ui);
+                }
+                show_page(
+                    &ui,
+                    &mut live.borrow_mut(),
+                    &mut ctl.borrow_mut(),
+                    &mut storage.borrow_mut(),
+                );
             }
         }
     });
-    show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+    if ui.global::<Shell>().get_page() == 3 {
+        storage.borrow_mut().enter(&ui);
+    }
+    show_page(
+        &ui,
+        &mut live.borrow_mut(),
+        &mut ctl.borrow_mut(),
+        &mut storage.borrow_mut(),
+    );
 
     // One sample per second; nothing while the window is hidden or minimised.
     let timer = Timer::default();
@@ -311,7 +392,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             sample();
-            show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+            show_page(
+                &ui,
+                &mut live.borrow_mut(),
+                &mut ctl.borrow_mut(),
+                &mut storage.borrow_mut(),
+            );
         }
     });
 

@@ -176,3 +176,41 @@ fn settings_item_is_the_same_at_960_px() {
     run_screen("settings", &out, &[]);
     assert!(active_nav_rows(&out).len() >= 36);
 }
+
+#[test]
+fn storage_renders_both_states_and_rejects_unknown_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.png"), dir.path().join("b.png"));
+    run_screen("storage", &a, &[]);
+    run_screen("storage", &b, &["--state", "downloads"]);
+    assert_eq!(png_size(&fs::read(&a).unwrap()), (1360, 960));
+    assert_ne!(fs::read(&a).unwrap(), fs::read(&b).unwrap());
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args(["--screenshot", "storage", "--state", "nope", "--out"])
+        .arg(dir.path().join("c.png"))
+        .env("TIDEWISE_RENDERER", "software")
+        .status()
+        .unwrap();
+    assert!(!status.success());
+}
+
+#[test]
+fn the_menu_flags_write_and_remove_files_only_under_xdg_data_home() {
+    let data = tempfile::tempdir().unwrap();
+    let launcher = data.path().join("applications/io.github.tidewise.desktop");
+    let run = |flag: &str| {
+        Command::new(env!("CARGO_BIN_EXE_tidewise"))
+            .arg(flag)
+            .env("XDG_DATA_HOME", data.path())
+            .env("HOME", data.path())
+            .env_remove("APPIMAGE")
+            .status()
+            .unwrap()
+    };
+    assert!(run("--add-to-menu").success());
+    assert!(run("--add-to-menu").success(), "again is fine");
+    let text = fs::read_to_string(&launcher).unwrap();
+    assert!(text.contains(env!("CARGO_BIN_EXE_tidewise")), "{text}");
+    assert!(run("--remove-from-menu").success());
+    assert!(!launcher.exists());
+}

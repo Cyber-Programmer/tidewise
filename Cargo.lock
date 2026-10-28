@@ -4445,6 +4445,7 @@ dependencies = [
  "pretty_assertions",
  "sysinfo",
  "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

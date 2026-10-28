@@ -48,3 +48,22 @@ Decision taken: per-process and per-group CPU is a share of the whole PC (÷ log
 
 ## R3-T3 — sidebar scroll has no scrollbar
 Below about 700 px the main nav items scroll with the wheel or touch; Slint's Flickable draws no scrollbar. Recommended: fine for now; the 60 px icon rail under 1100 px (tokens.md) would make this moot.
+
+## R4-T3 — Storage: colours, categories and what live mode can measure
+1. The artboard uses shades `tokens.md` does not list (tile tints #2E2547 #262B34 #23303F, drive-bar #4D72B8 #8E6FD6 #5A6272 #0F1217, amber banner #1E1A10 #2A2312 #4A3B1A #E6CF9E #F5D898, #C9BCEB). They are in `Theme` under their own comment. Recommended: add them to `tokens.md`.
+2. Live drive bar shows only "Your files" (scan of the home folder) and "Apps & system" (everything else used). Docker images, Flatpak apps and "Junk you can clean" need root-readable folders or the M3 helper; they stay out until then rather than showing guesses. Recommended: keep.
+3. Folder-map blocks are the biggest folders of the home folder; hidden folders get plain names for a few well-known ones (.cache → Caches …). "Steam games" is not a special case yet.
+4. In the drill-in, a folder's "not opened" age is its own timestamp, not the newest file inside. Recommended: keep for v1.
+5. The Downloads hint no longer claims "old installers make up most of it" (only true sometimes).
+6. I did not launch the live window (no display use in an unattended run); live logic is covered by `live_data` and `scan_root` unit tests plus the demo screenshots. Please click through Storage once.
+
+## R4-T5 — health score choices not on the artboard
+1. Score bands (Good shape ≥ 80, Could be better 60–79, Needs attention < 60) and the memory threshold (an app group using ≥ 1 GB private memory gets a suggestion, no points) are mine. Recommended: keep, or give me the intended numbers.
+2. Until the cleaner exists the score ignores junk, services and updates, and says so on Home. Recommended: keep the honest stub.
+3. `tools/measure.sh` was not re-run for Home after adding the 30-second process read. Recommended: run it once.
+
+## R4-T6 — AppImage: what is not done or not verified
+1. `appimagetool` is not installed here, so the real AppImage was **not built**; its test skips itself (it passes by skipping). The script, desktop file, icon, AppDir test (starts the AppDir's `AppRun --screenshot home`, 1360×960) and `release.yml` are in place. Install appimagetool and run `packaging/appimage/build.sh`.
+2. The script bundles only the Tidewise binary, not shared libraries (fontconfig, xkbcommon, Wayland/X11 …). It relies on the host's, built on Ubuntu 22.04 for old-glibc compatibility. Recommended: add `linuxdeploy` to bundle libraries before v1.0 (new tool, so your call).
+3. `release.yml` downloads appimagetool 1.9.1 and checks a sha256 I computed from my own download today (trust on first use, not run). Please verify the hash against a download you trust.
+4. The workflow was only syntax-checked, never run on GitHub.

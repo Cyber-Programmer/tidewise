@@ -1,4 +1,4 @@
-//! Command-line flags: `--demo`, `--screenshot <screen> [--state <variant>] --out <file.png>`.
+//! Command-line flags: `--add-to-menu`, `--remove-from-menu`, `--demo`, `--screenshot <screen> [--state <variant>] --out <file.png>`.
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Screenshot {
@@ -10,8 +10,16 @@ pub struct Screenshot {
     pub height: u32,
 }
 
+/// `--add-to-menu` / `--remove-from-menu`: put Tidewise in (or take it out of) the app menu, then exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    Add,
+    Remove,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Args {
+    pub menu: Option<MenuAction>,
     pub demo: bool,
     pub screenshot: Option<Screenshot>,
     /// `--page <screen>`: the page the window opens on (used to measure each screen).
@@ -28,6 +36,8 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--demo" => out.demo = true,
+            "--add-to-menu" => out.menu = Some(MenuAction::Add),
+            "--remove-from-menu" => out.menu = Some(MenuAction::Remove),
             "--screenshot" => {
                 screen = Some(
                     args.next()
@@ -74,6 +84,19 @@ mod tests {
     #[test]
     fn no_flags_is_live_mode() {
         assert_eq!(args(&[]), Ok(Args::default()));
+    }
+
+    #[test]
+    fn menu_flags() {
+        assert_eq!(
+            args(&["--add-to-menu"]).unwrap().menu,
+            Some(MenuAction::Add)
+        );
+        assert_eq!(
+            args(&["--remove-from-menu"]).unwrap().menu,
+            Some(MenuAction::Remove)
+        );
+        assert_eq!(args(&[]).unwrap().menu, None);
     }
 
     #[test]

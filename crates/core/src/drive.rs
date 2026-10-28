@@ -28,6 +28,103 @@ pub fn pick_main(disks: &[(String, u64, u64)]) -> Option<DriveSpace> {
     })
 }
 
+/// One mounted drive as the OS reports it, before filtering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawDisk {
+    pub name: String,
+    pub mount_point: String,
+    pub fs_type: String,
+    pub total: u64,
+    pub available: u64,
+}
+
+/// A real drive to show on the Storage screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Drive {
+    pub name: String,
+    pub mount_point: String,
+    pub fs_type: String,
+    pub total: u64,
+    pub used: u64,
+    pub free: u64,
+}
+
+/// Keep real drives: no pseudo filesystems (tmpfs, proc, squashfs of snaps, …), nothing of size 0,
+/// each device once (btrfs subvolumes and bind mounts repeat it; the shortest mount point wins).
+/// The drive at `/` comes first, then the biggest.
+pub fn drives_from(raw: &[RawDisk]) -> Vec<Drive> {
+    const PSEUDO: &[&str] = &[
+        "tmpfs",
+        "devtmpfs",
+        "ramfs",
+        "proc",
+        "sysfs",
+        "devpts",
+        "cgroup",
+        "cgroup2",
+        "efivarfs",
+        "securityfs",
+        "squashfs",
+        "overlay",
+        "fuse.portal",
+        "fuse.gvfsd-fuse",
+        "autofs",
+        "bpf",
+        "debugfs",
+        "tracefs",
+        "configfs",
+        "fusectl",
+        "mqueue",
+        "hugetlbfs",
+        "pstore",
+        "binfmt_misc",
+    ];
+    let mut drives: Vec<Drive> = Vec::new();
+    for d in raw {
+        if d.total == 0 || PSEUDO.contains(&d.fs_type.as_str()) {
+            continue;
+        }
+        let free = d.available.min(d.total);
+        let drive = Drive {
+            name: d.name.clone(),
+            mount_point: d.mount_point.clone(),
+            fs_type: d.fs_type.clone(),
+            total: d.total,
+            used: d.total - free,
+            free,
+        };
+        match drives.iter_mut().find(|x| x.name == d.name) {
+            Some(same) if drive.mount_point.len() < same.mount_point.len() => *same = drive,
+            Some(_) => {}
+            None => drives.push(drive),
+        }
+    }
+    drives.sort_by(|a, b| {
+        (b.mount_point == "/")
+            .cmp(&(a.mount_point == "/"))
+            .then(b.total.cmp(&a.total))
+            .then_with(|| a.mount_point.cmp(&b.mount_point))
+    });
+    drives
+}
+
+/// Every real drive on this machine.
+pub fn drives() -> Vec<Drive> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let raw: Vec<_> = disks
+        .list()
+        .iter()
+        .map(|d| RawDisk {
+            name: d.name().to_string_lossy().into_owned(),
+            mount_point: d.mount_point().to_string_lossy().into_owned(),
+            fs_type: d.file_system().to_string_lossy().into_owned(),
+            total: d.total_space(),
+            available: d.available_space(),
+        })
+        .collect();
+    drives_from(&raw)
+}
+
 /// Space on this machine's main drive, or None if no disk is reported.
 pub fn main_drive() -> Option<DriveSpace> {
     let disks = sysinfo::Disks::new_with_refreshed_list();
@@ -105,6 +202,59 @@ mod tests {
             .used_fraction(),
             0.0
         );
+    }
+
+    fn raw(name: &str, mount: &str, fs: &str, total: u64, available: u64) -> RawDisk {
+        RawDisk {
+            name: name.into(),
+            mount_point: mount.into(),
+            fs_type: fs.into(),
+            total,
+            available,
+        }
+    }
+
+    #[test]
+    fn pseudo_filesystems_and_empty_drives_are_skipped() {
+        let list = drives_from(&[
+            raw("/dev/nvme0n1p2", "/", "ext4", 500, 100),
+            raw("tmpfs", "/run", "tmpfs", 32, 30),
+            raw("/dev/loop3", "/snap/core22/1380", "squashfs", 70, 0),
+            raw("proc", "/proc", "proc", 0, 0),
+            raw("efivarfs", "/sys/firmware/efi/efivars", "efivarfs", 1, 1),
+            raw("/dev/sdc", "/mnt/empty", "ext4", 0, 0),
+        ]);
+        let mounts: Vec<_> = list.iter().map(|d| d.mount_point.as_str()).collect();
+        assert_eq!(mounts, ["/"]);
+    }
+
+    #[test]
+    fn used_is_total_minus_free_and_never_negative() {
+        let list = drives_from(&[
+            raw("/dev/a", "/", "ext4", 500, 100),
+            raw("/dev/b", "/mnt/b", "ext4", 100, 500),
+        ]);
+        assert_eq!((list[0].total, list[0].used, list[0].free), (500, 400, 100));
+        assert_eq!((list[1].used, list[1].free), (0, 100));
+    }
+
+    #[test]
+    fn root_first_then_biggest_and_a_device_appears_once() {
+        let list = drives_from(&[
+            raw("/dev/sdb1", "/mnt/big", "ext4", 4000, 1000),
+            raw("/dev/mapper/c", "/home", "btrfs", 900, 300),
+            raw("/dev/mapper/c", "/", "btrfs", 900, 300),
+            raw("/dev/sdc1", "/run/media/ali/Mein Laufwerk", "exfat", 64, 10),
+        ]);
+        let mounts: Vec<_> = list.iter().map(|d| d.mount_point.as_str()).collect();
+        assert_eq!(mounts, ["/", "/mnt/big", "/run/media/ali/Mein Laufwerk"]);
+    }
+
+    #[test]
+    fn this_machine_lists_its_main_drive() {
+        let list = drives();
+        assert!(!list.is_empty());
+        assert!(list.iter().all(|d| d.total > 0 && d.used <= d.total));
     }
 
     #[test]

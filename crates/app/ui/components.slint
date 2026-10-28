@@ -152,3 +152,46 @@ export component DetailsSwitch inherits Rectangle {
     }
     TouchArea { clicked => { root.on = !root.on; } }
 }
+
+// The toast for reversible actions ("3 files moved to Trash · Undo").
+export global ToastState {
+    in property <string> message;
+    in property <bool> shown: false;
+    in property <bool> can-undo: true;
+    in property <bool> error: false;
+    callback undo();
+    callback dismiss();
+}
+
+export component Toast inherits Rectangle {
+    visible: ToastState.shown;
+    width: 440px;
+    height: 56px;
+    border-radius: 12px;
+    background: ToastState.error ? Theme.danger-tint : Theme.toast-bg;
+    border-width: 1px;
+    border-color: ToastState.error ? Theme.danger : Theme.toast-border;
+    accessible-role: text;
+    accessible-label: ToastState.message;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 4px;
+        spacing: 12px;
+        Image {
+            source: @image-url("icons/done.svg");
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            colorize: ToastState.error ? Theme.danger : Theme.accent;
+        }
+        Text { text: ToastState.message; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+        if ToastState.can-undo: Rectangle {
+            width: undo-label.preferred-width + 20px;
+            accessible-role: button;
+            accessible-label: "Undo";
+            accessible-action-default => { ToastState.undo(); }
+            undo-label := Text { x: 10px; text: "Undo"; color: Theme.accent-text; font-size: Theme.size-small; font-weight: 700; vertical-alignment: center; }
+            TouchArea { clicked => { ToastState.undo(); } }
+        }
+    }
+}

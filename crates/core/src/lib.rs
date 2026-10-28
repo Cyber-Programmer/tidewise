@@ -1,10 +1,15 @@
 //! Scanning, sizes and live stats. No UI, no root.
+#![forbid(unsafe_code)]
 
+pub mod appmenu;
 pub mod diskstats;
 pub mod distro;
 pub mod drive;
+pub mod health;
+pub mod mounts;
 pub mod procfs;
 pub mod rates;
 pub mod scan;
 pub mod statm;
 pub mod stats;
+pub mod trash;

@@ -54,3 +54,16 @@ desktop and tools in live mode), header with search pill and "Scan again", healt
 "Right now" tiles with sparklines and bars, apps-by-source strip, and a titled "Coming in a later version" page for the
 other sidebar items. Live mode shows the tiles and a "Scan coming soon" card instead of score and suggestions.
 Remaining (accepted): text antialiasing; the search pill does nothing yet; "Review & fix" and the tiles only navigate.
+
+## Storage (R4-T3)
+Run `tools/design_check.sh storage`.
+| Image | Before | After |
+| --- | --- | --- |
+| Storage | 17.1 % (first render) | 2.7 % |
+| Storage--downloads | 33.1 % (first render) | 2.3 % |
+
+Fixed along the way: tile text pinned to the bottom, the 2 px gaps of the drive bar, the map card taking the free
+width (the row was `alignment: start`), the 32 px breadcrumb button of the drill-in, and Biggest-files rows that grow
+with their wrapped second line (the design's rows are not all the same height).
+Remaining (accepted): the "Biggest files" sizes stay on one line (design bug, DESIGN-CHECK.md); text antialiasing; the
+treemap in demo mode uses the artboard's own rectangles, live mode uses a squarified treemap.
