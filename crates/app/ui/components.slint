@@ -82,10 +82,10 @@ export component Sidebar inherits Rectangle {
             Flickable {
                 width: parent.width;
                 height: parent.height;
-                viewport-width: self.width;
-                viewport-height: nav.preferred-height;
+                content-width: self.width;
+                content-height: nav.preferred-height;
                 nav := VerticalLayout {
-                    width: parent.viewport-width;
+                    width: parent.content-width;
                     spacing: 4px;
                     NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0; clicked => { Shell.navigate(0); } }
                     NavItem { label: "Clean up"; icon: @image-url("icons/clean.svg"); active: Shell.page == 1; clicked => { Shell.navigate(1); } }
