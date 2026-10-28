@@ -187,3 +187,13 @@ Where time still goes on Processes (3.6 %): a full process read (about 160 proce
 
 **Next:** M2 task 2 (Storage screen) on top of `core::scan`, plus drive totals and the `noatime` check.
 **Blockers:** none.
+
+# Run 04 (branch run/04-2026-10-28, started 2026-10-28 13:48 PKT)
+
+### R4-T0 plan
+Red test on a disk-backed temp dir (under `target/test-tmp`, not tmpfs) reproducing CI's 204800 vs 208896; nested-folder test; fix: folder blocks also added to `progress.bytes`; remove `screenshots-test/`; pin actions by SHA, `permissions: contents: read`.
+
+### R4-T0 done
+Why CI failed: `Walk::dir` added `meta.blocks()*512` of every sub-folder to the total, but progress only counted files. On tmpfs (`/tmp` here) a folder has 0 blocks so the two agreed; on ext4 each folder is 4096 → exactly the 4096 difference. Red locally: both tests failed (204800 vs 208896; nested 98304 vs 118784). Green after adding folder blocks to progress.
+Other `tempdir()` users (distro, procfs, procs, appimage, screenshot tests) parse text/PNG and never depend on block counts; `scan` tests that do (du comparison, folder sizes) now use the disk-backed dir.
+Actions: checkout v7.0.1, rust-cache v2.9.3, rust-toolchain pinned to the `stable` branch commit (it has no version tags; `toolchain: stable` passed explicitly). Human checks GitHub after pushing.
