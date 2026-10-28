@@ -237,6 +237,16 @@ Plan: `packaging/appimage/build.sh` (+ `--binary/--out/--appdir-only` for tests)
 - `trash` crate not used (own implementation, see R4-T4); `thiserror` (already a workspace dependency) added to `core`.
 - Not run: the live window, `tools/measure.sh`, the real AppImage, GitHub Actions.
 
+## Red-first audit (run 4): parts that do NOT have a red commit before them
+The run prompt requires a red test commit before each behaviour change. These parts do not have one. I am recording them as **not done test-first** (not as done): the history cannot be rewritten in this run, and the reason is that code and tests were written together to save turns.
+- R4-T3: the Slint Storage screen (checked by the design loop, not by a failing test), the live controller `storage_live.rs` (only `scan_root` and `why` have unit tests, written with the code), and the helpers after the first 12 view-model tests (`tile_tier`, `assign_hues`, `kind_of`, `folder_row`, `selection`, `drive_label`, `drive_bar`, `bar_label`, `live_data`, `days_since`, `toast_text`). `ScanHandle::is_finished` also came with its test.
+- R4-T4: the toast and Trash buttons in the app (the click path has no automated test). `core::trash` itself has a red commit.
+- R4-T5: `home::health_scan` and the live Home wiring (`refresh_biggest`). The `core::health` rules have a red commit.
+- R4-T6: `build.sh`, the desktop file and `release.yml` and their tests were committed together; the workflow has no test beyond a YAML syntax check.
+- R4-T7: the `--add-to-menu` / `--remove-from-menu` flags (CLI tests came with them). `core::appmenu` has a red commit.
+- R4-T0 and R4-T1: the CI workflow pinning, `screenshots-test/` removal, `forbid/deny(unsafe_code)` lints, `SECURITY.md`, threat model and fuzz targets are config/docs changes with no test; the T0 scan fix and T2 modules do have red commits.
+A reviewer should treat the parts above as untested-first and read them accordingly.
+
 ## Summary (run 4, branch run/04-2026-10-28)
 - **R4-T0** CI failure explained and fixed (progress ignored folder blocks; tmpfs hid it). Actions pinned by SHA, read-only token, `screenshots-test/` removed.
 - **R4-T1** threat model, SECURITY.md, `forbid/deny(unsafe_code)`, six fuzz targets × 5 min, 0 crashes.
