@@ -35,6 +35,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let mut state = None;
     let mut file = None;
     let mut height = 960;
+    let mut open = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--demo" => out.demo = true,
@@ -50,6 +51,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             "--page" => out.page = Some(args.next().ok_or("--page needs a screen name")?),
             "--state" => state = Some(args.next().ok_or("--state needs a value")?),
             "--out" => file = Some(args.next().ok_or("--out needs a file name")?),
+            "--open" => {
+                open = Some(args.next().filter(|v| relative_inside(v)).ok_or(
+                    "--open needs a folder path inside the scanned folder (no .. and not absolute)",
+                )?);
+            }
             "--height" => {
                 height = args
                     .next()
@@ -68,10 +74,10 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             state,
             out: out_file,
             height,
-            open: None,
+            open,
         });
-    } else if state.is_some() || file.is_some() {
-        return Err("--state and --out only work with --screenshot".into());
+    } else if state.is_some() || file.is_some() || open.is_some() {
+        return Err("--state, --out and --open only work with --screenshot".into());
     }
     Ok(out)
 }
@@ -79,8 +85,17 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
 /// The folder the live Storage scan starts from, when `TIDEWISE_STORAGE_ROOT` asks for one. It is only
 /// honoured together with `--screenshot`, so it cannot surprise someone running the app.
 pub fn storage_root(screenshot: bool, env: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
-    let _ = (screenshot, env);
-    None
+    let dir = std::path::PathBuf::from(env.filter(|_| screenshot)?);
+    (dir.is_absolute()).then_some(dir)
+}
+
+/// A path inside the scanned folder: relative, no `..`, not empty.
+fn relative_inside(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    !path.is_empty()
+        && p.is_relative()
+        && p.components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 #[cfg(test)]

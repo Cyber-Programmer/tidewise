@@ -157,6 +157,7 @@ fn show_demo(
             let downloads = match state {
                 None => false,
                 Some("downloads") => true,
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from a real scan
                 Some(other) => return Err(format!("unknown storage state '{other}'").into()),
             };
             view::apply_storage(ui, &demo::storage(downloads));
@@ -185,8 +186,43 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     ui.global::<Shell>()
         .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
+    if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
+        live_storage_screenshot(&ui, shot)?;
+    }
     ui.show()?;
     screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
+}
+
+/// `--screenshot storage --state live`: scan `TIDEWISE_STORAGE_ROOT` for real (the variable only
+/// counts here), wait for the scans, open `--open` and leave the result on the window.
+fn live_storage_screenshot(
+    ui: &MainWindow,
+    shot: &cli::Screenshot,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = cli::storage_root(true, std::env::var_os("TIDEWISE_STORAGE_ROOT").as_deref())
+        .ok_or("--state live needs TIDEWISE_STORAGE_ROOT set to an absolute folder")?;
+    let mut ctl = storage_live::Ctl::with_home(root.clone());
+    ctl.enter(ui);
+    wait_for_scans(&mut ctl, ui);
+    if let Some(rel) = &shot.open {
+        let target = root.join(rel);
+        if !target.is_dir() {
+            return Err(format!("--open: {} is not a folder", target.display()).into());
+        }
+        ctl.open_now(target, ui);
+        wait_for_scans(&mut ctl, ui);
+    }
+    Ok(())
+}
+
+fn wait_for_scans(ctl: &mut storage_live::Ctl, ui: &MainWindow) {
+    loop {
+        ctl.poll(ui);
+        if ctl.is_idle() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// Sampling pauses while nobody can see the window.

@@ -77,3 +77,14 @@ fn it_has_a_symlink_and_a_hard_link_across_folders() {
     assert!(v.iter().any(|(_, m)| m.file_type().is_symlink()));
     assert!(v.iter().any(|(_, m)| m.is_file() && m.nlink() > 1));
 }
+
+/// `cargo test -p tidewise-app --test storage_fixture keep -- --ignored --nocapture` leaves a fixture
+/// behind and prints its path, for taking screenshots by hand. Remove it with `rm -rf` afterwards.
+#[test]
+#[ignore]
+fn keep() {
+    let fx = fixture::build();
+    let root = fx.root.clone();
+    let _ = fx.dir.keep();
+    println!("FIXTURE {}", root.display());
+}

@@ -35,6 +35,8 @@ pub struct Ctl {
     drives: Vec<Drive>,
     picked: usize,
     home: PathBuf,
+    /// Screenshots of a fixture: scan exactly this folder, whatever drive is picked.
+    fixed_root: Option<PathBuf>,
     job: Option<Job>,
     root: Option<ScanResult>,
     opened: Option<Opened>,
@@ -62,12 +64,26 @@ pub fn scan_root(drives: &[Drive], picked: usize, home: &Path) -> PathBuf {
 
 impl Ctl {
     pub fn new() -> Self {
+        Self::new_inner(
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+        )
+    }
+
+    /// A controller that treats `home` as the user's files (screenshots of a fixture folder).
+    pub fn with_home(home: PathBuf) -> Self {
+        let mut ctl = Self::new_inner(home.clone());
+        ctl.fixed_root = Some(home);
+        ctl
+    }
+
+    fn new_inner(home: PathBuf) -> Self {
         Ctl {
             drives: Vec::new(),
             picked: 0,
-            home: std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_default(),
+            fixed_root: None,
+            home,
             job: None,
             root: None,
             opened: None,
@@ -86,8 +102,14 @@ impl Ctl {
         }
     }
 
+    fn root_dir(&self) -> PathBuf {
+        self.fixed_root
+            .clone()
+            .unwrap_or_else(|| scan_root(&self.drives, self.picked, &self.home))
+    }
+
     fn start_root(&mut self) {
-        let root = scan_root(&self.drives, self.picked, &self.home);
+        let root = self.root_dir();
         self.root = None;
         self.opened = None;
         self.job = Some(Job::Root(scan::start(root, Self::options(500))));
@@ -102,6 +124,16 @@ impl Ctl {
             self.start_root();
         }
         self.refresh(ui);
+    }
+
+    /// No scan is running.
+    pub fn is_idle(&self) -> bool {
+        self.job.is_none()
+    }
+
+    /// Show `path` (an absolute folder) as if its block had been clicked.
+    pub fn open_now(&mut self, path: PathBuf, ui: &MainWindow) {
+        self.open(path, ui);
     }
 
     /// Called once a second while the page is open.
@@ -221,7 +253,7 @@ impl Ctl {
     /// Measure the drive again, keeping the open folder on screen's data.
     fn rescan(&mut self) {
         self.stop();
-        let root = scan_root(&self.drives, self.picked, &self.home);
+        let root = self.root_dir();
         self.root = None;
         self.job = Some(Job::Root(scan::start(root, Self::options(500))));
     }
