@@ -159,6 +159,7 @@ impl Ctl {
                 entries: &level.items,
                 checked: self.browser.checked(),
                 cursor: self.browser.cursor(),
+                rest: self.browser.level().and_then(|l| l.rest),
             }),
             _ => None,
         };

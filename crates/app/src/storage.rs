@@ -489,6 +489,8 @@ pub struct FolderIn<'a> {
     pub entries: &'a [Item],
     pub checked: &'a [bool],
     pub cursor: usize,
+    /// Smaller items left out of `entries`: how many, and their bytes.
+    pub rest: Option<(usize, u64)>,
 }
 
 /// Whole days between two moments; 0 if `then` is in the future.
@@ -922,6 +924,7 @@ mod tests {
                 entries: &items,
                 checked: &[false, true],
                 cursor: 1,
+                rest: None,
             }),
             Path::new("/home/ali"),
             SystemTime::now(),
@@ -938,6 +941,52 @@ mod tests {
         assert_eq!(
             f.rows.iter().map(|r| r.focused).collect::<Vec<_>>(),
             [false, true]
+        );
+    }
+
+    #[test]
+    fn a_cut_list_ends_with_a_row_that_counts_what_is_left() {
+        use crate::nav::Item;
+        let items = [Item {
+            name: "a".into(),
+            path: "/x/a".into(),
+            bytes: 10,
+            kind: RowKind::File,
+            days_unused: 1,
+        }];
+        let scan = scan_with(&[("x", 20)]);
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let show = |rest| {
+            live_data(
+                &drives,
+                0,
+                Phase::Done(&scan),
+                Some(FolderIn {
+                    crumbs: Vec::new(),
+                    entries: &items,
+                    checked: &[true],
+                    cursor: 0,
+                    rest,
+                }),
+                Path::new("/home/ali"),
+                SystemTime::now(),
+            )
+            .unwrap()
+            .folder
+            .unwrap()
+            .rows
+        };
+        assert_eq!(show(None).len(), 1, "a whole list has no extra row");
+        let rows = show(Some((35, 12_000_000)));
+        assert_eq!(rows.len(), 2);
+        let last = rows.last().unwrap();
+        assert_eq!(last.kind, RowKind::Summary);
+        assert_eq!(last.name, "and 35 smaller items \u{b7} 12 MB");
+        assert!(!last.checked && last.meta.is_empty() && last.size.is_empty());
+        assert_eq!(
+            selection(&rows),
+            (1, 10),
+            "the summary row is never counted"
         );
     }
 

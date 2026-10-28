@@ -114,11 +114,29 @@ pub struct Item {
     pub days_unused: u64,
 }
 
+/// The most rows a level lists; the rest are counted in one last row.
+pub const ROW_CAP: usize = 2000;
+
 /// What one opened folder holds, biggest first.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Level {
     pub items: Vec<Item>,
     pub total: u64,
+    /// How many smaller items were left out of the list, and their bytes.
+    pub rest: Option<(usize, u64)>,
+}
+
+/// The first `cap` children, and how many more there were with their bytes.
+pub fn split_cap(
+    children: &[(PathBuf, u64)],
+    _cap: usize,
+) -> (&[(PathBuf, u64)], Option<(usize, u64)>) {
+    (children, None)
+}
+
+/// "and 35 smaller items · 12 MB".
+pub fn rest_text(_count: usize, _bytes: u64) -> String {
+    String::new()
 }
 
 /// Read what kind of thing each child is and when it was last used. Things that vanished are left out.
@@ -166,10 +184,11 @@ fn items_from(
     items
 }
 
-pub fn level_from(r: &ScanResult, now: SystemTime, by_access: bool) -> Level {
+pub fn level_from(r: &ScanResult, now: SystemTime, by_access: bool, _cap: usize) -> Level {
     Level {
         items: items_from(&r.children, &r.other_drives, now, by_access),
         total: r.total_bytes,
+        rest: None,
     }
 }
 
@@ -179,11 +198,13 @@ pub fn other_level(
     max_blocks: usize,
     now: SystemTime,
     by_access: bool,
+    _cap: usize,
 ) -> Level {
     let members = storage::other_members(root, max_blocks);
     Level {
         total: members.iter().map(|m| m.1).sum(),
         items: items_from(&members, &[], now, by_access),
+        rest: None,
     }
 }
 
@@ -357,7 +378,12 @@ impl Browser {
             if let Some((h, place)) = self.level_job.take() {
                 let result = h.wait();
                 if !result.cancelled && self.trail.current() == Some(&place) {
-                    let level = Rc::new(level_from(&result, SystemTime::now(), self.by_access()));
+                    let level = Rc::new(level_from(
+                        &result,
+                        SystemTime::now(),
+                        self.by_access(),
+                        ROW_CAP,
+                    ));
                     self.cache.put(place, level.clone());
                     self.show(level);
                 }
@@ -425,6 +451,7 @@ impl Browser {
                         MAP_BLOCKS,
                         SystemTime::now(),
                         self.by_access(),
+                        ROW_CAP,
                     ));
                     self.cache.put(place, level.clone());
                     self.show(level);
@@ -666,8 +693,8 @@ mod tests {
     fn the_cache_hands_back_what_it_was_given() {
         let mut c = Cache::default();
         let level = Rc::new(Level {
-            items: Vec::new(),
             total: 7,
+            ..Level::default()
         });
         c.put(folder("/r/a"), level.clone());
         assert_eq!(c.get(&folder("/r/a")).unwrap().total, 7);
@@ -738,7 +765,7 @@ mod tests {
     #[test]
     fn a_level_lists_every_child_biggest_first_with_its_kind() {
         let fx = fixture::build();
-        let level = level_from(&scan(&fx.root), now(), true);
+        let level = level_from(&scan(&fx.root), now(), true, ROW_CAP);
         let names: Vec<_> = level.items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(names[0], "Documents");
         let kind = |n: &str| level.items.iter().find(|i| i.name == n).unwrap().kind;
@@ -749,7 +776,12 @@ mod tests {
             "a symlink is a row that does not open"
         );
         assert!(level.items.windows(2).all(|w| w[0].bytes >= w[1].bytes));
-        let photos = level_from(&scan(&fx.root.join("Documents/Photos")), now(), true);
+        let photos = level_from(
+            &scan(&fx.root.join("Documents/Photos")),
+            now(),
+            true,
+            ROW_CAP,
+        );
         assert_eq!(photos.items.len(), 45);
         assert!(photos.items.iter().all(|i| i.kind == RowKind::File));
         assert_eq!(
@@ -760,7 +792,7 @@ mod tests {
 
     #[test]
     fn a_folder_on_another_drive_is_a_row_that_does_not_open() {
-        let level = level_from(&scan(Path::new("/dev")), now(), true);
+        let level = level_from(&scan(Path::new("/dev")), now(), true, ROW_CAP);
         if Path::new("/dev/shm").is_dir() {
             let row = level
                 .items
@@ -775,7 +807,7 @@ mod tests {
     #[test]
     fn old_things_are_marked_by_how_long_ago_they_were_used() {
         let fx = fixture::build();
-        let level = level_from(&scan(&fx.root.join("Downloads")), now(), true);
+        let level = level_from(&scan(&fx.root.join("Downloads")), now(), true, ROW_CAP);
         let days = |n: &str| {
             level
                 .items
@@ -795,12 +827,62 @@ mod tests {
         let blocks = crate::storage::blocks_from(&root, 6);
         let other = blocks.last().unwrap();
         assert_eq!(other.name, "Other");
-        let level = other_level(&root, 6, now(), true);
+        let level = other_level(&root, 6, now(), true, ROW_CAP);
         assert_eq!(
             level.items.len(),
             root.children.iter().filter(|c| c.1 > 0).count() - 5
         );
         assert_eq!(level.total, other.bytes, "the block and its list agree");
+    }
+
+    fn kids(n: usize) -> Vec<(PathBuf, u64)> {
+        (0..n)
+            .map(|i| (PathBuf::from(format!("/r/{i}")), 1_000 - i as u64 % 1_000))
+            .collect()
+    }
+
+    #[test]
+    fn a_list_is_cut_at_the_cap_and_the_rest_is_counted() {
+        let k = kids(2_500);
+        let (shown, rest) = split_cap(&k, ROW_CAP);
+        assert_eq!(shown.len(), 2_000);
+        let left: u64 = k[2_000..].iter().map(|c| c.1).sum();
+        assert_eq!(rest, Some((500, left)));
+    }
+
+    #[test]
+    fn a_list_at_or_under_the_cap_is_shown_whole() {
+        for n in [0, 1, 1_999, 2_000] {
+            let k = kids(n);
+            let (shown, rest) = split_cap(&k, ROW_CAP);
+            assert_eq!((shown.len(), rest), (n, None), "{n} children");
+        }
+        let k = kids(2_001);
+        assert_eq!(split_cap(&k, ROW_CAP).1.map(|r| r.0), Some(1));
+    }
+
+    #[test]
+    fn a_level_keeps_the_biggest_rows_and_its_real_total() {
+        let fx = fixture::build();
+        let r = scan(&fx.root.join("Documents/Photos"));
+        let level = level_from(&r, now(), true, 10);
+        assert_eq!(level.items.len(), 10);
+        let left: u64 = r.children[10..].iter().map(|c| c.1).sum();
+        assert_eq!(level.rest, Some((35, left)));
+        assert_eq!(
+            level.total, r.total_bytes,
+            "the total still counts everything"
+        );
+        assert_eq!(level.items[0].bytes, r.children[0].1, "biggest first");
+    }
+
+    #[test]
+    fn the_last_row_says_how_many_smaller_items_were_left_out() {
+        assert_eq!(
+            rest_text(35, 12_000_000),
+            "and 35 smaller items \u{b7} 12 MB"
+        );
+        assert_eq!(rest_text(1, 3_000_000), "and 1 smaller item \u{b7} 3 MB");
     }
 
     // --- the browser ---

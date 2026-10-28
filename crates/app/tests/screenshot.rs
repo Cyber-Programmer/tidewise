@@ -272,3 +272,57 @@ fn opening_a_missing_folder_fails_loudly() {
         .unwrap();
     assert!(!status.success());
 }
+
+/// True when the list card's right edge shows a scrollbar: a vertical run of pixels that are none of
+/// the colours rows, borders and the page are drawn with.
+fn has_scrollbar(png: &PathBuf) -> bool {
+    let img = image::open(png).unwrap().to_rgb8();
+    let known: [[u8; 3]; 7] = [
+        [0x12, 0x16, 0x1C], // surface-sunk
+        [0x1A, 0x1F, 0x27], // control-bg
+        [0x1E, 0x23, 0x2B], // row-divider
+        [0x23, 0x29, 0x33], // border
+        [0x16, 0x1A, 0x21], // surface
+        [0x0E, 0x11, 0x15], // bg
+        [0x0B, 0x0E, 0x12],
+    ];
+    let near = |p: &image::Rgb<u8>| {
+        known
+            .iter()
+            .any(|k| (0..3).all(|c| (p[c] as i32 - k[c] as i32).abs() <= 10))
+    };
+    let (w, h) = img.dimensions();
+    let _ = w;
+    for x in 948..962 {
+        let mut run = 0;
+        for y in 360..h.saturating_sub(40) {
+            if near(img.get_pixel(x, y)) {
+                run = 0;
+            } else {
+                run += 1;
+                if run >= 30 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[test]
+fn a_long_folder_scrolls_and_a_short_one_does_not() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    for height in ["960", "600"] {
+        let long = dir.path().join(format!("long-{height}.png"));
+        let short = dir.path().join(format!("short-{height}.png"));
+        live_storage(
+            &fx,
+            &long,
+            &["--open", "Documents/Photos", "--height", height],
+        );
+        live_storage(&fx, &short, &["--open", "Documents", "--height", height]);
+        assert!(has_scrollbar(&long), "45 rows at {height} px should scroll");
+        assert!(!has_scrollbar(&short), "3 rows at {height} px should not");
+    }
+}
