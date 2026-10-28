@@ -164,6 +164,21 @@ fn show_demo(
                 None => false,
                 Some("downloads") => true,
                 Some("live") => return Ok(()), // drawn by `run_screenshot` from a real scan
+                Some("sizes") => {
+                    // The widest and narrowest sizes the Biggest files column has to hold.
+                    let mut data = demo::storage(false);
+                    for (row, bytes) in data.big.iter_mut().zip([
+                        999_900_000_000,
+                        17_500_000_000,
+                        840_000_000,
+                        12_000,
+                        0,
+                    ]) {
+                        row.size = storage::fmt_item(bytes);
+                    }
+                    view::apply_storage(ui, &data);
+                    return Ok(());
+                }
                 Some(other) => return Err(format!("unknown storage state '{other}'").into()),
             };
             view::apply_storage(ui, &demo::storage(downloads));

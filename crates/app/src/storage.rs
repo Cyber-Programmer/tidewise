@@ -48,8 +48,37 @@ fn trim(value: f64, unit: &str) -> String {
 }
 
 /// One size format for the rows and Biggest files: `17.5 GB`, `840 MB`, `12 KB`, `Empty` for nothing.
-pub fn fmt_item(_bytes: u64) -> String {
-    String::new()
+pub fn fmt_item(bytes: u64) -> String {
+    if bytes == 0 {
+        return "Empty".into();
+    }
+    if bytes < 1_000 {
+        return "<1 KB".into();
+    }
+    // Each unit ends where its rounded value would read 1000, so 999.5 MB shows as `1 GB`.
+    let kb = bytes as f64 / 1e3;
+    if kb < 999.5 {
+        return format!("{kb:.0} KB");
+    }
+    let mb = bytes as f64 / MB;
+    if mb < 9.95 {
+        return trim(mb, "MB");
+    }
+    if mb < 999.5 {
+        return format!("{mb:.0} MB");
+    }
+    let gb = bytes as f64 / GB;
+    if gb < 99.95 {
+        return trim(gb, "GB");
+    }
+    if gb < 999.5 {
+        return format!("{gb:.0} GB");
+    }
+    let tb = gb / 1000.0;
+    if tb < 99.95 {
+        return trim(tb, "TB");
+    }
+    format!("{tb:.0} TB")
 }
 
 /// Always one decimal in GB (`6.1 GB`, `22.0 GB`): the file rows and the Trash button.
@@ -232,7 +261,13 @@ pub fn trash_label(count: usize, bytes: u64) -> String {
     if count == 0 {
         return "Nothing ticked".into();
     }
-    format!("Move {count} to Trash · {}", fmt_gb1(bytes))
+    // The design writes `22.0 GB` here; below 1 GB that would read `0.1 GB` or `0.0 GB`.
+    let amount = if bytes >= 1_000_000_000 {
+        fmt_gb1(bytes)
+    } else {
+        fmt_item(bytes)
+    };
+    format!("Move {count} to Trash · {amount}")
 }
 
 /// Not opened for this many days counts as "not opened in 6 months".
@@ -397,7 +432,7 @@ pub fn folder_row(
         size: if away {
             "On another drive".into()
         } else {
-            fmt_gb1(bytes)
+            fmt_item(bytes)
         },
         old,
         checked: old,
@@ -619,7 +654,7 @@ pub fn live_data(
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             meta: file_meta(home, &f.path, days_since(now, f.last_used)),
-            size: fmt_gb1(f.bytes),
+            size: fmt_item(f.bytes),
             path: Some(f.path.clone()),
         })
         .collect();
@@ -771,11 +806,17 @@ mod tests {
     }
 
     #[test]
-    fn the_trash_button_uses_the_item_format_too() {
+    fn the_trash_button_keeps_the_designs_gb_text_but_never_says_0_0_gb() {
         assert_eq!(trash_label(2, 840_000_000), "Move 2 to Trash \u{b7} 840 MB");
         assert_eq!(
             trash_label(1, 22_000_000_000),
-            "Move 1 to Trash \u{b7} 22 GB"
+            "Move 1 to Trash \u{b7} 22.0 GB",
+            "the design's text from 1 GB up"
+        );
+        assert_eq!(
+            trash_label(1, 3_000),
+            "Move 1 to Trash \u{b7} 3 KB",
+            "never 0.0 GB"
         );
         assert_eq!(trash_label(0, 5), "Nothing ticked");
     }

@@ -511,6 +511,8 @@ export component StorageScreen inherits Rectangle {
             Card {
                 width: 320px;
                 border-radius: Theme.radius-card;
+                // The widest size the list can show, measured in the font and size the column uses.
+                widest := Mono { visible: false; text: "999.9 GB"; font-size: Theme.size-small; }
                 VerticalLayout {
                     alignment: start;
                     Rectangle {
@@ -531,7 +533,7 @@ export component StorageScreen inherits Rectangle {
                             padding-right: 18px;
                             padding-top: 11px;
                             padding-bottom: 11px;
-                            spacing: 12px;
+                            spacing: 6px;
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 alignment: center;
@@ -539,7 +541,7 @@ export component StorageScreen inherits Rectangle {
                                 Text { text: b.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
                                 Text { text: b.meta; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
                             }
-                            Mono { text: b.size; width: 47px; color: Theme.text; font-size: Theme.size-small; horizontal-alignment: right; }
+                            Mono { text: b.size; width: widest.preferred-width; color: Theme.text; font-size: Theme.size-small; horizontal-alignment: right; }
                             VerticalLayout {
                                 alignment: center;
                                 Rectangle {
