@@ -311,3 +311,33 @@ Pictures looked at: `target/shots/t4/sizes.png` (demo with 1 TB, 17.5 GB, 840 MB
 R5-T5 done. **Cause found, with evidence.** The map's block for a folder came from the home scan, where a hard-linked file is counted once *across the whole home* (in whichever folder the directory walk met it first); opening the folder rescans it alone, where the file is counted again. Second, smaller cause: a block included the folder's own 4,096-byte block, the opened total did not. Read-only probe of this machine's real home (`cargo test -p tidewise-core --test probe_home -- --ignored --nocapture`, `target/probe-home.log`): `Documents` block 21,341,478,912 vs 22,157,975,552 opened (+816,496,640 ≈ 0.8 GB: the 18.9 → 19.8 GB the human saw), `.config` +110,592, `.cache` +45,056, and −4,096 on `.local`, `Android`, `.gradle`, `.arduino15`, `.android`. Hard links were the cause of the big gap; files changing between scans were not needed to explain it.
 **One rule now:** a folder's size = its own blocks + everything below it, each inode counted once *inside that folder*; a scan's total counts every inode once overall plus the scanned folder's own blocks (equal to `du -sB1`). A file hard-linked into two folders is in both folders' sizes and once in the total. Same probe after the change (`target/probe-home-after.log`): every top-level folder has diff +0 (Documents 22,276,726,784 both ways); the home total (153,685,807,104) is 817,627,136 *less* than the sum of its folders, which is the shared hard-link space — real and correct, so rows can add up to more than a total; a one-line note says so under the list (`nav::overlap_note`) instead of hiding it.
 Red commits: core (3 tests failed against the old scanner), then app (2 tests failed against stubs; `every_block_equals_the_total_shown_when_it_is_opened` failed earlier against the old scanner — `Documents` 1,230,024,704 vs 1,190,027,264 — but passes in its commit because the core fix landed first). Two old tests encoded the old rule and were changed with the rule, not weakened: `hard_links_are_counted_once` (now asserts the total counts the file once and each folder counts it) and the Photos total in `nav` (now rows + the folder's own blocks). Slip to disclose: I had the new tests written and seen failing before the red commit existed; separating them into commits cost a stash/patch step, and a `git stash drop` briefly lost the unfinished app edits, which I restored from my saved copies.
+
+### R5-T6 plan
+Add `--page storage --open <folder>` for the live app (red CLI test first), build release, run `tools/measure.sh` on Home and on Storage three levels deep in the fixture (`HOME=<fixture>`), write the numbers, fix anything over budget.
+R5-T6 done. Red commit: `the_live_storage_page_can_start_inside_a_folder` failed; green: `Args.open`, the live app opens the path after the first scan (a bad path is an error, not a silent no-op). `cargo build --release -p tidewise-app` then `tools/measure.sh` (60 s wait, 60 s CPU window, software renderer, window open on this desktop; `target/measure-home.csv`, `target/measure-storage.csv`):
+| Page | Idle memory (PSS) | Idle CPU (of one core) | Budget |
+| --- | --- | --- | --- |
+| Home (`--page home`) | 26,571 kB = 26.6 MB | 0.3 % | ≤ 40 MB, < 2 % |
+| Storage, 3 levels deep (`--page storage --open "Documents/Creative Chaos/OpenSource"` on the fixture) | 25,854 kB = 25.9 MB | 0.2 % | ≤ 40 MB, < 2 % |
+Both within budget, nothing to fix. (Run 04 had measured 7.5 % on Home; that was before the process table moved to `/proc` reads and the samples stopped when the window is hidden.) Caveat: the fixture scan is small (2.3 GB, 200 files); a real home with millions of files holds `ScanResult.biggest_files` (500) and the level cache (≤ 2,000 rows per level) in memory, which I did not measure.
+
+## Rules bent in run 5
+- R5-T1: in the red commit the Slint screen and controller were moved onto `nav::Browser` so the crate compiles; they have no unit tests of their own (clicks, hit targets, focus were looked at in pictures only).
+- R5-T5: the new tests were written and seen failing before the red commit existed; I split them into commits afterwards (core red → core green → app red → app green). One `git stash drop` lost uncommitted app edits for a minute; restored from copies.
+- R5-T0: two `--open` refusal tests passed vacuously against the stub. R5-T4: a sweep test passed vacuously against the empty stub.
+- Scroll thumbs are drawn by the screen (token colour) because the widget's own is invisible; Slint's `viewport-*` deprecation warnings remain.
+- `a_long_folder_scrolls…` detection thresholds were tuned once (30 → 20 px) after seeing the 600 px picture.
+- Not clicked by anyone: see `docs/questions.md` (R5, point 6).
+
+## Summary (run 5, branch run/05-2026-10-28)
+- **R5-T0** `TIDEWISE_STORAGE_ROOT` (only with `--screenshot`), `--open`, `--screenshot storage --state live`, a fixture tree on a real disk (`crates/app/tests/support/fixture.rs`).
+- **R5-T1** go as deep as you like: path stack, clickable/collapsing breadcrumb, folder rows open (chevron), own checkbox target, keyboard (Enter/Space/Backspace/Alt+Left/arrows), "Other" opens, level cache with precise invalidation, ticks cleared on leaving, symlink and other-file-system rows.
+- **R5-T2** every item listed (cap 2,000 + "and N smaller items"), `ListView` that fills the card, page that scrolls, Biggest files scrolls inside its card.
+- **R5-T3** `tiles::tile_layout`: name over size, name and size on one line, or no text + tooltip, decided from the block's pixel size; `--width` for 1920 pictures.
+- **R5-T4** `fmt_item` (`17.5 GB`, `840 MB`, `12 KB`, `Empty`), measured size column.
+- **R5-T5** 18.9 → 19.8 GB explained (hard links counted once across the whole home in the map, again per folder when opened; plus the folder's own 4 KB) and fixed with one rule, verified on this machine's real home (every top-level diff +0); one-line note when shared links make rows add up to more than the total.
+- **R5-T6** measured: Home 26.6 MB / 0.3 %, Storage 3 deep 25.9 MB / 0.2 %.
+- Design check (demo): Storage 3.0 %, Storage--downloads 9.0 % (≤ 10 %). Nothing pushed, merged, tagged; no sudo; `docs/design` untouched.
+
+**Next:** click through Storage (keyboard, checkbox vs row, scrolling, Trash/Undo at depth); decide the open questions in `docs/questions.md` (R5); rename Slint `viewport-*` to `content-*`; AppImage build (needs appimagetool); M3 (helper).
+**Blockers:** none.
