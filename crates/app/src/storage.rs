@@ -691,9 +691,14 @@ pub fn live_data(
                 focused: false,
             });
         }
+        let mut help = String::from("Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.");
+        if let Some(note) = f.note {
+            help.push(' ');
+            help.push_str(note);
+        }
         data.folder = Some(Folder {
             crumbs: f.crumbs,
-            help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
+            help,
             rows,
         });
     }

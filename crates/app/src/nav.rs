@@ -220,8 +220,11 @@ pub fn other_level(
 
 /// One line for when the rows add up to more than the folder's total: files shared by hard links
 /// sit in several rows but take space once.
-pub fn overlap_note(_level: &Level) -> Option<&'static str> {
-    None
+pub fn overlap_note(level: &Level) -> Option<&'static str> {
+    let rows: u64 = level.items.iter().map(|i| i.bytes).sum();
+    (rows > level.total).then_some(
+        "Files shared by hard links appear in more than one of these rows, so the rows add up to more than the total.",
+    )
 }
 
 /// Levels already scanned, so going back is instant.
