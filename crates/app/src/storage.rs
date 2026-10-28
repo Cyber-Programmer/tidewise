@@ -581,6 +581,23 @@ pub fn live_data(
     Some(data)
 }
 
+/// The toast after a Trash action: what moved, or what could not and that nothing was deleted.
+pub fn toast_text(moved: usize, failed: &[(String, String)]) -> String {
+    let files = |n: usize| format!("{n} file{}", if n == 1 { "" } else { "s" });
+    match (moved, failed.first()) {
+        (0, None) => "Nothing was ticked.".into(),
+        (n, None) => format!("{} moved to Trash", files(n)),
+        (0, Some((name, why))) => {
+            format!("Couldn't move {name} to Trash: {why} Nothing was deleted.")
+        }
+        (n, Some(_)) => format!(
+            "{} moved to Trash; {} couldn't be moved and are still where they were.",
+            files(n),
+            files(failed.len())
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -960,5 +977,18 @@ mod tests {
             days_since(now, now - std::time::Duration::from_secs(3 * 86_400 + 5)),
             3
         );
+    }
+
+    #[test]
+    fn the_toast_says_what_happened_in_plain_words() {
+        assert_eq!(toast_text(3, &[]), "3 files moved to Trash");
+        assert_eq!(toast_text(1, &[]), "1 file moved to Trash");
+        assert_eq!(toast_text(0, &[]), "Nothing was ticked.");
+        let why = ("a.iso".to_string(), "It is on another drive.".to_string());
+        assert_eq!(
+            toast_text(0, std::slice::from_ref(&why)),
+            "Couldn't move a.iso to Trash: It is on another drive. Nothing was deleted."
+        );
+        assert!(toast_text(2, &[why]).contains("1 file couldn't be moved"));
     }
 }

@@ -11,9 +11,10 @@ use slint::ComponentHandle;
 use tidewise_core::drive::{drives, Drive};
 use tidewise_core::mounts::{home_access_time, TimeSource};
 use tidewise_core::scan::{self, ScanHandle, ScanOptions, ScanResult};
+use tidewise_core::trash::{self, Trashed};
 
 use crate::storage::{self, Entry, Phase};
-use crate::{MainWindow, StorageState};
+use crate::{MainWindow, StorageState, ToastState};
 
 /// How many rows the drill-in list shows.
 const FOLDER_ROWS: usize = 12;
@@ -24,6 +25,7 @@ enum Job {
 }
 
 struct Opened {
+    path: PathBuf,
     title: String,
     entries: Vec<Entry>,
     checked: Vec<bool>,
@@ -38,6 +40,11 @@ pub struct Ctl {
     opened: Option<Opened>,
     /// Folder of each block on screen, in order.
     tiles: Vec<Option<PathBuf>>,
+    /// File of each row of Biggest files, in order.
+    big: Vec<Option<PathBuf>>,
+    /// What the last Trash action moved, for Undo.
+    trashed: Vec<Trashed>,
+    toast_timer: slint::Timer,
 }
 
 /// The folder a drive is scanned from: the home folder if it lives on the drive, else the drive.
@@ -65,6 +72,9 @@ impl Ctl {
             root: None,
             opened: None,
             tiles: Vec::new(),
+            big: Vec::new(),
+            trashed: Vec::new(),
+            toast_timer: slint::Timer::default(),
         }
     }
 
@@ -149,6 +159,7 @@ impl Ctl {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         self.opened = Some(Opened {
+            path: path.to_path_buf(),
             title: format!("{name} \u{b7} {}", storage::fmt_size(result.total_bytes)),
             entries,
             checked,
@@ -203,7 +214,108 @@ impl Ctl {
             }
         }
         self.tiles = data.tiles.iter().map(|t| t.path.clone()).collect();
+        self.big = data.big.iter().map(|b| b.path.clone()).collect();
         crate::view::apply_storage(ui, &data);
+    }
+
+    /// Measure the drive again, keeping the open folder on screen's data.
+    fn rescan(&mut self) {
+        self.stop();
+        let root = scan_root(&self.drives, self.picked, &self.home);
+        self.root = None;
+        self.job = Some(Job::Root(scan::start(root, Self::options(500))));
+    }
+
+    fn toast(&mut self, ui: &MainWindow, message: String, can_undo: bool, error: bool) {
+        let t = ui.global::<ToastState>();
+        t.set_message(message.into());
+        t.set_can_undo(can_undo);
+        t.set_error(error);
+        t.set_shown(true);
+        let weak = ui.as_weak();
+        self.toast_timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_secs(8),
+            move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.global::<ToastState>().set_shown(false);
+                }
+            },
+        );
+    }
+
+    /// Move these paths to the Trash, tell the user, and remember them for Undo.
+    fn trash_paths(&mut self, paths: Vec<PathBuf>, ui: &MainWindow) {
+        let Some(dir) = trash::default_trash_dir() else {
+            self.toast(
+                ui,
+                "Couldn't find your Trash folder. Nothing was moved.".into(),
+                false,
+                true,
+            );
+            return;
+        };
+        let (mut moved, mut failed) = (Vec::new(), Vec::new());
+        for path in paths {
+            match trash::move_to_trash(&path, &dir, &self.home, SystemTime::now()) {
+                Ok(t) => moved.push(t),
+                Err(e) => failed.push((
+                    path.file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                    why(&e),
+                )),
+            }
+        }
+        if let Some(o) = self.opened.as_mut() {
+            let keep: Vec<bool> = o
+                .entries
+                .iter()
+                .map(|e| !moved.iter().any(|t| t.original == e.path))
+                .collect();
+            let mut k = keep.iter();
+            o.entries.retain(|_| *k.next().unwrap_or(&true));
+            let mut k = keep.iter();
+            o.checked.retain(|_| *k.next().unwrap_or(&true));
+        }
+        let message = storage::toast_text(moved.len(), &failed);
+        let any = !moved.is_empty();
+        self.trashed = moved;
+        self.toast(ui, message, any, !failed.is_empty());
+        if any {
+            self.rescan();
+        }
+        self.refresh(ui);
+    }
+
+    /// Put back what the last Trash action moved.
+    fn undo(&mut self, ui: &MainWindow) {
+        let items = std::mem::take(&mut self.trashed);
+        let mut failed = Vec::new();
+        for t in items.iter().rev() {
+            if let Err(e) = trash::restore(t) {
+                failed.push((
+                    t.original
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                    why(&e),
+                ));
+            }
+        }
+        let message = match failed.first() {
+            None => format!(
+                "Put back {} file{}",
+                items.len(),
+                if items.len() == 1 { "" } else { "s" }
+            ),
+            Some((name, reason)) => format!("Couldn't put {name} back: {reason}"),
+        };
+        self.toast(ui, message, false, !failed.is_empty());
+        let reopen = self.opened.as_ref().map(|o| o.path.clone());
+        self.rescan();
+        if let Some(path) = reopen {
+            self.open(path, ui);
+        }
+        self.refresh(ui);
     }
 
     fn stop(&mut self) {
@@ -220,6 +332,21 @@ impl Ctl {
             path,
         ));
         self.refresh(ui);
+    }
+}
+
+/// A short reason a person can read.
+fn why(e: &trash::Error) -> String {
+    match e {
+        trash::Error::OtherDrive(_) => "It is on a different drive than your Trash.".into(),
+        trash::Error::Protected(_) => "It is protected.".into(),
+        trash::Error::NotFound(_) => "It is already gone.".into(),
+        trash::Error::NotAbsolute(_) => "Its location is not clear.".into(),
+        trash::Error::Occupied(_) => "Something else is already in its place.".into(),
+        trash::Error::Io { source, .. } => match source.kind() {
+            std::io::ErrorKind::PermissionDenied => "You don't have permission.".into(),
+            _ => "The system refused.".into(),
+        },
     }
 }
 
@@ -281,6 +408,43 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             c.refresh(&ui);
         }
     });
+    st.on_trash_selected({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut c = ctl.borrow_mut();
+            let paths: Vec<PathBuf> = c
+                .opened
+                .as_ref()
+                .map(|o| {
+                    o.entries
+                        .iter()
+                        .zip(&o.checked)
+                        .filter(|(_, on)| **on)
+                        .map(|(e, _)| e.path.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            c.trash_paths(paths, &ui);
+        }
+    });
+    st.on_trash_one({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut c = ctl.borrow_mut();
+            if let Some(Some(path)) = c.big.get(i as usize).cloned() {
+                c.trash_paths(vec![path], &ui);
+            }
+        }
+    });
+    ui.global::<ToastState>().on_undo({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            ctl.borrow_mut().undo(&ui);
+        }
+    });
     st.on_cancel_scan({
         let (weak, ctl) = (ui.as_weak(), ctl.clone());
         move || {
@@ -304,6 +468,21 @@ mod tests {
             total: 10,
             used: 5,
             free: 5,
+        }
+    }
+
+    #[test]
+    fn every_trash_error_has_a_plain_reason() {
+        let p = PathBuf::from("/x");
+        for e in [
+            trash::Error::OtherDrive(p.clone()),
+            trash::Error::Protected(p.clone()),
+            trash::Error::NotFound(p.clone()),
+            trash::Error::NotAbsolute(p.clone()),
+            trash::Error::Occupied(p.clone()),
+        ] {
+            let reason = why(&e);
+            assert!(reason.ends_with('.') && !reason.contains('/'), "{reason}");
         }
     }
 

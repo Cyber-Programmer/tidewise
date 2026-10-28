@@ -206,3 +206,14 @@ New `core::mounts` (parse `/proc/mounts`, octal escapes; longest mount wins; `no
 
 ### R4-T2 done
 Red: 9 mounts tests + 3 drive tests failed on assertions against stubs. The broken-input test then caught that "this line is not a mount" parsed as a mount; fixed by requiring numeric dump/pass fields. Decision: `relatime` counts as reliable for a six-month limit (it updates atime when older than mtime or a day old). Fixtures in `tests/fixtures/mounts/` (Arch relatime with `\040` and tmpfs/squashfs, btrfs noatime with Japanese paths, broken).
+
+### R4-T3 done
+Plan was: view-model in `storage.rs` (sizes, ages, treemap, blocks, rows), `storage.slint`, demo data, live controller (`storage_live.rs`: background scan, progress, cancel, drill-in, drive switcher).
+Red commit: 12 view-model tests against stubs. One red test (`treemap_matches_the_artboard_layout`) was dropped: the artboard's layout is hand-made and a squarified treemap does not reproduce it, so demo mode carries the artboard's rectangles and live mode uses the algorithm. Later helpers (`tile_tier`, `folder_row`, `drive_bar`, `live_data`, …) and the Slint screen were written together with their tests / checked by the design loop, not red-first.
+Design check: Storage 2.7 %, Storage--downloads 2.3 % (target ≤ 10 %; report in `docs/design-check-report.md`). Also fixed on the way: a Slint "Recursion detected" panic from a layout whose children's widths depended on the parent's width (segments are now absolutely positioned).
+Not verified by eye: the live window (no display use unattended). Open questions in `docs/questions.md` (R4-T3).
+
+### R4-T4 done
+`core::trash`: own implementation of the freedesktop layout (`files/`, `info/*.trashinfo`, percent-encoded Path, mode 0700). Not the `trash` crate: it follows the spec's per-drive `.Trash-<uid>` folders, which would write on drives the user did not pick (and outside this repo in tests). Files on another drive are refused (`OtherDrive`), never copied or deleted. Red: 9 tests failed against stubs (round trip, folder, 3 name clashes, symlink, other drive, no-overwrite on Undo, hostile paths, odd names, permissions); green after the implementation (the fixture path needed canonicalising because `..` is refused on purpose).
+Known limits: DeletionDate is written in UTC (no time-zone library); Undo has a tiny window between the "is it free" check and `rename` (no `renameat2(NOREPLACE)` without `unsafe`). `thiserror` was added to `core` (already a workspace dependency).
+App: toast with Undo (8 s), "Move N to Trash · X GB" and per-file trash buttons, rescan afterwards. `toast_text`/`why` tested; the click path itself is not covered by an automated test.
