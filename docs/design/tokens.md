@@ -22,6 +22,21 @@ Source: the "Tokens & components" artboard on the Tidewise design canvas. Use on
 | data: cpu / memory / disk / network | #7AA7FF / #F2B84B / #C3A2FF / accent | #2F5FD0 / #9A6700 / #7048C8 / #0B7A5A |
 | source chips: System / Flatpak / AppImage / Snap | #7AA7FF on #1B2A45 / #C3A2FF on #2C2342 / #F2B84B on #3A2E14 / #C9CED6 on #2A303B | |
 
+### Extra shades used by the artboards (dark theme)
+Found during M1 (docs/questions.md, M1-T3). Use these names; light values come with the light theme.
+
+| Token | Dark | Used for |
+| --- | --- | --- |
+| nav-active-bg | #1E232C | active sidebar item, chips |
+| nav-text | #B4BAC5 | inactive sidebar item text |
+| tab-selected-bg | #1C222B | selected metric tab |
+| sidebar-border | #1F242D | sidebar right border |
+| text-soft | #C9CED6 | secondary values, soft labels |
+| border-subtle | #222832 | facts grid, code boxes |
+| row-divider | #1E232B | list row dividers |
+| control-border | #2A303B | ghost buttons, switch track off |
+| control-bg | #1A1F27 | ghost buttons, icon buttons |
+
 ## Type
 Geist (UI) and Geist Mono (all numbers, paths, commands). Fonts are bundled, never fetched.
 
