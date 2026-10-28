@@ -1,9 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/adapters", "crates/app"]
-# Spikes have their own Cargo.lock and target dir so their heavy dependencies stay out of
-# `cargo test --all`, clippy, audit and deny. They are throwaway comparisons for the UI toolkit decision.
-exclude = ["spikes/slint", "spikes/tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,3 +12,9 @@ repository = "https://github.com/Cyber-Programmer/tidewise"
 thiserror = "2"
 tempfile = "3"
 pretty_assertions = "1"
+
+# Same release settings the Slint spike was measured with (docs/decisions/0001-ui-toolkit.md).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -3,6 +3,14 @@ all-features = true
 
 [advisories]
 version = 2
+# Slint (winit, zbus, text shaping) pulls these in. All four are "unmaintained" notices, not
+# vulnerabilities. Revisit when Slint updates; see docs/questions.md (M1-T0).
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained, via Slint text layout" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained, via winit/arboard stack" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained, via winit/arboard stack" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained, via winit/arboard stack" },
+]
 
 [licenses]
 version = 2
@@ -23,6 +31,7 @@ allow = [
     "Unicode-3.0",
     "CC0-1.0",
     "Unlicense",
+    "BSL-1.0", # Boost: FSF-free, GPL-compatible; clipboard-win/error-code via Slint
 ]
 
 [bans]

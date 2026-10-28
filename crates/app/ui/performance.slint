@@ -1,0 +1,327 @@
+// The Performance screen (docs/design/screens/Performance.dc.html).
+import { Theme } from "theme.slint";
+import { DetailsSwitch } from "components.slint";
+
+export struct Fact { k: string, v: string }
+export struct TopRow { name: string, value: string, width: float }
+export struct PerfMetric {
+    label: string,
+    value: string,
+    unit: string,
+    mood: string,
+    axis: string,
+    headline: string,
+    explain: string,
+    color: color,
+    spark: string,
+    line: string,
+    area: string,
+    facts: [Fact],
+    top: [TopRow],
+}
+
+export global PerfState {
+    in property <string> subtitle;
+    in property <[PerfMetric]> metrics;
+    in property <[float]> threads;
+    // Pixel width of the chart; Slint scales a Path uniformly, so Rust draws it at the real size.
+    in property <length> chart-width: 700px;
+    in-out property <int> selected: 0;
+    in-out property <bool> details: false;
+    callback open-processes();
+}
+
+component MetricTab inherits Rectangle {
+    in property <PerfMetric> data;
+    in property <bool> selected;
+    callback clicked();
+    border-radius: Theme.radius-row;
+    border-width: 1px;
+    border-color: root.selected ? root.data.color : Theme.border;
+    background: root.selected ? Theme.selected-bg : Theme.surface;
+    accessible-role: tab;
+    accessible-label: root.data.label;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.clicked(); }
+    VerticalLayout {
+        padding-top: 14px;
+        padding-bottom: 14px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        HorizontalLayout {
+            Text { text: root.data.label; color: Theme.text-2; font-size: Theme.size-small; }
+            Text { text: root.data.mood; color: root.data.color; font-size: Theme.size-small; horizontal-alignment: right; }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 13px;
+                alignment: start;
+                Text { text: root.data.value; color: Theme.text; font-family: Theme.mono; font-size: 22px; vertical-alignment: bottom; }
+                Text { text: root.data.unit; color: Theme.text-2; font-family: Theme.mono; font-size: Theme.size-small; vertical-alignment: bottom; }
+            }
+            Path {
+                width: 110px;
+                height: 30px;
+                viewbox-width: 120;
+                viewbox-height: 32;
+                commands: root.data.spark;
+                stroke: root.data.color;
+                stroke-width: 2px;
+                stroke-line-join: round;
+            }
+        }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component FactCell inherits Rectangle {
+    in property <Fact> fact;
+    preferred-width: 100px;
+    min-width: 0px;
+    horizontal-stretch: 1;
+    height: value.y + value.height + 13px;
+    border-radius: Theme.radius-button;
+    background: Theme.surface-sunk;
+    border-width: 1px;
+    border-color: Theme.inset-border;
+    Text { x: 14px; y: 12px; text: root.fact.k; color: Theme.text-3; font-size: Theme.size-caption; }
+    value := Text {
+        x: 14px;
+        y: 32px;
+        width: parent.width - 28px;
+        text: root.fact.v;
+        color: Theme.text;
+        font-family: Theme.mono;
+        font-size: Theme.size-small;
+        wrap: word-wrap;
+    }
+}
+
+export component PerformanceScreen inherits Rectangle {
+    property <PerfMetric> cur: PerfState.metrics[PerfState.selected];
+    background: Theme.bg;
+    VerticalLayout {
+        padding-top: 28px;
+        padding-bottom: 40px;
+        padding-left: 36px;
+        padding-right: 36px;
+        spacing: 20px;
+        alignment: start;
+        // Header
+        HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                spacing: 6px;
+                Text {
+                    text: "Performance";
+                    color: Theme.text;
+                    font-size: Theme.size-h1;
+                    font-weight: 600;
+                    letter-spacing: -0.52px;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        y: 5px;
+                        border-radius: Theme.radius-pill;
+                        background: Theme.accent;
+                    }
+                    Text { text: PerfState.subtitle; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                DetailsSwitch { on <=> PerfState.details; }
+            }
+        }
+        HorizontalLayout {
+            spacing: 20px;
+            alignment: stretch;
+            // Metric tabs
+            VerticalLayout {
+                width: 260px;
+                spacing: 10px;
+                alignment: start;
+                for m[i] in PerfState.metrics: MetricTab {
+                    data: m;
+                    selected: i == PerfState.selected;
+                    clicked => { PerfState.selected = i; }
+                }
+            }
+            // Panel
+            Rectangle {
+                horizontal-stretch: 1;
+                background: Theme.surface;
+                border-radius: Theme.radius-hero;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    padding-top: 23px;
+                    padding-bottom: 23px;
+                    padding-left: 25px;
+                    padding-right: 25px;
+                    spacing: 16px;
+                    alignment: start;
+                    HorizontalLayout {
+                        height: 47px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text { text: root.cur.label; color: Theme.text-2; font-size: Theme.size-small; }
+                            Text {
+                                text: root.cur.headline;
+                                color: Theme.text;
+                                font-size: Theme.size-h2;
+                                font-weight: 600;
+                                letter-spacing: -0.33px;
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: end;
+                            spacing: 6px;
+                            Text { text: root.cur.value; color: root.cur.color; font-family: Theme.mono; font-size: Theme.size-display; vertical-alignment: bottom; }
+                            Text { text: root.cur.unit; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: bottom; }
+                        }
+                    }
+                    // Chart
+                    VerticalLayout {
+                        spacing: 10px;
+                        Rectangle {
+                            height: 220px;
+                            for y in [5.5, 110, 214.5]: Rectangle {
+                                y: y * 1px - 0.5px;
+                                height: 1px;
+                                background: y > 200 ? Theme.grid-base : Theme.border;
+                            }
+                            Path {
+                                width: PerfState.chart-width;
+                                height: parent.height;
+                                viewbox-width: PerfState.chart-width / 1px;
+                                viewbox-height: 220;
+                                commands: root.cur.area;
+                                fill: root.cur.color.with-alpha(0.12);
+                            }
+                            Path {
+                                width: PerfState.chart-width;
+                                height: parent.height;
+                                viewbox-width: PerfState.chart-width / 1px;
+                                viewbox-height: 220;
+                                commands: root.cur.line;
+                                stroke: root.cur.color;
+                                stroke-width: 2.2px;
+                                stroke-line-join: round;
+                            }
+                        }
+                        HorizontalLayout {
+                            Text { text: "60 seconds ago"; color: Theme.text-3; font-size: 11px; horizontal-alignment: left; }
+                            Text { text: "top of chart: " + root.cur.axis; color: Theme.text-3; font-size: 11px; horizontal-alignment: center; }
+                            Text { text: "now"; color: Theme.text-3; font-size: 11px; horizontal-alignment: right; }
+                        }
+                    }
+                    // Explanation
+                    Rectangle {
+                        background: Theme.surface-sunk;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Theme.inset-border;
+                        height: explain.preferred-height + 28px;
+                        explain := Text {
+                            x: 16px;
+                            y: 14px;
+                            width: parent.width - 32px;
+                            text: root.cur.explain;
+                            color: Theme.text-soft;
+                            font-size: Theme.size-body;
+                            wrap: word-wrap;
+                            line-height-factor: 1.24;
+                        }
+                    }
+                    // Technical details: facts grid, then per-thread bars on the processor tab
+                    if PerfState.details: GridLayout {
+                        spacing: 10px;
+                        for f[i] in root.cur.facts: FactCell {
+                            row: Math.floor(i / 3);
+                            col: Math.mod(i, 3);
+                            fact: f;
+                        }
+                    }
+                    if PerfState.details && PerfState.selected == 0 && PerfState.threads.length > 0: VerticalLayout {
+                        spacing: 8px;
+                        Text { text: "Each thread"; color: Theme.text-3; font-size: Theme.size-caption; }
+                        Rectangle {
+                            height: 64px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                for t in PerfState.threads: Rectangle {
+                                    Rectangle {
+                                        y: parent.height - self.height;
+                                        height: Math.max(3px, parent.height * t / 100);
+                                        border-radius: 3px;
+                                        background: Theme.data-cpu;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Top three
+                    if root.cur.top.length > 0: VerticalLayout {
+                        spacing: 8px;
+                        HorizontalLayout {
+                            Text { text: "Using the most right now"; color: Theme.text; font-size: Theme.size-body; font-weight: 600; }
+                            Text {
+                                text: "All processes";
+                                color: Theme.accent-text;
+                                font-size: Theme.size-small;
+                                font-weight: 600;
+                                horizontal-alignment: right;
+                                TouchArea { clicked => { PerfState.open-processes(); } }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: 12px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            clip: true;
+                            height: root.cur.top.length * 38px + 2px;
+                            VerticalLayout {
+                                for t in root.cur.top: Rectangle {
+                                    height: 38px;
+                                    background: Theme.surface-sunk;
+                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.divider; }
+                                    HorizontalLayout {
+                                        padding-left: 14px;
+                                        padding-right: 14px;
+                                        spacing: 12px;
+                                        Text { text: t.name; width: 150px; color: Theme.text; font-size: Theme.size-small; font-weight: 500; vertical-alignment: center; }
+                                        Rectangle {
+                                            Rectangle {
+                                                height: 6px;
+                                                border-radius: 3px;
+                                                background: Theme.border;
+                                                clip: true;
+                                                Rectangle {
+                                                    x: 0px;
+                                                    width: parent.width * t.width;
+                                                    border-radius: 3px;
+                                                    background: root.cur.color;
+                                                }
+                                            }
+                                        }
+                                        Text { text: t.value; width: 90px; color: Theme.text-soft; font-family: Theme.mono; font-size: Theme.size-small; horizontal-alignment: right; vertical-alignment: center; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

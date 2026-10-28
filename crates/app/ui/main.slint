@@ -1,0 +1,42 @@
+// The window: sidebar plus the page picked by `Shell.page`.
+import { Theme } from "theme.slint";
+import { Shell, Sidebar } from "components.slint";
+import { PerformanceScreen, PerfState } from "performance.slint";
+import { ProcessesScreen, ProcState } from "processes.slint";
+import { HomeScreen, HomeState } from "home.slint";
+
+export { Shell, PerfState, ProcState, HomeState }
+
+component ComingLater inherits Rectangle {
+    in property <string> title;
+    background: Theme.bg;
+    VerticalLayout {
+        padding: 28px;
+        padding-left: 36px;
+        alignment: start;
+        spacing: 6px;
+        Text { text: root.title; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+        Text { text: "Coming in a later version"; color: Theme.text-2; font-size: Theme.size-body; }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Tidewise";
+    min-width: 900px;
+    min-height: 600px;
+    preferred-width: 1360px;
+    preferred-height: 960px;
+    background: Theme.bg;
+    default-font-family: Theme.sans;
+    default-font-size: Theme.size-body;
+
+    HorizontalLayout {
+        Sidebar { }
+        if Shell.page == 0: HomeScreen { }
+        if Shell.page == 4: PerformanceScreen { }
+        if Shell.page == 5: ProcessesScreen { }
+        if Shell.page != 0 && Shell.page != 4 && Shell.page != 5: ComingLater {
+            title: ["Home", "Clean up", "Apps", "Storage", "Performance", "Processes", "Startup apps", "Services", "History", "Settings"][Shell.page];
+        }
+    }
+}

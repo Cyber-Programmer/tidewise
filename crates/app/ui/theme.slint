@@ -1,0 +1,105 @@
+// Every colour, size and font of docs/design/tokens.md. Nothing else may be used in the UI.
+// `dark` picks the column: dark is the default; the light column is complete but not switchable
+// from the UI yet (Settings arrives in a later milestone).
+import "../../../assets/fonts/Geist-Regular.ttf";
+import "../../../assets/fonts/Geist-Medium.ttf";
+import "../../../assets/fonts/Geist-SemiBold.ttf";
+import "../../../assets/fonts/Geist-Bold.ttf";
+import "../../../assets/fonts/GeistMono-Regular.ttf";
+import "../../../assets/fonts/GeistMono-Medium.ttf";
+
+export global Theme {
+    in-out property <bool> dark: true;
+
+    // Surfaces and text
+    out property <color> bg: dark ? #0D0F13 : #F5F6F8;
+    out property <color> sidebar: dark ? #111419 : #ECEEF2;
+    out property <color> surface: dark ? #161A21 : #FFFFFF;
+    out property <color> surface-sunk: dark ? #12161C : #F0F2F5;
+    out property <color> border: dark ? #232933 : #E1E4EA;
+    out property <color> text: dark ? #ECEEF2 : #14171C;
+    out property <color> text-2: dark ? #A9B0BC : #4A5260;
+    out property <color> text-3: dark ? #808897 : #5F6775;
+
+    // Accent
+    out property <color> accent: dark ? #5DDCB0 : #12B886;
+    out property <color> on-accent: #052B1F;
+    out property <color> accent-text: dark ? #5DDCB0 : #0B7A5A;
+    out property <color> accent-tint: dark ? #173A2F : #DDF5EC;
+
+    // Warning and danger
+    out property <color> warn: dark ? #F2B84B : #9A6700;
+    out property <color> warn-tint: dark ? #3A2E14 : #FFF3D6;
+    out property <color> danger: dark ? #FF8A80 : #C73A2E;
+    out property <color> on-danger: dark ? #3A0B07 : #FFFFFF;
+    // tokens.md has no light danger tint yet; the dark one is reused until it does.
+    out property <color> danger-tint: dark ? #3A1714 : #3A1714;
+
+    // Data colours
+    out property <color> data-cpu: dark ? #7AA7FF : #2F5FD0;
+    out property <color> data-memory: dark ? #F2B84B : #9A6700;
+    out property <color> data-disk: dark ? #C3A2FF : #7048C8;
+    out property <color> data-network: dark ? #5DDCB0 : #0B7A5A;
+
+    // Source chips (text on background); tokens.md gives dark values only
+    out property <color> chip-system: #7AA7FF;
+    out property <color> chip-system-bg: #1B2A45;
+    out property <color> chip-flatpak: #C3A2FF;
+    out property <color> chip-flatpak-bg: #2C2342;
+    out property <color> chip-appimage: #F2B84B;
+    out property <color> chip-appimage-bg: #3A2E14;
+    out property <color> chip-snap: #C9CED6;
+    out property <color> chip-snap-bg: #2A303B;
+
+    // Shades the artboards use that tokens.md does not list (hover, active, dividers). Kept apart so
+    // they are easy to find; see docs/questions.md (M1-T3).
+    out property <color> nav-text: #B4BAC5;
+    out property <color> nav-active-bg: #1E232C;
+    out property <color> nav-active-text: #F2F4F7;
+    out property <color> selected-bg: #1C222B;
+    out property <color> sidebar-border: #1F242D;
+    out property <color> text-soft: #C9CED6;
+    out property <color> inset-border: #222832;
+    out property <color> divider: #1E232B;
+    out property <color> track-off: #2A303B;
+    out property <color> grid-base: #2A303B;
+    out property <color> row-hover: #1A1F27;
+    out property <color> row-selected: #1C2A26;
+    out property <color> panel-bg: #1A2028;
+    out property <color> panel-border: #2A313C;
+    out property <color> search-border: #252B35;
+    out property <color> segment-on: #262D38;
+    out property <color> mono-dim: #B9C0CB;
+    out property <color> badge-bg: #232933;
+
+    // Data colour by number: 0 processor, 1 memory, 2 disk, 3 network, 4 muted text.
+    public pure function hue(i: int) -> color {
+        i == 0 ? data-cpu : (i == 1 ? data-memory : (i == 2 ? data-disk : (i == 3 ? data-network : text-2)))
+    }
+
+    // Fonts. Geist for text, Geist Mono for every number, path and command.
+    out property <string> sans: "Geist";
+    out property <string> mono: "Geist Mono";
+
+    // Type sizes
+    out property <length> size-display: 34px;
+    out property <length> size-h1: 26px;
+    out property <length> size-h2: 22px;
+    out property <length> size-row-title: 15px;
+    out property <length> size-body: 14px;
+    out property <length> size-small: 13px;
+    out property <length> size-caption: 12px;
+
+    // Radius
+    out property <length> radius-chip: 6px;
+    out property <length> radius-button: 10px;
+    out property <length> radius-row: 14px;
+    out property <length> radius-card: 16px;
+    out property <length> radius-hero: 18px;
+    out property <length> radius-dialog: 20px;
+    out property <length> radius-pill: 99px;
+
+    // Sizes
+    out property <length> sidebar-width: 220px;
+    out property <length> content-max-width: 1120px;
+}

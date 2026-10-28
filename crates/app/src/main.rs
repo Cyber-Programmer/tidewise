@@ -1,3 +1,319 @@
 //! Tidewise UI. The toolkit is chosen in docs/decisions/0001-ui-toolkit.md.
 
-fn main() {}
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::Duration;
+
+use slint::{ComponentHandle, Timer, TimerMode};
+
+mod chart;
+mod cli;
+mod demo;
+mod home;
+mod live;
+mod perf;
+mod procs;
+mod screenshot;
+mod view;
+
+slint::include_modules!();
+
+/// Software renderer unless `TIDEWISE_RENDERER=gpu` asks for FemtoVG (OpenGL).
+fn select_renderer() -> Result<(), slint::PlatformError> {
+    let renderer = match std::env::var("TIDEWISE_RENDERER").as_deref() {
+        Ok("gpu") => "femtovg",
+        _ => "software",
+    };
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name(renderer.into())
+        .select()
+}
+
+/// Where `.desktop` files that give apps their display names live.
+/// Distro name and the line under it, from `/etc/os-release`, `XDG_CURRENT_DESKTOP` and the tools found.
+fn shell_info() -> (String, String) {
+    let release = std::fs::read_to_string("/etc/os-release")
+        .map(|t| tidewise_core::distro::parse_os_release(&t))
+        .ok();
+    let name = release
+        .map(|r| r.name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "Linux".into());
+    let desktop =
+        tidewise_core::distro::parse_desktop(std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref());
+    let tools = tidewise_core::distro::detect_tools(std::path::Path::new("/"));
+    (name, home::distro_detail(&desktop, &tools))
+}
+
+fn desktop_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![std::path::PathBuf::from("/usr/share/applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        dirs.push(home.join(".local/share/applications"));
+        dirs.push(home.join(".local/share/flatpak/exports/share/applications"));
+    }
+    dirs.push("/var/lib/flatpak/exports/share/applications".into());
+    dirs
+}
+
+fn page_of(screen: &str) -> Result<i32, String> {
+    match screen {
+        "home" => Ok(0),
+        "clean-up" => Ok(1),
+        "apps" => Ok(2),
+        "storage" => Ok(3),
+        "startup" => Ok(6),
+        "services" => Ok(7),
+        "history" => Ok(8),
+        "settings" => Ok(9),
+        "performance" => Ok(4),
+        "processes" => Ok(5),
+        other => Err(format!("unknown screen '{other}'")),
+    }
+}
+
+/// What the Processes screen shows and what the user picked there.
+struct ProcsCtl {
+    data: procs::ProcData,
+    filter: procs::Filter,
+    search: String,
+    selected: String,
+    /// Ids of the rows on screen, in order.
+    shown: Vec<String>,
+}
+
+impl ProcsCtl {
+    fn new(data: procs::ProcData) -> Self {
+        let selected = data.rows.first().map(|r| r.id.clone()).unwrap_or_default();
+        ProcsCtl {
+            data,
+            filter: procs::Filter::All,
+            search: String::new(),
+            selected,
+            shown: Vec::new(),
+        }
+    }
+
+    fn refresh(&mut self, ui: &MainWindow) {
+        self.shown = view::apply_procs(ui, &self.data, self.filter, &self.search, &self.selected);
+    }
+}
+
+fn wire_procs(ui: &MainWindow, ctl: &Rc<RefCell<ProcsCtl>>) {
+    let state = ui.global::<ProcState>();
+    state.on_pick({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            if let Some(id) = c.shown.get(i.max(0) as usize).cloned() {
+                c.selected = id;
+                c.refresh(&ui);
+            }
+        }
+    });
+    state.on_set_filter({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            c.filter = procs::Filter::from_index(i);
+            c.refresh(&ui);
+        }
+    });
+    state.on_search_edited({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |text| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            c.search = text.to_string();
+            c.refresh(&ui);
+        }
+    });
+}
+
+fn show_demo(
+    ui: &MainWindow,
+    screen: &str,
+    state: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match screen {
+        "processes" => {
+            let view = procs::View::from_state(state)?;
+            let mut ctl = ProcsCtl::new(demo::processes());
+            ctl.filter = view.filter;
+            ctl.selected = view.selected;
+            ctl.refresh(ui);
+            ui.global::<ProcState>().set_details(view.details);
+        }
+        "home" => {
+            if let Some(other) = state {
+                return Err(format!("unknown home state '{other}'").into());
+            }
+            view::apply_home(ui, &demo::home());
+        }
+        _ => {
+            let view = perf::View::from_state(state)?;
+            view::apply_perf(ui, &demo::performance());
+            view::apply_view(ui, &view);
+        }
+    }
+    Ok(())
+}
+
+fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
+    let page = page_of(&shot.screen)?;
+    let window = screenshot::install(shot.height)?;
+    let ui = MainWindow::new()?;
+    ui.global::<Shell>().set_page(page);
+    ui.global::<Shell>().set_distro_name("Arch Linux".into());
+    ui.global::<Shell>()
+        .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
+    show_demo(&ui, &shot.screen, shot.state.as_deref())?;
+    ui.show()?;
+    screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
+}
+
+/// Sampling pauses while nobody can see the window.
+fn is_paused(visible: bool, minimized: bool) -> bool {
+    !visible || minimized
+}
+
+/// Everything live mode keeps between ticks.
+struct Live {
+    sampler: live::Sampler,
+    perf: Option<perf::PerfData>,
+    desktop: std::collections::HashMap<String, String>,
+}
+
+/// Draw the page on screen from the latest sample. Other pages are not touched: the process
+/// list in particular reads `/proc` for every process, so it is only built when it is shown.
+fn show_page(ui: &MainWindow, live: &Live, ctl: &mut ProcsCtl) {
+    match ui.global::<Shell>().get_page() {
+        0 => view::apply_home(ui, &live.sampler.home()),
+        4 => {
+            if let Some(perf) = &live.perf {
+                view::apply_perf(ui, perf);
+            }
+        }
+        5 => {
+            ctl.data = live.sampler.processes(&live.desktop);
+            if !ctl.data.rows.iter().any(|r| r.id == ctl.selected) {
+                ctl.selected = ctl
+                    .data
+                    .rows
+                    .first()
+                    .map(|r| r.id.clone())
+                    .unwrap_or_default();
+            }
+            ctl.refresh(ui);
+        }
+        _ => {}
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = cli::parse(std::env::args().skip(1))?;
+    if let Some(shot) = &args.screenshot {
+        return run_screenshot(shot);
+    }
+    select_renderer()?;
+    let ui = MainWindow::new()?;
+    ui.global::<PerfState>().on_open_processes({
+        let weak = ui.as_weak();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.global::<Shell>().invoke_navigate(5);
+            }
+        }
+    });
+
+    if args.demo {
+        ui.global::<Shell>().on_navigate({
+            let weak = ui.as_weak();
+            move |page| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.global::<Shell>().set_page(page);
+                }
+            }
+        });
+        ui.global::<Shell>().set_distro_name("Arch Linux".into());
+        ui.global::<Shell>()
+            .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
+        show_demo(&ui, "performance", None)?;
+        show_demo(&ui, "home", None)?;
+        let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
+        ctl.borrow_mut().refresh(&ui);
+        wire_procs(&ui, &ctl);
+        return Ok(ui.run()?);
+    }
+
+    let (name, detail) = shell_info();
+    ui.global::<Shell>().set_distro_name(name.into());
+    ui.global::<Shell>().set_distro_detail(detail.into());
+    let mut desktop = std::collections::HashMap::new();
+    for dir in desktop_dirs() {
+        procs::load_desktop_names(&dir, &mut desktop);
+    }
+    let live = Rc::new(RefCell::new(Live {
+        sampler: live::Sampler::new(),
+        perf: None,
+        desktop,
+    }));
+    let ctl = Rc::new(RefCell::new(ProcsCtl::new(procs::ProcData {
+        subtitle: String::new(),
+        rows: Vec::new(),
+    })));
+    wire_procs(&ui, &ctl);
+    let sample = {
+        let live = live.clone();
+        move || {
+            let mut l = live.borrow_mut();
+            l.perf = Some(l.sampler.sample());
+        }
+    };
+    sample();
+    ui.global::<Shell>().on_navigate({
+        let (weak, live, ctl) = (ui.as_weak(), live.clone(), ctl.clone());
+        move |page| {
+            if let Some(ui) = weak.upgrade() {
+                ui.global::<Shell>().set_page(page);
+                show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+            }
+        }
+    });
+    show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+
+    // One sample per second; nothing while the window is hidden or minimised.
+    let timer = Timer::default();
+    timer.start(TimerMode::Repeated, Duration::from_secs(1), {
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            if is_paused(ui.window().is_visible(), ui.window().is_minimized()) {
+                return;
+            }
+            sample();
+            show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+        }
+    });
+
+    Ok(ui.run()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_paused;
+
+    #[test]
+    fn sampling_pauses_when_hidden_or_minimised() {
+        assert!(!is_paused(true, false));
+        assert!(is_paused(false, false));
+        assert!(is_paused(true, true));
+        assert!(is_paused(false, true));
+    }
+}

@@ -1,4 +1,4 @@
-//! Runs the shell tests for `spikes/measure.sh` so `cargo test --all` covers them.
+//! Runs the shell tests for `tools/measure.sh` so `cargo test --all` covers them.
 
 use std::path::Path;
 use std::process::Command;
