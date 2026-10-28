@@ -27,6 +27,7 @@ pub struct Sampler {
     names: procs::NameCache,
     /// Main-drive space and when it was read; it changes slowly and reading it walks the mounts.
     drive: Option<(Instant, Option<tidewise_core::drive::DriveSpace>)>,
+    biggest: Option<(Instant, Option<(String, u64)>)>,
 }
 
 const DRIVE_REFRESH: Duration = Duration::from_secs(30);
@@ -87,6 +88,7 @@ impl Sampler {
             last: None,
             names: procs::NameCache::default(),
             drive: None,
+            biggest: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl Sampler {
     /// The "Right now" tiles from the last sample. No health score or app counts yet.
     pub fn home(&mut self) -> HomeData {
         let drive = self.main_drive();
+        let biggest = self.biggest.as_ref().and_then(|(_, f)| f.clone());
         let Some(s) = &self.last else {
             return HomeData {
                 last_checked: String::new(),
@@ -189,20 +192,15 @@ impl Sampler {
         });
         HomeData {
             last_checked: "Live numbers, updated every second".into(),
-            scan: None,
+            scan: Some(home::health_scan(drive, biggest)),
             tiles,
             apps: None,
         }
     }
 
-    /// Rows for the Processes screen from the last sample, grouped by app.
-    pub fn processes(&mut self, desktop: &HashMap<String, String>) -> ProcData {
-        let Some(snapshot) = &self.last else {
-            return ProcData {
-                subtitle: String::new(),
-                rows: Vec::new(),
-            };
-        };
+    /// The last sample's processes, grouped by app, and how many processes there are.
+    fn grouped(&mut self, desktop: &HashMap<String, String>) -> Option<(Vec<procs::Group>, usize)> {
+        let snapshot = self.last.as_ref()?;
         let alive: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
         self.names.retain(&alive);
         let names = &mut self.names;
@@ -225,15 +223,40 @@ impl Sampler {
                 }
             })
             .collect();
-        let rows = procs::group(&procs, desktop)
-            .iter()
-            .map(row_from_group)
-            .collect();
+        Some((procs::group(&procs, desktop), procs.len()))
+    }
+
+    /// Look for the app using the most memory (kept for `home`). The process table is read at
+    /// most every 30 s, so the Home page stays cheap.
+    pub fn refresh_biggest(&mut self, desktop: &HashMap<String, String>) {
+        let stale = self
+            .biggest
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= DRIVE_REFRESH);
+        if stale {
+            self.sample(true);
+            let found = self.grouped(desktop).and_then(|(groups, _)| {
+                groups
+                    .iter()
+                    .filter(|g| g.kind == procs::Kind::App)
+                    .max_by_key(|g| g.mem)
+                    .map(|g| (g.name.clone(), g.mem))
+            });
+            self.biggest = Some((Instant::now(), found));
+        }
+    }
+
+    /// Rows for the Processes screen from the last sample, grouped by app.
+    pub fn processes(&mut self, desktop: &HashMap<String, String>) -> ProcData {
+        let Some((groups, count)) = self.grouped(desktop) else {
+            return ProcData {
+                subtitle: String::new(),
+                rows: Vec::new(),
+            };
+        };
+        let rows = groups.iter().map(row_from_group).collect();
         ProcData {
-            subtitle: format!(
-                "{} running, grouped by the app they belong to.",
-                procs.len()
-            ),
+            subtitle: format!("{} running, grouped by the app they belong to.", count),
             rows,
         }
     }

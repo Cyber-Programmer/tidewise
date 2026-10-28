@@ -56,3 +56,8 @@ Below about 700 px the main nav items scroll with the wheel or touch; Slint's Fl
 4. In the drill-in, a folder's "not opened" age is its own timestamp, not the newest file inside. Recommended: keep for v1.
 5. The Downloads hint no longer claims "old installers make up most of it" (only true sometimes).
 6. I did not launch the live window (no display use in an unattended run); live logic is covered by `live_data` and `scan_root` unit tests plus the demo screenshots. Please click through Storage once.
+
+## R4-T5 — health score choices not on the artboard
+1. Score bands (Good shape ≥ 80, Could be better 60–79, Needs attention < 60) and the memory threshold (an app group using ≥ 1 GB private memory gets a suggestion, no points) are mine. Recommended: keep, or give me the intended numbers.
+2. Until the cleaner exists the score ignores junk, services and updates, and says so on Home. Recommended: keep the honest stub.
+3. `tools/measure.sh` was not re-run for Home after adding the 30-second process read. Recommended: run it once.

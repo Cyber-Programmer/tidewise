@@ -69,7 +69,11 @@ mod tests {
         assert_eq!(junk_points(0), 0);
         assert_eq!(junk_points(2_499_999_999), 0);
         assert_eq!(junk_points(2_500_000_000), 1);
-        assert_eq!(junk_points(12_600_000_000), 5, "the artboard: 12.6 GB is −5");
+        assert_eq!(
+            junk_points(12_600_000_000),
+            5,
+            "the artboard: 12.6 GB is −5"
+        );
         assert_eq!(junk_points(20_000_000_000), 8);
         assert_eq!(junk_points(500_000_000_000), 8, "at most −8");
         assert_eq!(junk_points(u64::MAX), 8);

@@ -216,7 +216,10 @@ fn show_page(
 ) {
     match ui.global::<Shell>().get_page() {
         3 => storage.poll(ui),
-        0 => view::apply_home(ui, &live.sampler.home()),
+        0 => {
+            live.sampler.refresh_biggest(&live.desktop);
+            view::apply_home(ui, &live.sampler.home());
+        }
         4 => {
             if let Some(perf) = live.sampler.perf() {
                 view::apply_perf(ui, &perf);
