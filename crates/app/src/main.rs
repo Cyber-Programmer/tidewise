@@ -241,8 +241,32 @@ fn show_page(
     }
 }
 
+/// `--add-to-menu` / `--remove-from-menu`: files go in the user's own data folder only.
+fn app_menu(action: cli::MenuAction) -> Result<(), Box<dyn std::error::Error>> {
+    use tidewise_core::appmenu;
+    let data = appmenu::data_home().ok_or("cannot find your data folder (HOME is not set)")?;
+    match action {
+        cli::MenuAction::Add => {
+            // Inside an AppImage the running binary is a temporary mount; the launcher must start the AppImage.
+            let exe = std::env::var_os("APPIMAGE")
+                .map(std::path::PathBuf::from)
+                .map_or_else(std::env::current_exe, Ok)?;
+            appmenu::install(&data, &exe)?;
+            println!("Tidewise added to your app menu ({}).", data.display());
+        }
+        cli::MenuAction::Remove => {
+            appmenu::remove(&data)?;
+            println!("Tidewise removed from your app menu.");
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::parse(std::env::args().skip(1))?;
+    if let Some(action) = args.menu {
+        return app_menu(action);
+    }
     if let Some(shot) = &args.screenshot {
         return run_screenshot(shot);
     }

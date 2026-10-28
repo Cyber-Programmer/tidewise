@@ -193,3 +193,24 @@ fn storage_renders_both_states_and_rejects_unknown_ones() {
         .unwrap();
     assert!(!status.success());
 }
+
+#[test]
+fn the_menu_flags_write_and_remove_files_only_under_xdg_data_home() {
+    let data = tempfile::tempdir().unwrap();
+    let launcher = data.path().join("applications/io.github.tidewise.desktop");
+    let run = |flag: &str| {
+        Command::new(env!("CARGO_BIN_EXE_tidewise"))
+            .arg(flag)
+            .env("XDG_DATA_HOME", data.path())
+            .env("HOME", data.path())
+            .env_remove("APPIMAGE")
+            .status()
+            .unwrap()
+    };
+    assert!(run("--add-to-menu").success());
+    assert!(run("--add-to-menu").success(), "again is fine");
+    let text = fs::read_to_string(&launcher).unwrap();
+    assert!(text.contains(env!("CARGO_BIN_EXE_tidewise")), "{text}");
+    assert!(run("--remove-from-menu").success());
+    assert!(!launcher.exists());
+}
