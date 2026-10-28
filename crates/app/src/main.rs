@@ -211,13 +211,16 @@ fn live_storage_screenshot(
     wait_for_scans(&mut ctl, ui);
     if let Some(rel) = &shot.open {
         let target = root.join(rel);
-        if !target.is_dir() {
+        if !ctl.open_now(rel_path(rel), ui) {
             return Err(format!("--open: {} is not a folder", target.display()).into());
         }
-        ctl.open_now(target, ui);
         wait_for_scans(&mut ctl, ui);
     }
     Ok(())
+}
+
+fn rel_path(rel: &str) -> &std::path::Path {
+    std::path::Path::new(rel)
 }
 
 fn wait_for_scans(ctl: &mut storage_live::Ctl, ui: &MainWindow) {
@@ -352,7 +355,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     move |_| show()
                 });
             } else {
-                state.on_go_root(show);
+                state.on_jump({
+                    let show = show.clone();
+                    move |_| show()
+                });
             }
         }
         let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));

@@ -7,7 +7,10 @@ export struct DriveSeg { start: float, frac: float, hue: int }
 export struct DriveLegend { hue: int, label: string, value: string }
 // x, y, w, h are fractions of the map. `size-tier`: 0 biggest … 3 smallest (type size and padding).
 export struct MapTile { name: string, size: string, note: string, hue: int, x: float, y: float, w: float, h: float, tier: int }
-export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool }
+// `kind`: 0 file, 1 folder (opens), 2 link, 3 folder on another drive, 4 "and N smaller items".
+export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool, kind: int, label: string, focused: bool }
+// `target` is how many levels to keep when the part is clicked; -1 for the part you are in.
+export struct CrumbPart { label: string, target: int }
 export struct BigRow { name: string, meta: string, size: string }
 
 export global StorageState {
@@ -26,8 +29,7 @@ export global StorageState {
     in property <string> hint;
     in property <string> hint-button;
     in property <bool> in-folder: false;
-    in property <string> folder-parent;
-    in property <string> folder-title;
+    in property <[CrumbPart]> crumbs;
     in property <string> folder-help;
     in property <[FolderRow]> rows;
     in property <string> trash-label;
@@ -37,7 +39,9 @@ export global StorageState {
     callback pick-drive(int);
     callback open-block(int);
     callback open-hint();
-    callback go-root();
+    callback jump(int);
+    callback open-row(int);
+    callback key(string, bool) -> bool;
     callback toggle(int);
     callback trash-selected();
     callback trash-one(int);
@@ -157,25 +161,84 @@ component Tile inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-component Crumb inherits HorizontalLayout {
-    in property <string> parent-label;
-    in property <string> title;
-    in property <bool> link: false;
-    callback clicked();
+component Crumbs inherits HorizontalLayout {
     spacing: 6px;
     alignment: start;
-    min-height: root.link ? 32px : 22px;
-    padding-left: root.link ? 4px : 0px;
-    Rectangle {
-        width: p.preferred-width;
-        p := Text { text: root.parent-label; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
-        accessible-role: button;
-        accessible-label: root.parent-label;
-        accessible-action-default => { root.clicked(); }
-        if root.link: TouchArea { clicked => { root.clicked(); } }
+    min-height: 32px;
+    for c[i] in StorageState.crumbs: HorizontalLayout {
+        spacing: 6px;
+        if i > 0: Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
+        Rectangle {
+            width: label.preferred-width;
+            accessible-role: button;
+            accessible-label: c.target >= 0 ? "Go to " + c.label : c.label;
+            accessible-action-default => { StorageState.jump(c.target); }
+            label := Text {
+                text: c.label;
+                color: c.target >= 0 ? (link.has-hover ? Theme.text : Theme.text-2) : Theme.text;
+                font-size: Theme.size-body;
+                font-weight: c.target >= 0 ? 400 : 600;
+                vertical-alignment: center;
+            }
+            link := TouchArea { enabled: c.target >= 0; clicked => { StorageState.jump(c.target); } }
+        }
     }
-    Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
-    Text { text: root.title; color: Theme.text; font-size: Theme.size-body; font-weight: 600; vertical-alignment: center; }
+}
+
+component ListRow inherits Rectangle {
+    in property <FolderRow> r;
+    in property <int> index;
+    height: 56px;
+    background: (body.has-hover && root.r.kind != 3 && root.r.kind != 4) || root.r.focused ? Theme.control-bg : Theme.surface-sunk;
+    accessible-role: button;
+    accessible-label: root.r.label;
+    accessible-action-default => { root.act(); }
+    function act() {
+        if (root.r.kind == 1) { StorageState.open-row(root.index); }
+        else if (root.r.kind == 0 || root.r.kind == 2) { StorageState.toggle(root.index); }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+    body := TouchArea { x: 40px; width: parent.width - 40px; clicked => { root.act(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        // The checkbox is its own target: it only ticks, whatever the row does.
+        Rectangle {
+            width: 17px;
+            if root.r.kind <= 2: Rectangle {
+                width: 17px;
+                height: 17px;
+                accessible-role: checkbox;
+                accessible-label: "Select " + root.r.name;
+                accessible-checked: root.r.checked;
+                accessible-action-default => { StorageState.toggle(root.index); }
+                Check { on: root.r.checked; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text { text: root.r.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
+            Text { text: root.r.meta; color: root.r.old ? Theme.warn-note : Theme.text-3; font-size: Theme.size-caption; overflow: elide; }
+        }
+        Text {
+            visible: root.r.kind == 3;
+            width: root.r.kind == 3 ? self.preferred-width : 0px;
+            text: root.r.size;
+            color: Theme.text-3;
+            font-size: Theme.size-small;
+            vertical-alignment: center;
+        }
+        Mono { visible: root.r.kind != 3; width: root.r.kind != 3 ? 86px : 0px; text: root.r.size; color: Theme.text-soft; font-size: Theme.size-small; horizontal-alignment: right; }
+        Rectangle {
+            width: 14px;
+            if root.r.kind == 1: Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-3; }
+        }
+    }
+    // A touch on the checkbox itself only ticks.
+    if root.r.kind <= 2: TouchArea { x: 0px; width: 40px; clicked => { StorageState.toggle(root.index); } }
 }
 
 export component StorageScreen inherits Rectangle {
@@ -287,7 +350,7 @@ export component StorageScreen inherits Rectangle {
                     if StorageState.state == 0 && !StorageState.in-folder: VerticalLayout {
                         spacing: 14px;
                         HorizontalLayout {
-                            Crumb { parent-label: StorageState.drive-name; title: StorageState.map-title; }
+                            Crumbs { }
                             Rectangle { horizontal-stretch: 1; }
                             Text { text: "Click a block to look inside"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
                         }
@@ -334,34 +397,21 @@ export component StorageScreen inherits Rectangle {
                     }
                     if StorageState.state == 0 && StorageState.in-folder: VerticalLayout {
                         spacing: 14px;
-                        Crumb { parent-label: StorageState.folder-parent; title: StorageState.folder-title; link: true; clicked => { StorageState.go-root(); } }
+                        Crumbs { }
                         Text { text: StorageState.folder-help; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
-                        Rectangle {
-                            border-radius: 12px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            clip: true;
+                        FocusScope {
                             height: StorageState.rows.length * 56px + 2px;
-                            VerticalLayout {
-                                for r[i] in StorageState.rows: Rectangle {
-                                    height: 56px;
-                                    background: touch.has-hover ? Theme.control-bg : Theme.surface-sunk;
-                                    accessible-role: checkbox;
-                                    accessible-label: r.name;
-                                    accessible-checked: r.checked;
-                                    accessible-action-default => { StorageState.toggle(i); }
-                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
-                                    Check { x: 14px; y: (parent.height - self.height) / 2; on: r.checked; }
-                                    VerticalLayout {
-                                        x: 43px;
-                                        width: parent.width - 43px - 110px;
-                                        alignment: center;
-                                        spacing: 2px;
-                                        Text { text: r.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
-                                        Text { text: r.meta; color: r.old ? Theme.warn-note : Theme.text-3; font-size: Theme.size-caption; overflow: elide; }
-                                    }
-                                    Mono { x: parent.width - 100px; width: 86px; text: r.size; color: Theme.text-soft; font-size: Theme.size-small; horizontal-alignment: right; }
-                                    touch := TouchArea { clicked => { StorageState.toggle(i); } }
+                            init => { self.focus(); }
+                            key-pressed(e) => {
+                                if (StorageState.key(e.text, e.modifiers.alt)) { accept } else { reject }
+                            }
+                            Rectangle {
+                                border-radius: 12px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                clip: true;
+                                VerticalLayout {
+                                    for r[i] in StorageState.rows: ListRow { r: r; index: i; }
                                 }
                             }
                         }

@@ -470,6 +470,12 @@ impl Browser {
         self.open_place(place)
     }
 
+    /// Go straight to a folder below the root, with every folder on the way on the trail (so Back
+    /// works). False, and nothing changes, if it is not a folder.
+    pub fn open_path(&mut self, _rel: &Path) -> bool {
+        false
+    }
+
     pub fn up(&mut self) {
         self.trail.pop();
         self.load_current();
@@ -835,6 +841,39 @@ mod tests {
             .iter()
             .any(|i| i.name == "build.bin"));
         let _ = DEEP;
+    }
+
+    #[test]
+    fn a_deep_path_opens_with_every_folder_on_the_way() {
+        let fx = fixture::build();
+        let mut b = browser(&fx);
+        assert!(b.open_path(Path::new(DEEP)));
+        wait(&mut b);
+        let want: Vec<Place> = [
+            "Documents",
+            "Documents/Creative Chaos",
+            "Documents/Creative Chaos/OpenSource",
+            DEEP,
+        ]
+        .iter()
+        .map(|p| Place::Folder(fx.root.join(p)))
+        .collect();
+        assert_eq!(b.trail().places(), want.as_slice());
+        assert!(b
+            .level()
+            .unwrap()
+            .items
+            .iter()
+            .any(|i| i.name == "build.bin"));
+        b.up();
+        wait(&mut b);
+        assert_eq!(b.trail().len(), 3, "Back works");
+        assert!(!b.open_path(Path::new("Nope/Nothing")));
+        assert!(
+            !b.open_path(Path::new("Documents/Archive/disk.img")),
+            "a file is not a folder"
+        );
+        assert_eq!(b.trail().len(), 3, "a refused path changes nothing");
     }
 
     #[test]
