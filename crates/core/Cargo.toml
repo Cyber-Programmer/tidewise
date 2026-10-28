@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 sysinfo = "0.39.6"
+thiserror.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

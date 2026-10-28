@@ -10,3 +10,4 @@ pub mod rates;
 pub mod scan;
 pub mod statm;
 pub mod stats;
+pub mod trash;
