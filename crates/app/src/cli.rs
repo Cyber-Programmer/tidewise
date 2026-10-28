@@ -28,6 +28,8 @@ pub struct Args {
     pub screenshot: Option<Screenshot>,
     /// `--page <screen>`: the page the window opens on (used to measure each screen).
     pub page: Option<String>,
+    /// `--page storage --open <relative/path>`: start inside that folder of the scanned one.
+    pub open: Option<String>,
 }
 
 pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
@@ -245,8 +247,17 @@ mod tests {
     }
 
     #[test]
-    fn open_only_works_with_a_screenshot() {
+    fn open_needs_a_screenshot_or_the_storage_page() {
         assert!(args(&["--open", "Documents"]).is_err());
+        assert!(args(&["--page", "home", "--open", "Documents"]).is_err());
+    }
+
+    #[test]
+    fn the_live_storage_page_can_start_inside_a_folder() {
+        let a = args(&["--page", "storage", "--open", "Documents/Photos"]).unwrap();
+        assert_eq!(a.open.as_deref(), Some("Documents/Photos"));
+        assert!(args(&["--page", "storage", "--open", "../x"]).is_err());
+        assert_eq!(args(&["--page", "storage"]).unwrap().open, None);
     }
 
     #[test]
