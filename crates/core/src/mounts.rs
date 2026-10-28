@@ -28,17 +28,83 @@ pub struct AccessTimeReport {
 
 /// Parse `/proc/mounts` text. Lines that are not six fields are skipped; `\040`-style escapes in
 /// the device and mount point are decoded.
-pub fn parse_mounts(_text: &str) -> Vec<Mount> {
-    Vec::new()
+pub fn parse_mounts(text: &str) -> Vec<Mount> {
+    text.lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split(' ').collect();
+            // The last two fields are the dump and fsck-order numbers.
+            let numbers = fields.len() == 6 && fields[4..].iter().all(|f| f.parse::<u32>().is_ok());
+            if !numbers || fields[1].is_empty() {
+                return None;
+            }
+            Some(Mount {
+                device: unescape(fields[0]),
+                mount_point: unescape(fields[1]),
+                fs_type: fields[2].to_string(),
+                options: fields[3].split(',').map(str::to_string).collect(),
+            })
+        })
+        .collect()
+}
+
+/// The kernel writes space, tab, newline and backslash as `\040`, `\011`, `\012`, `\134`.
+fn unescape(field: &str) -> String {
+    let bytes = field.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let octal = (bytes[i] == b'\\' && i + 3 < bytes.len())
+            .then(|| &bytes[i + 1..i + 4])
+            .filter(|d| d.iter().all(|c| (b'0'..=b'7').contains(c)))
+            .and_then(|d| {
+                u8::try_from(d.iter().fold(0u32, |n, c| n * 8 + u32::from(c - b'0'))).ok()
+            });
+        match octal {
+            Some(b) => {
+                out.push(b);
+                i += 4;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Can the access time of files under `path` be trusted? Looks for the mount with the longest
 /// matching mount point.
-pub fn access_time_for(_mounts: &[Mount], _path: &Path) -> AccessTimeReport {
+pub fn access_time_for(mounts: &[Mount], path: &Path) -> AccessTimeReport {
+    let Some(mount) = mounts
+        .iter()
+        .filter(|m| path.starts_with(&m.mount_point))
+        .max_by_key(|m| m.mount_point.len())
+    else {
+        return AccessTimeReport {
+            source: TimeSource::ModifiedTime,
+            mount_point: String::new(),
+            reason: "The drive's mount options could not be read, so modified time is used.".into(),
+        };
+    };
+    let has = |opt: &str| mount.options.iter().any(|o| o == opt);
+    // `relatime` (the default) still updates the access time when it is older than the modified
+    // time or a day old, which is plenty for a six-month limit. `noatime` never updates it.
+    let (source, reason) = if has("noatime") {
+        (
+            TimeSource::ModifiedTime,
+            "This drive is mounted with noatime, so opening a file does not update its access time; modified time is used.",
+        )
+    } else {
+        (
+            TimeSource::AccessTime,
+            "This drive records when files are opened (relatime or strictatime), so access time is used.",
+        )
+    };
     AccessTimeReport {
-        source: TimeSource::AccessTime,
-        mount_point: String::new(),
-        reason: String::new(),
+        source,
+        mount_point: mount.mount_point.clone(),
+        reason: reason.into(),
     }
 }
 

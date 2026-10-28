@@ -52,8 +52,60 @@ pub struct Drive {
 /// Keep real drives: no pseudo filesystems (tmpfs, proc, squashfs of snaps, …), nothing of size 0,
 /// each device once (btrfs subvolumes and bind mounts repeat it; the shortest mount point wins).
 /// The drive at `/` comes first, then the biggest.
-pub fn drives_from(_raw: &[RawDisk]) -> Vec<Drive> {
-    Vec::new()
+pub fn drives_from(raw: &[RawDisk]) -> Vec<Drive> {
+    const PSEUDO: &[&str] = &[
+        "tmpfs",
+        "devtmpfs",
+        "ramfs",
+        "proc",
+        "sysfs",
+        "devpts",
+        "cgroup",
+        "cgroup2",
+        "efivarfs",
+        "securityfs",
+        "squashfs",
+        "overlay",
+        "fuse.portal",
+        "fuse.gvfsd-fuse",
+        "autofs",
+        "bpf",
+        "debugfs",
+        "tracefs",
+        "configfs",
+        "fusectl",
+        "mqueue",
+        "hugetlbfs",
+        "pstore",
+        "binfmt_misc",
+    ];
+    let mut drives: Vec<Drive> = Vec::new();
+    for d in raw {
+        if d.total == 0 || PSEUDO.contains(&d.fs_type.as_str()) {
+            continue;
+        }
+        let free = d.available.min(d.total);
+        let drive = Drive {
+            name: d.name.clone(),
+            mount_point: d.mount_point.clone(),
+            fs_type: d.fs_type.clone(),
+            total: d.total,
+            used: d.total - free,
+            free,
+        };
+        match drives.iter_mut().find(|x| x.name == d.name) {
+            Some(same) if drive.mount_point.len() < same.mount_point.len() => *same = drive,
+            Some(_) => {}
+            None => drives.push(drive),
+        }
+    }
+    drives.sort_by(|a, b| {
+        (b.mount_point == "/")
+            .cmp(&(a.mount_point == "/"))
+            .then(b.total.cmp(&a.total))
+            .then_with(|| a.mount_point.cmp(&b.mount_point))
+    });
+    drives
 }
 
 /// Every real drive on this machine.
