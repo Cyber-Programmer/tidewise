@@ -62,3 +62,5 @@ Numbers from one run: Slint FemtoVG 58 MB, Slint software 23 MB, Tauri 313 MB (3
 
 ## 2026-10-28 — Overnight run 2 (plans)
 Plan T0: point the measure-script test at `tools/measure.sh` first (red), then `git mv` the script, port spike code into `crates/app` (binary `tidewise`), delete `spikes/`, drop the workspace `exclude`.
+Plan T1: write `crates/app/tests/theme_tokens.rs` first (parses `tokens.md`, checks every hex and every simple token in `ui/theme.slint`, fonts and icons present) and watch it fail.
+Then `ui/theme.slint` with a `Theme` global (dark default, light via the same `dark ?` switch), import Geist/Geist Mono TTFs, copy icons to `ui/icons/`, set `default-font-family`, replace the spike's `Tokens`.

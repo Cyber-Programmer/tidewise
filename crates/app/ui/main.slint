@@ -1,20 +1,7 @@
-// Spike: the Performance screen (docs/design/screens/Performance.dc.html), dark theme.
-// Colours and sizes come from docs/design/tokens.md. Geist is not bundled in the spike;
-// the system sans/monospace fonts stand in.
+// The Performance screen (docs/design/screens/Performance.dc.html), dark theme.
+// Colours and sizes come from docs/design/tokens.md through Theme.
 import { ListView } from "std-widgets.slint";
-
-global Tokens {
-    out property <color> bg: #0D0F13;
-    out property <color> sidebar: #111419;
-    out property <color> surface: #161A21;
-    out property <color> surface-sunk: #12161C;
-    out property <color> border: #232933;
-    out property <color> text: #ECEEF2;
-    out property <color> text-2: #A9B0BC;
-    out property <color> text-3: #808897;
-    out property <color> accent: #5DDCB0;
-    out property <string> mono: "monospace";
-}
+import { Theme } from "theme.slint";
 
 export struct MetricCard {
     label: string,
@@ -55,8 +42,8 @@ component Card inherits Rectangle {
     min-height: 92px;
     border-radius: 14px;
     border-width: 1px;
-    border-color: root.selected ? root.data.color : Tokens.border;
-    background: root.selected ? #1C222B : Tokens.surface;
+    border-color: root.selected ? root.data.color : Theme.border;
+    background: root.selected ? #1C222B : Theme.surface;
     accessible-role: tab;
     accessible-label: root.data.label;
     accessible-checked: root.selected;
@@ -66,7 +53,7 @@ component Card inherits Rectangle {
         padding-right: 16px;
         spacing: 8px;
         HorizontalLayout {
-            Text { text: root.data.label; color: Tokens.text-2; font-size: 13px; }
+            Text { text: root.data.label; color: Theme.text-2; font-size: 13px; }
             Text {
                 text: root.data.mood;
                 color: root.data.color;
@@ -81,14 +68,14 @@ component Card inherits Rectangle {
                 alignment: start;
                 Text {
                     text: root.data.value;
-                    color: Tokens.text;
-                    font-family: Tokens.mono;
+                    color: Theme.text;
+                    font-family: Theme.mono;
                     font-size: 22px;
                     vertical-alignment: bottom;
                 }
                 Text {
                     text: root.data.unit;
-                    color: Tokens.text-2;
+                    color: Theme.text-2;
                     font-size: 13px;
                     vertical-alignment: bottom;
                 }
@@ -115,7 +102,9 @@ export component MainWindow inherits Window {
     min-height: 600px;
     preferred-width: 1280px;
     preferred-height: 800px;
-    background: Tokens.bg;
+    background: Theme.bg;
+    default-font-family: Theme.sans;
+    default-font-size: Theme.size-body;
 
     in property <[MetricCard]> cards;
     in property <int> selected: 0;
@@ -123,7 +112,7 @@ export component MainWindow inherits Window {
     in property <string> big-value;
     in property <string> big-unit;
     in property <string> axis-label;
-    in property <color> accent-color: Tokens.accent;
+    in property <color> accent-color: Theme.accent;
     in property <string> line-commands;
     in property <string> area-commands;
     in property <[ProcessRow]> processes;
@@ -133,7 +122,7 @@ export component MainWindow inherits Window {
         // Sidebar
         Rectangle {
             width: 220px;
-            background: Tokens.sidebar;
+            background: Theme.sidebar;
             VerticalLayout {
                 padding: 20px;
                 padding-left: 14px;
@@ -141,7 +130,7 @@ export component MainWindow inherits Window {
                 spacing: 4px;
                 Text {
                     text: "Tidewise";
-                    color: Tokens.text;
+                    color: Theme.text;
                     font-size: 18px;
                     font-weight: 650;
                     height: 52px;
@@ -175,13 +164,13 @@ export component MainWindow inherits Window {
                 alignment: start;
                 Text {
                     text: "Performance";
-                    color: Tokens.text;
+                    color: Theme.text;
                     font-size: 26px;
                     font-weight: 650;
                 }
                 Text {
                     text: "Live · last 60 seconds";
-                    color: Tokens.text-2;
+                    color: Theme.text-2;
                     font-size: 14px;
                 }
             }
@@ -199,10 +188,10 @@ export component MainWindow inherits Window {
                     }
                 }
                 Rectangle {
-                    background: Tokens.surface;
+                    background: Theme.surface;
                     border-radius: 18px;
                     border-width: 1px;
-                    border-color: Tokens.border;
+                    border-color: Theme.border;
                     VerticalLayout {
                         padding: 22px;
                         padding-left: 24px;
@@ -210,8 +199,8 @@ export component MainWindow inherits Window {
                         spacing: 16px;
                         HorizontalLayout {
                             VerticalLayout {
-                                Text { text: root.cards[root.selected].label; color: Tokens.text-2; font-size: 13px; }
-                                Text { text: root.headline; color: Tokens.text; font-size: 22px; font-weight: 650; }
+                                Text { text: root.cards[root.selected].label; color: Theme.text-2; font-size: 13px; }
+                                Text { text: root.headline; color: Theme.text; font-size: 22px; font-weight: 650; }
                             }
                             HorizontalLayout {
                                 alignment: end;
@@ -219,13 +208,13 @@ export component MainWindow inherits Window {
                                 Text {
                                     text: root.big-value;
                                     color: root.accent-color;
-                                    font-family: Tokens.mono;
+                                    font-family: Theme.mono;
                                     font-size: 34px;
                                     vertical-alignment: bottom;
                                 }
                                 Text {
                                     text: root.big-unit;
-                                    color: Tokens.text-2;
+                                    color: Theme.text-2;
                                     font-size: 14px;
                                     vertical-alignment: bottom;
                                 }
@@ -236,7 +225,7 @@ export component MainWindow inherits Window {
                             for y in [0.025, 0.5, 0.975]: Rectangle {
                                 y: parent.height * y;
                                 height: 1px;
-                                background: Tokens.border;
+                                background: Theme.border;
                             }
                             Path {
                                 width: parent.width;
@@ -257,26 +246,26 @@ export component MainWindow inherits Window {
                             }
                         }
                         HorizontalLayout {
-                            Text { text: "60 seconds ago"; color: Tokens.text-3; font-size: 11px; }
+                            Text { text: "60 seconds ago"; color: Theme.text-3; font-size: 11px; }
                             Text {
                                 text: "top of chart: " + root.axis-label;
-                                color: Tokens.text-3;
+                                color: Theme.text-3;
                                 font-size: 11px;
                                 horizontal-alignment: center;
                             }
-                            Text { text: "now"; color: Tokens.text-3; font-size: 11px; horizontal-alignment: right; }
+                            Text { text: "now"; color: Theme.text-3; font-size: 11px; horizontal-alignment: right; }
                         }
                         Text {
                             text: "All processes (" + root.processes.length + ")";
-                            color: Tokens.text;
+                            color: Theme.text;
                             font-size: 14px;
                             font-weight: 600;
                         }
                         Rectangle {
-                            background: Tokens.surface-sunk;
+                            background: Theme.surface-sunk;
                             border-radius: 12px;
                             border-width: 1px;
-                            border-color: Tokens.border;
+                            border-color: Theme.border;
                             clip: true;
                             ListView {
                                 for p in root.processes: Rectangle {
@@ -285,10 +274,10 @@ export component MainWindow inherits Window {
                                         padding-left: 14px;
                                         padding-right: 14px;
                                         spacing: 12px;
-                                        Text { text: p.name; color: Tokens.text; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                                        Text { text: p.pid; width: 70px; color: Tokens.text-3; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
-                                        Text { text: p.cpu; width: 70px; color: #C9CED6; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
-                                        Text { text: p.memory; width: 90px; color: #C9CED6; font-family: Tokens.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: p.name; color: Theme.text; font-size: 13px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                        Text { text: p.pid; width: 70px; color: Theme.text-3; font-family: Theme.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: p.cpu; width: 70px; color: #C9CED6; font-family: Theme.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: p.memory; width: 90px; color: #C9CED6; font-family: Theme.mono; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
                                 }
                             }
