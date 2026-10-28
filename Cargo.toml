@@ -12,3 +12,9 @@ repository = "https://github.com/Cyber-Programmer/tidewise"
 thiserror = "2"
 tempfile = "3"
 pretty_assertions = "1"
+
+# Same release settings the Slint spike was measured with (docs/decisions/0001-ui-toolkit.md).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

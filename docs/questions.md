@@ -30,3 +30,12 @@ Meanwhile: added exactly those licence and advisory entries to `deny.toml`, each
 The sidebar (ten 44 px items plus logo and distro card) overflows below roughly 700 px height, while `tokens.md` allows a
 600 px minimum window. Recommended: let the sidebar scroll, or compress item height under 720 px (the design has no
 state for it). Meanwhile the window minimum stays 900×600 as designed and the overflow is clipped.
+
+## M1-T6 — pausing when the window is covered; idle CPU is higher than hoped
+1. Slint 1.18 gives `Window::is_visible()` and `Window::is_minimized()`; the app skips sampling when either says so.
+   It has no public "occluded / on another workspace" signal (winit has one internally, `Occluded`, but Slint does not forward it).
+   So a window that is open but fully covered, or on another virtual desktop, keeps sampling. Recommended: accept for v1.0;
+   revisit if Slint adds an occlusion event.
+2. Idle CPU measured 7.5 % (software) and 5.0 % (GPU) of one core on the Home page, higher than expected for one sample a second.
+   Not yet investigated: likely the full-window repaint each tick plus `sysinfo` refreshing every process. Recommended:
+   profile next; cheap wins are to update models only when values changed and to refresh the process list only on the Processes page.

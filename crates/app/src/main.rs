@@ -178,6 +178,44 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
 }
 
+/// Sampling pauses while nobody can see the window.
+fn is_paused(visible: bool, minimized: bool) -> bool {
+    !visible || minimized
+}
+
+/// Everything live mode keeps between ticks.
+struct Live {
+    sampler: live::Sampler,
+    perf: Option<perf::PerfData>,
+    desktop: std::collections::HashMap<String, String>,
+}
+
+/// Draw the page on screen from the latest sample. Other pages are not touched: the process
+/// list in particular reads `/proc` for every process, so it is only built when it is shown.
+fn show_page(ui: &MainWindow, live: &Live, ctl: &mut ProcsCtl) {
+    match ui.global::<Shell>().get_page() {
+        0 => view::apply_home(ui, &live.sampler.home()),
+        4 => {
+            if let Some(perf) = &live.perf {
+                view::apply_perf(ui, perf);
+            }
+        }
+        5 => {
+            ctl.data = live.sampler.processes(&live.desktop);
+            if !ctl.data.rows.iter().any(|r| r.id == ctl.selected) {
+                ctl.selected = ctl
+                    .data
+                    .rows
+                    .first()
+                    .map(|r| r.id.clone())
+                    .unwrap_or_default();
+            }
+            ctl.refresh(ui);
+        }
+        _ => {}
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::parse(std::env::args().skip(1))?;
     if let Some(shot) = &args.screenshot {
@@ -185,24 +223,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     select_renderer()?;
     let ui = MainWindow::new()?;
-    ui.global::<Shell>().on_navigate({
-        let weak = ui.as_weak();
-        move |page| {
-            if let Some(ui) = weak.upgrade() {
-                ui.global::<Shell>().set_page(page);
-            }
-        }
-    });
     ui.global::<PerfState>().on_open_processes({
         let weak = ui.as_weak();
         move || {
             if let Some(ui) = weak.upgrade() {
-                ui.global::<Shell>().set_page(5);
+                ui.global::<Shell>().invoke_navigate(5);
             }
         }
     });
 
     if args.demo {
+        ui.global::<Shell>().on_navigate({
+            let weak = ui.as_weak();
+            move |page| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.global::<Shell>().set_page(page);
+                }
+            }
+        });
         ui.global::<Shell>().set_distro_name("Arch Linux".into());
         ui.global::<Shell>()
             .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
@@ -221,45 +259,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for dir in desktop_dirs() {
         procs::load_desktop_names(&dir, &mut desktop);
     }
-    let sampler = Rc::new(RefCell::new(live::Sampler::new()));
+    let live = Rc::new(RefCell::new(Live {
+        sampler: live::Sampler::new(),
+        perf: None,
+        desktop,
+    }));
     let ctl = Rc::new(RefCell::new(ProcsCtl::new(procs::ProcData {
         subtitle: String::new(),
         rows: Vec::new(),
     })));
     wire_procs(&ui, &ctl);
-    let tick = {
-        let (sampler, ctl) = (sampler.clone(), ctl.clone());
-        move |ui: &MainWindow| {
-            let perf = sampler.borrow_mut().sample();
-            view::apply_perf(ui, &perf);
-            view::apply_home(ui, &sampler.borrow().home());
-            let mut c = ctl.borrow_mut();
-            c.data = sampler.borrow().processes(&desktop);
-            if !c.data.rows.iter().any(|r| r.id == c.selected) {
-                c.selected = c
-                    .data
-                    .rows
-                    .first()
-                    .map(|r| r.id.clone())
-                    .unwrap_or_default();
-            }
-            c.refresh(ui);
+    let sample = {
+        let live = live.clone();
+        move || {
+            let mut l = live.borrow_mut();
+            l.perf = Some(l.sampler.sample());
         }
     };
-    tick(&ui);
+    sample();
+    ui.global::<Shell>().on_navigate({
+        let (weak, live, ctl) = (ui.as_weak(), live.clone(), ctl.clone());
+        move |page| {
+            if let Some(ui) = weak.upgrade() {
+                ui.global::<Shell>().set_page(page);
+                show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+            }
+        }
+    });
+    show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
 
-    // One sample per second; skip the work while the window is hidden.
+    // One sample per second; nothing while the window is hidden or minimised.
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_secs(1), {
         let weak = ui.as_weak();
         move || {
             let Some(ui) = weak.upgrade() else { return };
-            if !ui.window().is_visible() {
+            if is_paused(ui.window().is_visible(), ui.window().is_minimized()) {
                 return;
             }
-            tick(&ui);
+            sample();
+            show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
         }
     });
 
     Ok(ui.run()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_paused;
+
+    #[test]
+    fn sampling_pauses_when_hidden_or_minimised() {
+        assert!(!is_paused(true, false));
+        assert!(is_paused(false, false));
+        assert!(is_paused(true, true));
+        assert!(is_paused(false, true));
+    }
 }
