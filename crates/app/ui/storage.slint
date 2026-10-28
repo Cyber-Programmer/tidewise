@@ -7,7 +7,12 @@ export struct DriveSeg { start: float, frac: float, hue: int }
 export struct DriveLegend { hue: int, label: string, value: string }
 // x, y, w, h are fractions of the map. `size-tier`: 0 biggest … 3 smallest (type size and padding).
 export struct MapTile { name: string, size: string, note: string, hue: int, x: float, y: float, w: float, h: float, tier: int }
-export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool }
+// `kind`: 0 file, 1 folder (opens), 2 link, 3 folder on another drive, 4 "and N smaller items".
+export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool, kind: int, label: string, focused: bool }
+// `target` is how many levels to keep when the part is clicked; -1 for the part you are in.
+export struct CrumbPart { label: string, target: int }
+// How a block lays out its text: mode 0 stacked, 1 stacked with note, 2 one line, 3 no text.
+export struct TileLayout { mode: int, name-px: length, size-px: length }
 export struct BigRow { name: string, meta: string, size: string }
 
 export global StorageState {
@@ -26,18 +31,22 @@ export global StorageState {
     in property <string> hint;
     in property <string> hint-button;
     in property <bool> in-folder: false;
-    in property <string> folder-parent;
-    in property <string> folder-title;
+    in property <[CrumbPart]> crumbs;
     in property <string> folder-help;
     in property <[FolderRow]> rows;
+    // The row the keyboard is on.
+    in property <int> cursor;
     in property <string> trash-label;
     in property <bool> trash-enabled: true;
     in property <[BigRow]> big;
     in property <string> big-note;
+    pure callback tile-layout(length, length, int, int, bool) -> TileLayout;
     callback pick-drive(int);
     callback open-block(int);
     callback open-hint();
-    callback go-root();
+    callback jump(int);
+    callback open-row(int);
+    callback key(string, bool) -> bool;
     callback toggle(int);
     callback trash-selected();
     callback trash-one(int);
@@ -115,6 +124,8 @@ component Tile inherits Rectangle {
     property <length> pad: t.tier >= 3 ? 12px : 14px;
     property <bool> gap-left: t.x > 0.001;
     property <bool> gap-top: t.y > 0.001;
+    // One Rust function decides, from this block's size in pixels, where the text goes.
+    property <TileLayout> lay: StorageState.tile-layout(self.width, self.height, t.tier, t.size.character-count, t.note != "");
     x: t.x * map-w + (gap-left ? 3px : 0px);
     y: t.y * map-h + (gap-top ? 3px : 0px);
     width: t.w * map-w - (gap-left ? 3px : 0px) - (t.x + t.w < 0.999 ? 3px : 0px);
@@ -124,17 +135,17 @@ component Tile inherits Rectangle {
     accessible-role: button;
     accessible-label: t.name + ", " + t.size;
     accessible-action-default => { root.clicked(); }
-    Text {
+    if lay.mode <= 1: Text {
         x: root.pad;
         y: root.pad;
         width: parent.width - 2 * root.pad;
         text: t.name;
         color: Theme.text;
-        font-size: t.tier >= 3 ? 13px : 14px;
+        font-size: lay.name-px;
         font-weight: 600;
         overflow: elide;
     }
-    VerticalLayout {
+    if lay.mode <= 1: VerticalLayout {
         x: root.pad;
         y: root.pad;
         width: parent.width - 2 * root.pad;
@@ -143,10 +154,10 @@ component Tile inherits Rectangle {
         Mono {
             text: t.size;
             color: Theme.text;
-            font-size: t.tier == 0 ? 24px : (t.tier == 1 ? 22px : (t.tier == 2 ? 20px : 16px));
+            font-size: lay.size-px;
             overflow: elide;
         }
-        if t.note != "": Text {
+        if lay.mode == 1: Text {
             text: t.note;
             color: Theme.tile-note(t.hue);
             font-size: Theme.size-caption;
@@ -154,41 +165,141 @@ component Tile inherits Rectangle {
             overflow: elide;
         }
     }
-    TouchArea { clicked => { root.clicked(); } }
+    if lay.mode == 2: HorizontalLayout {
+        x: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: parent.height;
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: t.name;
+            color: Theme.text;
+            font-size: lay.name-px;
+            font-weight: 600;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        Mono {
+            horizontal-stretch: 0;
+            text: t.size;
+            color: Theme.text;
+            font-size: lay.size-px;
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    // Too small for text: the name and size show when the pointer rests on it.
+    if lay.mode == 3 && touch.has-hover: Rectangle {
+        x: min(parent.width, 0px) + 4px;
+        y: parent.height + 4px;
+        width: tip.preferred-width + 20px;
+        height: 30px;
+        background: Theme.surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.control-border;
+        tip := Text { x: 10px; text: t.name + " \u{b7} " + t.size; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; }
+    }
 }
 
-component Crumb inherits HorizontalLayout {
-    in property <string> parent-label;
-    in property <string> title;
-    in property <bool> link: false;
-    callback clicked();
+component Crumbs inherits HorizontalLayout {
     spacing: 6px;
     alignment: start;
-    min-height: root.link ? 32px : 22px;
-    padding-left: root.link ? 4px : 0px;
-    Rectangle {
-        width: p.preferred-width;
-        p := Text { text: root.parent-label; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
-        accessible-role: button;
-        accessible-label: root.parent-label;
-        accessible-action-default => { root.clicked(); }
-        if root.link: TouchArea { clicked => { root.clicked(); } }
+    min-height: StorageState.in-folder ? 32px : 22px;
+    padding-left: StorageState.in-folder ? 4px : 0px;
+    for c[i] in StorageState.crumbs: HorizontalLayout {
+        spacing: 6px;
+        if i > 0: Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
+        Rectangle {
+            width: label.preferred-width;
+            accessible-role: button;
+            accessible-label: c.target >= 0 ? "Go to " + c.label : c.label;
+            accessible-action-default => { StorageState.jump(c.target); }
+            label := Text {
+                text: c.label;
+                color: c.target >= 0 ? (link.has-hover ? Theme.text : Theme.text-2) : Theme.text;
+                font-size: Theme.size-body;
+                font-weight: c.target >= 0 ? 400 : 600;
+                vertical-alignment: center;
+            }
+            link := TouchArea { enabled: c.target >= 0; clicked => { StorageState.jump(c.target); } }
+        }
     }
-    Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
-    Text { text: root.title; color: Theme.text; font-size: Theme.size-body; font-weight: 600; vertical-alignment: center; }
+}
+
+component ListRow inherits Rectangle {
+    in property <FolderRow> r;
+    in property <int> index;
+    height: 56px;
+    background: (body.has-hover && root.r.kind != 3 && root.r.kind != 4) || root.r.focused ? Theme.control-bg : Theme.surface-sunk;
+    accessible-role: button;
+    accessible-label: root.r.label;
+    accessible-action-default => { root.act(); }
+    function act() {
+        if (root.r.kind == 1) { StorageState.open-row(root.index); }
+        else if (root.r.kind == 0 || root.r.kind == 2) { StorageState.toggle(root.index); }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+    body := TouchArea { x: 40px; width: parent.width - 40px; clicked => { root.act(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        // The checkbox is its own target: it only ticks, whatever the row does.
+        Rectangle {
+            width: 17px;
+            if root.r.kind <= 2: Rectangle {
+                width: 17px;
+                height: 17px;
+                accessible-role: checkbox;
+                accessible-label: "Select " + root.r.name;
+                accessible-checked: root.r.checked;
+                accessible-action-default => { StorageState.toggle(root.index); }
+                Check { on: root.r.checked; }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text { text: root.r.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
+            Text { text: root.r.meta; color: root.r.old ? Theme.warn-note : Theme.text-3; font-size: Theme.size-caption; overflow: elide; }
+        }
+        Text {
+            visible: root.r.kind == 3;
+            width: root.r.kind == 3 ? self.preferred-width : 0px;
+            text: root.r.size;
+            color: Theme.text-3;
+            font-size: Theme.size-small;
+            vertical-alignment: center;
+        }
+        Mono { visible: root.r.kind != 3; width: root.r.kind != 3 ? 86px : 0px; text: root.r.size; color: Theme.text-soft; font-size: Theme.size-small; horizontal-alignment: right; }
+        Rectangle {
+            width: 14px;
+            if root.r.kind == 1: Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-3; }
+        }
+    }
+    // A touch on the checkbox itself only ticks.
+    if root.r.kind <= 2: TouchArea { x: 0px; width: 40px; clicked => { StorageState.toggle(root.index); } }
 }
 
 export component StorageScreen inherits Rectangle {
     background: Theme.bg;
-    VerticalLayout {
+    // The page scrolls when the window is shorter than its content; the open folder's list fills
+    // the rest of the window.
+    page := Flickable {
+        viewport-width: self.width;
+        viewport-height: max(self.height, content.min-height);
+        content := VerticalLayout {
+        width: page.width;
+        height: max(page.height, self.min-height);
         padding-top: 26px;
         padding-bottom: 40px;
         padding-left: 36px;
         padding-right: 36px;
         spacing: 20px;
-        alignment: start;
         // Header with the drive switcher
         HorizontalLayout {
+            vertical-stretch: 0;
             VerticalLayout {
                 horizontal-stretch: 0;
                 alignment: end;
@@ -201,6 +312,7 @@ export component StorageScreen inherits Rectangle {
         }
         // Drive bar
         Card {
+            vertical-stretch: 0;
             border-radius: Theme.radius-hero;
             VerticalLayout {
                 padding: 26px;
@@ -247,13 +359,15 @@ export component StorageScreen inherits Rectangle {
         // Folder map and biggest files
         HorizontalLayout {
             spacing: 20px;
+            vertical-stretch: StorageState.in-folder ? 1 : 0;
+            min-height: StorageState.in-folder ? 380px : 0px;
             Card {
                 border-radius: Theme.radius-card;
                 horizontal-stretch: 1;
                 VerticalLayout {
                     padding: 20px;
                     spacing: 14px;
-                    alignment: start;
+                    alignment: StorageState.in-folder ? LayoutAlignment.stretch : LayoutAlignment.start;
                     if StorageState.state == 1: VerticalLayout {
                         spacing: 10px;
                         height: 340px;
@@ -287,7 +401,7 @@ export component StorageScreen inherits Rectangle {
                     if StorageState.state == 0 && !StorageState.in-folder: VerticalLayout {
                         spacing: 14px;
                         HorizontalLayout {
-                            Crumb { parent-label: StorageState.drive-name; title: StorageState.map-title; }
+                            Crumbs { }
                             Rectangle { horizontal-stretch: 1; }
                             Text { text: "Click a block to look inside"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
                         }
@@ -334,34 +448,43 @@ export component StorageScreen inherits Rectangle {
                     }
                     if StorageState.state == 0 && StorageState.in-folder: VerticalLayout {
                         spacing: 14px;
-                        Crumb { parent-label: StorageState.folder-parent; title: StorageState.folder-title; link: true; clicked => { StorageState.go-root(); } }
+                        vertical-stretch: 1;
+                        Crumbs { }
                         Text { text: StorageState.folder-help; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
-                        Rectangle {
-                            border-radius: 12px;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            clip: true;
-                            height: StorageState.rows.length * 56px + 2px;
-                            VerticalLayout {
-                                for r[i] in StorageState.rows: Rectangle {
-                                    height: 56px;
-                                    background: touch.has-hover ? Theme.control-bg : Theme.surface-sunk;
-                                    accessible-role: checkbox;
-                                    accessible-label: r.name;
-                                    accessible-checked: r.checked;
-                                    accessible-action-default => { StorageState.toggle(i); }
-                                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
-                                    Check { x: 14px; y: (parent.height - self.height) / 2; on: r.checked; }
-                                    VerticalLayout {
-                                        x: 43px;
-                                        width: parent.width - 43px - 110px;
-                                        alignment: center;
-                                        spacing: 2px;
-                                        Text { text: r.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
-                                        Text { text: r.meta; color: r.old ? Theme.warn-note : Theme.text-3; font-size: Theme.size-caption; overflow: elide; }
+                        FocusScope {
+                            vertical-stretch: 1;
+                            min-height: 112px;
+                            init => { self.focus(); }
+                            key-pressed(e) => {
+                                if (StorageState.key(e.text, e.modifiers.alt)) { accept } else { reject }
+                            }
+                            Rectangle {
+                                border-radius: 12px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                clip: true;
+                                list := ListView {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    property <int> cur: StorageState.cursor;
+                                    changed cur => {
+                                        if (self.cur * 56px < -self.viewport-y) {
+                                            self.viewport-y = -self.cur * 56px;
+                                        } else if ((self.cur + 1) * 56px > -self.viewport-y + self.visible-height) {
+                                            self.viewport-y = -((self.cur + 1) * 56px - self.visible-height);
+                                        }
                                     }
-                                    Mono { x: parent.width - 100px; width: 86px; text: r.size; color: Theme.text-soft; font-size: Theme.size-small; horizontal-alignment: right; }
-                                    touch := TouchArea { clicked => { StorageState.toggle(i); } }
+                                    for r[i] in StorageState.rows: ListRow { r: r; index: i; }
+                                }
+                                // The widget's own thumb is nearly invisible on the dark surface: draw one
+                                // in the tokens' colours, only when the rows don't fit.
+                                if list.viewport-height > list.visible-height + 1px: Rectangle {
+                                    x: parent.width - 10px;
+                                    width: 4px;
+                                    border-radius: 2px;
+                                    background: Theme.text-3;
+                                    height: max(28px, list.visible-height * list.visible-height / list.viewport-height);
+                                    y: (-list.viewport-y) / (list.viewport-height - list.visible-height) * (list.visible-height - self.height);
                                 }
                             }
                         }
@@ -388,12 +511,21 @@ export component StorageScreen inherits Rectangle {
             Card {
                 width: 320px;
                 border-radius: Theme.radius-card;
+                // The widest size the list can show, measured in the font and size the column uses.
+                widest := Mono { visible: false; text: "999.9 GB"; font-size: Theme.size-small; }
                 VerticalLayout {
                     alignment: start;
                     Rectangle {
                         height: 54px;
                         Text { x: 18px; y: 18px; text: "Biggest files"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
                     }
+                    bigscroll := Flickable {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        viewport-height: bigcol.preferred-height;
+                        preferred-height: bigcol.preferred-height;
+                        bigcol := VerticalLayout {
+                            width: parent.width;
                     for b[i] in StorageState.big: VerticalLayout {
                         Rectangle { height: 1px; background: Theme.row-divider; }
                         HorizontalLayout {
@@ -401,7 +533,7 @@ export component StorageScreen inherits Rectangle {
                             padding-right: 18px;
                             padding-top: 11px;
                             padding-bottom: 11px;
-                            spacing: 12px;
+                            spacing: 6px;
                             VerticalLayout {
                                 horizontal-stretch: 1;
                                 alignment: center;
@@ -409,7 +541,7 @@ export component StorageScreen inherits Rectangle {
                                 Text { text: b.name; color: Theme.text; font-size: Theme.size-small; font-weight: 500; overflow: elide; }
                                 Text { text: b.meta; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
                             }
-                            Mono { text: b.size; width: 47px; color: Theme.text; font-size: Theme.size-small; horizontal-alignment: right; }
+                            Mono { text: b.size; width: widest.preferred-width; color: Theme.text; font-size: Theme.size-small; horizontal-alignment: right; }
                             VerticalLayout {
                                 alignment: center;
                                 Rectangle {
@@ -433,8 +565,28 @@ export component StorageScreen inherits Rectangle {
                         Rectangle { height: 1px; background: Theme.row-divider; }
                         note := Text { x: 18px; y: 12px; width: parent.width - 36px; text: StorageState.big-note; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.4; }
                     }
+                        }
+                        if bigscroll.viewport-height > bigscroll.height + 1px: Rectangle {
+                            x: parent.width - 8px;
+                            width: 4px;
+                            border-radius: 2px;
+                            background: Theme.text-3;
+                            height: max(28px, bigscroll.height * bigscroll.height / bigscroll.viewport-height);
+                            y: (-bigscroll.viewport-y) / (bigscroll.viewport-height - bigscroll.height) * (bigscroll.height - self.height);
+                        }
+                    }
                 }
             }
         }
+        Rectangle { vertical-stretch: StorageState.in-folder ? 0 : 1; }
+        }
+    }
+    if page.viewport-height > page.height + 1px: Rectangle {
+        x: parent.width - 8px;
+        width: 4px;
+        border-radius: 2px;
+        background: Theme.text-3;
+        height: max(28px, page.height * page.height / page.viewport-height);
+        y: (-page.viewport-y) / (page.viewport-height - page.height) * (page.height - self.height);
     }
 }

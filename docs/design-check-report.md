@@ -67,3 +67,19 @@ width (the row was `alignment: start`), the 32 px breadcrumb button of the drill
 with their wrapped second line (the design's rows are not all the same height).
 Remaining (accepted): the "Biggest files" sizes stay on one line (design bug, DESIGN-CHECK.md); text antialiasing; the
 treemap in demo mode uses the artboard's own rectangles, live mode uses a squarified treemap.
+
+## Storage drill-in (R5, 2026-10-28)
+Run `tools/design_check.sh storage` (demo data).
+| Image | Before R5 | After R5 |
+| --- | --- | --- |
+| Storage | 2.7 % | **3.0 %** |
+| Storage--downloads | 2.3 % | **9.0 %** |
+
+Both ≤ 10 %. What moved: the Downloads drill-in card now stretches down to the window bottom with a `ListView`
+(the artboard's card ends after its last row), rows carry a chevron and a separate checkbox target, the breadcrumb can
+be longer, and the Biggest files size column is as wide as a measured `999.9 GB` (63 px instead of a guessed 47 px; the
+gaps in a row went from 12 px to 6 px to pay for it). These are the accepted differences listed in
+`docs/design/DESIGN-CHECK.md` (chevron, longer breadcrumb, scrollbar, one-line labels). Along the way the map-level
+breadcrumb briefly scored 16.5 % when it picked up the drill-in's 32 px height; it keeps its 22 px height again.
+Remaining (accepted): text antialiasing; the thumb of the scroll areas is drawn in `Theme.text-3` because the widget's
+own thumb is nearly invisible on the dark surface.

@@ -12,12 +12,18 @@ mod cli;
 mod demo;
 mod home;
 mod live;
+mod nav;
 mod perf;
 mod procs;
 mod screenshot;
 mod storage;
 mod storage_live;
+mod tiles;
 mod view;
+
+#[cfg(test)]
+#[path = "../tests/support/fixture.rs"]
+mod fixture;
 
 slint::include_modules!();
 
@@ -157,6 +163,22 @@ fn show_demo(
             let downloads = match state {
                 None => false,
                 Some("downloads") => true,
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from a real scan
+                Some("sizes") => {
+                    // The widest and narrowest sizes the Biggest files column has to hold.
+                    let mut data = demo::storage(false);
+                    for (row, bytes) in data.big.iter_mut().zip([
+                        999_900_000_000,
+                        17_500_000_000,
+                        840_000_000,
+                        12_000,
+                        0,
+                    ]) {
+                        row.size = storage::fmt_item(bytes);
+                    }
+                    view::apply_storage(ui, &data);
+                    return Ok(());
+                }
                 Some(other) => return Err(format!("unknown storage state '{other}'").into()),
             };
             view::apply_storage(ui, &demo::storage(downloads));
@@ -178,15 +200,59 @@ fn show_demo(
 
 fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
     let page = page_of(&shot.screen)?;
-    let window = screenshot::install(shot.height)?;
+    let window = screenshot::install(shot.width, shot.height)?;
     let ui = MainWindow::new()?;
+    view::wire_tiles(&ui);
     ui.global::<Shell>().set_page(page);
     ui.global::<Shell>().set_distro_name("Arch Linux".into());
     ui.global::<Shell>()
         .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
+    if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
+        live_storage_screenshot(&ui, shot)?;
+    }
     ui.show()?;
-    screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
+    screenshot::save(
+        &window,
+        shot.width,
+        shot.height,
+        std::path::Path::new(&shot.out),
+    )
+}
+
+/// `--screenshot storage --state live`: scan `TIDEWISE_STORAGE_ROOT` for real (the variable only
+/// counts here), wait for the scans, open `--open` and leave the result on the window.
+fn live_storage_screenshot(
+    ui: &MainWindow,
+    shot: &cli::Screenshot,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = cli::storage_root(true, std::env::var_os("TIDEWISE_STORAGE_ROOT").as_deref())
+        .ok_or("--state live needs TIDEWISE_STORAGE_ROOT set to an absolute folder")?;
+    let mut ctl = storage_live::Ctl::with_home(root.clone());
+    ctl.enter(ui);
+    wait_for_scans(&mut ctl, ui);
+    if let Some(rel) = &shot.open {
+        let target = root.join(rel);
+        if !ctl.open_now(rel_path(rel), ui) {
+            return Err(format!("--open: {} is not a folder", target.display()).into());
+        }
+        wait_for_scans(&mut ctl, ui);
+    }
+    Ok(())
+}
+
+fn rel_path(rel: &str) -> &std::path::Path {
+    std::path::Path::new(rel)
+}
+
+fn wait_for_scans(ctl: &mut storage_live::Ctl, ui: &MainWindow) {
+    loop {
+        ctl.poll(ui);
+        if ctl.is_idle() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// Sampling pauses while nobody can see the window.
@@ -272,6 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     select_renderer()?;
     let ui = MainWindow::new()?;
+    view::wire_tiles(&ui);
     ui.global::<PerfState>().on_open_processes({
         let weak = ui.as_weak();
         move || {
@@ -311,7 +378,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     move |_| show()
                 });
             } else {
-                state.on_go_root(show);
+                state.on_jump({
+                    let show = show.clone();
+                    move |_| show()
+                });
             }
         }
         let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
@@ -374,6 +444,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);
+        if let Some(rel) = &args.open {
+            if !storage.borrow_mut().open_now(rel_path(rel), &ui) {
+                return Err(
+                    format!("--open: {rel} is not a folder inside the scanned folder").into(),
+                );
+            }
+        }
     }
     show_page(
         &ui,

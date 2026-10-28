@@ -7,6 +7,8 @@ use tidewise_core::drive::Drive;
 
 use tidewise_core::scan::ScanResult;
 
+use crate::nav::{Crumb, Item};
+
 const GB: f64 = 1_000_000_000.0;
 const MB: f64 = 1_000_000.0;
 
@@ -43,6 +45,40 @@ fn trim(value: f64, unit: &str) -> String {
     } else {
         format!("{one:.1} {unit}")
     }
+}
+
+/// One size format for the rows and Biggest files: `17.5 GB`, `840 MB`, `12 KB`, `Empty` for nothing.
+pub fn fmt_item(bytes: u64) -> String {
+    if bytes == 0 {
+        return "Empty".into();
+    }
+    if bytes < 1_000 {
+        return "<1 KB".into();
+    }
+    // Each unit ends where its rounded value would read 1000, so 999.5 MB shows as `1 GB`.
+    let kb = bytes as f64 / 1e3;
+    if kb < 999.5 {
+        return format!("{kb:.0} KB");
+    }
+    let mb = bytes as f64 / MB;
+    if mb < 9.95 {
+        return trim(mb, "MB");
+    }
+    if mb < 999.5 {
+        return format!("{mb:.0} MB");
+    }
+    let gb = bytes as f64 / GB;
+    if gb < 99.95 {
+        return trim(gb, "GB");
+    }
+    if gb < 999.5 {
+        return format!("{gb:.0} GB");
+    }
+    let tb = gb / 1000.0;
+    if tb < 99.95 {
+        return trim(tb, "TB");
+    }
+    format!("{tb:.0} TB")
 }
 
 /// Always one decimal in GB (`6.1 GB`, `22.0 GB`): the file rows and the Trash button.
@@ -171,8 +207,20 @@ pub fn blocks_from(scan: &ScanResult, max: usize) -> Vec<Block> {
     blocks
 }
 
+/// The folders the map groups into "Other": everything after the biggest `max - 1`.
+pub fn other_members(scan: &ScanResult, max: usize) -> Vec<(PathBuf, u64)> {
+    let kept: Vec<_> = scan.children.iter().filter(|c| c.1 > 0).collect();
+    if kept.len() <= max.max(1) {
+        return Vec::new();
+    }
+    kept[max.max(2) - 1..]
+        .iter()
+        .map(|c| (*c).clone())
+        .collect()
+}
+
 /// The folder's name; a few well-known hidden folders get a plain-language name.
-fn plain_name(path: &Path) -> String {
+pub fn plain_name(path: &Path) -> String {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -213,7 +261,13 @@ pub fn trash_label(count: usize, bytes: u64) -> String {
     if count == 0 {
         return "Nothing ticked".into();
     }
-    format!("Move {count} to Trash · {}", fmt_gb1(bytes))
+    // The design writes `22.0 GB` here; below 1 GB that would read `0.1 GB` or `0.0 GB`.
+    let amount = if bytes >= 1_000_000_000 {
+        fmt_gb1(bytes)
+    } else {
+        fmt_item(bytes)
+    };
+    format!("Move {count} to Trash · {amount}")
 }
 
 /// Not opened for this many days counts as "not opened in 6 months".
@@ -238,6 +292,19 @@ pub struct Tile {
     pub path: Option<PathBuf>,
 }
 
+/// What a row of the drill-in list is, and so what clicking it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowKind {
+    File,
+    Folder,
+    /// A symbolic link: listed, ticked like a file, never followed.
+    Link,
+    /// A folder on another file system: listed, never entered.
+    OtherDrive,
+    /// "and N smaller items": the last row of a list that was cut short.
+    Summary,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FolderRow {
     pub name: String,
@@ -247,6 +314,11 @@ pub struct FolderRow {
     pub checked: bool,
     pub bytes: u64,
     pub path: Option<PathBuf>,
+    pub kind: RowKind,
+    /// What a screen reader says: "Open Documents", "Select a.iso".
+    pub label: String,
+    /// The row the keyboard is on.
+    pub focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,8 +331,7 @@ pub struct BigFile {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Folder {
-    pub parent: String,
-    pub title: String,
+    pub crumbs: Vec<Crumb>,
     pub help: String,
     pub rows: Vec<FolderRow>,
 }
@@ -335,23 +406,41 @@ pub fn folder_row(
     name: &str,
     path: &Path,
     bytes: u64,
-    is_dir: bool,
+    kind: RowKind,
     days_unused: u64,
 ) -> FolderRow {
-    let old = days_unused >= OLD_DAYS;
-    let kind = kind_of(name, is_dir);
+    let away = kind == RowKind::OtherDrive;
+    let old = days_unused >= OLD_DAYS && !away;
+    let what = match kind {
+        RowKind::Folder | RowKind::OtherDrive => "Folder",
+        RowKind::Link => "Shortcut",
+        _ => kind_of(name, false),
+    };
     let meta = match (old, age_amount(days_unused)) {
-        (true, Some(amount)) => format!("{kind} · not opened in {amount}"),
-        _ => format!("{kind} · opened {}", age_ago(days_unused)),
+        _ if away => format!("{what} \u{b7} on another drive"),
+        (true, Some(amount)) => format!("{what} \u{b7} not opened in {amount}"),
+        _ => format!("{what} \u{b7} opened {}", age_ago(days_unused)),
+    };
+    let label = match kind {
+        RowKind::Folder => format!("Open {name}"),
+        RowKind::OtherDrive => format!("{name}, on another drive"),
+        _ => format!("Select {name}"),
     };
     FolderRow {
         name: name.to_string(),
         meta,
-        size: fmt_gb1(bytes),
+        size: if away {
+            "On another drive".into()
+        } else {
+            fmt_item(bytes)
+        },
         old,
         checked: old,
         bytes,
         path: Some(path.to_path_buf()),
+        kind,
+        label,
+        focused: false,
     }
 }
 
@@ -374,6 +463,19 @@ pub fn drive_label(mount_point: &str, name: &str, total: u64) -> String {
             .unwrap_or_else(|| name.to_string())
     };
     format!("{who} · {}", fmt_size(total))
+}
+
+/// The drive's name without its size: `Main drive`, `Data`.
+pub fn drive_title(drive: &Drive) -> String {
+    if drive.mount_point == "/" {
+        "Main drive".into()
+    } else {
+        drive_label(&drive.mount_point, &drive.name, 0)
+            .split(" \u{b7} ")
+            .next()
+            .unwrap_or("Drive")
+            .to_string()
+    }
 }
 
 /// Drive bar from what we can measure: the part of the drive holding the scanned folder, the rest
@@ -420,13 +522,16 @@ pub enum Phase<'a> {
     Done(&'a ScanResult),
 }
 
-/// One entry of the drill-in folder, as read from disk.
-pub struct Entry {
-    pub name: String,
-    pub path: PathBuf,
-    pub bytes: u64,
-    pub is_dir: bool,
-    pub days_unused: u64,
+/// The open folder as the screen needs it: where you are, what is in it, what is ticked.
+pub struct FolderIn<'a> {
+    pub crumbs: Vec<Crumb>,
+    pub entries: &'a [Item],
+    pub checked: &'a [bool],
+    pub cursor: usize,
+    /// Smaller items left out of `entries`: how many, and their bytes.
+    pub rest: Option<(usize, u64)>,
+    /// One more line for the help text under the breadcrumb.
+    pub note: Option<&'static str>,
 }
 
 /// Whole days between two moments; 0 if `then` is in the future.
@@ -448,7 +553,7 @@ pub fn live_data(
     drives: &[Drive],
     picked: usize,
     phase: Phase,
-    folder: Option<(&str, &str, Vec<Entry>)>,
+    folder: Option<FolderIn>,
     home: &Path,
     now: SystemTime,
 ) -> Option<StorageData> {
@@ -461,15 +566,7 @@ pub fn live_data(
     let free = format!("{} free", fmt_size(drive.free));
     let mut data = StorageData {
         drives: tabs,
-        drive_name: if drive.mount_point == "/" {
-            "Main drive".into()
-        } else {
-            drive_label(&drive.mount_point, &drive.name, 0)
-                .split(" \u{b7} ")
-                .next()
-                .unwrap_or("Drive")
-                .to_string()
-        },
+        drive_name: drive_title(drive),
         used: fmt_size(drive.used),
         free: free.clone(),
         bar_label: String::new(),
@@ -559,22 +656,49 @@ pub fn live_data(
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             meta: file_meta(home, &f.path, days_since(now, f.last_used)),
-            size: fmt_gb1(f.bytes),
+            size: fmt_item(f.bytes),
             path: Some(f.path.clone()),
         })
         .collect();
     if scan.used_modified_time {
         data.big_note.push_str(" Dates are when files last changed, because this drive doesn't record when they are opened.");
     }
-    if let Some((parent, title, entries)) = folder {
-        let rows = entries
+    if let Some(f) = folder {
+        let rows = f
+            .entries
             .iter()
-            .map(|e| folder_row(&e.name, &e.path, e.bytes, e.is_dir, e.days_unused))
-            .collect();
+            .enumerate()
+            .map(|(i, e)| {
+                let mut row = folder_row(&e.name, &e.path, e.bytes, e.kind, e.days_unused);
+                row.checked = f.checked.get(i).copied().unwrap_or(false);
+                row.focused = i == f.cursor;
+                row
+            })
+            .collect::<Vec<_>>();
+        let mut rows = rows;
+        if let Some((count, bytes)) = f.rest {
+            let text = crate::nav::rest_text(count, bytes);
+            rows.push(FolderRow {
+                name: text.clone(),
+                meta: String::new(),
+                size: String::new(),
+                old: false,
+                checked: false,
+                bytes: 0,
+                path: None,
+                kind: RowKind::Summary,
+                label: text,
+                focused: false,
+            });
+        }
+        let mut help = String::from("Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.");
+        if let Some(note) = f.note {
+            help.push(' ');
+            help.push_str(note);
+        }
         data.folder = Some(Folder {
-            parent: parent.into(),
-            title: title.into(),
-            help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
+            crumbs: f.crumbs,
+            help,
             rows,
         });
     }
@@ -613,6 +737,95 @@ mod tests {
         assert_eq!(fmt_size(340_000_000), "340 MB");
         assert_eq!(fmt_size(2_000_000_000_000), "2 TB");
         assert_eq!(fmt_size(0), "0 MB");
+    }
+
+    #[test]
+    fn item_sizes_read_the_same_everywhere() {
+        let cases: [(u64, &str); 24] = [
+            (0, "Empty"),
+            (1, "<1 KB"),
+            (999, "<1 KB"),
+            (1_000, "1 KB"),
+            (12_000, "12 KB"),
+            (12_499, "12 KB"),
+            (999_499, "999 KB"),
+            (999_500, "1 MB"),
+            (1_000_000, "1 MB"),
+            (1_500_000, "1.5 MB"),
+            (9_940_000, "9.9 MB"),
+            (9_960_000, "10 MB"),
+            (840_000_000, "840 MB"),
+            (999_499_999, "999 MB"),
+            (999_500_000, "1 GB"),
+            (1_000_000_000, "1 GB"),
+            (17_500_000_000, "17.5 GB"),
+            (99_940_000_000, "99.9 GB"),
+            (99_960_000_000, "100 GB"),
+            (381_000_000_000, "381 GB"),
+            (999_400_000_000, "999 GB"),
+            (999_600_000_000, "1 TB"),
+            (2_000_000_000_000, "2 TB"),
+            (u64::MAX, "18446744 TB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(fmt_item(bytes), want, "{bytes} bytes");
+        }
+    }
+
+    #[test]
+    fn an_item_size_is_never_zero_and_always_fits_its_column() {
+        let mut b = 1u64;
+        while b < 1_000_000_000_000_000 {
+            for v in [b, b + b / 3, b * 3 / 2] {
+                let t = fmt_item(v);
+                assert!(!t.starts_with("0 ") && !t.starts_with("0.0"), "{v}: {t}");
+                assert!(
+                    t.chars().count() <= 8,
+                    "{v} -> {t:?} is wider than 999.9 GB"
+                );
+            }
+            b += b / 7 + 1;
+        }
+    }
+
+    #[test]
+    fn rows_and_biggest_files_use_the_item_format() {
+        let p = Path::new("/x");
+        assert_eq!(folder_row("a", p, 0, RowKind::File, 1).size, "Empty");
+        assert_eq!(
+            folder_row("a", p, 100_000_000, RowKind::File, 1).size,
+            "100 MB"
+        );
+        assert_eq!(folder_row("a", p, 5_000, RowKind::Folder, 1).size, "5 KB");
+        let mut scan = scan_with(&[("Documents", 20_000_000_000)]);
+        let f = |n: &str, b| tidewise_core::scan::FileEntry {
+            path: format!("/home/ali/{n}").into(),
+            bytes: b,
+            last_used: SystemTime::UNIX_EPOCH,
+        };
+        scan.biggest_files = vec![
+            f("a.iso", 17_500_000_000),
+            f("b.zip", 840_000_000),
+            f("c", 12_000),
+        ];
+        let sizes: Vec<_> = live(&scan).big.iter().map(|b| b.size.clone()).collect();
+        assert_eq!(sizes, ["17.5 GB", "840 MB", "12 KB"]);
+    }
+
+    #[test]
+    fn the_trash_button_keeps_the_designs_gb_text_but_never_says_0_0_gb() {
+        assert_eq!(trash_label(2, 840_000_000), "Move 2 to Trash \u{b7} 840 MB");
+        assert_eq!(
+            trash_label(1, 22_000_000_000),
+            "Move 1 to Trash \u{b7} 22.0 GB",
+            "the design's text from 1 GB up"
+        );
+        assert_eq!(
+            trash_label(1, 3_000),
+            "Move 1 to Trash \u{b7} 3 KB",
+            "never 0.0 GB"
+        );
+        assert_eq!(trash_label(0, 5), "Nothing ticked");
     }
 
     #[test]
@@ -793,25 +1006,237 @@ mod tests {
     #[test]
     fn rows_not_opened_for_six_months_start_ticked() {
         let p = Path::new("/home/ali/Downloads/ubuntu.iso");
-        let old = folder_row("ubuntu.iso", p, 6_100_000_000, false, 245);
+        let old = folder_row("ubuntu.iso", p, 6_100_000_000, RowKind::File, 245);
         assert!(old.old && old.checked);
         assert_eq!(old.meta, "Installer · not opened in 8 months");
         assert_eq!(old.size, "6.1 GB");
-        let young = folder_row("datasets", p, 12_400_000_000, true, 1);
+        let young = folder_row("datasets", p, 12_400_000_000, RowKind::Folder, 1);
         assert!(!young.old && !young.checked);
         assert_eq!(young.meta, "Folder · opened yesterday");
         // The boundary: 182 days is still recent, 183 is old.
-        assert!(!folder_row("x", p, 1, false, 182).old);
-        assert!(folder_row("x", p, 1, false, 183).old);
+        assert!(!folder_row("x", p, 1, RowKind::File, 182).old);
+        assert!(folder_row("x", p, 1, RowKind::File, 183).old);
+    }
+
+    /// Width of the folder map for a window this wide: window − sidebar − page padding − Biggest files
+    /// − gap − card padding and border (686 px at 1360, matching the screenshot).
+    fn map_width(window: f64) -> f64 {
+        window - 220.0 - 72.0 - 320.0 - 20.0 - 42.0
+    }
+
+    #[test]
+    fn the_fixture_has_a_short_wide_block_at_both_window_widths() {
+        let fx = crate::fixture::build();
+        let scan = tidewise_core::scan::scan(
+            &fx.root,
+            &tidewise_core::scan::ScanOptions::default(),
+            &tidewise_core::scan::Progress::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let blocks = blocks_from(&scan, 6);
+        let sizes: Vec<u64> = blocks.iter().map(|b| b.bytes).collect();
+        let rects = treemap(&sizes, 2.0);
+        for window in [1360.0, 1920.0] {
+            let found = rects.iter().zip(&blocks).any(|(r, _)| {
+                let (w, h) = (r.w * map_width(window), r.h * 340.0);
+                h >= 40.0 && h < crate::tiles::stacked_height(3, 16.0, false) as f64 && w >= 150.0
+            });
+            assert!(found, "no short, wide block at {window} px: {rects:?}");
+        }
+    }
+
+    #[test]
+    fn the_short_wide_fixture_block_gets_one_line_at_both_widths() {
+        use crate::tiles::{tile_layout, Mode};
+        let fx = crate::fixture::build();
+        let scan = tidewise_core::scan::scan(
+            &fx.root,
+            &tidewise_core::scan::ScanOptions::default(),
+            &tidewise_core::scan::Progress::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let blocks = blocks_from(&scan, 6);
+        let sizes: Vec<u64> = blocks.iter().map(|b| b.bytes).collect();
+        let other = blocks.iter().position(|b| b.name == "Other").unwrap();
+        let r = treemap(&sizes, 2.0)[other];
+        let tier = tile_tier(blocks[other].bytes as f64 / scan.total_bytes as f64);
+        for window in [1360.0, 1920.0] {
+            let (w, h) = (
+                (r.w * map_width(window)) as f32 - 3.0,
+                (r.h * 340.0) as f32 - 3.0,
+            );
+            let l = tile_layout(
+                w,
+                h,
+                tier,
+                fmt_size(blocks[other].bytes).chars().count(),
+                false,
+            );
+            assert_eq!(l.mode, Mode::OneLine, "{w} x {h} at {window} px");
+        }
+    }
+
+    #[test]
+    fn rows_say_what_clicking_them_does() {
+        let p = Path::new("/x");
+        let label = |n: &str, k| folder_row(n, p, 5, k, 1).label;
+        assert_eq!(label("Documents", RowKind::Folder), "Open Documents");
+        assert_eq!(label("a.iso", RowKind::File), "Select a.iso");
+        assert_eq!(label("shortcut", RowKind::Link), "Select shortcut");
+        assert_eq!(label("shm", RowKind::OtherDrive), "shm, on another drive");
+    }
+
+    #[test]
+    fn a_folder_on_another_drive_says_so_and_is_never_ticked() {
+        let row = folder_row("shm", Path::new("/dev/shm"), 0, RowKind::OtherDrive, 900);
+        assert_eq!(row.size, "On another drive");
+        assert_eq!(row.meta, "Folder \u{b7} on another drive");
+        assert!(!row.checked && !row.old);
+    }
+
+    #[test]
+    fn a_link_is_a_shortcut_and_ticks_like_a_file() {
+        let row = folder_row("shortcut", Path::new("/x"), 4096, RowKind::Link, 400);
+        assert!(row.meta.starts_with("Shortcut"), "{}", row.meta);
+        assert!(row.checked);
+    }
+
+    #[test]
+    fn the_open_folder_carries_its_crumbs_ticks_and_cursor() {
+        use crate::nav::{Crumb, Item};
+        let item = |n: &str, kind| Item {
+            name: n.into(),
+            path: format!("/home/ali/Documents/{n}").into(),
+            bytes: 10,
+            kind,
+            days_unused: 1,
+        };
+        let items = [item("a", RowKind::Folder), item("b.iso", RowKind::File)];
+        let crumbs = vec![
+            Crumb {
+                label: "Main drive".into(),
+                target: Some(0),
+            },
+            Crumb {
+                label: "Documents".into(),
+                target: None,
+            },
+        ];
+        let scan = scan_with(&[("Documents", 20)]);
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let d = live_data(
+            &drives,
+            0,
+            Phase::Done(&scan),
+            Some(FolderIn {
+                crumbs: crumbs.clone(),
+                entries: &items,
+                checked: &[false, true],
+                cursor: 1,
+                rest: None,
+                note: None,
+            }),
+            Path::new("/home/ali"),
+            SystemTime::now(),
+        )
+        .unwrap();
+        let f = d.folder.unwrap();
+        assert_eq!(f.crumbs, crumbs);
+        assert_eq!(f.rows.len(), 2);
+        assert_eq!(f.rows[0].kind, RowKind::Folder);
+        assert_eq!(
+            f.rows.iter().map(|r| r.checked).collect::<Vec<_>>(),
+            [false, true]
+        );
+        assert_eq!(
+            f.rows.iter().map(|r| r.focused).collect::<Vec<_>>(),
+            [false, true]
+        );
+    }
+
+    #[test]
+    fn a_note_about_shared_files_goes_under_the_help_text() {
+        let scan = scan_with(&[("x", 20)]);
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let help = |note| {
+            live_data(
+                &drives,
+                0,
+                Phase::Done(&scan),
+                Some(FolderIn {
+                    crumbs: Vec::new(),
+                    entries: &[],
+                    checked: &[],
+                    cursor: 0,
+                    rest: None,
+                    note,
+                }),
+                Path::new("/home/ali"),
+                SystemTime::now(),
+            )
+            .unwrap()
+            .folder
+            .unwrap()
+            .help
+        };
+        assert!(!help(None).contains("hard link"));
+        assert!(help(Some("Shared by hard links.")).ends_with(" Shared by hard links."));
+    }
+
+    #[test]
+    fn a_cut_list_ends_with_a_row_that_counts_what_is_left() {
+        use crate::nav::Item;
+        let items = [Item {
+            name: "a".into(),
+            path: "/x/a".into(),
+            bytes: 10,
+            kind: RowKind::File,
+            days_unused: 1,
+        }];
+        let scan = scan_with(&[("x", 20)]);
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let show = |rest| {
+            live_data(
+                &drives,
+                0,
+                Phase::Done(&scan),
+                Some(FolderIn {
+                    crumbs: Vec::new(),
+                    entries: &items,
+                    checked: &[true],
+                    cursor: 0,
+                    rest,
+                    note: None,
+                }),
+                Path::new("/home/ali"),
+                SystemTime::now(),
+            )
+            .unwrap()
+            .folder
+            .unwrap()
+            .rows
+        };
+        assert_eq!(show(None).len(), 1, "a whole list has no extra row");
+        let rows = show(Some((35, 12_000_000)));
+        assert_eq!(rows.len(), 2);
+        let last = rows.last().unwrap();
+        assert_eq!(last.kind, RowKind::Summary);
+        assert_eq!(last.name, "and 35 smaller items \u{b7} 12 MB");
+        assert!(!last.checked && last.meta.is_empty() && last.size.is_empty());
+        assert_eq!(
+            selection(&rows),
+            (1, 10),
+            "the summary row is never counted"
+        );
     }
 
     #[test]
     fn the_selection_counts_only_ticked_rows() {
         let p = Path::new("/x");
         let mut rows = vec![
-            folder_row("a", p, 5, false, 400),
-            folder_row("b", p, 7, false, 1),
-            folder_row("c", p, 11, false, 400),
+            folder_row("a", p, 5, RowKind::File, 400),
+            folder_row("b", p, 7, RowKind::File, 1),
+            folder_row("c", p, 11, RowKind::File, 400),
         ];
         assert_eq!(selection(&rows), (2, 16));
         rows[1].checked = true;

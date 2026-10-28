@@ -7,6 +7,7 @@ use crate::home::{self, HomeData};
 use crate::perf::{PerfData, View};
 use crate::procs::{self, ProcData};
 use crate::storage::{self, StorageData};
+use crate::CrumbPart;
 use crate::{BigRow, DriveLegend, DriveSeg, DriveTab, FolderRow, MapTile, StorageState};
 use crate::{
     Fact, HomeChip, HomeState, HomeSuggestion, HomeTile, MainWindow, PerfMetric, PerfState,
@@ -312,9 +313,26 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
     st.set_hint(hint.into());
     st.set_hint_button(button.into());
     st.set_in_folder(d.folder.is_some());
+    let crumbs: Vec<crate::nav::Crumb> = match &d.folder {
+        Some(f) => f.crumbs.clone(),
+        None => [d.drive_name.as_str(), d.map_title.as_str()]
+            .iter()
+            .map(|label| crate::nav::Crumb {
+                label: (*label).into(),
+                target: None,
+            })
+            .collect(),
+    };
+    st.set_crumbs(list(
+        crumbs
+            .iter()
+            .map(|c| CrumbPart {
+                label: c.label.as_str().into(),
+                target: c.target.map_or(-1, |t| t as i32),
+            })
+            .collect(),
+    ));
     if let Some(f) = &d.folder {
-        st.set_folder_parent(f.parent.as_str().into());
-        st.set_folder_title(f.title.as_str().into());
         st.set_folder_help(f.help.as_str().into());
         st.set_rows(list(
             f.rows
@@ -325,9 +343,24 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
                     size: r.size.as_str().into(),
                     old: r.old,
                     checked: r.checked,
+                    kind: match r.kind {
+                        storage::RowKind::File => 0,
+                        storage::RowKind::Folder => 1,
+                        storage::RowKind::Link => 2,
+                        storage::RowKind::OtherDrive => 3,
+                        storage::RowKind::Summary => 4,
+                    },
+                    label: r.label.as_str().into(),
+                    focused: r.focused,
                 })
                 .collect(),
         ));
+        st.set_cursor(
+            f.rows
+                .iter()
+                .position(|r| r.focused)
+                .map_or(0, |i| i as i32),
+        );
         let (count, bytes) = storage::selection(&f.rows);
         st.set_trash_label(storage::trash_label(count, bytes).into());
         st.set_trash_enabled(count > 0);
@@ -343,6 +376,25 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
             .collect(),
     ));
     st.set_big_note(d.big_note.as_str().into());
+}
+
+/// Let the Storage blocks ask Rust where their text goes (see `tiles::tile_layout`).
+pub fn wire_tiles(ui: &MainWindow) {
+    use crate::tiles::{tile_layout, Mode};
+    ui.global::<StorageState>()
+        .on_tile_layout(|w, h, tier, chars, note| {
+            let l = tile_layout(w, h, tier, chars.max(0) as usize, note);
+            crate::TileLayout {
+                mode: match l.mode {
+                    Mode::Stacked => 0,
+                    Mode::StackedNote => 1,
+                    Mode::OneLine => 2,
+                    Mode::Hidden => 3,
+                },
+                name_px: l.name_px,
+                size_px: l.size_px,
+            }
+        });
 }
 
 #[cfg(test)]

@@ -250,6 +250,9 @@ pub fn storage(downloads: bool) -> StorageData {
         checked,
         bytes: (gb * 1e9) as u64,
         path: None,
+        kind: crate::storage::RowKind::File,
+        label: name.into(),
+        focused: false,
     };
     let big = |name: &str, meta: &str, size: &str| BigFile {
         name: name.into(),
@@ -346,8 +349,10 @@ pub fn storage(downloads: bool) -> StorageData {
             "Review them".into(),
         )),
         folder: downloads.then(|| Folder {
-            parent: "Your files".into(),
-            title: "Downloads \u{b7} 38 GB".into(),
+            crumbs: vec![
+                crate::nav::Crumb { label: "Your files".into(), target: Some(0) },
+                crate::nav::Crumb { label: "Downloads \u{b7} 38 GB".into(), target: None },
+            ],
             help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
             rows,
         }),

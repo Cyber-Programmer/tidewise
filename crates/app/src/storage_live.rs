@@ -4,42 +4,27 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use slint::ComponentHandle;
 use tidewise_core::drive::{drives, Drive};
-use tidewise_core::mounts::{home_access_time, TimeSource};
-use tidewise_core::scan::{self, ScanHandle, ScanOptions, ScanResult};
 use tidewise_core::trash::{self, Trashed};
 
-use crate::storage::{self, Entry, Phase};
+use crate::nav::{self, Browser, Place};
+use crate::storage::{self, FolderIn, Phase};
 use crate::{MainWindow, StorageState, ToastState};
 
-/// How many rows the drill-in list shows.
-const FOLDER_ROWS: usize = 12;
-
-enum Job {
-    Root(ScanHandle),
-    Folder(ScanHandle, PathBuf),
-}
-
-struct Opened {
-    path: PathBuf,
-    title: String,
-    entries: Vec<Entry>,
-    checked: Vec<bool>,
-}
+/// A breadcrumb longer than this many characters collapses its middle into `…`.
+const CRUMB_CHARS: usize = 64;
 
 pub struct Ctl {
     drives: Vec<Drive>,
     picked: usize,
     home: PathBuf,
-    job: Option<Job>,
-    root: Option<ScanResult>,
-    opened: Option<Opened>,
-    /// Folder of each block on screen, in order.
-    tiles: Vec<Option<PathBuf>>,
+    /// Screenshots of a fixture: scan exactly this folder, whatever drive is picked.
+    fixed_root: Option<PathBuf>,
+    browser: Browser,
+    started: bool,
     /// File of each row of Biggest files, in order.
     big: Vec<Option<PathBuf>>,
     /// What the last Trash action moved, for Undo.
@@ -62,35 +47,38 @@ pub fn scan_root(drives: &[Drive], picked: usize, home: &Path) -> PathBuf {
 
 impl Ctl {
     pub fn new() -> Self {
+        Self::new_inner(
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+        )
+    }
+
+    /// A controller that treats `home` as the user's files (screenshots of a fixture folder).
+    pub fn with_home(home: PathBuf) -> Self {
+        let mut ctl = Self::new_inner(home.clone());
+        ctl.fixed_root = Some(home);
+        ctl
+    }
+
+    fn new_inner(home: PathBuf) -> Self {
         Ctl {
             drives: Vec::new(),
             picked: 0,
-            home: std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_default(),
-            job: None,
-            root: None,
-            opened: None,
-            tiles: Vec::new(),
+            browser: Browser::new(home.clone()),
+            home,
+            fixed_root: None,
+            started: false,
             big: Vec::new(),
             trashed: Vec::new(),
             toast_timer: slint::Timer::default(),
         }
     }
 
-    fn options(biggest: usize) -> ScanOptions {
-        ScanOptions {
-            biggest,
-            use_access_time: home_access_time().source == TimeSource::AccessTime,
-            ..ScanOptions::default()
-        }
-    }
-
-    fn start_root(&mut self) {
-        let root = scan_root(&self.drives, self.picked, &self.home);
-        self.root = None;
-        self.opened = None;
-        self.job = Some(Job::Root(scan::start(root, Self::options(500))));
+    fn root_dir(&self) -> PathBuf {
+        self.fixed_root
+            .clone()
+            .unwrap_or_else(|| scan_root(&self.drives, self.picked, &self.home))
     }
 
     /// Called when the page opens.
@@ -98,107 +86,85 @@ impl Ctl {
         if self.drives.is_empty() {
             self.drives = drives();
         }
-        if self.root.is_none() && self.job.is_none() {
-            self.start_root();
+        if !self.started {
+            self.started = true;
+            self.browser.set_root(self.root_dir());
         }
         self.refresh(ui);
     }
 
+    /// No scan is running.
+    pub fn is_idle(&self) -> bool {
+        self.browser.is_idle()
+    }
+
+    /// Show a folder below the scanned one (`--open`).
+    pub fn open_now(&mut self, rel: &Path, ui: &MainWindow) -> bool {
+        let ok = self.browser.open_path(rel);
+        self.refresh(ui);
+        ok
+    }
+
     /// Called once a second while the page is open.
     pub fn poll(&mut self, ui: &MainWindow) {
-        let finished = match &self.job {
-            Some(Job::Root(h) | Job::Folder(h, _)) => h.is_finished(),
-            None => false,
-        };
-        if finished {
-            match self.job.take() {
-                Some(Job::Root(h)) => self.root = Some(h.wait()),
-                Some(Job::Folder(h, path)) => self.finish_folder(&path, h.wait()),
-                None => {}
-            }
-        }
-        if finished || self.job.is_some() {
+        if self.browser.poll() {
             self.refresh(ui);
         }
     }
 
-    fn finish_folder(&mut self, path: &Path, result: ScanResult) {
-        if result.cancelled {
-            return;
-        }
-        let now = SystemTime::now();
-        let by_access =
-            !result.used_modified_time && home_access_time().source == TimeSource::AccessTime;
-        let entries: Vec<Entry> = result
-            .children
+    fn crumbs(&self, drive_name: &str) -> Vec<nav::Crumb> {
+        let label = if self.browser.root() == self.home {
+            "Your files"
+        } else {
+            "Files"
+        };
+        let mut names: Vec<String> = self
+            .browser
+            .trail()
+            .places()
             .iter()
-            .take(FOLDER_ROWS)
-            .filter_map(|(p, bytes)| {
-                let meta = std::fs::symlink_metadata(p).ok()?;
-                let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-                let used = if by_access {
-                    meta.accessed().unwrap_or(modified).max(modified)
-                } else {
-                    modified
-                };
-                Some(Entry {
-                    name: p.file_name()?.to_string_lossy().into_owned(),
-                    path: p.clone(),
-                    bytes: *bytes,
-                    is_dir: meta.is_dir(),
-                    days_unused: storage::days_since(now, used),
-                })
+            .map(|p| match p {
+                Place::Other => "Other".to_string(),
+                Place::Folder(f) => storage::plain_name(f),
             })
             .collect();
-        let checked = entries
-            .iter()
-            .map(|e| e.days_unused >= storage::OLD_DAYS)
-            .collect();
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        self.opened = Some(Opened {
-            path: path.to_path_buf(),
-            title: format!("{name} \u{b7} {}", storage::fmt_size(result.total_bytes)),
-            entries,
-            checked,
-        });
+        if let (Some(last), Some(level)) = (names.last_mut(), self.browser.level()) {
+            *last = format!("{last} \u{b7} {}", storage::fmt_size(level.total));
+        }
+        nav::collapse(nav::crumbs(drive_name, label, &names), CRUMB_CHARS)
     }
 
     fn refresh(&mut self, ui: &MainWindow) {
-        let progress = match &self.job {
-            Some(Job::Root(h) | Job::Folder(h, _)) => {
-                Some(h.progress.bytes.load(Ordering::Relaxed))
-            }
-            None => None,
+        let scanning = match (self.browser.measuring_root(), self.browser.level()) {
+            (true, _) => true,
+            (false, None) => !self.browser.trail().is_empty() && !self.browser.is_idle(),
+            _ => false,
         };
-        let empty = ScanResult::default();
-        let phase = match (progress, &self.root) {
-            (Some(bytes), _) => Phase::Scanning { bytes },
-            (None, Some(r)) => Phase::Done(r),
-            (None, None) => Phase::Done(&empty),
+        let empty = tidewise_core::scan::ScanResult::default();
+        let phase = match (scanning, self.browser.result()) {
+            (true, _) => Phase::Scanning {
+                bytes: self.browser.progress_bytes().unwrap_or(0),
+            },
+            (false, Some(r)) => Phase::Done(r),
+            (false, None) => Phase::Done(&empty),
         };
-        let folder = self.opened.as_ref().map(|o| {
-            let entries = o
-                .entries
-                .iter()
-                .map(|e| Entry {
-                    name: e.name.clone(),
-                    path: e.path.clone(),
-                    bytes: e.bytes,
-                    is_dir: e.is_dir,
-                    days_unused: e.days_unused,
-                })
-                .collect();
-            let parent = if self.root.as_ref().is_some_and(|r| r.root == self.home) {
-                "Your files"
-            } else {
-                "Files"
-            };
-            (parent, o.title.as_str(), entries)
-        });
-        let Some(mut data) = storage::live_data(
+        let drive_name = self
+            .drives
+            .get(self.picked)
+            .map(storage::drive_title)
+            .unwrap_or_default();
+        let folder = match (self.browser.level(), self.browser.trail().is_empty()) {
+            (Some(level), false) => Some(FolderIn {
+                crumbs: self.crumbs(&drive_name),
+                entries: &level.items,
+                checked: self.browser.checked(),
+                cursor: self.browser.cursor(),
+                rest: self.browser.level().and_then(|l| l.rest),
+                note: self.browser.level().and_then(nav::overlap_note),
+            }),
+            _ => None,
+        };
+        let Some(data) = storage::live_data(
             &self.drives,
             self.picked,
             phase,
@@ -208,22 +174,8 @@ impl Ctl {
         ) else {
             return;
         };
-        if let (Some(f), Some(o)) = (data.folder.as_mut(), self.opened.as_ref()) {
-            for (row, on) in f.rows.iter_mut().zip(&o.checked) {
-                row.checked = *on;
-            }
-        }
-        self.tiles = data.tiles.iter().map(|t| t.path.clone()).collect();
         self.big = data.big.iter().map(|b| b.path.clone()).collect();
         crate::view::apply_storage(ui, &data);
-    }
-
-    /// Measure the drive again, keeping the open folder on screen's data.
-    fn rescan(&mut self) {
-        self.stop();
-        let root = scan_root(&self.drives, self.picked, &self.home);
-        self.root = None;
-        self.job = Some(Job::Root(scan::start(root, Self::options(500))));
     }
 
     fn toast(&mut self, ui: &MainWindow, message: String, can_undo: bool, error: bool) {
@@ -266,23 +218,13 @@ impl Ctl {
                 )),
             }
         }
-        if let Some(o) = self.opened.as_mut() {
-            let keep: Vec<bool> = o
-                .entries
-                .iter()
-                .map(|e| !moved.iter().any(|t| t.original == e.path))
-                .collect();
-            let mut k = keep.iter();
-            o.entries.retain(|_| *k.next().unwrap_or(&true));
-            let mut k = keep.iter();
-            o.checked.retain(|_| *k.next().unwrap_or(&true));
-        }
         let message = storage::toast_text(moved.len(), &failed);
         let any = !moved.is_empty();
+        let originals: Vec<PathBuf> = moved.iter().map(|t| t.original.clone()).collect();
         self.trashed = moved;
         self.toast(ui, message, any, !failed.is_empty());
         if any {
-            self.rescan();
+            self.browser.forget(&originals);
         }
         self.refresh(ui);
     }
@@ -310,27 +252,8 @@ impl Ctl {
             Some((name, reason)) => format!("Couldn't put {name} back: {reason}"),
         };
         self.toast(ui, message, false, !failed.is_empty());
-        let reopen = self.opened.as_ref().map(|o| o.path.clone());
-        self.rescan();
-        if let Some(path) = reopen {
-            self.open(path, ui);
-        }
-        self.refresh(ui);
-    }
-
-    fn stop(&mut self) {
-        if let Some(Job::Root(h) | Job::Folder(h, _)) = &self.job {
-            h.cancel();
-        }
-        self.job = None;
-    }
-
-    fn open(&mut self, path: PathBuf, ui: &MainWindow) {
-        self.stop();
-        self.job = Some(Job::Folder(
-            scan::start(path.clone(), Self::options(1)),
-            path,
-        ));
+        let originals: Vec<PathBuf> = items.iter().map(|t| t.original.clone()).collect();
+        self.browser.forget(&originals);
         self.refresh(ui);
     }
 }
@@ -358,9 +281,9 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
             if (i as usize) < c.drives.len() {
-                c.stop();
                 c.picked = i as usize;
-                c.start_root();
+                let root = c.root_dir();
+                c.browser.set_root(root);
                 c.refresh(&ui);
             }
         }
@@ -370,9 +293,8 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         move |i| {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
-            if let Some(Some(path)) = c.tiles.get(i as usize).cloned() {
-                c.open(path, &ui);
-            }
+            c.browser.open_block(i.max(0) as usize);
+            c.refresh(&ui);
         }
     });
     st.on_open_hint({
@@ -380,16 +302,32 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         move || {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
-            let downloads = c.home.join("Downloads");
-            c.open(downloads, &ui);
+            let block = c.browser.result().and_then(|r| {
+                storage::blocks_from(r, nav::MAP_BLOCKS)
+                    .iter()
+                    .position(|b| b.name == "Downloads")
+            });
+            if let Some(i) = block {
+                c.browser.open_block(i);
+            }
+            c.refresh(&ui);
         }
     });
-    st.on_go_root({
+    st.on_jump({
         let (weak, ctl) = (ui.as_weak(), ctl.clone());
-        move || {
+        move |n| {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
-            c.opened = None;
+            c.browser.jump(n.max(0) as usize);
+            c.refresh(&ui);
+        }
+    });
+    st.on_open_row({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut c = ctl.borrow_mut();
+            c.browser.open_row(i.max(0) as usize);
             c.refresh(&ui);
         }
     });
@@ -398,14 +336,20 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         move |i| {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
-            if let Some(on) = c
-                .opened
-                .as_mut()
-                .and_then(|o| o.checked.get_mut(i as usize))
-            {
-                *on = !*on;
-            }
+            c.browser.toggle(i.max(0) as usize);
             c.refresh(&ui);
+        }
+    });
+    st.on_key({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |text, alt| {
+            let (Some(ui), Some(action)) = (weak.upgrade(), nav::key_action(&text, alt)) else {
+                return false;
+            };
+            let mut c = ctl.borrow_mut();
+            c.browser.key(action);
+            c.refresh(&ui);
+            true
         }
     });
     st.on_trash_selected({
@@ -414,12 +358,12 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
             let paths: Vec<PathBuf> = c
-                .opened
-                .as_ref()
-                .map(|o| {
-                    o.entries
+                .browser
+                .level()
+                .map(|l| {
+                    l.items
                         .iter()
-                        .zip(&o.checked)
+                        .zip(c.browser.checked())
                         .filter(|(_, on)| **on)
                         .map(|(e, _)| e.path.clone())
                         .collect()
@@ -450,7 +394,10 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         move || {
             let Some(ui) = weak.upgrade() else { return };
             let mut c = ctl.borrow_mut();
-            c.stop();
+            c.browser.cancel();
+            if !c.browser.trail().is_empty() {
+                c.browser.up();
+            }
             c.refresh(&ui);
         }
     });

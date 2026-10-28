@@ -1,5 +1,8 @@
 //! `tidewise --screenshot` renders headless at exactly 1360×960 and is deterministic.
 
+#[path = "support/fixture.rs"]
+mod fixture;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -213,4 +216,121 @@ fn the_menu_flags_write_and_remove_files_only_under_xdg_data_home() {
     assert!(text.contains(env!("CARGO_BIN_EXE_tidewise")), "{text}");
     assert!(run("--remove-from-menu").success());
     assert!(!launcher.exists());
+}
+
+fn live_storage(fx: &fixture::Fixture, out: &PathBuf, extra: &[&str]) {
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args(["--screenshot", "storage", "--state", "live"])
+        .args(extra)
+        .arg("--out")
+        .arg(out)
+        .env("TIDEWISE_RENDERER", "software")
+        .env("TIDEWISE_STORAGE_ROOT", &fx.root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "tidewise exited with {status}");
+}
+
+#[test]
+fn live_storage_screenshot_shows_the_fixture_not_the_demo() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let (live, demo) = (dir.path().join("live.png"), dir.path().join("demo.png"));
+    live_storage(&fx, &live, &[]);
+    run_screen("storage", &demo, &[]);
+    assert_eq!(png_size(&fs::read(&live).unwrap()), (1360, 960));
+    assert_ne!(fs::read(&live).unwrap(), fs::read(&demo).unwrap());
+}
+
+#[test]
+fn live_storage_screenshot_can_open_a_level() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let (top, deep) = (dir.path().join("top.png"), dir.path().join("deep.png"));
+    live_storage(&fx, &top, &[]);
+    live_storage(&fx, &deep, &["--open", "Documents/Photos"]);
+    assert_ne!(fs::read(&top).unwrap(), fs::read(&deep).unwrap());
+}
+
+#[test]
+fn opening_a_missing_folder_fails_loudly() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args([
+            "--screenshot",
+            "storage",
+            "--state",
+            "live",
+            "--open",
+            "Nope",
+        ])
+        .arg("--out")
+        .arg(dir.path().join("x.png"))
+        .env("TIDEWISE_STORAGE_ROOT", &fx.root)
+        .status()
+        .unwrap();
+    assert!(!status.success());
+}
+
+/// True when the list card's right edge shows a scrollbar: a vertical run of pixels that are none of
+/// the colours rows, borders and the page are drawn with.
+fn has_scrollbar(png: &PathBuf) -> bool {
+    let img = image::open(png).unwrap().to_rgb8();
+    let known: [[u8; 3]; 7] = [
+        [0x12, 0x16, 0x1C], // surface-sunk
+        [0x1A, 0x1F, 0x27], // control-bg
+        [0x1E, 0x23, 0x2B], // row-divider
+        [0x23, 0x29, 0x33], // border
+        [0x16, 0x1A, 0x21], // surface
+        [0x0E, 0x11, 0x15], // bg
+        [0x0B, 0x0E, 0x12],
+    ];
+    let near = |p: &image::Rgb<u8>| {
+        known
+            .iter()
+            .any(|k| (0..3).all(|c| (p[c] as i32 - k[c] as i32).abs() <= 10))
+    };
+    let (w, h) = img.dimensions();
+    let _ = w;
+    for x in 948..962 {
+        let mut run = 0;
+        for y in 360..h.saturating_sub(40) {
+            if near(img.get_pixel(x, y)) {
+                run = 0;
+            } else {
+                run += 1;
+                if run >= 20 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[test]
+fn a_long_folder_scrolls_and_a_short_one_does_not() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    for height in ["960", "600"] {
+        let long = dir.path().join(format!("long-{height}.png"));
+        let short = dir.path().join(format!("short-{height}.png"));
+        live_storage(
+            &fx,
+            &long,
+            &["--open", "Documents/Photos", "--height", height],
+        );
+        live_storage(&fx, &short, &["--open", "Documents", "--height", height]);
+        assert!(has_scrollbar(&long), "45 rows at {height} px should scroll");
+        assert!(!has_scrollbar(&short), "3 rows at {height} px should not");
+    }
+}
+
+#[test]
+fn width_can_be_raised_for_wide_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("wide.png");
+    run_screen("storage", &out, &["--width", "1920"]);
+    assert_eq!(png_size(&fs::read(&out).unwrap()), (1920, 960));
 }
