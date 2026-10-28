@@ -185,8 +185,9 @@ fn show_demo(
 
 fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
     let page = page_of(&shot.screen)?;
-    let window = screenshot::install(shot.height)?;
+    let window = screenshot::install(shot.width, shot.height)?;
     let ui = MainWindow::new()?;
+    view::wire_tiles(&ui);
     ui.global::<Shell>().set_page(page);
     ui.global::<Shell>().set_distro_name("Arch Linux".into());
     ui.global::<Shell>()
@@ -196,7 +197,12 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
         live_storage_screenshot(&ui, shot)?;
     }
     ui.show()?;
-    screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
+    screenshot::save(
+        &window,
+        shot.width,
+        shot.height,
+        std::path::Path::new(&shot.out),
+    )
 }
 
 /// `--screenshot storage --state live`: scan `TIDEWISE_STORAGE_ROOT` for real (the variable only
@@ -317,6 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     select_renderer()?;
     let ui = MainWindow::new()?;
+    view::wire_tiles(&ui);
     ui.global::<PerfState>().on_open_processes({
         let weak = ui.as_weak();
         move || {

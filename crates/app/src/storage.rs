@@ -910,6 +910,37 @@ mod tests {
     }
 
     #[test]
+    fn the_short_wide_fixture_block_gets_one_line_at_both_widths() {
+        use crate::tiles::{tile_layout, Mode};
+        let fx = crate::fixture::build();
+        let scan = tidewise_core::scan::scan(
+            &fx.root,
+            &tidewise_core::scan::ScanOptions::default(),
+            &tidewise_core::scan::Progress::default(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let blocks = blocks_from(&scan, 6);
+        let sizes: Vec<u64> = blocks.iter().map(|b| b.bytes).collect();
+        let other = blocks.iter().position(|b| b.name == "Other").unwrap();
+        let r = treemap(&sizes, 2.0)[other];
+        let tier = tile_tier(blocks[other].bytes as f64 / scan.total_bytes as f64);
+        for window in [1360.0, 1920.0] {
+            let (w, h) = (
+                (r.w * map_width(window)) as f32 - 3.0,
+                (r.h * 340.0) as f32 - 3.0,
+            );
+            let l = tile_layout(
+                w,
+                h,
+                tier,
+                fmt_size(blocks[other].bytes).chars().count(),
+                false,
+            );
+            assert_eq!(l.mode, Mode::OneLine, "{w} x {h} at {window} px");
+        }
+    }
+
+    #[test]
     fn rows_say_what_clicking_them_does() {
         let p = Path::new("/x");
         let label = |n: &str, k| folder_row(n, p, 5, k, 1).label;

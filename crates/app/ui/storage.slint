@@ -11,6 +11,8 @@ export struct MapTile { name: string, size: string, note: string, hue: int, x: f
 export struct FolderRow { name: string, meta: string, size: string, old: bool, checked: bool, kind: int, label: string, focused: bool }
 // `target` is how many levels to keep when the part is clicked; -1 for the part you are in.
 export struct CrumbPart { label: string, target: int }
+// How a block lays out its text: mode 0 stacked, 1 stacked with note, 2 one line, 3 no text.
+export struct TileLayout { mode: int, name-px: length, size-px: length }
 export struct BigRow { name: string, meta: string, size: string }
 
 export global StorageState {
@@ -38,6 +40,7 @@ export global StorageState {
     in property <bool> trash-enabled: true;
     in property <[BigRow]> big;
     in property <string> big-note;
+    pure callback tile-layout(length, length, int, int, bool) -> TileLayout;
     callback pick-drive(int);
     callback open-block(int);
     callback open-hint();
@@ -121,6 +124,8 @@ component Tile inherits Rectangle {
     property <length> pad: t.tier >= 3 ? 12px : 14px;
     property <bool> gap-left: t.x > 0.001;
     property <bool> gap-top: t.y > 0.001;
+    // One Rust function decides, from this block's size in pixels, where the text goes.
+    property <TileLayout> lay: StorageState.tile-layout(self.width, self.height, t.tier, t.size.character-count, t.note != "");
     x: t.x * map-w + (gap-left ? 3px : 0px);
     y: t.y * map-h + (gap-top ? 3px : 0px);
     width: t.w * map-w - (gap-left ? 3px : 0px) - (t.x + t.w < 0.999 ? 3px : 0px);
@@ -130,17 +135,17 @@ component Tile inherits Rectangle {
     accessible-role: button;
     accessible-label: t.name + ", " + t.size;
     accessible-action-default => { root.clicked(); }
-    Text {
+    if lay.mode <= 1: Text {
         x: root.pad;
         y: root.pad;
         width: parent.width - 2 * root.pad;
         text: t.name;
         color: Theme.text;
-        font-size: t.tier >= 3 ? 13px : 14px;
+        font-size: lay.name-px;
         font-weight: 600;
         overflow: elide;
     }
-    VerticalLayout {
+    if lay.mode <= 1: VerticalLayout {
         x: root.pad;
         y: root.pad;
         width: parent.width - 2 * root.pad;
@@ -149,10 +154,10 @@ component Tile inherits Rectangle {
         Mono {
             text: t.size;
             color: Theme.text;
-            font-size: t.tier == 0 ? 24px : (t.tier == 1 ? 22px : (t.tier == 2 ? 20px : 16px));
+            font-size: lay.size-px;
             overflow: elide;
         }
-        if t.note != "": Text {
+        if lay.mode == 1: Text {
             text: t.note;
             color: Theme.tile-note(t.hue);
             font-size: Theme.size-caption;
@@ -160,7 +165,40 @@ component Tile inherits Rectangle {
             overflow: elide;
         }
     }
-    TouchArea { clicked => { root.clicked(); } }
+    if lay.mode == 2: HorizontalLayout {
+        x: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: parent.height;
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: t.name;
+            color: Theme.text;
+            font-size: lay.name-px;
+            font-weight: 600;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        Mono {
+            horizontal-stretch: 0;
+            text: t.size;
+            color: Theme.text;
+            font-size: lay.size-px;
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    // Too small for text: the name and size show when the pointer rests on it.
+    if lay.mode == 3 && touch.has-hover: Rectangle {
+        x: min(parent.width, 0px) + 4px;
+        y: parent.height + 4px;
+        width: tip.preferred-width + 20px;
+        height: 30px;
+        background: Theme.surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.control-border;
+        tip := Text { x: 10px; text: t.name + " \u{b7} " + t.size; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; }
+    }
 }
 
 component Crumbs inherits HorizontalLayout {

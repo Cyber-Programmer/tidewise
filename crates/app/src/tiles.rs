@@ -20,37 +20,104 @@ pub struct Layout {
     pub size_px: f32,
 }
 
+/// Space between the name and the size when stacked.
+const GAP: f32 = 8.0;
+/// Space above the note line.
+const NOTE: f32 = 19.0;
+/// Top and bottom padding of a one-line block.
+const ONE_LINE_PAD_V: f32 = 8.0;
+/// The size text of a one-line block.
+const ONE_LINE_SIZE_PX: f32 = 14.0;
+/// The least the name gets on one line before it is dropped, in pixels.
+const MIN_NAME_W: f32 = 40.0;
+/// Width of one character of Geist Mono, as a share of the font size (a little generous).
+const MONO_EM: f32 = 0.6;
+
+/// Height of one line of text.
+fn line(px: f32) -> f32 {
+    (px * 1.3).ceil()
+}
+
 /// Padding around the text.
-pub fn pad(_tier: i32) -> f32 {
-    0.0
+pub fn pad(tier: i32) -> f32 {
+    if tier >= 3 {
+        12.0
+    } else {
+        14.0
+    }
 }
 
 /// Font size of the name.
-pub fn name_px(_tier: i32) -> f32 {
-    0.0
+pub fn name_px(tier: i32) -> f32 {
+    if tier >= 3 {
+        13.0
+    } else {
+        14.0
+    }
 }
 
 /// Font sizes the size text may take for a tier, biggest first.
-pub fn size_steps(_tier: i32) -> Vec<f32> {
-    Vec::new()
+pub fn size_steps(tier: i32) -> Vec<f32> {
+    let all = [24.0, 22.0, 20.0, 16.0, 14.0];
+    let first = match tier {
+        i32::MIN..=0 => 0,
+        1 => 1,
+        2 => 2,
+        _ => 3,
+    };
+    all[first..].to_vec()
 }
 
 /// Height a stacked block needs.
-pub fn stacked_height(_tier: i32, _size_px: f32, _note: bool) -> f32 {
-    0.0
+pub fn stacked_height(tier: i32, size_px: f32, note: bool) -> f32 {
+    2.0 * pad(tier) + line(name_px(tier)) + GAP + line(size_px) + if note { NOTE } else { 0.0 }
 }
 
 /// Smallest block that still holds name and size on one line: (width for `size_chars`, height).
-pub fn one_line_min(_tier: i32, _size_chars: usize) -> (f32, f32) {
-    (0.0, 0.0)
+pub fn one_line_min(tier: i32, size_chars: usize) -> (f32, f32) {
+    let size_w = size_chars as f32 * MONO_EM * ONE_LINE_SIZE_PX;
+    (
+        2.0 * pad(tier) + MIN_NAME_W + GAP + size_w,
+        2.0 * ONE_LINE_PAD_V + line(ONE_LINE_SIZE_PX),
+    )
 }
 
-pub fn tile_layout(_w: f32, _h: f32, tier: i32, _size_chars: usize, _has_note: bool) -> Layout {
-    Layout {
-        mode: Mode::Stacked,
+/// Pick the layout for a block `w` × `h` pixels, of `tier`, whose size text has `size_chars`
+/// characters. The size text steps down from its tier's font until the block can hold it; a block
+/// too short for that puts name and size on one line; a block too small for that has no text.
+pub fn tile_layout(w: f32, h: f32, tier: i32, size_chars: usize, has_note: bool) -> Layout {
+    let hidden = Layout {
+        mode: Mode::Hidden,
         name_px: name_px(tier),
-        size_px: 0.0,
+        size_px: ONE_LINE_SIZE_PX,
+    };
+    if !(w.is_finite() && h.is_finite()) || w <= 0.0 || h <= 0.0 {
+        return hidden;
     }
+    let p = pad(tier);
+    for size in size_steps(tier) {
+        let fits_w = w >= 2.0 * p + size_chars as f32 * MONO_EM * size;
+        if fits_w && h >= stacked_height(tier, size, false) {
+            let note = has_note && h >= stacked_height(tier, size, true);
+            return Layout {
+                mode: if note {
+                    Mode::StackedNote
+                } else {
+                    Mode::Stacked
+                },
+                name_px: name_px(tier),
+                size_px: size,
+            };
+        }
+    }
+    let (min_w, min_h) = one_line_min(tier, size_chars);
+    if w >= min_w && h >= min_h {
+        return Layout {
+            mode: Mode::OneLine,
+            ..hidden
+        };
+    }
+    hidden
 }
 
 #[cfg(test)]

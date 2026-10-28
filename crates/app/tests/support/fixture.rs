@@ -10,9 +10,9 @@
 //!     Archive/disk.img             1.1 GB, shared.bin 40 MB (hard-linked into Games/)
 //!     Photos/                      45 files, 100 KB … 3 MB (40+ items in one folder)
 //!     Creative Chaos/OpenSource/tidewise/docs/…   (four folders deep)
-//!   Games/                         400 MB + the hard link
+//!   Games/                         460 MB + the hard link
 //!   Downloads/                     two old installers (400 and 300 days)
-//!   Music/ Videos/ Notes/ .cache/  smaller blocks, down to a short, wide one
+//!   Music/ Videos/ Notes/ .cache/  110, 110, 70 and 30 MB: the last two group into "Other"; one block comes out short and wide
 //!   shortcut -> Documents          (a symlink)
 //! ```
 #![allow(dead_code)]
@@ -93,7 +93,7 @@ pub fn build() -> Fixture {
     alloc(&p(&format!("{DEEP}/build.bin")), 20 * MB);
     write(&p("Documents/Creative Chaos/OpenSource/LICENSE"), 35_000);
 
-    alloc(&p("Games/Steam/common/game.pak"), 400 * MB);
+    alloc(&p("Games/Steam/common/game.pak"), 460 * MB);
     fs::hard_link(p("Documents/Archive/shared.bin"), p("Games/shared.bin")).unwrap();
 
     alloc(&p("Downloads/installer.iso"), 200 * MB);
@@ -101,10 +101,10 @@ pub fn build() -> Fixture {
     alloc(&p("Downloads/old.zip"), 50 * MB);
     age(&p("Downloads/old.zip"), 300);
 
-    alloc(&p("Music/album/track.flac"), 90 * MB);
-    alloc(&p("Videos/clip.mkv"), 30 * MB);
-    alloc(&p("Notes/scan.pdf"), 12 * MB);
-    alloc(&p(".cache/thumbs.db"), 8 * MB);
+    alloc(&p("Music/album/track.flac"), 110 * MB);
+    alloc(&p("Videos/clip.mkv"), 110 * MB);
+    alloc(&p("Notes/scan.pdf"), 70 * MB);
+    alloc(&p(".cache/thumbs.db"), 30 * MB);
 
     unix_fs::symlink(p("Documents"), p("shortcut")).unwrap();
     Fixture { dir, root }

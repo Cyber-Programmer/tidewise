@@ -37,6 +37,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let mut state = None;
     let mut file = None;
     let mut height = 960;
+    let mut width = 1360;
     let mut open = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
@@ -53,6 +54,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             "--page" => out.page = Some(args.next().ok_or("--page needs a screen name")?),
             "--state" => state = Some(args.next().ok_or("--state needs a value")?),
             "--out" => file = Some(args.next().ok_or("--out needs a file name")?),
+            "--width" => {
+                width = args
+                    .next()
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .filter(|w| (800..=4000).contains(w))
+                    .ok_or("--width needs a number of pixels between 800 and 4000")?;
+            }
             "--open" => {
                 open = Some(args.next().filter(|v| relative_inside(v)).ok_or(
                     "--open needs a folder path inside the scanned folder (no .. and not absolute)",
@@ -76,7 +84,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             state,
             out: out_file,
             height,
-            width: 1360,
+            width,
             open,
         });
     } else if state.is_some() || file.is_some() || open.is_some() {

@@ -378,6 +378,25 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
     st.set_big_note(d.big_note.as_str().into());
 }
 
+/// Let the Storage blocks ask Rust where their text goes (see `tiles::tile_layout`).
+pub fn wire_tiles(ui: &MainWindow) {
+    use crate::tiles::{tile_layout, Mode};
+    ui.global::<StorageState>()
+        .on_tile_layout(|w, h, tier, chars, note| {
+            let l = tile_layout(w, h, tier, chars.max(0) as usize, note);
+            crate::TileLayout {
+                mode: match l.mode {
+                    Mode::Stacked => 0,
+                    Mode::StackedNote => 1,
+                    Mode::OneLine => 2,
+                    Mode::Hidden => 3,
+                },
+                name_px: l.name_px,
+                size_px: l.size_px,
+            }
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::{changed_rows, chart_width, sync_model};
