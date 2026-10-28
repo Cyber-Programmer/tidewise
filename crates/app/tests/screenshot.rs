@@ -1,6 +1,5 @@
 //! `tidewise --screenshot` renders headless at exactly 1360×960 and is deterministic.
 
-#[allow(dead_code)]
 #[path = "support/fixture.rs"]
 mod fixture;
 

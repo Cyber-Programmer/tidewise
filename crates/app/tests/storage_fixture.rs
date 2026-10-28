@@ -1,5 +1,4 @@
 //! The fixture tree that later Storage tests and screenshots are built on.
-#![allow(dead_code)]
 
 #[path = "support/fixture.rs"]
 mod fixture;
