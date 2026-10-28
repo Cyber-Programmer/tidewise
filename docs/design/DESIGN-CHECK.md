@@ -51,6 +51,9 @@ The 10 % target is a starting guess; the human tunes it after the first screen.
   "down". That's a design bug: keep each value on one line.
 - Storage artboard: the "Biggest files" sizes wrap onto two lines ("6.1 / GB"). Design bug: keep each
   size on one line.
+- Storage drill-in (approved 2026-10-28, after live testing): folder rows carry a chevron and open
+  on click; the breadcrumb can be several levels long (middle collapses to "…"); the list scrolls with a
+  scrollbar when it overflows; short folder-map blocks put name and size on one line.
 - Anything the design shows as live (chart wiggle, numbers) only matches in demo mode.
 - Text antialiasing and sub-pixel differences.
 
