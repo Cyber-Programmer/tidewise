@@ -2,8 +2,9 @@
 import { Theme } from "theme.slint";
 import { Shell, Sidebar } from "components.slint";
 import { PerformanceScreen, PerfState } from "performance.slint";
+import { ProcessesScreen, ProcState } from "processes.slint";
 
-export { Shell, PerfState }
+export { Shell, PerfState, ProcState }
 
 component ComingLater inherits Rectangle {
     background: Theme.bg;
@@ -27,6 +28,7 @@ export component MainWindow inherits Window {
     HorizontalLayout {
         Sidebar { }
         if Shell.page == 4: PerformanceScreen { }
-        if Shell.page != 4: ComingLater { }
+        if Shell.page == 5: ProcessesScreen { }
+        if Shell.page != 4 && Shell.page != 5: ComingLater { }
     }
 }

@@ -7,12 +7,12 @@ Run `tools/design_check.sh performance|processes|home` to reproduce.
 ## Performance (M1-T3)
 | Image | Before | After |
 | --- | --- | --- |
-| Performance | 53.2 % | 7.2 % |
-| Performance--details | n/a (state did not exist) | 6.2 % |
-| Performance--memory | 50.9 % | 7.4 % |
-| Performance--memory-details | n/a (state did not exist) | 7.8 % |
-| Performance--network | 51.6 % | 7.3 % |
-| Performance--disk | 53.5 % | 7.5 % |
+| Performance | 53.2 % | 5.5 % |
+| Performance--details | n/a (state did not exist) | 4.7 % |
+| Performance--memory | 50.9 % | 5.7 % |
+| Performance--memory-details | n/a (state did not exist) | 6.2 % |
+| Performance--network | 51.6 % | 5.5 % |
+| Performance--disk | 53.5 % | 5.7 % |
 
 Fixed: Geist/Geist Mono, sidebar (logo, 20 px icons, active state, distro card), header with live dot and
 switch, metric tabs, chart stretched to the panel width with area fill, explanation box, facts grid with
@@ -23,3 +23,18 @@ Remaining (accepted):
 - Text antialiasing and line-height rounding (Slint `line-height-factor` is a ratio, CSS is absolute).
 - Tab sparklines and the chart line differ by a pixel or two in stroke joins.
 - `--details` screenshots use `--height 1005`, because the artboard grows with its content (see questions.md).
+
+## Processes (M1-T4)
+| Image | Before | After |
+| --- | --- | --- |
+| Processes | n/a (screen did not exist; spike list only) | 0.1 % |
+| Processes--details | n/a | 0.6 % |
+| Processes--apps | n/a | 0.1 % |
+| Processes--protected-selected | n/a | 0.3 % |
+
+Before: the app had no Processes page, so there is nothing to score; the first render of the new page, with the
+column stretched down the window, scored 41.7 % / 51.2 % / 71.4 % / 44.0 % (default / details / apps / protected-selected).
+Fixed: header, segmented filter, search box with placeholder and icon, list card with header row, avatars,
+lock icon on protected rows, hot (amber) numbers, selected-row tint, selected-process bar with End button,
+"Protected · part of your system" badge and, in details, "Force quit" plus the command line.
+Remaining (accepted): text antialiasing; "End task" does nothing yet (M4).

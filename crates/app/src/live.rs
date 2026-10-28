@@ -4,7 +4,11 @@ use std::collections::VecDeque;
 
 use tidewise_core::stats::{LiveStats, Snapshot};
 
+use std::collections::HashMap;
+use std::path::Path;
+
 use crate::perf::{Fact, Metric, PerfData, TopRow};
+use crate::procs::{self, Group, Kind, ProcData, Row};
 
 const HISTORY: usize = 60;
 const KB: f64 = 1_000.0;
@@ -17,6 +21,7 @@ pub struct Sampler {
     memory: VecDeque<f64>,
     network: VecDeque<f64>,
     disk: VecDeque<f64>,
+    last: Option<Snapshot>,
 }
 
 fn push(series: &mut VecDeque<f64>, value: f64) {
@@ -72,6 +77,7 @@ impl Sampler {
             memory: VecDeque::new(),
             network: VecDeque::new(),
             disk: VecDeque::new(),
+            last: None,
         }
     }
 
@@ -85,7 +91,40 @@ impl Sampler {
             &mut self.disk,
             s.disk_read_per_sec.unwrap_or(0.0) + s.disk_write_per_sec.unwrap_or(0.0),
         );
-        self.build(&s)
+        let data = self.build(&s);
+        self.last = Some(s);
+        data
+    }
+
+    /// Rows for the Processes screen from the last sample, grouped by app.
+    pub fn processes(&self, desktop: &HashMap<String, String>) -> ProcData {
+        let procs: Vec<procs::Proc> = self
+            .last
+            .iter()
+            .flat_map(|s| s.processes.iter())
+            .map(|p| {
+                let (comm, cmdline) = procs::read_proc(Path::new("/proc"), p.pid)
+                    .unwrap_or_else(|| (p.name.clone(), Vec::new()));
+                procs::Proc {
+                    pid: p.pid,
+                    comm,
+                    cmdline,
+                    cpu: p.cpu_percent as f64,
+                    mem: p.memory_bytes,
+                }
+            })
+            .collect();
+        let rows = procs::group(&procs, desktop)
+            .iter()
+            .map(row_from_group)
+            .collect();
+        ProcData {
+            subtitle: format!(
+                "{} running, grouped by the app they belong to.",
+                procs.len()
+            ),
+            rows,
+        }
     }
 
     fn build(&self, s: &Snapshot) -> PerfData {
@@ -194,6 +233,62 @@ impl Sampler {
     }
 }
 
+const AVATARS: [(u8, u8, u8); 8] = [
+    (0xFF, 0xB3, 0x8A),
+    (0x7A, 0xA7, 0xFF),
+    (0x9F, 0xC1, 0xFF),
+    (0x8B, 0xEA, 0xCB),
+    (0x7F, 0xB2, 0xE5),
+    (0xC3, 0xA2, 0xFF),
+    (0xB4, 0xBA, 0xC5),
+    (0xF2, 0xB8, 0x4B),
+];
+
+fn avatar_color(name: &str) -> (u8, u8, u8) {
+    let sum: usize = name.bytes().map(usize::from).sum();
+    AVATARS[sum % AVATARS.len()]
+}
+
+pub fn row_from_group(g: &Group) -> Row {
+    let kind = match g.kind {
+        Kind::App => "App",
+        Kind::Background => "Background service",
+        Kind::System => "System",
+    };
+    let count = if g.count == 1 {
+        "1 process".to_string()
+    } else {
+        format!("{} processes", g.count)
+    };
+    let note = match g.kind {
+        Kind::App => "Ending it closes its windows. Unsaved work in it may be lost.",
+        Kind::Background => "Runs in the background. Ending it is usually safe, but it may start again.",
+        Kind::System => "Part of your system. Ending it could close your session or cut sound or network, so Tidewise won\u{2019}t.",
+    };
+    let children = if g.count > 1 {
+        format!("  ·  {} child processes", g.count - 1)
+    } else {
+        String::new()
+    };
+    Row {
+        id: g.key.clone(),
+        name: g.name.clone(),
+        kind: g.kind,
+        sub: format!("{kind} · {count}"),
+        sub_details: format!("{kind} · PID {}", g.pid),
+        color: avatar_color(&g.name),
+        protected: g.protected,
+        cpu: format!("{:.1}%", g.cpu),
+        cpu_hot: g.cpu >= 5.0,
+        mem: fmt_bytes(g.mem),
+        mem_hot: g.mem as f64 >= GB,
+        disk: "–".into(),
+        net: "–".into(),
+        note: note.into(),
+        cmd: format!("{}{children}", g.cmd),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +318,44 @@ mod tests {
     fn scaled_series_is_a_percentage_of_the_scale() {
         let q: VecDeque<f64> = [MB / 2.0].into();
         assert_eq!(scaled(&q, MB), vec![50.0]);
+    }
+
+    fn group(count: usize, kind: Kind, mem: u64, cpu: f64) -> Group {
+        Group {
+            key: "k".into(),
+            name: "Firefox".into(),
+            kind,
+            count,
+            cpu,
+            mem,
+            protected: kind == Kind::System,
+            pid: 42,
+            cmd: "/usr/bin/firefox".into(),
+        }
+    }
+
+    #[test]
+    fn a_group_becomes_a_row_with_plain_words() {
+        let r = row_from_group(&group(14, Kind::App, 2_100_000_000, 6.2));
+        assert_eq!(r.sub, "App · 14 processes");
+        assert_eq!(r.sub_details, "App · PID 42");
+        assert_eq!((r.cpu.as_str(), r.mem.as_str()), ("6.2%", "2.1 GB"));
+        assert!(r.cpu_hot && r.mem_hot);
+        assert!(r.cmd.ends_with("13 child processes"));
+    }
+
+    #[test]
+    fn one_process_is_singular_and_cold() {
+        let r = row_from_group(&group(1, Kind::Background, 120_000_000, 0.3));
+        assert_eq!(r.sub, "Background service · 1 process");
+        assert!(!r.cpu_hot && !r.mem_hot);
+        assert_eq!(r.cmd, "/usr/bin/firefox");
+    }
+
+    #[test]
+    fn system_rows_are_protected_and_say_why() {
+        let r = row_from_group(&group(3, Kind::System, 1, 0.0));
+        assert!(r.protected);
+        assert!(r.note.contains("Tidewise won\u{2019}t"));
     }
 }

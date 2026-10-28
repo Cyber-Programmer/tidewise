@@ -25,3 +25,8 @@ Meanwhile: added exactly those licence and advisory entries to `deny.toml`, each
    separate comment. Recommended: add them to `tokens.md` (or snap the design to existing tokens).
 3. Slint scales a `Path` uniformly, so the chart is drawn by Rust at the real pixel width, computed from the window size
    (`view::chart_width`). Recommended: replace with a Slint-side solution if a later Slint adds non-uniform viewboxes.
+
+## M1-T4 — sidebar does not fit windows shorter than about 700 px
+The sidebar (ten 44 px items plus logo and distro card) overflows below roughly 700 px height, while `tokens.md` allows a
+600 px minimum window. Recommended: let the sidebar scroll, or compress item height under 720 px (the design has no
+state for it). Meanwhile the window minimum stays 900×600 as designed and the overflow is clipped.

@@ -112,6 +112,7 @@ export component PerformanceScreen inherits Rectangle {
         // Header
         HorizontalLayout {
             VerticalLayout {
+                horizontal-stretch: 0;
                 alignment: end;
                 spacing: 6px;
                 Text {
@@ -136,6 +137,7 @@ export component PerformanceScreen inherits Rectangle {
             }
             Rectangle { horizontal-stretch: 1; }
             VerticalLayout {
+                horizontal-stretch: 0;
                 alignment: end;
                 DetailsSwitch { on <=> PerfState.details; }
             }

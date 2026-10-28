@@ -11,6 +11,7 @@ mod cli;
 mod demo;
 mod live;
 mod perf;
+mod procs;
 mod screenshot;
 mod view;
 
@@ -28,17 +29,109 @@ fn select_renderer() -> Result<(), slint::PlatformError> {
         .select()
 }
 
+/// Where `.desktop` files that give apps their display names live.
+fn desktop_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![std::path::PathBuf::from("/usr/share/applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        dirs.push(home.join(".local/share/applications"));
+        dirs.push(home.join(".local/share/flatpak/exports/share/applications"));
+    }
+    dirs.push("/var/lib/flatpak/exports/share/applications".into());
+    dirs
+}
+
 fn page_of(screen: &str) -> Result<i32, String> {
     match screen {
         "performance" => Ok(4),
+        "processes" => Ok(5),
         other => Err(format!("unknown screen '{other}'")),
     }
 }
 
-fn show_demo(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let view = perf::View::from_state(state)?;
-    view::apply_perf(ui, &demo::performance());
-    view::apply_view(ui, &view);
+/// What the Processes screen shows and what the user picked there.
+struct ProcsCtl {
+    data: procs::ProcData,
+    filter: procs::Filter,
+    search: String,
+    selected: String,
+    /// Ids of the rows on screen, in order.
+    shown: Vec<String>,
+}
+
+impl ProcsCtl {
+    fn new(data: procs::ProcData) -> Self {
+        let selected = data.rows.first().map(|r| r.id.clone()).unwrap_or_default();
+        ProcsCtl {
+            data,
+            filter: procs::Filter::All,
+            search: String::new(),
+            selected,
+            shown: Vec::new(),
+        }
+    }
+
+    fn refresh(&mut self, ui: &MainWindow) {
+        self.shown = view::apply_procs(ui, &self.data, self.filter, &self.search, &self.selected);
+    }
+}
+
+fn wire_procs(ui: &MainWindow, ctl: &Rc<RefCell<ProcsCtl>>) {
+    let state = ui.global::<ProcState>();
+    state.on_pick({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            if let Some(id) = c.shown.get(i.max(0) as usize).cloned() {
+                c.selected = id;
+                c.refresh(&ui);
+            }
+        }
+    });
+    state.on_set_filter({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |i| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            c.filter = procs::Filter::from_index(i);
+            c.refresh(&ui);
+        }
+    });
+    state.on_search_edited({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move |text| {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            c.search = text.to_string();
+            c.refresh(&ui);
+        }
+    });
+}
+
+fn show_demo(
+    ui: &MainWindow,
+    screen: &str,
+    state: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match screen {
+        "processes" => {
+            let view = procs::View::from_state(state)?;
+            let mut ctl = ProcsCtl::new(demo::processes());
+            ctl.filter = view.filter;
+            ctl.selected = view.selected;
+            ctl.refresh(ui);
+            ui.global::<ProcState>().set_details(view.details);
+        }
+        _ => {
+            let view = perf::View::from_state(state)?;
+            view::apply_perf(ui, &demo::performance());
+            view::apply_view(ui, &view);
+        }
+    }
     Ok(())
 }
 
@@ -50,7 +143,7 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     ui.global::<Shell>().set_distro_name("Arch Linux".into());
     ui.global::<Shell>()
         .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
-    show_demo(&ui, shot.state.as_deref())?;
+    show_demo(&ui, &shot.screen, shot.state.as_deref())?;
     ui.show()?;
     screenshot::save(&window, shot.height, std::path::Path::new(&shot.out))
 }
@@ -83,12 +176,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.global::<Shell>().set_distro_name("Arch Linux".into());
         ui.global::<Shell>()
             .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
-        show_demo(&ui, None)?;
+        show_demo(&ui, "performance", None)?;
+        let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
+        ctl.borrow_mut().refresh(&ui);
+        wire_procs(&ui, &ctl);
         return Ok(ui.run()?);
     }
 
+    let mut desktop = std::collections::HashMap::new();
+    for dir in desktop_dirs() {
+        procs::load_desktop_names(&dir, &mut desktop);
+    }
     let sampler = Rc::new(RefCell::new(live::Sampler::new()));
-    view::apply_perf(&ui, &sampler.borrow_mut().sample());
+    let ctl = Rc::new(RefCell::new(ProcsCtl::new(procs::ProcData {
+        subtitle: String::new(),
+        rows: Vec::new(),
+    })));
+    wire_procs(&ui, &ctl);
+    let tick = {
+        let (sampler, ctl) = (sampler.clone(), ctl.clone());
+        move |ui: &MainWindow| {
+            let perf = sampler.borrow_mut().sample();
+            view::apply_perf(ui, &perf);
+            let mut c = ctl.borrow_mut();
+            c.data = sampler.borrow().processes(&desktop);
+            if !c.data.rows.iter().any(|r| r.id == c.selected) {
+                c.selected = c
+                    .data
+                    .rows
+                    .first()
+                    .map(|r| r.id.clone())
+                    .unwrap_or_default();
+            }
+            c.refresh(ui);
+        }
+    };
+    tick(&ui);
 
     // One sample per second; skip the work while the window is hidden.
     let timer = Timer::default();
@@ -99,7 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !ui.window().is_visible() {
                 return;
             }
-            view::apply_perf(&ui, &sampler.borrow_mut().sample());
+            tick(&ui);
         }
     });
 

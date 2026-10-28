@@ -4,7 +4,8 @@ use slint::{Color, ComponentHandle, ModelRc, VecModel};
 
 use crate::chart;
 use crate::perf::{PerfData, View};
-use crate::{Fact, MainWindow, PerfMetric, PerfState, TopRow};
+use crate::procs::{self, ProcData};
+use crate::{Fact, MainWindow, PerfMetric, PerfState, ProcRow, ProcState, TopRow};
 
 /// Data colours in tab order: processor, memory, network, disk (Theme.data-*).
 const COLORS: [(u8, u8, u8); 4] = [
@@ -76,6 +77,58 @@ pub fn apply_view(ui: &MainWindow, view: &View) {
     let state = ui.global::<PerfState>();
     state.set_selected(view.metric as i32);
     state.set_details(view.details);
+}
+
+fn proc_row(r: &procs::Row, selected: bool) -> ProcRow {
+    ProcRow {
+        name: r.name.as_str().into(),
+        sub: r.sub.as_str().into(),
+        sub_details: r.sub_details.as_str().into(),
+        letter: r
+            .name
+            .chars()
+            .next()
+            .map(String::from)
+            .unwrap_or_default()
+            .into(),
+        color: Color::from_rgb_u8(r.color.0, r.color.1, r.color.2),
+        protected: r.protected,
+        cpu: r.cpu.as_str().into(),
+        cpu_hot: r.cpu_hot,
+        mem: r.mem.as_str().into(),
+        mem_hot: r.mem_hot,
+        disk: r.disk.as_str().into(),
+        net: r.net.as_str().into(),
+        note: r.note.as_str().into(),
+        cmd: r.cmd.as_str().into(),
+        selected,
+    }
+}
+
+/// Show the rows that pass `filter` and `search`; returns their ids in display order, so a click
+/// on row `i` can be mapped back to a process group.
+pub fn apply_procs(
+    ui: &MainWindow,
+    data: &ProcData,
+    filter: procs::Filter,
+    search: &str,
+    selected: &str,
+) -> Vec<String> {
+    let shown = procs::visible(&data.rows, filter, search);
+    let rows: Vec<ProcRow> = shown
+        .iter()
+        .map(|r| proc_row(r, r.id == selected))
+        .collect();
+    let state = ui.global::<ProcState>();
+    state.set_subtitle(data.subtitle.as_str().into());
+    state.set_rows(ModelRc::new(VecModel::from(rows)));
+    state.set_filter(filter.index());
+    let sel = data.rows.iter().find(|r| r.id == selected);
+    state.set_has_sel(sel.is_some());
+    if let Some(r) = sel {
+        state.set_sel(proc_row(r, true));
+    }
+    shown.iter().map(|r| r.id.clone()).collect()
 }
 
 #[cfg(test)]

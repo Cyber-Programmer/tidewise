@@ -1,0 +1,323 @@
+// The Processes screen (docs/design/screens/Processes.dc.html).
+import { Theme } from "theme.slint";
+import { DetailsSwitch } from "components.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct ProcRow {
+    name: string,
+    sub: string,
+    sub-details: string,
+    letter: string,
+    color: color,
+    protected: bool,
+    cpu: string,
+    cpu-hot: bool,
+    mem: string,
+    mem-hot: bool,
+    disk: string,
+    net: string,
+    note: string,
+    cmd: string,
+    selected: bool,
+}
+
+export global ProcState {
+    in property <string> subtitle;
+    in property <[ProcRow]> rows;
+    in property <ProcRow> sel;
+    in property <bool> has-sel: false;
+    in-out property <int> filter: 2;
+    in-out property <string> search;
+    in-out property <bool> details: false;
+    callback pick(int);
+    callback set-filter(int);
+    callback search-edited(string);
+    callback end-task();
+}
+
+component Avatar inherits Rectangle {
+    in property <string> letter;
+    in property <length> side: 32px;
+    in property <length> letter-size: 14px;
+    width: root.side;
+    height: root.side;
+    border-radius: root.side * 0.28;
+    Text {
+        text: root.letter;
+        color: Theme.bg;
+        font-size: root.letter-size;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component Segment inherits Rectangle {
+    in property <string> label;
+    in property <bool> on;
+    callback clicked();
+    height: 36px;
+    border-radius: 9px;
+    background: root.on ? Theme.segment-on : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-checked: root.on;
+    accessible-action-default => { root.clicked(); }
+    Text {
+        x: 14px;
+        text: root.label;
+        color: root.on ? Theme.text : Theme.text-2;
+        font-size: Theme.size-small;
+        font-weight: 500;
+        vertical-alignment: center;
+    }
+    width: label-width.preferred-width + 28px;
+    label-width := Text { text: root.label; font-size: Theme.size-small; font-weight: 500; visible: false; }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component Cell inherits Text {
+    color: Theme.mono-dim;
+    font-family: Theme.mono;
+    font-size: Theme.size-small;
+    horizontal-alignment: right;
+    vertical-alignment: center;
+}
+
+export component ProcessesScreen inherits Rectangle {
+    background: Theme.bg;
+    VerticalLayout {
+        padding-top: 28px;
+        padding-bottom: 40px;
+        padding-left: 36px;
+        padding-right: 36px;
+        spacing: 18px;
+        alignment: start;
+        // Header
+        HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                spacing: 6px;
+                Text { text: "Processes"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                Text { text: ProcState.subtitle; color: Theme.text-2; font-size: Theme.size-body; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                DetailsSwitch { on <=> ProcState.details; }
+            }
+        }
+        // Filter tabs and search
+        HorizontalLayout {
+            Rectangle {
+                width: seg.preferred-width + 10px;
+                height: 46px;
+                background: Theme.surface;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.border;
+                seg := HorizontalLayout {
+                    padding: 4px;
+                    spacing: 4px;
+                    alignment: start;
+                    Segment { label: "Apps"; on: ProcState.filter == 0; clicked => { ProcState.set-filter(0); } }
+                    Segment { label: "Background"; on: ProcState.filter == 1; clicked => { ProcState.set-filter(1); } }
+                    Segment { label: "All"; on: ProcState.filter == 2; clicked => { ProcState.set-filter(2); } }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Rectangle {
+                width: 245px;
+                height: 44px;
+                background: Theme.surface;
+                border-radius: Theme.radius-button;
+                border-width: 1px;
+                border-color: Theme.search-border;
+                Image {
+                    x: 12px;
+                    y: 14px;
+                    width: 16px;
+                    height: 16px;
+                    source: @image-url("icons/search.svg");
+                    colorize: Theme.text-3;
+                }
+                Text {
+                    x: 36px;
+                    text: "Search processes";
+                    visible: ProcState.search == "";
+                    color: Theme.text-3;
+                    font-size: Theme.size-body;
+                    vertical-alignment: center;
+                }
+                TextInput {
+                    x: 36px;
+                    width: parent.width - 48px;
+                    height: parent.height;
+                    text <=> ProcState.search;
+                    color: Theme.text;
+                    font-size: Theme.size-body;
+                    vertical-alignment: center;
+                    accessible-label: "Search processes";
+                    edited => { ProcState.search-edited(self.text); }
+                }
+            }
+        }
+        // List
+        Rectangle {
+            // Content height; shrinks (down to 150 px) when the window is too short for it.
+            preferred-height: 44px + ProcState.rows.length * 56px;
+            min-height: 150px;
+            background: Theme.surface;
+            border-radius: Theme.radius-card;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+            VerticalLayout {
+                Rectangle {
+                    height: 42px;
+                    HorizontalLayout {
+                        padding-left: 19px;
+                        padding-right: 19px;
+                        spacing: 12px;
+                        Text { text: "Name"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; horizontal-stretch: 1; }
+                        Text { text: "Processor"; width: 90px; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Memory"; width: 90px; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Disk"; width: 90px; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Network"; width: 100px; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: right; vertical-alignment: center; }
+                    }
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                }
+                ListView {
+                    for r[i] in ProcState.rows: Rectangle {
+                        height: 56px;
+                        background: r.selected ? Theme.row-selected : (touch.has-hover ? Theme.row-hover : transparent);
+                        accessible-role: button;
+                        accessible-label: r.name;
+                        accessible-checked: r.selected;
+                        accessible-action-default => { ProcState.pick(i); }
+                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.divider; }
+                        HorizontalLayout {
+                            padding-left: 19px;
+                            padding-right: 19px;
+                            spacing: 12px;
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 12px;
+                                alignment: start;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Avatar { letter: r.letter; background: r.color; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 1px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: start;
+                                        Text { text: r.name; color: Theme.text; font-size: Theme.size-body; font-weight: 600; }
+                                        if r.protected: VerticalLayout {
+                                            alignment: center;
+                                            Image { source: @image-url("icons/protected.svg"); width: 13px; height: 13px; colorize: Theme.text-2; accessible-role: image; accessible-label: "Protected"; }
+                                        }
+                                    }
+                                    Text { text: ProcState.details ? r.sub-details : r.sub; color: Theme.text-2; font-size: Theme.size-caption; overflow: elide; }
+                                }
+                            }
+                            Cell { text: r.cpu; width: 90px; color: r.cpu-hot ? Theme.warn : Theme.mono-dim; }
+                            Cell { text: r.mem; width: 90px; color: r.mem-hot ? Theme.warn : Theme.mono-dim; }
+                            Cell { text: r.disk; width: 90px; }
+                            Cell { text: r.net; width: 100px; }
+                        }
+                        touch := TouchArea { clicked => { ProcState.pick(i); } }
+                    }
+                }
+            }
+        }
+        // Selected process
+        if ProcState.has-sel: Rectangle {
+            background: Theme.panel-bg;
+            border-radius: Theme.radius-card;
+            border-width: 1px;
+            border-color: Theme.panel-border;
+            height: 76px + (ProcState.details ? 20px : 0px);
+            HorizontalLayout {
+                padding: 16px;
+                padding-left: 21px;
+                padding-right: 21px;
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    Avatar { letter: ProcState.sel.letter; background: ProcState.sel.color; side: 40px; letter-size: 17px; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 2px;
+                    Text { text: ProcState.sel.name; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                    Text { text: ProcState.sel.note; color: Theme.text-2; font-size: Theme.size-small; overflow: elide; }
+                    if ProcState.details: Text { text: ProcState.sel.cmd; color: Theme.mono-dim; font-family: Theme.mono; font-size: Theme.size-caption; overflow: elide; }
+                }
+                if ProcState.sel.protected: VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        background: Theme.badge-bg;
+                        border-radius: Theme.radius-button;
+                        height: 40px;
+                        width: badge.preferred-width + 28px;
+                        badge := HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                Image { source: @image-url("icons/protected.svg"); width: 15px; height: 15px; colorize: Theme.text-soft; }
+                            }
+                            Text { text: "Protected · part of your system"; color: Theme.text-soft; font-size: Theme.size-small; vertical-alignment: center; }
+                        }
+                    }
+                }
+                if !ProcState.sel.protected: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    if ProcState.details: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 42px;
+                            width: 93px;
+                            background: Theme.row-hover;
+                            border-radius: Theme.radius-button;
+                            border-width: 1px;
+                            border-color: Theme.track-off;
+                            accessible-role: button;
+                            accessible-label: "Force quit " + ProcState.sel.name;
+                            Text { text: "Force quit"; color: Theme.text; font-size: Theme.size-body; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 42px;
+                            width: end-label.preferred-width + 36px;
+                            background: Theme.danger;
+                            border-radius: Theme.radius-button;
+                            accessible-role: button;
+                            accessible-label: "End " + ProcState.sel.name;
+                            end-label := Text {
+                                text: "End " + ProcState.sel.name;
+                                color: Theme.on-danger;
+                                font-size: Theme.size-body;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            // End task itself arrives in M4; the button does nothing yet.
+                            TouchArea { clicked => { ProcState.end-task(); } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

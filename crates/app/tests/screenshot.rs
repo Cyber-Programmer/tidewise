@@ -5,8 +5,12 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn run(out: &PathBuf, extra: &[&str]) {
+    run_screen("performance", out, extra);
+}
+
+fn run_screen(screen: &str, out: &PathBuf, extra: &[&str]) {
     let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
-        .args(["--screenshot", "performance"])
+        .args(["--screenshot", screen])
         .args(extra)
         .arg("--out")
         .arg(out)
@@ -71,4 +75,45 @@ fn height_can_be_raised_for_tall_artboards() {
     let out = dir.path().join("tall.png");
     run(&out, &["--state", "details", "--height", "1005"]);
     assert_eq!(png_size(&fs::read(&out).unwrap()), (1360, 1005));
+}
+
+#[test]
+fn every_processes_variant_renders_and_differs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut seen = Vec::new();
+    for state in [
+        None,
+        Some("details"),
+        Some("apps"),
+        Some("protected-selected"),
+    ] {
+        let out = dir
+            .path()
+            .join(format!("{}.png", state.unwrap_or("default")));
+        let extra: Vec<&str> = state.iter().flat_map(|s| ["--state", *s]).collect();
+        run_screen("processes", &out, &extra);
+        let bytes = fs::read(&out).unwrap();
+        assert_eq!(png_size(&bytes), (1360, 960));
+        seen.push(bytes);
+    }
+    for (i, a) in seen.iter().enumerate() {
+        for b in &seen[i + 1..] {
+            assert_ne!(a, b, "two variants look identical");
+        }
+    }
+}
+
+#[test]
+fn an_unknown_screen_or_state_fails_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("x.png");
+    for args in [["--screenshot", "nope"], ["--screenshot", "processes"]] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tidewise"));
+        cmd.args(args).arg("--out").arg(&out);
+        if args[1] == "processes" {
+            cmd.args(["--state", "bogus"]);
+        }
+        assert!(!cmd.status().unwrap().success());
+        assert!(!out.exists());
+    }
 }
