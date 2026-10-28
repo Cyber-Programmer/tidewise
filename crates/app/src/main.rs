@@ -9,6 +9,7 @@ use slint::{ComponentHandle, Timer, TimerMode};
 mod chart;
 mod cli;
 mod demo;
+mod home;
 mod live;
 mod perf;
 mod procs;
@@ -30,6 +31,21 @@ fn select_renderer() -> Result<(), slint::PlatformError> {
 }
 
 /// Where `.desktop` files that give apps their display names live.
+/// Distro name and the line under it, from `/etc/os-release`, `XDG_CURRENT_DESKTOP` and the tools found.
+fn shell_info() -> (String, String) {
+    let release = std::fs::read_to_string("/etc/os-release")
+        .map(|t| tidewise_core::distro::parse_os_release(&t))
+        .ok();
+    let name = release
+        .map(|r| r.name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "Linux".into());
+    let desktop =
+        tidewise_core::distro::parse_desktop(std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref());
+    let tools = tidewise_core::distro::detect_tools(std::path::Path::new("/"));
+    (name, home::distro_detail(&desktop, &tools))
+}
+
 fn desktop_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = vec![std::path::PathBuf::from("/usr/share/applications")];
     if let Some(home) = std::env::var_os("HOME") {
@@ -43,6 +59,14 @@ fn desktop_dirs() -> Vec<std::path::PathBuf> {
 
 fn page_of(screen: &str) -> Result<i32, String> {
     match screen {
+        "home" => Ok(0),
+        "clean-up" => Ok(1),
+        "apps" => Ok(2),
+        "storage" => Ok(3),
+        "startup" => Ok(6),
+        "services" => Ok(7),
+        "history" => Ok(8),
+        "settings" => Ok(9),
         "performance" => Ok(4),
         "processes" => Ok(5),
         other => Err(format!("unknown screen '{other}'")),
@@ -126,6 +150,12 @@ fn show_demo(
             ctl.refresh(ui);
             ui.global::<ProcState>().set_details(view.details);
         }
+        "home" => {
+            if let Some(other) = state {
+                return Err(format!("unknown home state '{other}'").into());
+            }
+            view::apply_home(ui, &demo::home());
+        }
         _ => {
             let view = perf::View::from_state(state)?;
             view::apply_perf(ui, &demo::performance());
@@ -177,12 +207,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.global::<Shell>()
             .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
         show_demo(&ui, "performance", None)?;
+        show_demo(&ui, "home", None)?;
         let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
         ctl.borrow_mut().refresh(&ui);
         wire_procs(&ui, &ctl);
         return Ok(ui.run()?);
     }
 
+    let (name, detail) = shell_info();
+    ui.global::<Shell>().set_distro_name(name.into());
+    ui.global::<Shell>().set_distro_detail(detail.into());
     let mut desktop = std::collections::HashMap::new();
     for dir in desktop_dirs() {
         procs::load_desktop_names(&dir, &mut desktop);
@@ -198,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |ui: &MainWindow| {
             let perf = sampler.borrow_mut().sample();
             view::apply_perf(ui, &perf);
+            view::apply_home(ui, &sampler.borrow().home());
             let mut c = ctl.borrow_mut();
             c.data = sampler.borrow().processes(&desktop);
             if !c.data.rows.iter().any(|r| r.id == c.selected) {

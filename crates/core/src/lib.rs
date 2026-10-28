@@ -2,5 +2,6 @@
 
 pub mod diskstats;
 pub mod distro;
+pub mod drive;
 pub mod rates;
 pub mod stats;

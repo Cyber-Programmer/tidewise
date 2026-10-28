@@ -117,3 +117,24 @@ fn an_unknown_screen_or_state_fails_cleanly() {
         assert!(!out.exists());
     }
 }
+
+#[test]
+fn home_renders_and_unfinished_pages_say_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home.png");
+    run_screen("home", &home, &[]);
+    assert_eq!(png_size(&fs::read(&home).unwrap()), (1360, 960));
+    let mut pages = vec![fs::read(&home).unwrap()];
+    for screen in [
+        "clean-up", "apps", "storage", "startup", "services", "history", "settings",
+    ] {
+        let out = dir.path().join(format!("{screen}.png"));
+        run_screen(screen, &out, &[]);
+        pages.push(fs::read(&out).unwrap());
+    }
+    for (i, a) in pages.iter().enumerate() {
+        for b in &pages[i + 1..] {
+            assert_ne!(a, b, "two pages look identical");
+        }
+    }
+}

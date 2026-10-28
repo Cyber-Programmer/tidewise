@@ -7,6 +7,7 @@ use tidewise_core::stats::{LiveStats, Snapshot};
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::home::{self, HomeData, Hue, Tile};
 use crate::perf::{Fact, Metric, PerfData, TopRow};
 use crate::procs::{self, Group, Kind, ProcData, Row};
 
@@ -94,6 +95,75 @@ impl Sampler {
         let data = self.build(&s);
         self.last = Some(s);
         data
+    }
+
+    /// The "Right now" tiles from the last sample. No health score or app counts yet.
+    pub fn home(&self) -> HomeData {
+        let Some(s) = &self.last else {
+            return HomeData {
+                last_checked: String::new(),
+                scan: None,
+                tiles: Vec::new(),
+                apps: None,
+            };
+        };
+        let total = (s.memory_total as f64).max(1.0);
+        let mem_frac = s.memory_used as f64 / total;
+        let cpu = s.cpu_percent as f64;
+        let net_now = self.network.back().copied().unwrap_or(0.0);
+        let (nv, nu) = fmt_rate(net_now);
+        let spark = |series: &VecDeque<f64>, scale: f64| home::spark_points(&scaled(series, scale));
+        let mut tiles = vec![
+            Tile {
+                label: "Processor".into(),
+                mood: mood(cpu / 100.0).into(),
+                mood_hue: Hue::Cpu,
+                value: format!("{cpu:.0}%"),
+                unit: String::new(),
+                hue: Hue::Cpu,
+                spark: Some(spark(&self.cpu, 100.0)),
+                bar: None,
+            },
+            Tile {
+                label: "Memory".into(),
+                mood: mood(mem_frac).into(),
+                mood_hue: Hue::Memory,
+                value: format!("{:.1}", s.memory_used as f64 / GB),
+                unit: format!("of {:.0} GB", total / GB),
+                hue: Hue::Memory,
+                spark: None,
+                bar: Some(mem_frac),
+            },
+        ];
+        if let Some(drive) = tidewise_core::drive::main_drive() {
+            let used = drive.used_fraction();
+            tiles.push(Tile {
+                label: "Main drive".into(),
+                mood: format!("{:.0}% full", used * 100.0),
+                mood_hue: if used >= 0.8 { Hue::Memory } else { Hue::Muted },
+                value: format!("{:.0} GB", drive.free as f64 / GB),
+                unit: "free".into(),
+                hue: Hue::Disk,
+                spark: None,
+                bar: Some(used),
+            });
+        }
+        tiles.push(Tile {
+            label: "Network".into(),
+            mood: if net_now > MB { "Downloading" } else { "Quiet" }.into(),
+            mood_hue: Hue::Muted,
+            value: nv,
+            unit: format!("{nu} down"),
+            hue: Hue::Network,
+            spark: Some(spark(&self.network, rate_scale(&self.network, MB))),
+            bar: None,
+        });
+        HomeData {
+            last_checked: "Live numbers, updated every second".into(),
+            scan: None,
+            tiles,
+            apps: None,
+        }
     }
 
     /// Rows for the Processes screen from the last sample, grouped by app.

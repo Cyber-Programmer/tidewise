@@ -72,6 +72,11 @@ export global Theme {
     out property <color> mono-dim: #B9C0CB;
     out property <color> badge-bg: #232933;
 
+    // Data colour by number: 0 processor, 1 memory, 2 disk, 3 network, 4 muted text.
+    public pure function hue(i: int) -> color {
+        i == 0 ? data-cpu : (i == 1 ? data-memory : (i == 2 ? data-disk : (i == 3 ? data-network : text-2)))
+    }
+
     // Fonts. Geist for text, Geist Mono for every number, path and command.
     out property <string> sans: "Geist";
     out property <string> mono: "Geist Mono";

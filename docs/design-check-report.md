@@ -38,3 +38,14 @@ Fixed: header, segmented filter, search box with placeholder and icon, list card
 lock icon on protected rows, hot (amber) numbers, selected-row tint, selected-process bar with End button,
 "Protected · part of your system" badge and, in details, "Force quit" plus the command line.
 Remaining (accepted): text antialiasing; "End task" does nothing yet (M4).
+
+## Home (M1-T5)
+| Image | Before | After |
+| --- | --- | --- |
+| Main | n/a (screen did not exist) | 1.3 % |
+
+Before: the app had no Home page. Built: sidebar with logo, icons, active state and distro card (real `/etc/os-release`,
+desktop and tools in live mode), header with search pill and "Scan again", health ring (82 of 100), suggestion rows,
+"Right now" tiles with sparklines and bars, apps-by-source strip, and a titled "Coming in a later version" page for the
+other sidebar items. Live mode shows the tiles and a "Scan coming soon" card instead of score and suggestions.
+Remaining (accepted): text antialiasing; the search pill does nothing yet; "Review & fix" and the tiles only navigate.

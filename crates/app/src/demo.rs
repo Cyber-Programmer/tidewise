@@ -1,6 +1,7 @@
 //! Sample data for `--demo` and screenshots, copied from the artboards' script blocks in
 //! `docs/design/screens/*.dc.html`.
 
+use crate::home::{Apps, HomeData, Hue, Icon, Scan, Suggestion, Tile};
 use crate::perf::{Fact, Metric, PerfData, TopRow};
 use crate::procs::{Kind, ProcData, Row};
 
@@ -180,6 +181,52 @@ pub fn processes() -> ProcData {
     }
 }
 
+/// The Home artboard: score 82, three suggestions, four tiles, 143 apps.
+pub fn home() -> HomeData {
+    let tile = |label: &str, mood: &str, mood_hue, value: &str, unit: &str, hue, spark, bar| Tile {
+        label: label.into(),
+        mood: mood.into(),
+        mood_hue,
+        value: value.into(),
+        unit: unit.into(),
+        hue,
+        spark,
+        bar,
+    };
+    let suggestion = |icon, title: &str, body: &str, action: &str, page| Suggestion {
+        icon,
+        title: title.into(),
+        body: body.into(),
+        action: action.into(),
+        page,
+    };
+    HomeData {
+        last_checked: "Last checked 2 minutes ago".into(),
+        scan: Some(Scan {
+            score: 82,
+            tag: "Good shape".into(),
+            headline: "Your PC is running well. 3 things could free up space or speed it up.".into(),
+            sub: "Nothing changes until you review it. Every fix shows exactly what it will touch first.".into(),
+            suggestions: vec![
+                suggestion(Icon::Clean, "12.6 GB of junk files can be removed", "Old installer downloads, app caches and logs. Apps rebuild what they need.", "Clean up", 1),
+                suggestion(Icon::Warning, "Your main drive is 80% full", "Downloads is the biggest folder you control (38 GB). 22 GB of it is older than 6 months.", "See what's using space", 3),
+                suggestion(Icon::Chip, "Firefox is using 2.1 GB of memory", "Normal with many tabs open. Closing a few will make other apps feel quicker.", "View", 5),
+            ],
+        }),
+        tiles: vec![
+            tile("Processor", "Idle", Hue::Cpu, "14%", "", Hue::Cpu, Some(vec![(0.0, 28.0), (14.0, 26.0), (28.0, 29.0), (42.0, 22.0), (56.0, 25.0), (70.0, 18.0), (84.0, 24.0), (98.0, 27.0), (112.0, 20.0), (126.0, 23.0), (140.0, 12.0), (154.0, 21.0), (168.0, 25.0), (182.0, 22.0), (200.0, 24.0)]), None),
+            tile("Memory", "Busy", Hue::Memory, "9.8", "of 16 GB", Hue::Memory, None, Some(0.61)),
+            tile("Main drive", "80% full", Hue::Memory, "95 GB", "free", Hue::Disk, None, Some(0.80)),
+            tile("Network", "Wi-Fi", Hue::Muted, "2.4", "MB/s down", Hue::Network, Some(vec![(0.0, 30.0), (14.0, 30.0), (28.0, 26.0), (42.0, 14.0), (56.0, 9.0), (70.0, 12.0), (84.0, 20.0), (98.0, 28.0), (112.0, 29.0), (126.0, 24.0), (140.0, 16.0), (154.0, 10.0), (168.0, 13.0), (182.0, 22.0), (200.0, 26.0)]), None),
+        ],
+        apps: Some(Apps {
+            title: "143 apps, one list".into(),
+            sub: "Tidewise finds apps from every place Linux installs them, so you can remove them the same way.".into(),
+            chips: vec![("System".into(), 112), ("Flatpak".into(), 24), ("AppImage".into(), 5), ("Snap".into(), 2)],
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +290,15 @@ mod tests {
         assert!(d.rows[0].cpu_hot && !d.rows[1].cpu_hot);
         assert!(d.rows[6].protected && d.rows[7].protected);
         assert!(d.rows[6].note.ends_with("so Tidewise won\u{2019}t."));
+    }
+
+    #[test]
+    fn home_demo_matches_the_artboard() {
+        let h = home();
+        let scan = h.scan.unwrap();
+        assert_eq!((scan.score, scan.suggestions.len()), (82, 3));
+        assert_eq!(h.tiles.len(), 4);
+        assert_eq!(h.tiles[0].spark.as_ref().unwrap().len(), 15);
+        assert_eq!(h.apps.unwrap().chips.iter().map(|c| c.1).sum::<u32>(), 143);
     }
 }

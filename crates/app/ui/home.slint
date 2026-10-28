@@ -1,0 +1,374 @@
+// The Home screen (docs/design/screens/Main.dc.html).
+import { Theme } from "theme.slint";
+import { Shell } from "components.slint";
+
+export struct HomeTile {
+    label: string,
+    mood: string,
+    mood-hue: int,
+    value: string,
+    unit: string,
+    hue: int,
+    spark: string,
+    has-spark: bool,
+    fraction: float,
+    has-bar: bool,
+}
+
+export struct HomeSuggestion {
+    icon: int,
+    title: string,
+    body: string,
+    action: string,
+    page: int,
+}
+
+export struct HomeChip { label: string, count: string }
+
+export global HomeState {
+    in property <string> last-checked;
+    // Pixel width of a tile sparkline; Rust draws the paths at this width (a Path scales uniformly).
+    in property <length> spark-width: 220px;
+    in property <bool> has-scan: false;
+    in property <int> score;
+    in property <string> ring;
+    in property <string> tag;
+    in property <string> headline;
+    in property <string> sub;
+    in property <[HomeSuggestion]> suggestions;
+    in property <[HomeTile]> tiles;
+    in property <bool> has-apps: false;
+    in property <string> apps-title;
+    in property <string> apps-sub;
+    in property <[HomeChip]> chips;
+}
+
+component GhostButton inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <length> button-height: 40px;
+    callback clicked();
+    height: root.button-height;
+    width: row.preferred-width;
+    background: Theme.row-hover;
+    border-radius: Theme.radius-button;
+    border-width: 1px;
+    border-color: Theme.track-off;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    row := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        if root.icon.width > 0: VerticalLayout {
+            alignment: center;
+            Image { source: root.icon; width: 16px; height: 16px; colorize: Theme.text; }
+        }
+        Text { text: root.label; color: Theme.text; font-size: Theme.size-body; font-weight: 500; vertical-alignment: center; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component Card inherits Rectangle {
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+}
+
+component SuggestionRow inherits Rectangle {
+    in property <HomeSuggestion> s;
+    height: 76px;
+    border-radius: Theme.radius-row;
+    background: touch.has-hover ? Theme.row-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    accessible-role: button;
+    accessible-label: root.s.title;
+    accessible-action-default => { Shell.navigate(root.s.page); }
+    HorizontalLayout {
+        padding-left: 19px;
+        padding-right: 19px;
+        spacing: 16px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 42px;
+                height: 42px;
+                border-radius: 11px;
+                background: root.s.icon == 0 ? Theme.accent-tint : (root.s.icon == 1 ? Theme.warn-tint : Theme.chip-system-bg);
+                Image {
+                    width: 20px;
+                    height: 20px;
+                    source: root.s.icon == 0 ? @image-url("icons/clean.svg") : (root.s.icon == 1 ? @image-url("icons/warning.svg") : @image-url("icons/chip.svg"));
+                    colorize: root.s.icon == 0 ? Theme.accent-text : (root.s.icon == 1 ? Theme.warn : Theme.data-cpu);
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+            Text { text: root.s.title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; overflow: elide; }
+            Text { text: root.s.body; color: Theme.text-2; font-size: Theme.size-small; overflow: elide; }
+        }
+        Text { text: root.s.action; color: Theme.accent-text; font-size: Theme.size-small; font-weight: 600; vertical-alignment: center; }
+        VerticalLayout {
+            alignment: center;
+            Image { source: @image-url("icons/chevron.svg"); width: 18px; height: 18px; colorize: Theme.text-3; }
+        }
+    }
+    touch := TouchArea { clicked => { Shell.navigate(root.s.page); } }
+}
+
+component Tile inherits Rectangle {
+    in property <HomeTile> t;
+    callback clicked();
+    height: 138px;
+    border-radius: Theme.radius-row;
+    background: touch.has-hover ? Theme.row-hover : Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    accessible-role: button;
+    accessible-label: root.t.label;
+    accessible-action-default => { root.clicked(); }
+    VerticalLayout {
+        padding-left: 19px;
+        padding-right: 19px;
+        padding-top: 17px;
+        padding-bottom: 17px;
+        spacing: 10px;
+        HorizontalLayout {
+            Text { text: root.t.label; color: Theme.text-2; font-size: Theme.size-small; }
+            Text { text: root.t.mood; color: Theme.hue(root.t.mood-hue); font-size: Theme.size-small; horizontal-alignment: right; }
+        }
+        HorizontalLayout {
+            spacing: 13px;
+            alignment: start;
+            Text { text: root.t.value; color: Theme.text; font-family: Theme.mono; font-size: 26px; font-weight: 500; vertical-alignment: bottom; }
+            if root.t.unit != "": Text { text: root.t.unit; color: Theme.text-2; font-family: Theme.mono; font-size: 15px; vertical-alignment: bottom; }
+        }
+        if root.t.has-spark: Path {
+            height: 34px;
+            width: HomeState.spark-width;
+            viewbox-width: HomeState.spark-width / 1px;
+            viewbox-height: 34;
+            commands: root.t.spark;
+            stroke: Theme.hue(root.t.hue);
+            stroke-width: 2px;
+            stroke-line-join: round;
+        }
+        if root.t.has-bar: Rectangle {
+            height: 34px;
+            Rectangle {
+                y: 13px;
+                height: 8px;
+                border-radius: Theme.radius-pill;
+                background: Theme.search-border;
+                clip: true;
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * root.t.fraction;
+                    background: Theme.hue(root.t.hue);
+                    border-radius: Theme.radius-pill;
+                }
+            }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+export component HomeScreen inherits Rectangle {
+    background: Theme.bg;
+    VerticalLayout {
+        padding-top: 28px;
+        padding-bottom: 40px;
+        padding-left: 36px;
+        padding-right: 36px;
+        spacing: 24px;
+        alignment: start;
+        // Header
+        HorizontalLayout {
+            height: 54px;
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                spacing: 6px;
+                Text { text: "Home"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                Text { text: HomeState.last-checked; color: Theme.text-2; font-size: Theme.size-body; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            HorizontalLayout {
+                horizontal-stretch: 0;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 280px;
+                        height: 40px;
+                        background: Theme.surface;
+                        border-radius: Theme.radius-button;
+                        border-width: 1px;
+                        border-color: Theme.search-border;
+                        accessible-role: button;
+                        accessible-label: "Search apps, files, settings";
+                        Image { x: 12px; y: 11px; width: 16px; height: 16px; source: @image-url("icons/search.svg"); colorize: Theme.text-3; }
+                        Text { x: 36px; text: "Search apps, files, settings"; color: Theme.text-3; font-size: Theme.size-body; vertical-alignment: center; }
+                        Rectangle {
+                            x: parent.width - self.width - 12px;
+                            y: 9px;
+                            width: 45px;
+                            height: 20px;
+                            border-radius: 5px;
+                            border-width: 1px;
+                            border-color: Theme.track-off;
+                            Text { text: "Ctrl K"; color: Theme.text-2; font-family: Theme.mono; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    GhostButton { label: "Scan again"; icon: @image-url("icons/refresh.svg"); }
+                }
+            }
+        }
+        if HomeState.has-scan: Card {
+            border-radius: Theme.radius-hero;
+            height: 190px;
+            HorizontalLayout {
+                padding: 29px;
+                spacing: 28px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 132px;
+                        height: 132px;
+                        Rectangle {
+                            x: 4px;
+                            y: 4px;
+                            width: 124px;
+                            height: 124px;
+                            border-radius: 62px;
+                            border-width: 12px;
+                            border-color: Theme.search-border;
+                        }
+                        Path {
+                            width: 132px;
+                            height: 132px;
+                            viewbox-width: 132;
+                            viewbox-height: 132;
+                            commands: HomeState.ring;
+                            stroke: Theme.accent;
+                            stroke-width: 12px;
+                            stroke-line-cap: round;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text { text: HomeState.score; color: Theme.text; font-family: Theme.mono; font-size: Theme.size-display; font-weight: 500; horizontal-alignment: center; }
+                            Text { text: "of 100"; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: center; }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 6px;
+                    Text { text: HomeState.tag.to-uppercase(); color: Theme.accent-text; font-size: Theme.size-small; font-weight: 600; letter-spacing: 0.52px; }
+                    Text { text: HomeState.headline; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; letter-spacing: -0.33px; wrap: word-wrap; }
+                    Text { text: HomeState.sub; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+                VerticalLayout {
+                    width: 200px;
+                    alignment: center;
+                    spacing: 10px;
+                    Rectangle {
+                        height: 44px;
+                        border-radius: 11px;
+                        background: Theme.accent;
+                        accessible-role: button;
+                        accessible-label: "Review & fix";
+                        Text { text: "Review & fix"; color: Theme.on-accent; font-size: Theme.size-row-title; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { Shell.navigate(1); } }
+                    }
+                    Rectangle {
+                        height: 44px;
+                        border-radius: 11px;
+                        background: Theme.row-hover;
+                        border-width: 1px;
+                        border-color: Theme.track-off;
+                        accessible-role: button;
+                        accessible-label: "Why " + HomeState.score + "?";
+                        Text { text: "Why " + HomeState.score + "?"; color: Theme.text; font-size: Theme.size-body; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
+            }
+        }
+        if !HomeState.has-scan: Card {
+            border-radius: Theme.radius-hero;
+            height: 96px;
+            VerticalLayout {
+                padding: 29px;
+                alignment: center;
+                spacing: 4px;
+                Text { text: "Scan coming soon"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                Text { text: "Your health score and suggestions arrive in a later version. The numbers below are live."; color: Theme.text-2; font-size: Theme.size-small; }
+            }
+        }
+        if HomeState.has-scan: VerticalLayout {
+            spacing: 10px;
+            Text { text: "Suggestions"; color: Theme.text-2; font-size: Theme.size-row-title; font-weight: 600; }
+            for s in HomeState.suggestions: SuggestionRow { s: s; }
+        }
+        VerticalLayout {
+            spacing: 10px;
+            Text { text: "Right now"; color: Theme.text-2; font-size: Theme.size-row-title; font-weight: 600; }
+            HorizontalLayout {
+                spacing: 12px;
+                for t[i] in HomeState.tiles: Tile {
+                    t: t;
+                    clicked => { Shell.navigate(i == 2 ? 3 : 4); }
+                }
+            }
+        }
+        if HomeState.has-apps: Card {
+            border-radius: Theme.radius-card;
+            height: 102px;
+            HorizontalLayout {
+                padding-left: 23px;
+                padding-right: 23px;
+                spacing: 20px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 4px;
+                    Text { text: HomeState.apps-title; color: Theme.text; font-size: 16px; font-weight: 600; }
+                    Text { text: HomeState.apps-sub; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for c in HomeState.chips: Rectangle {
+                            height: 31px;
+                            width: chip-row.preferred-width + 20px;
+                            border-radius: 8px;
+                            background: Theme.nav-active-bg;
+                            chip-row := HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 4px;
+                                Text { text: c.label; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; }
+                                Text { text: c.count; color: Theme.text-2; font-family: Theme.mono; font-size: Theme.size-small; font-weight: 500; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    GhostButton { label: "Manage apps"; }
+                }
+            }
+        }
+    }
+}

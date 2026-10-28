@@ -3,9 +3,13 @@
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 
 use crate::chart;
+use crate::home::{self, HomeData};
 use crate::perf::{PerfData, View};
 use crate::procs::{self, ProcData};
-use crate::{Fact, MainWindow, PerfMetric, PerfState, ProcRow, ProcState, TopRow};
+use crate::{
+    Fact, HomeChip, HomeState, HomeSuggestion, HomeTile, MainWindow, PerfMetric, PerfState,
+    ProcRow, ProcState, TopRow,
+};
 
 /// Data colours in tab order: processor, memory, network, disk (Theme.data-*).
 const COLORS: [(u8, u8, u8); 4] = [
@@ -77,6 +81,70 @@ pub fn apply_view(ui: &MainWindow, view: &View) {
     let state = ui.global::<PerfState>();
     state.set_selected(view.metric as i32);
     state.set_details(view.details);
+}
+
+pub fn apply_home(ui: &MainWindow, d: &HomeData) {
+    let width =
+        home::spark_width(ui.window().size().width as f32 / ui.window().scale_factor()) as f64;
+    let tiles: Vec<HomeTile> = d
+        .tiles
+        .iter()
+        .map(|t| HomeTile {
+            label: t.label.as_str().into(),
+            mood: t.mood.as_str().into(),
+            mood_hue: t.mood_hue as i32,
+            value: t.value.as_str().into(),
+            unit: t.unit.as_str().into(),
+            hue: t.hue as i32,
+            spark: t
+                .spark
+                .as_deref()
+                .map(|p| home::points_path(p, width))
+                .unwrap_or_default()
+                .into(),
+            has_spark: t.spark.is_some(),
+            fraction: t.bar.unwrap_or(0.0) as f32,
+            has_bar: t.bar.is_some(),
+        })
+        .collect();
+    let state = ui.global::<HomeState>();
+    state.set_last_checked(d.last_checked.as_str().into());
+    state.set_spark_width(width as f32);
+    state.set_tiles(ModelRc::new(VecModel::from(tiles)));
+    state.set_has_scan(d.scan.is_some());
+    if let Some(scan) = &d.scan {
+        state.set_score(scan.score as i32);
+        state.set_ring(home::ring_path(scan.score).into());
+        state.set_tag(scan.tag.as_str().into());
+        state.set_headline(scan.headline.as_str().into());
+        state.set_sub(scan.sub.as_str().into());
+        let rows: Vec<HomeSuggestion> = scan
+            .suggestions
+            .iter()
+            .map(|s| HomeSuggestion {
+                icon: s.icon as i32,
+                title: s.title.as_str().into(),
+                body: s.body.as_str().into(),
+                action: s.action.as_str().into(),
+                page: s.page,
+            })
+            .collect();
+        state.set_suggestions(ModelRc::new(VecModel::from(rows)));
+    }
+    state.set_has_apps(d.apps.is_some());
+    if let Some(apps) = &d.apps {
+        state.set_apps_title(apps.title.as_str().into());
+        state.set_apps_sub(apps.sub.as_str().into());
+        let chips: Vec<HomeChip> = apps
+            .chips
+            .iter()
+            .map(|(label, n)| HomeChip {
+                label: label.as_str().into(),
+                count: n.to_string().into(),
+            })
+            .collect();
+        state.set_chips(ModelRc::new(VecModel::from(chips)));
+    }
 }
 
 fn proc_row(r: &procs::Row, selected: bool) -> ProcRow {
