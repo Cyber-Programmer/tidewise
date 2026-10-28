@@ -1,6 +1,6 @@
 //! Copies plain `perf` data into the Slint globals.
 
-use slint::{Color, ComponentHandle, ModelRc, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::chart;
 use crate::home::{self, HomeData};
@@ -147,6 +147,42 @@ pub fn apply_home(ui: &MainWindow, d: &HomeData) {
     }
 }
 
+/// Indexes (below the shorter length) whose rows differ between `old` and `new`.
+fn changed_rows<T: PartialEq>(old: &[T], new: &[T]) -> Vec<usize> {
+    old.iter()
+        .zip(new)
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Bring `current` to `new` by touching only the rows that changed, so Slint re-renders only
+/// those. Returns a fresh model when `current` isn't one we made (the caller then sets it).
+fn sync_model<T: Clone + PartialEq + 'static>(
+    current: &ModelRc<T>,
+    new: Vec<T>,
+) -> Option<ModelRc<T>> {
+    let Some(vec) = current.as_any().downcast_ref::<VecModel<T>>() else {
+        return Some(ModelRc::new(VecModel::from(new)));
+    };
+    let old: Vec<T> = vec.iter().collect();
+    for i in changed_rows(&old, &new) {
+        vec.set_row_data(i, new[i].clone());
+    }
+    if new.len() < old.len() {
+        // Remove from the end, so the rows that stay keep their items.
+        for i in (new.len()..old.len()).rev() {
+            vec.remove(i);
+        }
+    } else {
+        for row in new.into_iter().skip(old.len()) {
+            vec.push(row);
+        }
+    }
+    None
+}
+
 fn proc_row(r: &procs::Row, selected: bool) -> ProcRow {
     ProcRow {
         name: r.name.as_str().into(),
@@ -189,7 +225,9 @@ pub fn apply_procs(
         .collect();
     let state = ui.global::<ProcState>();
     state.set_subtitle(data.subtitle.as_str().into());
-    state.set_rows(ModelRc::new(VecModel::from(rows)));
+    if let Some(model) = sync_model(&state.get_rows(), rows) {
+        state.set_rows(model);
+    }
     state.set_filter(filter.index());
     let sel = data.rows.iter().find(|r| r.id == selected);
     state.set_has_sel(sel.is_some());
@@ -201,7 +239,42 @@ pub fn apply_procs(
 
 #[cfg(test)]
 mod tests {
-    use super::chart_width;
+    use super::{changed_rows, chart_width, sync_model};
+    use slint::{Model, ModelRc, VecModel};
+
+    #[test]
+    fn only_differing_rows_are_listed() {
+        assert_eq!(changed_rows(&[1, 2, 3], &[1, 9, 3]), [1]);
+        assert!(changed_rows(&[1, 2], &[1, 2]).is_empty());
+        assert_eq!(
+            changed_rows(&[1, 2, 3], &[7, 2]),
+            [0],
+            "extra rows are not 'changed'"
+        );
+    }
+
+    fn contents(m: &ModelRc<i32>) -> Vec<i32> {
+        m.iter().collect()
+    }
+
+    #[test]
+    fn syncing_updates_grows_and_shrinks_the_same_model() {
+        let model = ModelRc::new(VecModel::from(vec![1, 2, 3]));
+        assert!(sync_model(&model, vec![1, 5, 3]).is_none());
+        assert_eq!(contents(&model), [1, 5, 3]);
+        assert!(sync_model(&model, vec![1, 5, 3, 4, 6]).is_none());
+        assert_eq!(contents(&model), [1, 5, 3, 4, 6]);
+        assert!(sync_model(&model, vec![8]).is_none());
+        assert_eq!(contents(&model), [8]);
+        assert!(sync_model(&model, vec![]).is_none());
+        assert!(contents(&model).is_empty());
+    }
+
+    #[test]
+    fn a_foreign_model_is_replaced() {
+        let fresh = sync_model(&ModelRc::default(), vec![1, 2]).expect("new model");
+        assert_eq!(contents(&fresh), [1, 2]);
+    }
 
     #[test]
     fn chart_width_matches_the_artboard_at_1360() {

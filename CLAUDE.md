@@ -10,6 +10,7 @@ Package managers: pacman, apt, dnf; app sources: Flatpak, Snap, AppImage. Licenc
 - Design source of truth: `docs/design/` (screens as HTML, `tokens.md`)
 - Current phase prompt: `docs/prompts/`
 - Progress log: `docs/progress.md` — read the last entry before starting, add one when done
+- Engineering practices (TDD, security testing, review, budgets): @docs/ENGINEERING.md
 
 ## Golden rules (never break these)
 
@@ -37,6 +38,8 @@ Package managers: pacman, apt, dnf; app sources: Flatpak, Snap, AppImage. Licenc
 - End each task by appending to `docs/progress.md`:
   `## YYYY-MM-DD — <task>` then `Done:`, `Next:`, `Blockers:` (one line each).
 - Ask before adding any new dependency. Say why it's needed and what it costs (size, maintenance).
+- Small commits, Conventional Commits style (`feat(core): …`, `fix(app): …`, `test(…): … (red)`),
+  never mixing a refactor with a behaviour change. Decisions go in `docs/decisions/`.
 - If you are unsure how a distro tool behaves, say so and propose a fixture test; don't guess.
 
 ## Workspace layout
@@ -64,10 +67,29 @@ cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test --all
 cargo audit && cargo deny check
-./packaging/appimage/build.sh        # builds dist/Tidewise-<version>-x86_64.AppImage
+cargo build --release -p tidewise-app   # runnable app: ./target/release/tidewise
+./packaging/appimage/build.sh        # builds dist/Tidewise-<version>-x86_64.AppImage (from M2)
 ```
 
-All five must pass before you say a task is done. Run them; don't assume.
+All of these must pass before you say a task is done. Run them; don't assume.
+
+## Definition of done (every task, every session)
+
+1. Tests written first and shown failing, then passing (see Testing rules).
+2. fmt, clippy, test, audit and deny all exit 0 — run them **on the final commit**, not earlier.
+3. **Build the app last:** `cargo build --release -p tidewise-app`. If a `target/release/tidewise`
+   already exists and no file under `crates/`, `assets/`, `Cargo.toml` or `Cargo.lock` is newer than it,
+   say it is already up to date instead of rebuilding.
+4. **End your final message with a "Run it" block** so the human can try it straight away:
+   ```
+   Build: up to date | rebuilt   (target/release/tidewise, <date time>)
+   Run:   ./target/release/tidewise              # live data
+          ./target/release/tidewise --demo       # the design's sample data
+          TIDEWISE_RENDERER=gpu ./target/release/tidewise   # GPU renderer
+   ```
+   Once the AppImage script exists, also give its path and `chmod +x … && ./Tidewise-….AppImage`.
+   If the build failed, say so plainly with the error; never claim a build you didn't make.
+5. `docs/progress.md` entry written; any rule you bent is listed there with the reason.
 
 ## Rust conventions
 
@@ -101,12 +123,21 @@ All five must pass before you say a task is done. Run them; don't assume.
 
 - **Red → green → refactor.** For every change: write the test first, run it and show it failing,
   write the smallest code that makes it pass, then clean up with the tests still green.
+- **Make it auditable:** commit the failing test on its own (`test(scope): … (red)`), then the code
+  (`feat|fix(scope): …`). "Written together with the code" is not test-driven; if it happens, say so.
+- Keep the test pyramid: mostly unit tests, fewer integration tests, few end-to-end (ENGINEERING.md §1).
 - Unit tests: parsers (from fixtures), size maths, view-model logic, the helper's validation.
 - Integration tests: real commands in containers (Arch, Ubuntu 22.04, Ubuntu 24.04, Debian 12, Fedora),
   the helper end to end as root inside a container, the AppImage launching on Ubuntu 22.04 and newest.
 - No adapter or helper change without a test that fails before and passes after.
 - Helper tests include a table of hostile inputs (`--force`, `../`, `*`, empty, very long lists).
 - Never run real destructive commands in tests on the host. Use fixtures or the distro containers.
+- **Security tests** for anything that parses outside input or runs as root: hostile-input tables,
+  `cargo fuzz` targets for every parser, privilege and symlink tests in containers, and an adversarial
+  review by a fresh subagent before helper work is done. Keep `docs/security/threat-model.md` current.
+  Details and the pre-release human pen-test checklist: ENGINEERING.md §2.
+- Never weaken, skip or delete a failing test to get green. A flaky test is a bug.
+- Budgets are tests too: idle memory ≤ 40 MB, idle CPU < 2 % on Home, design match ≤ 10 %.
 
 ## Things to stop and ask about
 

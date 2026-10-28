@@ -192,12 +192,12 @@ export component ProcessesScreen inherits Rectangle {
                 ListView {
                     for r[i] in ProcState.rows: Rectangle {
                         height: 56px;
-                        background: r.selected ? Theme.row-selected : (touch.has-hover ? Theme.row-hover : transparent);
+                        background: r.selected ? Theme.row-selected : (touch.has-hover ? Theme.control-bg : transparent);
                         accessible-role: button;
                         accessible-label: r.name;
                         accessible-checked: r.selected;
                         accessible-action-default => { ProcState.pick(i); }
-                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.divider; }
+                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
                         HorizontalLayout {
                             padding-left: 19px;
                             padding-right: 19px;
@@ -286,10 +286,10 @@ export component ProcessesScreen inherits Rectangle {
                         Rectangle {
                             height: 42px;
                             width: 93px;
-                            background: Theme.row-hover;
+                            background: Theme.control-bg;
                             border-radius: Theme.radius-button;
                             border-width: 1px;
-                            border-color: Theme.track-off;
+                            border-color: Theme.control-border;
                             accessible-role: button;
                             accessible-label: "Force quit " + ProcState.sel.name;
                             Text { text: "Force quit"; color: Theme.text; font-size: Theme.size-body; horizontal-alignment: center; vertical-alignment: center; }

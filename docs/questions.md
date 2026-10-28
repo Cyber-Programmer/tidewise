@@ -39,3 +39,12 @@ state for it). Meanwhile the window minimum stays 900×600 as designed and the o
 2. Idle CPU measured 7.5 % (software) and 5.0 % (GPU) of one core on the Home page, higher than expected for one sample a second.
    Not yet investigated: likely the full-window repaint each tick plus `sysinfo` refreshing every process. Recommended:
    profile next; cheap wins are to update models only when values changed and to refresh the process list only on the Processes page.
+
+## R3-T1 — CPU unit and memory meaning
+Decision taken: per-process and per-group CPU is a share of the whole PC (÷ logical CPUs), memory in rows is private memory (resident − shared). Both were in the run prompt. A group's total is the sum of private memory, so it can differ from what `top` shows per process (RSS); the details line shows RSS and "x % of one core". Recommended: keep. Open: kernel threads still show as rows (0 MB); say if they should be hidden.
+
+## R3-T2 — process data comes from `/proc` directly
+`core::procfs` replaces sysinfo's process refresh (32 ms/tick). It assumes USER_HZ = 100 (true on Linux for user space) and reads the page size from `/proc/self/smaps`. Recommended: keep. Per-process CPU is 0 for the first second after opening Performance or Processes (no earlier reading to compare with); say if that blank second matters.
+
+## R3-T3 — sidebar scroll has no scrollbar
+Below about 700 px the main nav items scroll with the wheel or touch; Slint's Flickable draws no scrollbar. Recommended: fine for now; the 60 px icon rail under 1100 px (tokens.md) would make this moot.

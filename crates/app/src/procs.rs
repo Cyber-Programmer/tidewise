@@ -122,8 +122,14 @@ pub struct Proc {
     pub pid: u32,
     pub comm: String,
     pub cmdline: Vec<String>,
+    /// Share of the whole PC, 0 to 100.
     pub cpu: f64,
+    /// Percent of one core (technical details).
+    pub cpu_core: f64,
+    /// Private memory, safe to add up.
     pub mem: u64,
+    /// Resident size including shared libraries (technical details).
+    pub rss: u64,
 }
 
 #[derive(Debug)]
@@ -133,7 +139,10 @@ pub struct Group {
     pub kind: Kind,
     pub count: usize,
     pub cpu: f64,
+    pub cpu_core: f64,
     pub mem: u64,
+    /// Resident size of the lead (biggest) process.
+    pub rss: u64,
     pub protected: bool,
     pub pid: u32,
     pub cmd: String,
@@ -222,7 +231,9 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
                     kind,
                     count: 0,
                     cpu: 0.0,
+                    cpu_core: 0.0,
                     mem: 0,
+                    rss: 0,
                     protected: is_protected(&program),
                     pid: p.pid,
                     cmd: String::new(),
@@ -233,10 +244,12 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
         let g = &mut groups[at];
         g.count += 1;
         g.cpu += p.cpu;
+        g.cpu_core += p.cpu_core;
         g.mem += p.mem;
         if biggest.get(&key).is_none_or(|m| p.mem > *m) {
             biggest.insert(key, p.mem);
             g.pid = p.pid;
+            g.rss = p.rss;
             g.cmd = p.cmdline.join(" ").chars().take(200).collect();
         }
     }
@@ -252,6 +265,33 @@ pub fn read_proc(root: &Path, pid: u32) -> Option<(String, Vec<String>)> {
         .map(|b| parse_cmdline(&b))
         .unwrap_or_default();
     Some((comm.trim_end().to_string(), cmdline))
+}
+
+/// `comm` and command line per pid, so `/proc` is only read for processes we haven't seen.
+/// An entry is reused only while the process still has the same `comm` (a reused pid doesn't).
+#[derive(Default)]
+pub struct NameCache {
+    seen: HashMap<u32, (String, Vec<String>)>,
+}
+
+impl NameCache {
+    pub fn get(&mut self, root: &Path, pid: u32, comm: &str) -> Option<&(String, Vec<String>)> {
+        if self.seen.get(&pid).is_none_or(|(c, _)| c != comm) {
+            let entry = read_proc(root, pid)?;
+            self.seen.insert(pid, entry);
+        }
+        self.seen.get(&pid)
+    }
+
+    /// Forget every pid that is not in `alive`.
+    pub fn retain(&mut self, alive: &[u32]) {
+        self.seen.retain(|pid, _| alive.contains(pid));
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.seen.len()
+    }
 }
 
 /// One row of the list, already formatted for display.
@@ -388,6 +428,49 @@ mod tests {
         assert_eq!(cmd[1], "--no-respawn");
     }
 
+    fn fake_proc(dir: &std::path::Path, pid: u32, comm: &str, cmd: &str) {
+        let d = dir.join(pid.to_string());
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("comm"), format!("{comm}\n")).unwrap();
+        std::fs::write(d.join("cmdline"), cmd).unwrap();
+    }
+
+    #[test]
+    fn names_are_read_once_per_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0-x\0");
+        let mut cache = NameCache::default();
+        assert_eq!(cache.get(dir.path(), 7, "foo").unwrap().0, "foo");
+        // The files change, but the same pid with the same name is served from the cache.
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/other\0");
+        assert_eq!(
+            cache.get(dir.path(), 7, "foo").unwrap().1[0],
+            "/usr/bin/foo"
+        );
+    }
+
+    #[test]
+    fn a_reused_pid_with_another_name_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0");
+        let mut cache = NameCache::default();
+        cache.get(dir.path(), 7, "foo");
+        fake_proc(dir.path(), 7, "bar", "/usr/bin/bar\0");
+        assert_eq!(cache.get(dir.path(), 7, "bar").unwrap().0, "bar");
+    }
+
+    #[test]
+    fn finished_processes_are_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0");
+        fake_proc(dir.path(), 8, "bar", "/usr/bin/bar\0");
+        let mut cache = NameCache::default();
+        cache.get(dir.path(), 7, "foo");
+        cache.get(dir.path(), 8, "bar");
+        cache.retain(&[8]);
+        assert_eq!(cache.len(), 1);
+    }
+
     #[test]
     fn a_missing_process_is_none() {
         assert!(read_proc(&root().join("proc-cmdline"), 999_999).is_none());
@@ -499,7 +582,9 @@ mod tests {
                 .collect(),
             cmdline: s(cmd),
             cpu,
+            cpu_core: cpu * 12.0,
             mem,
+            rss: mem * 2,
         }
     }
 
@@ -521,6 +606,15 @@ mod tests {
         );
         assert!((ff.cpu - 6.2).abs() < 1e-9);
         assert_eq!(ff.mem, 1_500);
+        assert!(
+            (ff.cpu_core - 6.2 * 12.0).abs() < 1e-9,
+            "per-core values add up too"
+        );
+        assert_eq!(
+            ff.rss,
+            2 * 1_000,
+            "technical details show the lead process's RSS"
+        );
         assert_eq!(ff.pid, 10, "the biggest process stands for the group");
         assert_eq!(groups[1].kind, Kind::Background);
     }
