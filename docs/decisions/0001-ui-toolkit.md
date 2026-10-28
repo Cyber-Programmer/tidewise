@@ -1,6 +1,6 @@
 # 0001 — UI toolkit: Slint or Tauri
 
-**DRAFT — human decides.** Written by Claude Code during overnight run 1 (2026-10-27/28). It contains
+**Decided: Slint** (see Choice). Written by Claude Code during overnight run 1 (2026-10-27/28). It contains
 measurements only; the toolkit is **not** chosen here.
 
 ## What was built
@@ -70,4 +70,20 @@ Raw lines: `slint-femtovg,17989784,58161,4.3,1` · `slint-software,17989784,2338
   --features custom-protocol` was used instead, which is what it runs underneath.
 
 ## Choice
-_Not made. To be filled in by the human._
+
+**Slint** — decided 2026-10-28 by the human.
+
+- Memory: 23 MB (software renderer) and 58 MB (FemtoVG) against Tauri's 313 MB, about 7.5 % and 19 % of
+  Tauri. Far inside the agreed rule (≤ 60 %).
+- Looks: both spikes looked the same and both missed the same parts of the design; the gap came from the
+  prompt, not the toolkit. Slint can draw everything the design needs (no shadows, blur or gradients).
+- Download: no WebKitGTK to bundle in the AppImage.
+
+**Renderer:** software by default (lowest memory, no GPU needed). FemtoVG when the user sets
+`TIDEWISE_RENDERER=gpu`, and automatically for languages the software renderer can't shape (it only
+draws Western scripts), for example a future Urdu or Arabic translation.
+
+**Costs we accept:** longer builds (≈ 8 min clean), Slint markup is less familiar to Claude Code than
+HTML, charts are drawn by hand, and a minimised window may need extra work to pause sampling.
+
+**Follow-ups:** delete `spikes/` (done in M1-T0), measure time to first window and AppImage size in M2.
