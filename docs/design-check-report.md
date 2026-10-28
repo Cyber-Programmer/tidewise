@@ -4,13 +4,18 @@ Scores are `tools/design_diff.py` LAYOUT MISMATCH, target ≤ 10 %. "Before" is 
 (the Slint spike layout, built from commit 6fa8dde); "after" is the commit named in each heading.
 Run `tools/design_check.sh performance|processes|home` to reproduce.
 
+Where a screen or state did not exist yet, "before" is what the app showed at that commit, scored against the reference
+image: (1) its default Performance render (no details state yet), (2) its Memory-tab render, (3) its only page, the
+Performance render, since the app had no Processes or Home page. These are real scores, but they measure "wrong screen",
+not a near miss.
+
 ## Performance (M1-T3)
 | Image | Before | After |
 | --- | --- | --- |
 | Performance | 53.2 % | 5.5 % |
-| Performance--details | n/a (state did not exist) | 4.7 % |
+| Performance--details | 60.5 % (1) | 4.7 % |
 | Performance--memory | 50.9 % | 5.7 % |
-| Performance--memory-details | n/a (state did not exist) | 6.2 % |
+| Performance--memory-details | 52.9 % (2) | 6.2 % |
 | Performance--network | 51.6 % | 5.5 % |
 | Performance--disk | 53.5 % | 5.7 % |
 
@@ -27,10 +32,10 @@ Remaining (accepted):
 ## Processes (M1-T4)
 | Image | Before | After |
 | --- | --- | --- |
-| Processes | n/a (screen did not exist; spike list only) | 0.1 % |
-| Processes--details | n/a | 0.6 % |
-| Processes--apps | n/a | 0.1 % |
-| Processes--protected-selected | n/a | 0.3 % |
+| Processes | 65.9 % (3) | 0.1 % |
+| Processes--details | 66.3 % (3) | 0.6 % |
+| Processes--apps | 58.3 % (3) | 0.1 % |
+| Processes--protected-selected | 65.2 % (3) | 0.3 % |
 
 Before: the app had no Processes page, so there is nothing to score; the first render of the new page, with the
 column stretched down the window, scored 41.7 % / 51.2 % / 71.4 % / 44.0 % (default / details / apps / protected-selected).
@@ -42,7 +47,7 @@ Remaining (accepted): text antialiasing; "End task" does nothing yet (M4).
 ## Home (M1-T5)
 | Image | Before | After |
 | --- | --- | --- |
-| Main | n/a (screen did not exist) | 1.3 % |
+| Main | 65.4 % (3) | 1.3 % |
 
 Before: the app had no Home page. Built: sidebar with logo, icons, active state and distro card (real `/etc/os-release`,
 desktop and tools in live mode), header with search pill and "Scan again", health ring (82 of 100), suggestion rows,

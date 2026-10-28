@@ -86,13 +86,15 @@ Blockers: none. No task was skipped.
 | Image | Before | After |
 | --- | --- | --- |
 | Performance | 53.2 % | 5.5 % |
-| Performance--details | n/a | 4.7 % |
+| Performance--details | 60.5 % | 4.7 % |
 | Performance--memory | 50.9 % | 5.7 % |
-| Performance--memory-details | n/a | 6.2 % |
+| Performance--memory-details | 52.9 % | 6.2 % |
 | Performance--network | 51.6 % | 5.5 % |
 | Performance--disk | 53.5 % | 5.7 % |
-| Processes (default, details, apps, protected-selected) | n/a (no screen) | 0.1 / 0.6 / 0.1 / 0.3 % |
-| Main | n/a (no screen) | 1.3 % |
+| Processes (default, details, apps, protected-selected) | 65.9 / 66.3 / 58.3 / 65.2 % | 0.1 / 0.6 / 0.1 / 0.3 % |
+| Main | 65.4 % | 1.3 % |
+
+Where a screen or state did not exist, "before" is the T2 app's only page (Performance) scored against that reference; see the report.
 
 **Idle measurements** (`tools/measure.sh`, release build with LTO, live mode, Home page, 60 s warm-up then 60 s window, one run each):
 
