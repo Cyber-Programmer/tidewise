@@ -1,0 +1,59 @@
+[package]
+name = "tidewise-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tidewise-core = { path = "../crates/core" }
+tidewise-adapters = { path = "../crates/adapters" }
+
+# Not part of the main workspace: it needs nightly and is built only by `cargo fuzz`.
+[workspace]
+
+
+[[bin]]
+name = "pacman_qi"
+path = "fuzz_targets/pacman_qi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flatpak_list"
+path = "fuzz_targets/flatpak_list.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "os_release"
+path = "fuzz_targets/os_release.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "statm"
+path = "fuzz_targets/statm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proc_stat"
+path = "fuzz_targets/proc_stat.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "desktop"
+path = "fuzz_targets/desktop.rs"
+test = false
+doc = false
+bench = false
