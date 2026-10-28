@@ -267,6 +267,33 @@ pub fn read_proc(root: &Path, pid: u32) -> Option<(String, Vec<String>)> {
     Some((comm.trim_end().to_string(), cmdline))
 }
 
+/// `comm` and command line per pid, so `/proc` is only read for processes we haven't seen.
+/// An entry is reused only while the process still has the same `comm` (a reused pid doesn't).
+#[derive(Default)]
+pub struct NameCache {
+    seen: HashMap<u32, (String, Vec<String>)>,
+}
+
+impl NameCache {
+    pub fn get(&mut self, root: &Path, pid: u32, comm: &str) -> Option<&(String, Vec<String>)> {
+        if self.seen.get(&pid).is_none_or(|(c, _)| c != comm) {
+            let entry = read_proc(root, pid)?;
+            self.seen.insert(pid, entry);
+        }
+        self.seen.get(&pid)
+    }
+
+    /// Forget every pid that is not in `alive`.
+    pub fn retain(&mut self, alive: &[u32]) {
+        self.seen.retain(|pid, _| alive.contains(pid));
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.seen.len()
+    }
+}
+
 /// One row of the list, already formatted for display.
 #[derive(Clone, Debug)]
 pub struct Row {
@@ -399,6 +426,49 @@ mod tests {
         let (comm, cmd) = read_proc(&root().join("proc-cmdline"), 386851).unwrap();
         assert_eq!(app_key(&cmd, &comm), "plasmashell");
         assert_eq!(cmd[1], "--no-respawn");
+    }
+
+    fn fake_proc(dir: &std::path::Path, pid: u32, comm: &str, cmd: &str) {
+        let d = dir.join(pid.to_string());
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("comm"), format!("{comm}\n")).unwrap();
+        std::fs::write(d.join("cmdline"), cmd).unwrap();
+    }
+
+    #[test]
+    fn names_are_read_once_per_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0-x\0");
+        let mut cache = NameCache::default();
+        assert_eq!(cache.get(dir.path(), 7, "foo").unwrap().0, "foo");
+        // The files change, but the same pid with the same name is served from the cache.
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/other\0");
+        assert_eq!(
+            cache.get(dir.path(), 7, "foo").unwrap().1[0],
+            "/usr/bin/foo"
+        );
+    }
+
+    #[test]
+    fn a_reused_pid_with_another_name_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0");
+        let mut cache = NameCache::default();
+        cache.get(dir.path(), 7, "foo");
+        fake_proc(dir.path(), 7, "bar", "/usr/bin/bar\0");
+        assert_eq!(cache.get(dir.path(), 7, "bar").unwrap().0, "bar");
+    }
+
+    #[test]
+    fn finished_processes_are_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        fake_proc(dir.path(), 7, "foo", "/usr/bin/foo\0");
+        fake_proc(dir.path(), 8, "bar", "/usr/bin/bar\0");
+        let mut cache = NameCache::default();
+        cache.get(dir.path(), 7, "foo");
+        cache.get(dir.path(), 8, "bar");
+        cache.retain(&[8]);
+        assert_eq!(cache.len(), 1);
     }
 
     #[test]

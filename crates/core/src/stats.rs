@@ -1,13 +1,15 @@
 //! Live system stats. Call [`LiveStats::sample`] about once per second.
 
+use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 use std::time::Instant;
 
-use sysinfo::{Networks, ProcessesToUpdate, System};
+use sysinfo::{Networks, System};
 
 use crate::diskstats::{parse_diskstats, DiskCounters};
+use crate::procfs;
 use crate::rates::rate_per_sec;
-use crate::statm::{page_size_from, parse_statm};
 
 /// One process as shown in the process list.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +59,10 @@ pub struct LiveStats {
     system: System,
     networks: Networks,
     previous: Option<Counters>,
+    page_size: u64,
+    /// pid → (start time, ticks) at the previous full sample, for per-process CPU.
+    previous_processes: HashMap<u32, (u64, u64)>,
+    previous_processes_at: Option<Instant>,
 }
 
 impl Default for LiveStats {
@@ -71,14 +77,26 @@ impl LiveStats {
             system: System::new(),
             networks: Networks::new_with_refreshed_list(),
             previous: None,
+            page_size: procfs::page_size(),
+            previous_processes: HashMap::new(),
+            previous_processes_at: None,
         }
     }
 
-    /// Take one sample. Rates compare against the sample from the previous call.
+    /// Take one sample, including every process. Rates compare against the previous sample.
     pub fn sample(&mut self) -> Snapshot {
+        self.take(true)
+    }
+
+    /// Like [`sample`](Self::sample) but without the process list, which is by far the most
+    /// expensive part (it reads `/proc/<pid>` for every process). For pages that don't show it.
+    pub fn sample_light(&mut self) -> Snapshot {
+        self.take(false)
+    }
+
+    fn take(&mut self, with_processes: bool) -> Snapshot {
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
-        self.system.refresh_processes(ProcessesToUpdate::All, true);
         self.networks.refresh(true);
 
         let now = Counters {
@@ -88,6 +106,13 @@ impl LiveStats {
             net_up: self.networks.values().map(|n| n.total_transmitted()).sum(),
         };
         let cpus = self.system.cpus().len();
+        let processes = if with_processes {
+            self.process_samples(cpus)
+        } else {
+            self.previous_processes.clear();
+            self.previous_processes_at = None;
+            Vec::new()
+        };
         let prev = self.previous.replace(now);
         let interval = prev.map(|p| now.at.duration_since(p.at));
         let rate =
@@ -101,31 +126,39 @@ impl LiveStats {
             disk_write_per_sec: rate(prev.map(|p| p.disk.write_bytes), now.disk.write_bytes),
             net_down_per_sec: rate(prev.map(|p| p.net_down), now.net_down),
             net_up_per_sec: rate(prev.map(|p| p.net_up), now.net_up),
-            processes: self
-                .system
-                .processes()
-                .values()
-                // On Linux sysinfo also lists threads, each with its parent's whole memory.
-                .filter(|p| p.thread_kind().is_none())
-                .map(|p| {
-                    let pid = p.pid().as_u32();
-                    let rss = p.memory();
-                    let private = fs::read_to_string(format!("/proc/{pid}/statm"))
-                        .ok()
-                        .and_then(|t| parse_statm(&t))
-                        .map(|m| m.private_bytes(page_size_from(rss, &m)))
-                        .unwrap_or(rss);
-                    ProcessSample {
-                        pid,
-                        name: p.name().to_string_lossy().into_owned(),
-                        cpu_percent: cpu_share(p.cpu_usage(), cpus),
-                        cpu_core_percent: p.cpu_usage(),
-                        memory_bytes: private,
-                        rss_bytes: rss,
-                    }
-                })
-                .collect(),
+            processes,
         }
+    }
+
+    /// Read every process from `/proc`. CPU compares with the previous full sample.
+    fn process_samples(&mut self, cpus: usize) -> Vec<ProcessSample> {
+        let now = Instant::now();
+        let secs = self
+            .previous_processes_at
+            .map(|at| now.duration_since(at).as_secs_f64());
+        let mut seen = HashMap::new();
+        let samples = procfs::scan(Path::new("/proc"))
+            .into_iter()
+            .map(|p| {
+                let core = secs.map_or(0.0, |secs| {
+                    let before = self.previous_processes.get(&p.pid).copied();
+                    procfs::core_percent(before, p.stat.start_time, p.stat.ticks, secs)
+                });
+                seen.insert(p.pid, (p.stat.start_time, p.stat.ticks));
+                let rss = p.stat.rss_pages.saturating_mul(self.page_size);
+                ProcessSample {
+                    pid: p.pid,
+                    name: p.stat.comm,
+                    cpu_percent: cpu_share(core, cpus),
+                    cpu_core_percent: core,
+                    memory_bytes: p.statm.map_or(rss, |m| m.private_bytes(self.page_size)),
+                    rss_bytes: rss,
+                }
+            })
+            .collect();
+        self.previous_processes = seen;
+        self.previous_processes_at = Some(now);
+        samples
     }
 }
 

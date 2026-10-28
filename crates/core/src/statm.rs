@@ -28,16 +28,6 @@ impl Statm {
     }
 }
 
-/// Page size implied by a process's resident bytes (from sysinfo) and its resident pages.
-/// Falls back to 4096 when the process has no resident pages to compare.
-pub fn page_size_from(resident_bytes: u64, statm: &Statm) -> u64 {
-    if statm.resident_pages > 0 && resident_bytes >= statm.resident_pages {
-        resident_bytes / statm.resident_pages
-    } else {
-        4096
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,7 +62,6 @@ mod tests {
     fn kernel_threads_have_no_memory() {
         let s = parse_statm(KERNEL).unwrap();
         assert_eq!(s.private_bytes(4096), 0);
-        assert_eq!(page_size_from(0, &s), 4096);
     }
 
     #[test]
@@ -80,11 +69,5 @@ mod tests {
         assert_eq!(parse_statm(BROKEN), None);
         assert_eq!(parse_statm(""), None);
         assert_eq!(parse_statm("1 2"), None);
-    }
-
-    #[test]
-    fn page_size_follows_sysinfo_resident_bytes() {
-        let s = parse_statm(FIREFOX).unwrap();
-        assert_eq!(page_size_from(214_520 * 16384, &s), 16384);
     }
 }

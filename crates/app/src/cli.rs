@@ -14,6 +14,8 @@ pub struct Screenshot {
 pub struct Args {
     pub demo: bool,
     pub screenshot: Option<Screenshot>,
+    /// `--page <screen>`: the page the window opens on (used to measure each screen).
+    pub page: Option<String>,
 }
 
 pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
@@ -33,6 +35,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
                         .ok_or("--screenshot needs a screen name")?,
                 );
             }
+            "--page" => out.page = Some(args.next().ok_or("--page needs a screen name")?),
             "--state" => state = Some(args.next().ok_or("--state needs a value")?),
             "--out" => file = Some(args.next().ok_or("--out needs a file name")?),
             "--height" => {
@@ -141,6 +144,15 @@ mod tests {
     #[test]
     fn screenshot_needs_a_screen_name() {
         assert!(args(&["--screenshot", "--out", "a.png"]).is_err());
+    }
+
+    #[test]
+    fn page_flag_picks_the_start_page() {
+        assert_eq!(
+            args(&["--page", "processes"]).unwrap().page.as_deref(),
+            Some("processes")
+        );
+        assert!(args(&["--page"]).is_err());
     }
 
     #[test]

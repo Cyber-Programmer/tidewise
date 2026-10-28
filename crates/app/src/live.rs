@@ -1,6 +1,7 @@
 //! Live mode: one `LiveStats` sample per second turned into the same `PerfData` the demo uses.
 
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use tidewise_core::stats::{LiveStats, Snapshot};
 
@@ -23,7 +24,12 @@ pub struct Sampler {
     network: VecDeque<f64>,
     disk: VecDeque<f64>,
     last: Option<Snapshot>,
+    names: procs::NameCache,
+    /// Main-drive space and when it was read; it changes slowly and reading it walks the mounts.
+    drive: Option<(Instant, Option<tidewise_core::drive::DriveSpace>)>,
 }
+
+const DRIVE_REFRESH: Duration = Duration::from_secs(30);
 
 fn push(series: &mut VecDeque<f64>, value: f64) {
     if series.len() == HISTORY {
@@ -79,11 +85,19 @@ impl Sampler {
             network: VecDeque::new(),
             disk: VecDeque::new(),
             last: None,
+            names: procs::NameCache::default(),
+            drive: None,
         }
     }
 
-    pub fn sample(&mut self) -> PerfData {
-        let s = self.stats.sample();
+    /// Take a sample. The process list is only read when `with_processes` (Performance's top
+    /// lists and the Processes page); other pages get the cheap system-wide numbers.
+    pub fn sample(&mut self, with_processes: bool) {
+        let s = if with_processes {
+            self.stats.sample()
+        } else {
+            self.stats.sample_light()
+        };
         let total = (s.memory_total as f64).max(1.0);
         push(&mut self.cpu, s.cpu_percent as f64);
         push(&mut self.memory, s.memory_used as f64 / total * 100.0);
@@ -92,13 +106,28 @@ impl Sampler {
             &mut self.disk,
             s.disk_read_per_sec.unwrap_or(0.0) + s.disk_write_per_sec.unwrap_or(0.0),
         );
-        let data = self.build(&s);
         self.last = Some(s);
-        data
+    }
+
+    /// The Performance screen from the last sample.
+    pub fn perf(&self) -> Option<PerfData> {
+        self.last.as_ref().map(|s| self.build(s))
+    }
+
+    fn main_drive(&mut self) -> Option<tidewise_core::drive::DriveSpace> {
+        match self.drive {
+            Some((at, drive)) if at.elapsed() < DRIVE_REFRESH => drive,
+            _ => {
+                let drive = tidewise_core::drive::main_drive();
+                self.drive = Some((Instant::now(), drive));
+                drive
+            }
+        }
     }
 
     /// The "Right now" tiles from the last sample. No health score or app counts yet.
-    pub fn home(&self) -> HomeData {
+    pub fn home(&mut self) -> HomeData {
+        let drive = self.main_drive();
         let Some(s) = &self.last else {
             return HomeData {
                 last_checked: String::new(),
@@ -135,7 +164,7 @@ impl Sampler {
                 bar: Some(mem_frac),
             },
         ];
-        if let Some(drive) = tidewise_core::drive::main_drive() {
+        if let Some(drive) = drive {
             let used = drive.used_fraction();
             tiles.push(Tile {
                 label: "Main drive".into(),
@@ -167,13 +196,23 @@ impl Sampler {
     }
 
     /// Rows for the Processes screen from the last sample, grouped by app.
-    pub fn processes(&self, desktop: &HashMap<String, String>) -> ProcData {
-        let procs: Vec<procs::Proc> = self
-            .last
+    pub fn processes(&mut self, desktop: &HashMap<String, String>) -> ProcData {
+        let Some(snapshot) = &self.last else {
+            return ProcData {
+                subtitle: String::new(),
+                rows: Vec::new(),
+            };
+        };
+        let alive: Vec<u32> = snapshot.processes.iter().map(|p| p.pid).collect();
+        self.names.retain(&alive);
+        let names = &mut self.names;
+        let procs: Vec<procs::Proc> = snapshot
+            .processes
             .iter()
-            .flat_map(|s| s.processes.iter())
             .map(|p| {
-                let (comm, cmdline) = procs::read_proc(Path::new("/proc"), p.pid)
+                let (comm, cmdline) = names
+                    .get(Path::new("/proc"), p.pid, &p.name)
+                    .cloned()
                     .unwrap_or_else(|| (p.name.clone(), Vec::new()));
                 procs::Proc {
                     pid: p.pid,
@@ -437,6 +476,16 @@ mod tests {
             r.sub_details,
             "App · PID 42 · 36.0% of one core · 250 MB resident"
         );
+    }
+
+    #[test]
+    fn a_light_sample_has_tiles_but_no_process_rows() {
+        let mut sampler = Sampler::new();
+        sampler.sample(false);
+        assert!(!sampler.home().tiles.is_empty());
+        assert!(sampler.processes(&HashMap::new()).rows.is_empty());
+        sampler.sample(true);
+        assert!(!sampler.processes(&HashMap::new()).rows.is_empty());
     }
 
     #[test]

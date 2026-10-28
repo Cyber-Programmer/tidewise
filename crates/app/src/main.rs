@@ -183,21 +183,26 @@ fn is_paused(visible: bool, minimized: bool) -> bool {
     !visible || minimized
 }
 
+/// Only Performance (top lists) and Processes need the process table; everything else gets the
+/// cheap system-wide sample.
+fn needs_processes(page: i32) -> bool {
+    matches!(page, 4 | 5)
+}
+
 /// Everything live mode keeps between ticks.
 struct Live {
     sampler: live::Sampler,
-    perf: Option<perf::PerfData>,
     desktop: std::collections::HashMap<String, String>,
 }
 
 /// Draw the page on screen from the latest sample. Other pages are not touched: the process
 /// list in particular reads `/proc` for every process, so it is only built when it is shown.
-fn show_page(ui: &MainWindow, live: &Live, ctl: &mut ProcsCtl) {
+fn show_page(ui: &MainWindow, live: &mut Live, ctl: &mut ProcsCtl) {
     match ui.global::<Shell>().get_page() {
         0 => view::apply_home(ui, &live.sampler.home()),
         4 => {
-            if let Some(perf) = &live.perf {
-                view::apply_perf(ui, perf);
+            if let Some(perf) = live.sampler.perf() {
+                view::apply_perf(ui, &perf);
             }
         }
         5 => {
@@ -261,7 +266,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let live = Rc::new(RefCell::new(Live {
         sampler: live::Sampler::new(),
-        perf: None,
         desktop,
     }));
     let ctl = Rc::new(RefCell::new(ProcsCtl::new(procs::ProcData {
@@ -270,23 +274,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })));
     wire_procs(&ui, &ctl);
     let sample = {
-        let live = live.clone();
+        let (live, weak) = (live.clone(), ui.as_weak());
         move || {
-            let mut l = live.borrow_mut();
-            l.perf = Some(l.sampler.sample());
+            let page = weak
+                .upgrade()
+                .map_or(0, |ui| ui.global::<Shell>().get_page());
+            live.borrow_mut().sampler.sample(needs_processes(page));
         }
     };
+    if let Some(screen) = &args.page {
+        ui.global::<Shell>().set_page(page_of(screen)?);
+    }
     sample();
     ui.global::<Shell>().on_navigate({
         let (weak, live, ctl) = (ui.as_weak(), live.clone(), ctl.clone());
         move |page| {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Shell>().set_page(page);
-                show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+                if needs_processes(page) {
+                    // The last sample may be a light one; the page needs the process table now.
+                    live.borrow_mut().sampler.sample(true);
+                }
+                show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
             }
         }
     });
-    show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+    show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
 
     // One sample per second; nothing while the window is hidden or minimised.
     let timer = Timer::default();
@@ -298,7 +311,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             sample();
-            show_page(&ui, &live.borrow(), &mut ctl.borrow_mut());
+            show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
         }
     });
 
@@ -307,7 +320,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_paused;
+    use super::{is_paused, needs_processes};
+
+    #[test]
+    fn only_performance_and_processes_read_the_process_table() {
+        assert!(!needs_processes(0), "Home");
+        assert!(needs_processes(4), "Performance");
+        assert!(needs_processes(5), "Processes");
+        assert!(!needs_processes(9), "Settings");
+    }
 
     #[test]
     fn sampling_pauses_when_hidden_or_minimised() {

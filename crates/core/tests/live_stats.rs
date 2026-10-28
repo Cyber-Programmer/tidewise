@@ -117,3 +117,18 @@ fn rows_never_exceed_the_machine() {
         );
     }
 }
+
+/// The cheap sample (Home, and any page without a process list) must not read every process.
+#[test]
+fn light_sample_has_no_processes_but_all_system_numbers() {
+    let mut stats = LiveStats::new();
+    stats.sample_light();
+    sleep(Duration::from_millis(1100));
+    let s = stats.sample_light();
+    assert!(s.processes.is_empty());
+    assert!(s.memory_total > 0 && s.memory_used <= s.memory_total);
+    assert!(s.disk_read_per_sec.is_some() && s.net_down_per_sec.is_some());
+    assert!((0.0..=100.0).contains(&s.cpu_percent));
+    // A full sample afterwards still lists processes (CPU needs two refreshes, memory does not).
+    assert!(!stats.sample().processes.is_empty());
+}

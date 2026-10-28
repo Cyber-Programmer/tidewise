@@ -137,3 +137,14 @@ Red: `threads_are_not_listed_as_processes` and `rows_never_exceed_the_machine` (
 `statm` parser and `cpu_share` unit tests were written together with their code (new module), not shown failing first.
 Page size is derived from sysinfo's resident bytes ÷ resident pages (4096 fallback), which avoids `unsafe`/a new dependency.
 Design-check scores unchanged (Main 1.3 %, Performance 4.7–6.2 %, Processes 0.1–0.6 %).
+
+### R3-T2 plan
+Baseline with `tools/measure.sh` per page (new `--page <screen>` flag for live mode). Light sample on pages without a process list;
+replace sysinfo's per-process refresh (measured: ~32 ms/tick even with an empty `ProcessRefreshKind`) by a `/proc/<pid>/{stat,statm}` reader;
+cache names per pid; update the Processes model in place; build `PerfData` only on Performance; cache the main-drive lookup (30 s).
+
+### R3-T2 done (numbers in the table at the end of this run)
+Tick cost measured with temporary timing: sysinfo process refresh 31–33 ms for 157 processes (even for `ProcessRefreshKind::nothing()`), the rest ~2 ms, model building <1.5 ms.
+Kept: light sample (Home 3.8 → 0.7 %), `core::procfs` reader (Performance 4.3 → 2.2 %), `NameCache`, in-place row updates (Processes 4.1 → 3.6 %), drive cache, lazy `PerfData`.
+Not done: Performance/Home models still replace nested models each tick (small); software-renderer dirty-region check was not separately verified (no `perf` installed; Home at 0.7 % suggests no full repaint).
+Tests for `procfs`, `NameCache`, `sync_model`, `sample_light`, `--page` were written together with their code, not shown failing first (the old sysinfo path is covered by the R3-T1 red tests that still pass).
