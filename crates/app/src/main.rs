@@ -16,6 +16,7 @@ mod perf;
 mod procs;
 mod screenshot;
 mod storage;
+mod storage_live;
 mod view;
 
 slint::include_modules!();
@@ -207,8 +208,14 @@ struct Live {
 
 /// Draw the page on screen from the latest sample. Other pages are not touched: the process
 /// list in particular reads `/proc` for every process, so it is only built when it is shown.
-fn show_page(ui: &MainWindow, live: &mut Live, ctl: &mut ProcsCtl) {
+fn show_page(
+    ui: &MainWindow,
+    live: &mut Live,
+    ctl: &mut ProcsCtl,
+    storage: &mut storage_live::Ctl,
+) {
     match ui.global::<Shell>().get_page() {
+        3 => storage.poll(ui),
         0 => view::apply_home(ui, &live.sampler.home()),
         4 => {
             if let Some(perf) = live.sampler.perf() {
@@ -261,6 +268,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
         show_demo(&ui, "performance", None)?;
         show_demo(&ui, "home", None)?;
+        show_demo(&ui, "storage", None)?;
+        for (open, folder) in [(true, true), (false, false)] {
+            let state = ui.global::<StorageState>();
+            let weak = ui.as_weak();
+            let show = move || {
+                if let Some(ui) = weak.upgrade() {
+                    view::apply_storage(&ui, &demo::storage(folder));
+                }
+            };
+            if open {
+                state.on_open_hint(show.clone());
+                state.on_open_block({
+                    let show = show.clone();
+                    move |_| show()
+                });
+            } else {
+                state.on_go_root(show);
+            }
+        }
         let ctl = Rc::new(RefCell::new(ProcsCtl::new(demo::processes())));
         ctl.borrow_mut().refresh(&ui);
         wire_procs(&ui, &ctl);
@@ -283,6 +309,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows: Vec::new(),
     })));
     wire_procs(&ui, &ctl);
+    let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
+    storage_live::wire(&ui, &storage);
     let sample = {
         let (live, weak) = (live.clone(), ui.as_weak());
         move || {
@@ -297,7 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl) = (ui.as_weak(), live.clone(), ctl.clone());
+        let (weak, live, ctl, storage) = (ui.as_weak(), live.clone(), ctl.clone(), storage.clone());
         move |page| {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Shell>().set_page(page);
@@ -305,11 +333,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The last sample may be a light one; the page needs the process table now.
                     live.borrow_mut().sampler.sample(true);
                 }
-                show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+                if page == 3 {
+                    storage.borrow_mut().enter(&ui);
+                }
+                show_page(
+                    &ui,
+                    &mut live.borrow_mut(),
+                    &mut ctl.borrow_mut(),
+                    &mut storage.borrow_mut(),
+                );
             }
         }
     });
-    show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+    if ui.global::<Shell>().get_page() == 3 {
+        storage.borrow_mut().enter(&ui);
+    }
+    show_page(
+        &ui,
+        &mut live.borrow_mut(),
+        &mut ctl.borrow_mut(),
+        &mut storage.borrow_mut(),
+    );
 
     // One sample per second; nothing while the window is hidden or minimised.
     let timer = Timer::default();
@@ -321,7 +365,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             sample();
-            show_page(&ui, &mut live.borrow_mut(), &mut ctl.borrow_mut());
+            show_page(
+                &ui,
+                &mut live.borrow_mut(),
+                &mut ctl.borrow_mut(),
+                &mut storage.borrow_mut(),
+            );
         }
     });
 

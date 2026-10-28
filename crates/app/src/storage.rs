@@ -1,6 +1,9 @@
 //! Data behind the Storage screen. Plain Rust, no Slint types.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use tidewise_core::drive::Drive;
 
 use tidewise_core::scan::ScanResult;
 
@@ -282,6 +285,11 @@ pub struct StorageData {
     pub big_note: String,
 }
 
+/// (share of the drive, drive-bar colour number)
+pub type Seg = (f64, i32);
+/// (colour number, label, value)
+pub type LegendRow = (i32, String, String);
+
 /// Type size and padding step of a block, from its share of the map.
 pub fn tile_tier(share: f64) -> i32 {
     match share {
@@ -374,7 +382,7 @@ pub fn drive_bar(
     total: u64,
     used: u64,
     scanned: Option<(&str, u64)>,
-) -> (Vec<(f64, i32)>, Vec<(i32, String, String)>) {
+) -> (Vec<Seg>, Vec<LegendRow>) {
     if total == 0 {
         return (Vec::new(), Vec::new());
     }
@@ -404,6 +412,173 @@ pub fn bar_label(legend: &[(i32, String, String)], free: &str) -> String {
         parts.join(", "),
         if parts.is_empty() { "" } else { ", " }
     )
+}
+
+/// How far the scan of the picked drive has come.
+pub enum Phase<'a> {
+    Scanning { bytes: u64 },
+    Done(&'a ScanResult),
+}
+
+/// One entry of the drill-in folder, as read from disk.
+pub struct Entry {
+    pub name: String,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub is_dir: bool,
+    pub days_unused: u64,
+}
+
+/// Whole days between two moments; 0 if `then` is in the future.
+pub fn days_since(now: SystemTime, then: SystemTime) -> u64 {
+    now.duration_since(then).map_or(0, |d| d.as_secs() / 86_400)
+}
+
+/// Bytes of not-opened-in-6-months files found below `dir`.
+pub fn stale_bytes_under(scan: &ScanResult, dir: &Path) -> u64 {
+    scan.stale_files
+        .iter()
+        .filter(|f| f.path.starts_with(dir))
+        .map(|f| f.bytes)
+        .sum()
+}
+
+/// Everything the Storage screen shows for real data.
+pub fn live_data(
+    drives: &[Drive],
+    picked: usize,
+    phase: Phase,
+    folder: Option<(&str, &str, Vec<Entry>)>,
+    home: &Path,
+    now: SystemTime,
+) -> Option<StorageData> {
+    let drive = drives.get(picked)?;
+    let tabs = drives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (drive_label(&d.mount_point, &d.name, d.total), i == picked))
+        .collect();
+    let free = format!("{} free", fmt_size(drive.free));
+    let mut data = StorageData {
+        drives: tabs,
+        drive_name: if drive.mount_point == "/" {
+            "Main drive".into()
+        } else {
+            drive_label(&drive.mount_point, &drive.name, 0)
+                .split(" \u{b7} ")
+                .next()
+                .unwrap_or("Drive")
+                .to_string()
+        },
+        used: fmt_size(drive.used),
+        free: free.clone(),
+        bar_label: String::new(),
+        segs: Vec::new(),
+        legend: Vec::new(),
+        state: State::Ready,
+        message: String::new(),
+        map_title: String::new(),
+        tiles: Vec::new(),
+        hint: None,
+        folder: None,
+        big: Vec::new(),
+        big_note: "Your own files always go to Trash first, never deleted straight away.".into(),
+    };
+    let scan = match phase {
+        Phase::Scanning { bytes } => {
+            (data.segs, data.legend) = drive_bar(drive.total, drive.used, None);
+            data.bar_label = bar_label(&data.legend, &free);
+            data.state = State::Scanning;
+            data.message = format!("{} looked at so far", fmt_size(bytes));
+            return Some(data);
+        }
+        Phase::Done(scan) => scan,
+    };
+    let label = if scan.root == home {
+        "Your files"
+    } else {
+        "Files"
+    };
+    (data.segs, data.legend) = drive_bar(drive.total, drive.used, Some((label, scan.total_bytes)));
+    data.bar_label = bar_label(&data.legend, &free);
+    if scan.total_bytes == 0 {
+        data.state = if scan.skipped > 0 {
+            State::Error
+        } else {
+            State::Empty
+        };
+        data.message = if scan.skipped > 0 {
+            "Tidewise isn't allowed to read this folder. Nothing was changed.".into()
+        } else {
+            "This folder is empty.".into()
+        };
+        return Some(data);
+    }
+    data.map_title = format!("{label} \u{b7} {}", fmt_size(scan.total_bytes));
+    let blocks = blocks_from(scan, 6);
+    let sizes: Vec<u64> = blocks.iter().map(|b| b.bytes).collect();
+    let names: Vec<&str> = blocks.iter().map(|b| b.name.as_str()).collect();
+    let hues = assign_hues(&names);
+    for ((block, rect), hue) in blocks.iter().zip(treemap(&sizes, 2.0)).zip(hues) {
+        let stale = block
+            .path
+            .as_deref()
+            .map_or(0, |p| stale_bytes_under(scan, p));
+        let note = if stale >= 100_000_000 {
+            format!("{} not opened in 6 months", fmt_size(stale))
+        } else {
+            String::new()
+        };
+        if block.name == "Downloads" && stale >= 100_000_000 {
+            data.hint = Some((
+                format!(
+                    "Downloads has {} of files you haven't opened in 6 months.",
+                    fmt_size(stale)
+                ),
+                "Review them".into(),
+            ));
+        }
+        data.tiles.push(Tile {
+            name: block.name.clone(),
+            size: fmt_size(block.bytes),
+            note,
+            hue,
+            rect,
+            tier: tile_tier(block.bytes as f64 / scan.total_bytes as f64),
+            path: block.path.clone(),
+        });
+    }
+    data.big = scan
+        .biggest_files
+        .iter()
+        .take(5)
+        .map(|f| BigFile {
+            name: f
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            meta: file_meta(home, &f.path, days_since(now, f.last_used)),
+            size: fmt_gb1(f.bytes),
+            path: Some(f.path.clone()),
+        })
+        .collect();
+    if scan.used_modified_time {
+        data.big_note.push_str(" Dates are when files last changed, because this drive doesn't record when they are opened.");
+    }
+    if let Some((parent, title, entries)) = folder {
+        let rows = entries
+            .iter()
+            .map(|e| folder_row(&e.name, &e.path, e.bytes, e.is_dir, e.days_unused))
+            .collect();
+        data.folder = Some(Folder {
+            parent: parent.into(),
+            title: title.into(),
+            help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
+            rows,
+        });
+    }
+    Some(data)
 }
 
 #[cfg(test)]
@@ -672,5 +847,118 @@ mod tests {
         assert_eq!(kind_of("x.tar.gz", false), "Archive");
         assert_eq!(kind_of("x.iso", true), "Folder");
         assert_eq!(kind_of("noext", false), "File");
+    }
+
+    fn drive(mount: &str, total: u64, used: u64) -> Drive {
+        Drive {
+            name: "/dev/x".into(),
+            mount_point: mount.into(),
+            fs_type: "ext4".into(),
+            total,
+            used,
+            free: total - used,
+        }
+    }
+
+    fn live(scan: &ScanResult) -> StorageData {
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        live_data(
+            &drives,
+            0,
+            Phase::Done(scan),
+            None,
+            Path::new("/home/ali"),
+            SystemTime::now(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_scan_becomes_tiles_a_bar_and_a_downloads_hint() {
+        let mut scan = scan_with(&[("Downloads", 38_000_000_000), ("Videos", 21_000_000_000)]);
+        scan.stale_files = vec![tidewise_core::scan::FileEntry {
+            path: "/home/ali/Downloads/a.iso".into(),
+            bytes: 22_000_000_000,
+            last_used: SystemTime::UNIX_EPOCH,
+        }];
+        let d = live(&scan);
+        assert_eq!(d.state, State::Ready);
+        assert_eq!(d.map_title, "Your files \u{b7} 59 GB");
+        assert_eq!(d.tiles.len(), 2);
+        assert_eq!(d.tiles[0].note, "22 GB not opened in 6 months");
+        assert!(d.hint.unwrap().0.starts_with("Downloads has 22 GB"));
+        assert_eq!(d.used, "400 GB");
+        assert_eq!(d.free, "100 GB free");
+    }
+
+    #[test]
+    fn scanning_shows_progress_and_no_tiles() {
+        let drives = [drive("/", 500_000_000_000, 400_000_000_000)];
+        let d = live_data(
+            &drives,
+            0,
+            Phase::Scanning {
+                bytes: 3_000_000_000,
+            },
+            None,
+            Path::new("/h"),
+            SystemTime::now(),
+        )
+        .unwrap();
+        assert_eq!(d.state, State::Scanning);
+        assert_eq!(d.message, "3 GB looked at so far");
+        assert!(d.tiles.is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_or_empty_folder_says_which() {
+        let mut scan = ScanResult {
+            root: "/home/ali".into(),
+            skipped: 1,
+            ..ScanResult::default()
+        };
+        assert_eq!(live(&scan).state, State::Error);
+        scan.skipped = 0;
+        assert_eq!(live(&scan).state, State::Empty);
+        assert!(live_data(
+            &[],
+            0,
+            Phase::Scanning { bytes: 0 },
+            None,
+            Path::new("/"),
+            SystemTime::now()
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn stale_bytes_only_count_files_inside_the_folder() {
+        let mut scan = scan_with(&[]);
+        let f = |p: &str, b| tidewise_core::scan::FileEntry {
+            path: p.into(),
+            bytes: b,
+            last_used: SystemTime::UNIX_EPOCH,
+        };
+        scan.stale_files = vec![
+            f("/home/ali/Downloads/a", 5),
+            f("/home/ali/Downloads2/b", 7),
+        ];
+        assert_eq!(
+            stale_bytes_under(&scan, Path::new("/home/ali/Downloads")),
+            5
+        );
+    }
+
+    #[test]
+    fn days_since_never_goes_negative() {
+        let now = SystemTime::now();
+        assert_eq!(
+            days_since(now, now + std::time::Duration::from_secs(9999)),
+            0
+        );
+        assert_eq!(
+            days_since(now, now - std::time::Duration::from_secs(3 * 86_400 + 5)),
+            3
+        );
     }
 }

@@ -48,3 +48,11 @@ Decision taken: per-process and per-group CPU is a share of the whole PC (÷ log
 
 ## R3-T3 — sidebar scroll has no scrollbar
 Below about 700 px the main nav items scroll with the wheel or touch; Slint's Flickable draws no scrollbar. Recommended: fine for now; the 60 px icon rail under 1100 px (tokens.md) would make this moot.
+
+## R4-T3 — Storage: colours, categories and what live mode can measure
+1. The artboard uses shades `tokens.md` does not list (tile tints #2E2547 #262B34 #23303F, drive-bar #4D72B8 #8E6FD6 #5A6272 #0F1217, amber banner #1E1A10 #2A2312 #4A3B1A #E6CF9E #F5D898, #C9BCEB). They are in `Theme` under their own comment. Recommended: add them to `tokens.md`.
+2. Live drive bar shows only "Your files" (scan of the home folder) and "Apps & system" (everything else used). Docker images, Flatpak apps and "Junk you can clean" need root-readable folders or the M3 helper; they stay out until then rather than showing guesses. Recommended: keep.
+3. Folder-map blocks are the biggest folders of the home folder; hidden folders get plain names for a few well-known ones (.cache → Caches …). "Steam games" is not a special case yet.
+4. In the drill-in, a folder's "not opened" age is its own timestamp, not the newest file inside. Recommended: keep for v1.
+5. The Downloads hint no longer claims "old installers make up most of it" (only true sometimes).
+6. I did not launch the live window (no display use in an unattended run); live logic is covered by `live_data` and `scan_root` unit tests plus the demo screenshots. Please click through Storage once.

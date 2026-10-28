@@ -84,6 +84,11 @@ impl ScanHandle {
         self.cancel.store(true, Ordering::Relaxed);
     }
 
+    /// True once the scan has ended (finished or cancelled); `wait` then returns at once.
+    pub fn is_finished(&self) -> bool {
+        self.thread.is_finished()
+    }
+
     /// Wait for the scan to end (or to stop after `cancel`).
     pub fn wait(self) -> ScanResult {
         self.thread.join().unwrap_or_default()
@@ -467,6 +472,20 @@ mod tests {
         let progress = handle.progress.clone();
         let r = handle.wait();
         assert_eq!(progress.bytes.load(Ordering::Relaxed), r.total_bytes);
+    }
+
+    #[test]
+    fn a_handle_says_when_the_scan_is_finished() {
+        let dir = disk_tempdir();
+        write(&dir.path().join("a/f.bin"), 10_000);
+        let handle = start(dir.path().to_path_buf(), ScanOptions::default());
+        let mut waited = 0;
+        while !handle.is_finished() && waited < 500 {
+            std::thread::sleep(Duration::from_millis(10));
+            waited += 1;
+        }
+        assert!(handle.is_finished());
+        assert!(handle.wait().total_bytes > 0);
     }
 
     /// Acceptance for M2: our numbers match `du -sx` within 1 % on a test folder.

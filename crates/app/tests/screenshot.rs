@@ -176,3 +176,20 @@ fn settings_item_is_the_same_at_960_px() {
     run_screen("settings", &out, &[]);
     assert!(active_nav_rows(&out).len() >= 36);
 }
+
+#[test]
+fn storage_renders_both_states_and_rejects_unknown_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.png"), dir.path().join("b.png"));
+    run_screen("storage", &a, &[]);
+    run_screen("storage", &b, &["--state", "downloads"]);
+    assert_eq!(png_size(&fs::read(&a).unwrap()), (1360, 960));
+    assert_ne!(fs::read(&a).unwrap(), fs::read(&b).unwrap());
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args(["--screenshot", "storage", "--state", "nope", "--out"])
+        .arg(dir.path().join("c.png"))
+        .env("TIDEWISE_RENDERER", "software")
+        .status()
+        .unwrap();
+    assert!(!status.success());
+}

@@ -239,56 +239,6 @@ pub fn apply_procs(
     shown.iter().map(|r| r.id.clone()).collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{changed_rows, chart_width, sync_model};
-    use slint::{Model, ModelRc, VecModel};
-
-    #[test]
-    fn only_differing_rows_are_listed() {
-        assert_eq!(changed_rows(&[1, 2, 3], &[1, 9, 3]), [1]);
-        assert!(changed_rows(&[1, 2], &[1, 2]).is_empty());
-        assert_eq!(
-            changed_rows(&[1, 2, 3], &[7, 2]),
-            [0],
-            "extra rows are not 'changed'"
-        );
-    }
-
-    fn contents(m: &ModelRc<i32>) -> Vec<i32> {
-        m.iter().collect()
-    }
-
-    #[test]
-    fn syncing_updates_grows_and_shrinks_the_same_model() {
-        let model = ModelRc::new(VecModel::from(vec![1, 2, 3]));
-        assert!(sync_model(&model, vec![1, 5, 3]).is_none());
-        assert_eq!(contents(&model), [1, 5, 3]);
-        assert!(sync_model(&model, vec![1, 5, 3, 4, 6]).is_none());
-        assert_eq!(contents(&model), [1, 5, 3, 4, 6]);
-        assert!(sync_model(&model, vec![8]).is_none());
-        assert_eq!(contents(&model), [8]);
-        assert!(sync_model(&model, vec![]).is_none());
-        assert!(contents(&model).is_empty());
-    }
-
-    #[test]
-    fn a_foreign_model_is_replaced() {
-        let fresh = sync_model(&ModelRc::default(), vec![1, 2]).expect("new model");
-        assert_eq!(contents(&fresh), [1, 2]);
-    }
-
-    #[test]
-    fn chart_width_matches_the_artboard_at_1360() {
-        assert_eq!(chart_width(1360.0), 738.0);
-    }
-
-    #[test]
-    fn chart_width_stops_growing_at_the_content_limit() {
-        assert_eq!(chart_width(3000.0), 1120.0 - 330.0);
-    }
-}
-
 fn list<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
     ModelRc::new(VecModel::from(v))
 }
@@ -393,4 +343,54 @@ pub fn apply_storage(ui: &MainWindow, d: &StorageData) {
             .collect(),
     ));
     st.set_big_note(d.big_note.as_str().into());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{changed_rows, chart_width, sync_model};
+    use slint::{Model, ModelRc, VecModel};
+
+    #[test]
+    fn only_differing_rows_are_listed() {
+        assert_eq!(changed_rows(&[1, 2, 3], &[1, 9, 3]), [1]);
+        assert!(changed_rows(&[1, 2], &[1, 2]).is_empty());
+        assert_eq!(
+            changed_rows(&[1, 2, 3], &[7, 2]),
+            [0],
+            "extra rows are not 'changed'"
+        );
+    }
+
+    fn contents(m: &ModelRc<i32>) -> Vec<i32> {
+        m.iter().collect()
+    }
+
+    #[test]
+    fn syncing_updates_grows_and_shrinks_the_same_model() {
+        let model = ModelRc::new(VecModel::from(vec![1, 2, 3]));
+        assert!(sync_model(&model, vec![1, 5, 3]).is_none());
+        assert_eq!(contents(&model), [1, 5, 3]);
+        assert!(sync_model(&model, vec![1, 5, 3, 4, 6]).is_none());
+        assert_eq!(contents(&model), [1, 5, 3, 4, 6]);
+        assert!(sync_model(&model, vec![8]).is_none());
+        assert_eq!(contents(&model), [8]);
+        assert!(sync_model(&model, vec![]).is_none());
+        assert!(contents(&model).is_empty());
+    }
+
+    #[test]
+    fn a_foreign_model_is_replaced() {
+        let fresh = sync_model(&ModelRc::default(), vec![1, 2]).expect("new model");
+        assert_eq!(contents(&fresh), [1, 2]);
+    }
+
+    #[test]
+    fn chart_width_matches_the_artboard_at_1360() {
+        assert_eq!(chart_width(1360.0), 738.0);
+    }
+
+    #[test]
+    fn chart_width_stops_growing_at_the_content_limit() {
+        assert_eq!(chart_width(3000.0), 1120.0 - 330.0);
+    }
 }
