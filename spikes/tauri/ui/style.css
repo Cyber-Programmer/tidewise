@@ -1,0 +1,48 @@
+/* Colours and sizes from docs/design/tokens.md (dark). Geist is not bundled in the spike. */
+:root {
+  --bg: #0D0F13; --sidebar: #111419; --surface: #161A21; --sunk: #12161C; --border: #232933;
+  --text: #ECEEF2; --text-2: #A9B0BC; --text-3: #808897; --accent: #5DDCB0;
+  --mono: ui-monospace, "Geist Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.4 "Geist", system-ui, sans-serif; overflow: hidden; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+.app { display: flex; height: 100%; }
+.sidebar { width: 220px; flex: none; background: var(--sidebar); border-right: 1px solid #1F242D; padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; }
+.brand { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; padding: 6px 10px 22px; }
+.nav { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 10px; color: #B4BAC5; text-decoration: none; font-weight: 500; }
+.nav:hover { background: #1A1F27; color: var(--text); }
+.nav.active { background: #1E232C; color: #F2F4F7; font-weight: 600; }
+.grow { flex: 1; }
+main { flex: 1; min-width: 0; padding: 28px 36px 24px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+.sub { margin: 0 0 14px; color: var(--text-2); }
+.columns { flex: 1; min-height: 0; display: flex; gap: 20px; }
+.cards { flex: 0 0 280px; display: flex; flex-direction: column; gap: 10px; align-self: flex-start; }
+.card { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.card[aria-selected="true"] { background: #1C222B; }
+.card .top { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-2); }
+.card .row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.card .val { font-family: var(--mono); font-size: 22px; }
+.card .val small { font-family: "Geist", system-ui, sans-serif; font-size: 13px; color: var(--text-2); }
+.card svg { width: 110px; height: 30px; flex: none; }
+.panel { flex: 1; min-width: 0; min-height: 0; padding: 22px 24px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.label { font-size: 13px; color: var(--text-2); }
+h2 { margin: 4px 0 0; font-size: 22px; font-weight: 650; letter-spacing: -0.015em; }
+.big .mono { font-size: 34px; }
+.unit { color: var(--text-2); margin-left: 4px; }
+.chart svg { display: block; width: 100%; height: 180px; }
+.grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 6px; }
+h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.procs { flex: 1; min-height: 0; overflow-y: auto; border-radius: 12px; border: 1px solid var(--border); background: var(--sunk); }
+.proc { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 14px; font-size: 13px; }
+.proc .name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proc .num { font-family: var(--mono); text-align: right; color: #C9CED6; }
+.proc .pid { width: 70px; color: var(--text-3); }
+.proc .cpu { width: 70px; }
+.proc .mem { width: 90px; }
+@media (prefers-reduced-motion: no-preference) { .card { transition: border-color 150ms ease-out, background 150ms ease-out; } }

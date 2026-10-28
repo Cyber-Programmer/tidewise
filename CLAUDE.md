@@ -48,7 +48,7 @@ crates/helper-protocol  request/response enums shared by app and helper (serde)
 crates/helper           tidewise-helper binary: validates and runs allow-listed jobs as root.
                         Ships inside the AppImage; installed once to /usr/local/libexec at setup
                         (root cannot execute it from inside the AppImage's FUSE mount)
-crates/app              UI (toolkit decided in docs/decisions/0001-ui-toolkit.md) + view models
+crates/app              Slint UI (see docs/decisions/0001-ui-toolkit.md) + view models
 packaging/appimage      AppImage build script, .desktop file, icon
 packaging/polkit        io.github.tidewise.helper.policy
 tests/fixtures          saved real command outputs (pacman, apt, flatpak, /proc)
@@ -87,8 +87,10 @@ All five must pass before you say a task is done. Run them; don't assume.
 
 ## Design rules
 
-- Match the screens in `docs/design/` exactly: spacing, copy, states. Ask the human which artboard
-  when unsure.
+- Match the screens in `docs/design/` exactly: spacing, copy, states. Reference pictures are in
+  `docs/design/png/`. Prove it with the loop in `docs/design/DESIGN-CHECK.md`
+  (`tools/design_diff.py`, target LAYOUT MISMATCH ≤ 10 %), never by eye alone.
+- Fonts: Geist and Geist Mono from `assets/fonts/`. Icons: `docs/design/icons/`.
 - Use only the tokens in `docs/design/tokens.md`. No new colours, no shadows, blur, glow or gradients.
 - Every number in mono font; every destructive button names what it removes ("Uninstall GIMP").
 - Plain-language label first; technical detail only behind the "Show technical details" switch.

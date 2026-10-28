@@ -1,0 +1,7 @@
+00400000-7ffd1a2b3000 ---p 00000000 00:00 0                          [rollup]
+Rss:               7777 kB
+Pss:               7777 kB
+Pss_Dirty:          10 kB
+Pss_Anon:           20 kB
+Pss_File:           30 kB
+Shared_Clean:        0 kB

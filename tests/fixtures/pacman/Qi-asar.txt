@@ -1,0 +1,22 @@
+Name            : asar
+Version         : 4.3.1-1
+Description     : Creating Electron app packages
+Architecture    : any
+URL             : https://github.com/electron/asar
+Licenses        : MIT
+Groups          : None
+Provides        : None
+Depends On      : nodejs
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 6.30 MiB
+Packager        : Sven-Hendrik Haase <svenstaro@archlinux.org>
+Build Date      : Sat Sep 26 23:06:24 2026
+Install Date    : Wed Oct 14 17:42:10 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+

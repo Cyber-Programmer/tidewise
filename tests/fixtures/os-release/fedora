@@ -1,0 +1,8 @@
+# HAND-WRITTEN fixture from the documented os-release format, not captured from a real machine.
+NAME="Fedora Linux"
+VERSION="40 (Workstation Edition)"
+ID=fedora
+VERSION_ID=40
+VERSION_CODENAME=""
+PLATFORM_ID="platform:f40"
+PRETTY_NAME="Fedora Linux 40 (Workstation Edition)"

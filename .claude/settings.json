@@ -15,7 +15,10 @@
       "Bash(journalctl --vacuum *)",
       "Edit(crates/helper/**)",
       "Edit(crates/helper-protocol/**)",
-      "Edit(packaging/polkit/**)"
+      "Edit(packaging/polkit/**)",
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Edit(docs/design/**)"
     ]
   }
 }
