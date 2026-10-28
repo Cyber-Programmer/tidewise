@@ -37,6 +37,7 @@ impl Trail {
     pub fn jump(&mut self, n: usize) {
         self.0.truncate(n);
     }
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -210,9 +211,7 @@ impl Cache {
     pub fn clear(&mut self) {
         self.0.clear();
     }
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -372,6 +371,7 @@ impl Browser {
         self.root_job.is_none() && self.level_job.is_none()
     }
 
+    #[cfg(test)]
     pub fn scans_started(&self) -> usize {
         self.scans
     }
@@ -472,8 +472,26 @@ impl Browser {
 
     /// Go straight to a folder below the root, with every folder on the way on the trail (so Back
     /// works). False, and nothing changes, if it is not a folder.
-    pub fn open_path(&mut self, _rel: &Path) -> bool {
-        false
+    pub fn open_path(&mut self, rel: &Path) -> bool {
+        let mut here = self.root.clone();
+        let mut places = Vec::new();
+        for part in rel.components() {
+            let std::path::Component::Normal(name) = part else {
+                return false;
+            };
+            here.push(name);
+            let is_folder = std::fs::symlink_metadata(&here).is_ok_and(|m| m.is_dir());
+            if !is_folder {
+                return false;
+            }
+            places.push(Place::Folder(here.clone()));
+        }
+        if places.is_empty() {
+            return false;
+        }
+        self.trail = Trail(places);
+        self.load_current();
+        true
     }
 
     pub fn up(&mut self) {

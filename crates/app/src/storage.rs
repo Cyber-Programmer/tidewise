@@ -262,6 +262,7 @@ pub enum RowKind {
     /// A folder on another file system: listed, never entered.
     OtherDrive,
     /// "and N smaller items": the last row of a list that was cut short.
+    #[allow(dead_code)] // built in R5-T2
     Summary,
 }
 
@@ -369,22 +370,37 @@ pub fn folder_row(
     kind: RowKind,
     days_unused: u64,
 ) -> FolderRow {
-    let old = days_unused >= OLD_DAYS;
-    let what = kind_of(name, kind == RowKind::Folder);
+    let away = kind == RowKind::OtherDrive;
+    let old = days_unused >= OLD_DAYS && !away;
+    let what = match kind {
+        RowKind::Folder | RowKind::OtherDrive => "Folder",
+        RowKind::Link => "Shortcut",
+        _ => kind_of(name, false),
+    };
     let meta = match (old, age_amount(days_unused)) {
-        (true, Some(amount)) => format!("{what} · not opened in {amount}"),
-        _ => format!("{what} · opened {}", age_ago(days_unused)),
+        _ if away => format!("{what} \u{b7} on another drive"),
+        (true, Some(amount)) => format!("{what} \u{b7} not opened in {amount}"),
+        _ => format!("{what} \u{b7} opened {}", age_ago(days_unused)),
+    };
+    let label = match kind {
+        RowKind::Folder => format!("Open {name}"),
+        RowKind::OtherDrive => format!("{name}, on another drive"),
+        _ => format!("Select {name}"),
     };
     FolderRow {
         name: name.to_string(),
         meta,
-        size: fmt_gb1(bytes),
+        size: if away {
+            "On another drive".into()
+        } else {
+            fmt_gb1(bytes)
+        },
         old,
         checked: old,
         bytes,
         path: Some(path.to_path_buf()),
         kind,
-        label: String::new(),
+        label,
         focused: false,
     }
 }
@@ -608,10 +624,16 @@ pub fn live_data(
         let rows = f
             .entries
             .iter()
-            .map(|e| folder_row(&e.name, &e.path, e.bytes, e.kind, e.days_unused))
+            .enumerate()
+            .map(|(i, e)| {
+                let mut row = folder_row(&e.name, &e.path, e.bytes, e.kind, e.days_unused);
+                row.checked = f.checked.get(i).copied().unwrap_or(false);
+                row.focused = i == f.cursor;
+                row
+            })
             .collect();
         data.folder = Some(Folder {
-            crumbs: Vec::new(),
+            crumbs: f.crumbs,
             help: "Biggest first. Items you haven't opened in 6 months are ticked for you; change anything you like.".into(),
             rows,
         });

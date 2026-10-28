@@ -164,7 +164,8 @@ component Tile inherits Rectangle {
 component Crumbs inherits HorizontalLayout {
     spacing: 6px;
     alignment: start;
-    min-height: 32px;
+    min-height: StorageState.in-folder ? 32px : 22px;
+    padding-left: StorageState.in-folder ? 4px : 0px;
     for c[i] in StorageState.crumbs: HorizontalLayout {
         spacing: 6px;
         if i > 0: Image { source: @image-url("icons/chevron.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; }
