@@ -64,3 +64,6 @@ Numbers from one run: Slint FemtoVG 58 MB, Slint software 23 MB, Tauri 313 MB (3
 Plan T0: point the measure-script test at `tools/measure.sh` first (red), then `git mv` the script, port spike code into `crates/app` (binary `tidewise`), delete `spikes/`, drop the workspace `exclude`.
 Plan T1: write `crates/app/tests/theme_tokens.rs` first (parses `tokens.md`, checks every hex and every simple token in `ui/theme.slint`, fonts and icons present) and watch it fail.
 Then `ui/theme.slint` with a `Theme` global (dark default, light via the same `dark ?` switch), import Geist/Geist Mono TTFs, copy icons to `ui/icons/`, set `default-font-family`, replace the spike's `Tokens`.
+Plan T2: tests first (red): `demo::series` against values computed with node from the artboard's own `series()`, `cli` parsing, and a binary-level test that `--screenshot` writes a 1360×960 PNG twice with identical bytes.
+Then `cli.rs` (hand-rolled flags, no new dependency), `perf.rs` (pure metric data shared by demo and live), `demo.rs`, `screenshot.rs` (`MinimalSoftwareWindow` + software renderer + `image` PNG encode), wired into `main.rs`.
+Plan T3 (Performance): rebuild `ui/performance.slint` + shared shell (sidebar) to the artboard's px values, drive it from `perf::PerfData`, loop with design_diff on all six images.

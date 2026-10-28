@@ -8,6 +8,11 @@ use std::time::Duration;
 use slint::{Color, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tidewise_core::stats::{LiveStats, Snapshot};
 
+mod cli;
+mod demo;
+mod perf;
+mod screenshot;
+
 slint::include_modules!();
 
 const HISTORY: usize = 60;
@@ -248,10 +253,85 @@ impl App {
     }
 }
 
-fn main() -> Result<(), slint::PlatformError> {
+const ACCENTS: [(u8, u8, u8); 4] = [
+    (0x7A, 0xA7, 0xFF),
+    (0xF2, 0xB8, 0x4B),
+    (0x5D, 0xDC, 0xB0),
+    (0xC3, 0xA2, 0xFF),
+];
+
+/// Show demo data on the (still spike-shaped) Performance window. Replaced in M1-T3.
+fn apply_demo(ui: &MainWindow, data: &perf::PerfData, selected: usize) {
+    let color = |i: usize| Color::from_rgb_u8(ACCENTS[i].0, ACCENTS[i].1, ACCENTS[i].2);
+    let cards: Vec<MetricCard> = data
+        .metrics
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let tail: Vec<f64> = m.vals[30..].iter().map(|v| v / 100.0).collect();
+            let mut spark = String::new();
+            for (n, v) in tail.iter().enumerate() {
+                let x = n as f64 * 120.0 / (tail.len() - 1) as f64;
+                let y = 30.0 - v.clamp(0.0, 1.0) * 28.0;
+                spark.push_str(if n == 0 { "M" } else { " L" });
+                spark.push_str(&format!("{x:.1} {y:.1}"));
+            }
+            MetricCard {
+                label: m.label.as_str().into(),
+                value: m.value.as_str().into(),
+                unit: m.unit.as_str().into(),
+                mood: m.mood.as_str().into(),
+                color: color(i),
+                spark: spark.into(),
+            }
+        })
+        .collect();
+    ui.set_cards(ModelRc::new(VecModel::from(cards)));
+    let cur = &data.metrics[selected];
+    let vals: Vec<f64> = cur.vals.iter().map(|v| v / 100.0).collect();
+    ui.set_selected(selected as i32);
+    ui.set_headline(cur.headline.as_str().into());
+    ui.set_big_value(cur.value.as_str().into());
+    ui.set_big_unit(cur.unit.as_str().into());
+    ui.set_axis_label(cur.axis.as_str().into());
+    ui.set_accent_color(color(selected));
+    ui.set_line_commands(line_path(&vals, 600.0, 200.0, 5.0).into());
+    ui.set_area_commands(area_path(&vals, 600.0, 200.0, 5.0).into());
+}
+
+fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
+    if shot.screen != "performance" {
+        return Err(format!("unknown screen '{}'", shot.screen).into());
+    }
+    let view = perf::View::from_state(shot.state.as_deref())?;
+    let window = screenshot::install()?;
+    let ui = MainWindow::new()?;
+    apply_demo(&ui, &demo::performance(), view.metric);
+    ui.show()?;
+    screenshot::save(&window, std::path::Path::new(&shot.out))
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = cli::parse(std::env::args().skip(1))?;
+    if let Some(shot) = &args.screenshot {
+        return run_screenshot(shot);
+    }
     let ui = MainWindow::new()?;
     let rows = Rc::new(VecModel::default());
     ui.set_processes(ModelRc::from(rows.clone()));
+
+    if args.demo {
+        apply_demo(&ui, &demo::performance(), 0);
+        ui.on_pick({
+            let weak = ui.as_weak();
+            move |i| {
+                if let Some(ui) = weak.upgrade() {
+                    apply_demo(&ui, &demo::performance(), i.clamp(0, 3) as usize);
+                }
+            }
+        });
+        return Ok(ui.run()?);
+    }
 
     let app = Rc::new(RefCell::new(App {
         stats: LiveStats::new(),
@@ -288,7 +368,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    ui.run()
+    Ok(ui.run()?)
 }
 
 #[cfg(test)]

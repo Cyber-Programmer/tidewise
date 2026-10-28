@@ -12,9 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 slint = "1.18.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 tidewise-core = { path = "../core", version = "0.1.0" }
 
 [build-dependencies]
 slint-build = "1.18.1"
 
 [dev-dependencies]
+tempfile.workspace = true

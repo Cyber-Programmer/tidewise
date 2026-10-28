@@ -4431,8 +4431,10 @@ dependencies = [
 name = "tidewise-app"
 version = "0.1.0"
 dependencies = [
+ "image",
  "slint",
  "slint-build",
+ "tempfile",
  "tidewise-core",
 ]
 
