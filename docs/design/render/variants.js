@@ -11,6 +11,7 @@ const variants = [
   ['Processes', 'details', { details: true }],
   ['Processes', 'apps', { filter: 'apps' }],
   ['Processes', 'protected-selected', { selected: 'plasma' }],
+  ['Storage', 'downloads', { folder: 'downloads' }],
 ];
 (async () => {
   const browser = await chromium.launch();

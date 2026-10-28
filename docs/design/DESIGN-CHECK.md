@@ -49,6 +49,8 @@ The 10 % target is a starting guess; the human tunes it after the first screen.
 
 - Performance artboard: the Memory card wraps "of 16 GB" onto two lines and the Network card wraps
   "down". That's a design bug: keep each value on one line.
+- Storage artboard: the "Biggest files" sizes wrap onto two lines ("6.1 / GB"). Design bug: keep each
+  size on one line.
 - Anything the design shows as live (chart wiggle, numbers) only matches in demo mode.
 - Text antialiasing and sub-pixel differences.
 
