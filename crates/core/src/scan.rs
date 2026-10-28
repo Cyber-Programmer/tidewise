@@ -202,7 +202,10 @@ impl Walk<'_> {
                 if meta.dev() != self.device {
                     continue;
                 }
-                *children.entry(top).or_insert(0) += meta.blocks() * 512;
+                // A folder's own blocks count in the total and in progress: one rule, same as `du`.
+                let bytes = meta.blocks() * 512;
+                self.progress.bytes.fetch_add(bytes, Ordering::Relaxed);
+                *children.entry(top).or_insert(0) += bytes;
                 self.dir(root, &path, children);
             } else {
                 let size = self.file(&path, &meta);
