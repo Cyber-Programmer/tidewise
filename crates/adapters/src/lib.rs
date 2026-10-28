@@ -1,4 +1,5 @@
 //! Package-manager and app-source adapters, one module each, behind a trait.
+#![forbid(unsafe_code)]
 
 pub mod appimage;
 pub mod flatpak;
