@@ -263,6 +263,14 @@ mod tests {
     use std::process::Command;
     use std::time::SystemTime;
 
+    /// A temp folder on the project's disk. `/tmp` is often tmpfs, where folders use 0 blocks, which
+    /// hides bugs in how folder blocks are counted (ext4 and btrfs charge a block per folder).
+    fn disk_tempdir() -> tempfile::TempDir {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-tmp");
+        fs::create_dir_all(&base).unwrap();
+        tempfile::Builder::new().tempdir_in(base).unwrap()
+    }
+
     fn write(path: &Path, bytes: usize) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut f = File::create(path).unwrap();
@@ -290,7 +298,7 @@ mod tests {
 
     #[test]
     fn folder_sizes_add_up_and_sort_biggest_first() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = disk_tempdir();
         write(&dir.path().join("big/a.bin"), 400_000);
         write(&dir.path().join("big/deep/b.bin"), 300_000);
         write(&dir.path().join("small/c.bin"), 20_000);
@@ -435,7 +443,7 @@ mod tests {
 
     #[test]
     fn the_background_scan_reports_progress_and_returns_the_result() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = disk_tempdir();
         write(&dir.path().join("a/f.bin"), 100_000);
         write(&dir.path().join("a/g.bin"), 100_000);
         let handle = start(dir.path().to_path_buf(), ScanOptions::default());
@@ -446,10 +454,22 @@ mod tests {
         assert!(!r.cancelled);
     }
 
+    #[test]
+    fn progress_and_total_agree_with_nested_folders() {
+        let dir = disk_tempdir();
+        write(&dir.path().join("a/b/c/f.bin"), 50_000);
+        write(&dir.path().join("a/b/g.bin"), 10_000);
+        write(&dir.path().join("x/y/h.bin"), 30_000);
+        let handle = start(dir.path().to_path_buf(), ScanOptions::default());
+        let progress = handle.progress.clone();
+        let r = handle.wait();
+        assert_eq!(progress.bytes.load(Ordering::Relaxed), r.total_bytes);
+    }
+
     /// Acceptance for M2: our numbers match `du -sx` within 1 % on a test folder.
     #[test]
     fn totals_match_du_within_one_percent() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = disk_tempdir();
         for i in 0..20 {
             write(
                 &dir.path().join(format!("d{}/f{i}.bin", i % 4)),
