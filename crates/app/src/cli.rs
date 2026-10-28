@@ -8,6 +8,8 @@ pub struct Screenshot {
     /// Window height in pixels. The width is always 1360; the default height is 960. Artboards
     /// that grow with their content (e.g. Performance with details) are taller than that.
     pub height: u32,
+    /// `--open <relative/path>`: the folder of the live Storage screen to show.
+    pub open: Option<String>,
 }
 
 /// `--add-to-menu` / `--remove-from-menu`: put Tidewise in (or take it out of) the app menu, then exit.
@@ -66,11 +68,19 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             state,
             out: out_file,
             height,
+            open: None,
         });
     } else if state.is_some() || file.is_some() {
         return Err("--state and --out only work with --screenshot".into());
     }
     Ok(out)
+}
+
+/// The folder the live Storage scan starts from, when `TIDEWISE_STORAGE_ROOT` asks for one. It is only
+/// honoured together with `--screenshot`, so it cannot surprise someone running the app.
+pub fn storage_root(screenshot: bool, env: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    let _ = (screenshot, env);
+    None
 }
 
 #[cfg(test)]
@@ -121,7 +131,8 @@ mod tests {
                 screen: "performance".into(),
                 state: Some("details".into()),
                 out: "a.png".into(),
-                height: 960
+                height: 960,
+                open: None
             })
         );
         assert!(a.demo, "a screenshot always uses demo data");
@@ -181,5 +192,49 @@ mod tests {
     #[test]
     fn unknown_flag_is_an_error() {
         assert!(args(&["--force"]).unwrap_err().contains("--force"));
+    }
+
+    fn shot(extra: &[&str]) -> Result<Args, String> {
+        let mut v = vec!["--screenshot", "storage", "--out", "a.png"];
+        v.extend_from_slice(extra);
+        args(&v)
+    }
+
+    #[test]
+    fn open_takes_a_relative_path() {
+        let a = shot(&["--open", "Documents/Creative Chaos"]).unwrap();
+        assert_eq!(
+            a.screenshot.unwrap().open.as_deref(),
+            Some("Documents/Creative Chaos")
+        );
+    }
+
+    #[test]
+    fn open_refuses_absolute_and_parent_paths() {
+        for bad in ["/etc", "../x", "a/../../b", "a/..", ""] {
+            assert!(shot(&["--open", bad]).is_err(), "{bad:?}");
+        }
+        assert!(shot(&["--open"]).is_err());
+    }
+
+    #[test]
+    fn open_only_works_with_a_screenshot() {
+        assert!(args(&["--open", "Documents"]).is_err());
+    }
+
+    #[test]
+    fn the_storage_root_variable_needs_a_screenshot() {
+        let dir = std::ffi::OsStr::new("/data/fixture");
+        assert_eq!(
+            storage_root(true, Some(dir)),
+            Some(std::path::PathBuf::from("/data/fixture"))
+        );
+        assert_eq!(storage_root(false, Some(dir)), None);
+        assert_eq!(storage_root(true, None), None);
+        assert_eq!(storage_root(true, Some(std::ffi::OsStr::new(""))), None);
+        assert_eq!(
+            storage_root(true, Some(std::ffi::OsStr::new("relative"))),
+            None
+        );
     }
 }

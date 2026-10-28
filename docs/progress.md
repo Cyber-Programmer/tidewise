@@ -269,3 +269,10 @@ For the parts below the run prompt's "red test commit before each behaviour chan
 
 **Next:** click through Storage and the Trash/Undo flow in the live app; install appimagetool and build; M3 (helper).
 **Blockers:** none.
+
+# Run 05 — Storage: go deep, scroll, readable blocks (branch run/05-2026-10-28, started 2026-10-28 15:28 PKT)
+
+### R5-T0 plan
+1. Test support `crates/app/tests/support/fixture.rs`: builds a nested tree on the project's disk (`target/`), with `fallocate` for real on-disk blocks; red tests in `tests/storage_fixture.rs` (depth ≥ 4, 40+ items, > 1 GB and < 1 MB by `du`, symlink, hard link) against a stub first.
+2. CLI: `--open <relative/path>` (screenshot only, no `..`, not absolute) and `TIDEWISE_STORAGE_ROOT` honoured only when `--screenshot` is present (pure function, unit-tested).
+3. `--screenshot storage --state live` runs the live controller on that folder, waits for the scans, opens the path, renders. Red integration test first.

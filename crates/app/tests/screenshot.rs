@@ -1,5 +1,9 @@
 //! `tidewise --screenshot` renders headless at exactly 1360×960 and is deterministic.
 
+#[allow(dead_code)]
+#[path = "support/fixture.rs"]
+mod fixture;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -213,4 +217,59 @@ fn the_menu_flags_write_and_remove_files_only_under_xdg_data_home() {
     assert!(text.contains(env!("CARGO_BIN_EXE_tidewise")), "{text}");
     assert!(run("--remove-from-menu").success());
     assert!(!launcher.exists());
+}
+
+fn live_storage(fx: &fixture::Fixture, out: &PathBuf, extra: &[&str]) {
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args(["--screenshot", "storage", "--state", "live"])
+        .args(extra)
+        .arg("--out")
+        .arg(out)
+        .env("TIDEWISE_RENDERER", "software")
+        .env("TIDEWISE_STORAGE_ROOT", &fx.root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "tidewise exited with {status}");
+}
+
+#[test]
+fn live_storage_screenshot_shows_the_fixture_not_the_demo() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let (live, demo) = (dir.path().join("live.png"), dir.path().join("demo.png"));
+    live_storage(&fx, &live, &[]);
+    run_screen("storage", &demo, &[]);
+    assert_eq!(png_size(&fs::read(&live).unwrap()), (1360, 960));
+    assert_ne!(fs::read(&live).unwrap(), fs::read(&demo).unwrap());
+}
+
+#[test]
+fn live_storage_screenshot_can_open_a_level() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let (top, deep) = (dir.path().join("top.png"), dir.path().join("deep.png"));
+    live_storage(&fx, &top, &[]);
+    live_storage(&fx, &deep, &["--open", "Documents/Photos"]);
+    assert_ne!(fs::read(&top).unwrap(), fs::read(&deep).unwrap());
+}
+
+#[test]
+fn opening_a_missing_folder_fails_loudly() {
+    let fx = fixture::build();
+    let dir = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args([
+            "--screenshot",
+            "storage",
+            "--state",
+            "live",
+            "--open",
+            "Nope",
+        ])
+        .arg("--out")
+        .arg(dir.path().join("x.png"))
+        .env("TIDEWISE_STORAGE_ROOT", &fx.root)
+        .status()
+        .unwrap();
+    assert!(!status.success());
 }
