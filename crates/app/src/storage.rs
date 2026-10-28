@@ -47,6 +47,11 @@ fn trim(value: f64, unit: &str) -> String {
     }
 }
 
+/// One size format for the rows and Biggest files: `17.5 GB`, `840 MB`, `12 KB`, `Empty` for nothing.
+pub fn fmt_item(_bytes: u64) -> String {
+    String::new()
+}
+
 /// Always one decimal in GB (`6.1 GB`, `22.0 GB`): the file rows and the Trash button.
 pub fn fmt_gb1(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / GB)
@@ -690,6 +695,89 @@ mod tests {
         assert_eq!(fmt_size(340_000_000), "340 MB");
         assert_eq!(fmt_size(2_000_000_000_000), "2 TB");
         assert_eq!(fmt_size(0), "0 MB");
+    }
+
+    #[test]
+    fn item_sizes_read_the_same_everywhere() {
+        let cases: [(u64, &str); 24] = [
+            (0, "Empty"),
+            (1, "<1 KB"),
+            (999, "<1 KB"),
+            (1_000, "1 KB"),
+            (12_000, "12 KB"),
+            (12_499, "12 KB"),
+            (999_499, "999 KB"),
+            (999_500, "1 MB"),
+            (1_000_000, "1 MB"),
+            (1_500_000, "1.5 MB"),
+            (9_940_000, "9.9 MB"),
+            (9_960_000, "10 MB"),
+            (840_000_000, "840 MB"),
+            (999_499_999, "999 MB"),
+            (999_500_000, "1 GB"),
+            (1_000_000_000, "1 GB"),
+            (17_500_000_000, "17.5 GB"),
+            (99_940_000_000, "99.9 GB"),
+            (99_960_000_000, "100 GB"),
+            (381_000_000_000, "381 GB"),
+            (999_400_000_000, "999 GB"),
+            (999_600_000_000, "1 TB"),
+            (2_000_000_000_000, "2 TB"),
+            (u64::MAX, "18446744 TB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(fmt_item(bytes), want, "{bytes} bytes");
+        }
+    }
+
+    #[test]
+    fn an_item_size_is_never_zero_and_always_fits_its_column() {
+        let mut b = 1u64;
+        while b < 1_000_000_000_000_000 {
+            for v in [b, b + b / 3, b * 3 / 2] {
+                let t = fmt_item(v);
+                assert!(!t.starts_with("0 ") && !t.starts_with("0.0"), "{v}: {t}");
+                assert!(
+                    t.chars().count() <= 8,
+                    "{v} -> {t:?} is wider than 999.9 GB"
+                );
+            }
+            b += b / 7 + 1;
+        }
+    }
+
+    #[test]
+    fn rows_and_biggest_files_use_the_item_format() {
+        let p = Path::new("/x");
+        assert_eq!(folder_row("a", p, 0, RowKind::File, 1).size, "Empty");
+        assert_eq!(
+            folder_row("a", p, 100_000_000, RowKind::File, 1).size,
+            "100 MB"
+        );
+        assert_eq!(folder_row("a", p, 5_000, RowKind::Folder, 1).size, "5 KB");
+        let mut scan = scan_with(&[("Documents", 20_000_000_000)]);
+        let f = |n: &str, b| tidewise_core::scan::FileEntry {
+            path: format!("/home/ali/{n}").into(),
+            bytes: b,
+            last_used: SystemTime::UNIX_EPOCH,
+        };
+        scan.biggest_files = vec![
+            f("a.iso", 17_500_000_000),
+            f("b.zip", 840_000_000),
+            f("c", 12_000),
+        ];
+        let sizes: Vec<_> = live(&scan).big.iter().map(|b| b.size.clone()).collect();
+        assert_eq!(sizes, ["17.5 GB", "840 MB", "12 KB"]);
+    }
+
+    #[test]
+    fn the_trash_button_uses_the_item_format_too() {
+        assert_eq!(trash_label(2, 840_000_000), "Move 2 to Trash \u{b7} 840 MB");
+        assert_eq!(
+            trash_label(1, 22_000_000_000),
+            "Move 1 to Trash \u{b7} 22 GB"
+        );
+        assert_eq!(trash_label(0, 5), "Nothing ticked");
     }
 
     #[test]
