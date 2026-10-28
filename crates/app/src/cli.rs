@@ -89,8 +89,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             width,
             open,
         });
-    } else if state.is_some() || file.is_some() || open.is_some() {
-        return Err("--state, --out and --open only work with --screenshot".into());
+    } else if state.is_some() || file.is_some() {
+        return Err("--state and --out only work with --screenshot".into());
+    } else if open.is_some() {
+        if out.page.as_deref() != Some("storage") {
+            return Err("--open needs --screenshot or --page storage".into());
+        }
+        out.open = open;
     }
     Ok(out)
 }

@@ -444,6 +444,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);
+        if let Some(rel) = &args.open {
+            if !storage.borrow_mut().open_now(rel_path(rel), &ui) {
+                return Err(
+                    format!("--open: {rel} is not a folder inside the scanned folder").into(),
+                );
+            }
+        }
     }
     show_page(
         &ui,
