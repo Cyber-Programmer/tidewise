@@ -28,6 +28,8 @@ pub struct Sampler {
     /// Main-drive space and when it was read; it changes slowly and reading it walks the mounts.
     drive: Option<(Instant, Option<tidewise_core::drive::DriveSpace>)>,
     biggest: Option<(Instant, Option<(String, u64)>)>,
+    /// Bytes of junk the last scan found; `None` until one has finished.
+    pub junk: Option<u64>,
 }
 
 const DRIVE_REFRESH: Duration = Duration::from_secs(30);
@@ -89,6 +91,7 @@ impl Sampler {
             names: procs::NameCache::default(),
             drive: None,
             biggest: None,
+            junk: None,
         }
     }
 
@@ -192,7 +195,7 @@ impl Sampler {
         });
         HomeData {
             last_checked: "Live numbers, updated every second".into(),
-            scan: Some(home::health_scan(drive, biggest)),
+            scan: Some(home::health_scan(drive, biggest, self.junk)),
             tiles,
             apps: None,
         }

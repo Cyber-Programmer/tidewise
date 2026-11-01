@@ -68,8 +68,10 @@ pub struct HomeData {
 pub fn health_scan(
     drive: Option<tidewise_core::drive::DriveSpace>,
     biggest_app: Option<(String, u64)>,
+    junk: Option<u64>,
 ) -> Scan {
     use tidewise_core::health;
+    let _ = junk;
     let gb = |b: u64| b as f64 / 1_000_000_000.0;
     let mut suggestions = Vec::new();
     let mut points = Vec::new();
@@ -314,32 +316,105 @@ mod tests {
     }
 
     #[test]
-    fn a_roomy_drive_and_small_apps_give_a_perfect_score_and_only_the_junk_stub() {
-        let s = health_scan(Some(drive(0.59)), Some(("Firefox".into(), 999_999_999)));
+    fn a_roomy_drive_small_apps_and_no_junk_give_a_perfect_score_and_nothing_to_suggest() {
+        let s = health_scan(
+            Some(drive(0.59)),
+            Some(("Firefox".into(), 999_999_999)),
+            Some(0),
+        );
         assert_eq!(s.score, 100);
         assert_eq!(s.tag, "Good shape");
-        assert_eq!(s.suggestions.len(), 1);
-        assert!(s.suggestions[0].title.contains("aren't measured yet"));
+        assert!(s.suggestions.is_empty(), "{:?}", s.suggestions.len());
         assert_eq!(s.headline, "Your PC is running well.");
     }
 
     #[test]
-    fn the_drive_suggestion_appears_at_the_first_step_and_costs_points() {
-        let s = health_scan(Some(drive(0.65)), None);
-        assert_eq!(s.score, 98);
-        assert_eq!(s.suggestions[1].title, "Your main drive is 65% full");
-        assert_eq!(s.suggestions[1].page, 3);
-        let full = health_scan(Some(drive(0.80)), None);
-        assert_eq!(full.score, 92);
-        assert!(
-            full.suggestions[1].body.starts_with("200 GB free")
-                || full.suggestions[1].body.contains("GB free")
+    fn junk_takes_points_and_suggests_clean_up_from_one_gigabyte() {
+        let s = health_scan(None, None, Some(12_600_000_000));
+        assert_eq!(s.score, 95, "12.6 GB is 5 whole steps of 2.5 GB");
+        assert_eq!(s.suggestions.len(), 1);
+        let j = &s.suggestions[0];
+        assert_eq!(j.title, "12.6 GB of junk files can be removed");
+        assert_eq!(
+            j.body,
+            "Old installer downloads, app caches and logs. Apps rebuild what they need."
         );
+        assert_eq!((j.action.as_str(), j.page), ("Clean up", 1));
+        assert!(s.headline.contains("1 thing could"));
+    }
+
+    #[test]
+    fn the_junk_suggestion_starts_at_exactly_one_gigabyte_but_points_at_two_and_a_half() {
+        let below = health_scan(None, None, Some(999_999_999));
+        assert!(below.suggestions.is_empty());
+        assert_eq!(below.score, 100);
+        let at = health_scan(None, None, Some(1_000_000_000));
+        assert_eq!(at.suggestions.len(), 1);
+        assert_eq!(
+            at.suggestions[0].title,
+            "1.0 GB of junk files can be removed"
+        );
+        assert_eq!(at.score, 100, "under 2.5 GB costs nothing");
+        assert_eq!(health_scan(None, None, Some(2_500_000_000)).score, 99);
+    }
+
+    #[test]
+    fn junk_points_stop_at_eight_and_stack_with_the_drive() {
+        assert_eq!(health_scan(None, None, Some(500_000_000_000)).score, 92);
+        let both = health_scan(Some(drive(0.80)), None, Some(500_000_000_000));
+        assert_eq!(both.score, 100 - 8 - 8);
+    }
+
+    #[test]
+    fn the_junk_suggestion_comes_first_and_the_drive_one_second() {
+        let s = health_scan(Some(drive(0.65)), None, Some(5_000_000_000));
+        assert_eq!(s.suggestions.len(), 2);
+        assert!(s.suggestions[0].title.contains("of junk files"));
+        assert_eq!(s.suggestions[1].title, "Your main drive is 65% full");
+        assert!(s.headline.contains("2 things could"));
+    }
+
+    #[test]
+    fn before_the_junk_scan_finishes_nothing_is_claimed_and_the_note_says_so() {
+        let s = health_scan(Some(drive(0.59)), None, None);
+        assert!(s.suggestions.is_empty());
+        assert_eq!(s.score, 100);
+        assert!(s
+            .sub
+            .contains("Junk, services and updates are not part of this score yet."));
+        let done = health_scan(Some(drive(0.59)), None, Some(0));
+        assert!(!done.sub.contains("Junk"));
+        assert!(done
+            .sub
+            .contains("Services and updates are not part of this score yet."));
+    }
+
+    #[test]
+    fn the_old_stub_label_is_gone() {
+        for junk in [None, Some(0), Some(3_000_000_000)] {
+            let s = health_scan(Some(drive(0.7)), None, junk);
+            assert!(s
+                .suggestions
+                .iter()
+                .all(|x| !x.title.contains("aren't measured yet")
+                    && !x.body.contains("later version")));
+        }
+    }
+
+    #[test]
+    fn the_drive_suggestion_appears_at_the_first_step_and_costs_points() {
+        let s = health_scan(Some(drive(0.65)), None, Some(0));
+        assert_eq!(s.score, 98);
+        assert_eq!(s.suggestions[0].title, "Your main drive is 65% full");
+        assert_eq!(s.suggestions[0].page, 3);
+        let full = health_scan(Some(drive(0.80)), None, Some(0));
+        assert_eq!(full.score, 92);
+        assert!(full.suggestions[0].body.contains("GB free"));
     }
 
     #[test]
     fn a_big_app_gets_a_memory_suggestion_from_one_gigabyte() {
-        let s = health_scan(None, Some(("Firefox".into(), 2_100_000_000)));
+        let s = health_scan(None, Some(("Firefox".into(), 2_100_000_000)), Some(0));
         assert_eq!(
             s.suggestions.last().unwrap().title,
             "Firefox is using 2.1 GB of memory"
@@ -354,7 +429,7 @@ mod tests {
 
     #[test]
     fn no_drive_and_no_apps_is_still_a_valid_scan() {
-        let s = health_scan(None, None);
-        assert_eq!((s.score, s.suggestions.len()), (100, 1));
+        let s = health_scan(None, None, None);
+        assert_eq!((s.score, s.suggestions.len()), (100, 0));
     }
 }
