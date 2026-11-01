@@ -367,6 +367,58 @@ pub fn storage(downloads: bool) -> StorageData {
     }
 }
 
+/// The Cleaner artboard's groups (no "Packages nothing uses": the scanner does not look for them yet).
+pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
+    use tidewise_adapters::junk::{JunkItem, JunkKind, JunkReport};
+    let item = |kind, label: &str, path: &str, bytes, needs_admin| JunkItem {
+        kind,
+        label: label.into(),
+        path: Some(path.into()),
+        bytes,
+        needs_admin,
+    };
+    tidewise_adapters::cleanup::groups(&JunkReport {
+        items: vec![
+            item(
+                JunkKind::PackageCache,
+                "Package cache (pacman)",
+                "/var/cache/pacman/pkg  ·  paccache -rk2",
+                6_800_000_000,
+                true,
+            ),
+            item(
+                JunkKind::AppCache,
+                "thumbnails",
+                "/home/you/.cache/thumbnails",
+                3_100_000_000,
+                false,
+            ),
+            item(
+                JunkKind::Journal,
+                "System log (journal)",
+                "",
+                1_200_000_000,
+                true,
+            ),
+            item(
+                JunkKind::FlatpakRuntime,
+                "org.kde.Platform 6.7",
+                "",
+                900_000_000,
+                false,
+            ),
+            item(
+                JunkKind::Trash,
+                "Trash",
+                "/home/you/.local/share/Trash/files  ·  412 items",
+                400_000_000,
+                false,
+            ),
+        ],
+        skipped: vec![],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

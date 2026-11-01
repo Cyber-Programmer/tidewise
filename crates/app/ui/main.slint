@@ -5,8 +5,9 @@ import { PerformanceScreen, PerfState } from "performance.slint";
 import { ProcessesScreen, ProcState } from "processes.slint";
 import { HomeScreen, HomeState } from "home.slint";
 import { StorageScreen, StorageState } from "storage.slint";
+import { CleanScreen, CleanDialog, CleanState } from "cleaner.slint";
 
-export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState }
+export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState }
 
 component ComingLater inherits Rectangle {
     in property <string> title;
@@ -34,13 +35,15 @@ export component MainWindow inherits Window {
     HorizontalLayout {
         Sidebar { }
         if Shell.page == 0: HomeScreen { }
+        if Shell.page == 1: CleanScreen { }
         if Shell.page == 3: StorageScreen { }
         if Shell.page == 4: PerformanceScreen { }
         if Shell.page == 5: ProcessesScreen { }
-        if Shell.page != 0 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5: ComingLater {
+        if Shell.page != 0 && Shell.page != 1 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5: ComingLater {
             title: ["Home", "Clean up", "Apps", "Storage", "Performance", "Processes", "Startup apps", "Services", "History", "Settings"][Shell.page];
         }
     }
+    CleanDialog { width: parent.width; height: parent.height; }
     Toast {
         x: Theme.sidebar-width + (parent.width - Theme.sidebar-width - self.width) / 2;
         y: parent.height - self.height - 28px;

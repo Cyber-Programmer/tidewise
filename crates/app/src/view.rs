@@ -9,6 +9,7 @@ use crate::procs::{self, ProcData};
 use crate::storage::{self, StorageData};
 use crate::CrumbPart;
 use crate::{BigRow, DriveLegend, DriveSeg, DriveTab, FolderRow, MapTile, StorageState};
+use crate::{CleanRow, CleanState, ConfirmRow as ConfirmRowUi};
 use crate::{
     Fact, HomeChip, HomeState, HomeSuggestion, HomeTile, MainWindow, PerfMetric, PerfState,
     ProcRow, ProcState, TopRow,
@@ -395,6 +396,49 @@ pub fn wire_tiles(ui: &MainWindow) {
                 size_px: l.size_px,
             }
         });
+}
+
+/// Rows, summary and the confirm list of the Clean up screen.
+pub fn apply_clean(
+    ui: &MainWindow,
+    groups: &[tidewise_adapters::cleanup::Group],
+    selected: &[tidewise_adapters::cleanup::GroupId],
+) {
+    use crate::cleaner;
+    let st = ui.global::<CleanState>();
+    let rows: Vec<CleanRow> = cleaner::rows(groups, selected)
+        .into_iter()
+        .map(|r| CleanRow {
+            title: r.title.into(),
+            desc: r.description.into(),
+            safe: r.safe.into(),
+            review: r.review,
+            admin: r.admin,
+            size: r.size.into(),
+            checked: r.checked,
+            detail: r.detail.into(),
+        })
+        .collect();
+    st.set_rows(ModelRc::new(VecModel::from(rows)));
+    let sum = cleaner::summary(groups, selected);
+    st.set_total(sum.total.into());
+    st.set_found(sum.found.into());
+    st.set_fraction(sum.fraction);
+    st.set_admin_selected(sum.admin);
+    st.set_can_clean(sum.count > 0);
+    let confirm = cleaner::confirm(groups, selected);
+    st.set_confirm_title(confirm.title.into());
+    st.set_confirm_note(confirm.admin_note.unwrap_or_default().into());
+    let confirm_rows: Vec<ConfirmRowUi> = confirm
+        .rows
+        .into_iter()
+        .map(|r| ConfirmRowUi {
+            name: r.name.into(),
+            size: r.size.into(),
+            admin: r.admin,
+        })
+        .collect();
+    st.set_confirm_rows(ModelRc::new(VecModel::from(confirm_rows)));
 }
 
 #[cfg(test)]

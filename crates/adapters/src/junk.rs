@@ -344,7 +344,7 @@ fn ask(
 }
 
 /// Lower-case names of running programs: `/proc/<pid>/comm` and the first word of the command line.
-fn running_names() -> Vec<String> {
+pub fn running_names() -> Vec<String> {
     let mut names = HashSet::new();
     if let Ok(entries) = fs::read_dir("/proc") {
         for entry in entries.flatten() {

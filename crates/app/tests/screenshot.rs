@@ -334,3 +334,34 @@ fn width_can_be_raised_for_wide_windows() {
     run_screen("storage", &out, &["--width", "1920"]);
     assert_eq!(png_size(&fs::read(&out).unwrap()), (1920, 960));
 }
+
+#[test]
+fn every_clean_up_state_renders_and_each_differs_from_the_plain_screen() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = dir.path().join("plain.png");
+    run_screen("clean-up", &plain, &[]);
+    let plain = fs::read(&plain).unwrap();
+    for state in [
+        "confirm", "cleaning", "done", "skipped", "stopped", "details", "review", "scanning",
+        "empty", "error",
+    ] {
+        let out = dir.path().join(format!("{state}.png"));
+        run_screen("clean-up", &out, &["--state", state]);
+        let bytes = fs::read(&out).unwrap();
+        assert_eq!(png_size(&bytes), (1360, 960), "{state}");
+        assert_ne!(bytes, plain, "{state} looks like the plain screen");
+    }
+}
+
+#[test]
+fn an_unknown_clean_up_state_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("x.png");
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewise"))
+        .args(["--screenshot", "clean-up", "--state", "nope", "--out"])
+        .arg(&out)
+        .status()
+        .unwrap();
+    assert!(!status.success());
+    assert!(!out.exists());
+}

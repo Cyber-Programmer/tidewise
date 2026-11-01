@@ -9,6 +9,7 @@ use slint::{ComponentHandle, Timer, TimerMode};
 
 mod chart;
 mod cleaner;
+mod cleaner_live;
 mod cli;
 mod demo;
 mod home;
@@ -184,6 +185,7 @@ fn show_demo(
             };
             view::apply_storage(ui, &demo::storage(downloads));
         }
+        "clean-up" => show_demo_clean(ui, state)?,
         "home" => {
             if let Some(other) = state {
                 return Err(format!("unknown home state '{other}'").into());
@@ -199,6 +201,72 @@ fn show_demo(
     Ok(())
 }
 
+/// The Clean up artboard and the steps of the Clean flow (`--state confirm|cleaning|done|skipped|stopped`).
+fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use tidewise_adapters::cleanup::{default_selection, GroupId};
+    let groups = demo::cleanup();
+    let mut selected = default_selection(&groups);
+    let st = ui.global::<CleanState>();
+    match state {
+        None => {}
+        Some("live") => return Ok(()), // drawn by `run_screenshot` from a real, read-only scan
+        Some("details") => st.set_details(true),
+        Some("review") => selected.push(GroupId::Trash),
+        Some("confirm") => st.set_flow(1),
+        Some("cleaning") => {
+            st.set_flow(2);
+            st.set_progress(0.45);
+            st.set_progress_label("Removing: App caches".into());
+            st.set_freed_label("5.4 GB of 12.0 GB".into());
+        }
+        Some("done") => {
+            st.set_flow(3);
+            st.set_done_title("12.0 GB freed".into());
+            st.set_done_text(
+                "All 4 groups were cleaned. Your health score went from 82 to 87.".into(),
+            );
+        }
+        Some("skipped") => {
+            st.set_flow(4);
+            st.set_partial_title("4.0 GB freed, 2 groups skipped".into());
+            st.set_partial_text("Old package downloads and old system logs were skipped because the password prompt was closed. Nothing went wrong, and nothing was half-removed.".into());
+            st.set_retry_label("Try those 2 again".into());
+        }
+        Some("stopped") => {
+            st.set_flow(4);
+            st.set_partial_title("Stopped early".into());
+            st.set_partial_text("Tidewise finished the group it was working on and stopped there. Everything removed so far is listed in History; the rest is untouched.".into());
+            st.set_retry_label("Clean the rest".into());
+        }
+        Some("scanning") => {
+            st.set_phase(0);
+            st.set_subtitle("Looking for things to clean…".into());
+            st.set_message("This only reads your files; nothing is removed.".into());
+        }
+        Some("empty") => {
+            st.set_phase(2);
+            st.set_subtitle("Scan finished.".into());
+            st.set_message("Nothing worth cleaning was found right now.".into());
+        }
+        Some("error") => {
+            st.set_phase(3);
+            st.set_subtitle("The scan did not finish.".into());
+            st.set_message("Something stopped the scan. Try again from the sidebar.".into());
+        }
+        Some(other) => return Err(format!("unknown clean-up state '{other}'").into()),
+    }
+    view::apply_clean(
+        ui,
+        if matches!(state, Some("empty" | "scanning" | "error")) {
+            &[]
+        } else {
+            &groups
+        },
+        &selected,
+    );
+    Ok(())
+}
+
 fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
     let page = page_of(&shot.screen)?;
     let window = screenshot::install(shot.width, shot.height)?;
@@ -211,6 +279,14 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
     if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
         live_storage_screenshot(&ui, shot)?;
+    }
+    if shot.screen == "clean-up" && shot.state.as_deref() == Some("live") {
+        let mut ctl = cleaner_live::Ctl::new();
+        ctl.enter(&ui);
+        while ctl.busy() {
+            ctl.poll(&ui);
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
     ui.show()?;
     screenshot::save(
@@ -364,6 +440,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         show_demo(&ui, "performance", None)?;
         show_demo(&ui, "home", None)?;
         show_demo(&ui, "storage", None)?;
+        show_demo(&ui, "clean-up", None)?;
         for (open, folder) in [(true, true), (false, false)] {
             let state = ui.global::<StorageState>();
             let weak = ui.as_weak();
@@ -409,6 +486,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     wire_procs(&ui, &ctl);
     let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
     storage_live::wire(&ui, &storage);
+    let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));
+    cleaner_live::wire(&ui, &cleaner);
     let sample = {
         let (live, weak) = (live.clone(), ui.as_weak());
         move || {
@@ -423,13 +502,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage) = (ui.as_weak(), live.clone(), ctl.clone(), storage.clone());
+        let (weak, live, ctl, storage, cleaner) = (
+            ui.as_weak(),
+            live.clone(),
+            ctl.clone(),
+            storage.clone(),
+            cleaner.clone(),
+        );
         move |page| {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Shell>().set_page(page);
                 if needs_processes(page) {
                     // The last sample may be a light one; the page needs the process table now.
                     live.borrow_mut().sampler.sample(true);
+                }
+                if page == 1 {
+                    cleaner.borrow_mut().enter(&ui);
                 }
                 if page == 3 {
                     storage.borrow_mut().enter(&ui);
@@ -443,6 +531,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    if ui.global::<Shell>().get_page() == 1 {
+        cleaner.borrow_mut().enter(&ui);
+    }
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);
         if let Some(rel) = &args.open {

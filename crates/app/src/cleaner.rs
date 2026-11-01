@@ -147,13 +147,98 @@ pub struct Finish {
 }
 
 pub fn finish(results: &[StepResult]) -> Finish {
-    let _ = results;
+    let freed = tidewise_adapters::cleanup::freed_bytes(results);
+    let mut left_alone = 0;
+    let (mut admin, mut not_yet) = (Vec::new(), Vec::new());
+    let mut stopped = false;
+    for r in results {
+        match &r.outcome {
+            Outcome::Cleaned { refused, .. } => left_alone += refused.len(),
+            Outcome::NeedsAdmin => admin.push(r.title),
+            Outcome::NotYet => not_yet.push(r.title),
+            Outcome::Stopped => stopped = true,
+        }
+    }
+    let skipped = admin.len() + not_yet.len();
+    if results.is_empty() {
+        return Finish {
+            all_done: false,
+            title: "Nothing was cleaned".into(),
+            text: String::new(),
+            retry_label: String::new(),
+            can_retry: false,
+        };
+    }
+    if stopped {
+        return Finish {
+            all_done: false,
+            title: "Stopped early".into(),
+            text: "Tidewise finished the group it was working on and stopped there. Everything removed so far is listed in History; the rest is untouched.".into(),
+            retry_label: "Clean the rest".into(),
+            can_retry: true,
+        };
+    }
+    if left_alone == 0 && skipped == 0 {
+        let text = if results.len() == 1 {
+            "The group was cleaned.".to_string()
+        } else {
+            format!("All {} groups were cleaned.", results.len())
+        };
+        return Finish {
+            all_done: true,
+            title: format!("{} freed", format_bytes(freed)),
+            text,
+            retry_label: String::new(),
+            can_retry: false,
+        };
+    }
+    let plural =
+        |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    let mut title = format!("{} freed", format_bytes(freed));
+    if left_alone > 0 {
+        title += &format!(", {} left alone", plural(left_alone, "item", "items"));
+    }
+    if skipped > 0 {
+        title += &format!(", {} skipped", plural(skipped, "group", "groups"));
+    }
+    let mut text = Vec::new();
+    if left_alone > 0 {
+        text.push(format!(
+            "{} changed after the scan, so Tidewise left {} alone.",
+            plural(left_alone, "item", "items"),
+            if left_alone == 1 { "it" } else { "them" }
+        ));
+    }
+    if !admin.is_empty() {
+        text.push(format!(
+            "{} {} skipped because {} admin access, which Tidewise does not have yet (coming soon).",
+            join_names(&admin),
+            if admin.len() == 1 { "was" } else { "were" },
+            if admin.len() == 1 { "it needs" } else { "they need" },
+        ));
+    }
+    if !not_yet.is_empty() {
+        text.push(format!(
+            "Tidewise cannot remove {} yet.",
+            join_names(&not_yet)
+        ));
+    }
+    text.push("Nothing went wrong, and nothing was half-removed.".into());
     Finish {
         all_done: false,
-        title: String::new(),
-        text: String::new(),
+        title,
+        text: text.join(" "),
         retry_label: String::new(),
         can_retry: false,
+    }
+}
+
+/// `A`, `A and B`, `A, B and C`.
+fn join_names(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
     }
 }
 
