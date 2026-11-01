@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod appimage;
+pub mod cleanup;
 pub mod flatpak;
 pub mod journal;
 pub mod junk;
