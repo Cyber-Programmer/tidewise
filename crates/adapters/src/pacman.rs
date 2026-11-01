@@ -226,6 +226,41 @@ impl AppSource for PacmanApps {
     }
 }
 
+/// One package pacman would remove, from `pacman -Rns --print`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub name: String,
+    pub version: String,
+}
+
+/// What a dry-run `pacman -Rns --print <name>` said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrintOutcome {
+    /// These would be removed, the asked-for package and the dependencies that go with it.
+    Targets(Vec<Target>),
+    /// Refused: these packages still need it.
+    Blocked(Vec<String>),
+    NotFound(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("this is not output of `pacman -Rns --print` in the C locale")]
+pub struct Unrecognized;
+
+/// Read the output of `pacman -Rns --print` (stdout when it succeeded, stderr when it did not),
+/// run with `LC_ALL=C`. Anything it does not recognise is an error: a wrong guess could hide a
+/// package that something needs.
+pub fn parse_removal_print(text: &str, succeeded: bool) -> Result<PrintOutcome, Unrecognized> {
+    let _ = (text, succeeded);
+    Err(Unrecognized)
+}
+
+/// The removal plan for `app` from a dry run's outcome.
+pub fn plan_from_print(app: &AppEntry, outcome: &PrintOutcome) -> Result<RemovalPlan, SourceError> {
+    let _ = (app, outcome);
+    Err(SourceError::BadName(app.id.clone()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,5 +441,148 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    fn rm(name: &str) -> String {
+        let path = format!(
+            "{}/../../tests/fixtures/pacman/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    fn target(name: &str, version: &str) -> Target {
+        Target {
+            name: name.into(),
+            version: version.into(),
+        }
+    }
+
+    #[test]
+    fn targets_are_split_at_the_last_two_dashes_so_dashed_names_survive() {
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-ok-handwritten.txt"), true),
+            Ok(PrintOutcome::Targets(vec![
+                target("vlc", "3.0.24-1"),
+                target("libdvdcss", "1.4.3-3"),
+                target("lib32-glibc", "2.40-2"),
+                target("foo-bar-baz", "1:2.0.1-10"),
+            ]))
+        );
+    }
+
+    #[test]
+    fn a_refused_removal_names_each_package_that_needs_it_once() {
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-blocked-handwritten.txt"), false),
+            Ok(PrintOutcome::Blocked(vec![
+                "alsa-utils".into(),
+                "at-spi2-core".into()
+            ]))
+        );
+    }
+
+    #[test]
+    fn an_unknown_name_is_not_found() {
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-notfound-handwritten.txt"), false),
+            Ok(PrintOutcome::NotFound("nosuchpkg".into()))
+        );
+    }
+
+    #[test]
+    fn other_languages_and_garbage_are_refused_not_guessed() {
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-blocked-de-handwritten.txt"), false),
+            Err(Unrecognized)
+        );
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-garbage-handwritten.txt"), true),
+            Err(Unrecognized)
+        );
+        for text in [
+            "",
+            "\n\n",
+            "vlc",
+            "vlc-1",
+            "-1-2",
+            "a b-1-2",
+            "error: something else\n",
+        ] {
+            for ok in [true, false] {
+                assert_eq!(
+                    parse_removal_print(text, ok),
+                    Err(Unrecognized),
+                    "{text:?} {ok}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn success_text_is_not_read_as_a_failure_and_the_other_way_round() {
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-blocked-handwritten.txt"), true),
+            Err(Unrecognized)
+        );
+        assert_eq!(
+            parse_removal_print(&rm("Rns-print-ok-handwritten.txt"), false),
+            Err(Unrecognized)
+        );
+    }
+
+    #[test]
+    fn a_dry_run_that_lists_dependencies_becomes_a_plan_with_all_of_them() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let app = src.list().unwrap().remove(0);
+        let outcome = parse_removal_print(&rm("Rns-print-ok-handwritten.txt"), true).unwrap();
+        let plan = plan_from_print(&app, &outcome).unwrap();
+        let labels: Vec<_> = plan.items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["vlc", "libdvdcss", "lib32-glibc", "foo-bar-baz"]);
+        assert_eq!(
+            plan.items[0].bytes, app.size_bytes,
+            "only the asked-for package has a known size"
+        );
+        assert_eq!(plan.items[1].bytes, None);
+        assert!(plan.needs_admin && plan.blocked.is_none());
+        assert_eq!(plan.command, ["pacman", "-Rns", "--", "vlc"]);
+    }
+
+    #[test]
+    fn a_dry_run_that_was_refused_becomes_a_blocked_plan() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let app = src.list().unwrap().remove(0);
+        let outcome = parse_removal_print(&rm("Rns-print-blocked-handwritten.txt"), false).unwrap();
+        let plan = plan_from_print(&app, &outcome).unwrap();
+        assert_eq!(
+            plan.blocked,
+            Some(Blocked::RequiredBy(vec![
+                "alsa-utils".into(),
+                "at-spi2-core".into()
+            ]))
+        );
+    }
+
+    #[test]
+    fn not_found_and_hostile_ids_give_no_plan() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let mut app = src.list().unwrap().remove(0);
+        assert!(plan_from_print(&app, &PrintOutcome::NotFound("vlc".into())).is_err());
+        app.id = "--force".into();
+        assert!(matches!(
+            plan_from_print(&app, &PrintOutcome::Targets(vec![target("x", "1-1")])),
+            Err(SourceError::BadName(_))
+        ));
+    }
+
+    #[test]
+    fn the_dry_run_must_start_with_the_asked_for_package() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let app = src.list().unwrap().remove(0);
+        let other = PrintOutcome::Targets(vec![target("bash", "5.3-1")]);
+        assert!(
+            plan_from_print(&app, &other).is_err(),
+            "a plan for a different package is no plan"
+        );
     }
 }
