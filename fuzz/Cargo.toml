@@ -85,3 +85,10 @@ path = "fuzz_targets/dnf_parsers.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "snap_list"
+path = "fuzz_targets/snap_list.rs"
+test = false
+doc = false
+bench = false

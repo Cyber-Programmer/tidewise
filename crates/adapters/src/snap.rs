@@ -20,12 +20,12 @@ pub struct SnapRevision {
 impl SnapRevision {
     /// An old copy kept for rollback.
     pub fn is_disabled(&self) -> bool {
-        false
+        self.notes.iter().any(|n| n == "disabled")
     }
 
     /// A base snap (`core20`, …) or `snapd` itself: other snaps and the system need it.
     pub fn is_system(&self) -> bool {
-        false
+        self.notes.iter().any(|n| n == "base" || n == "snapd")
     }
 }
 
@@ -39,15 +39,60 @@ pub enum ParseError {
 
 /// Every revision `snap list --all` shows, in order.
 pub fn parse_snap_list(text: &str) -> Result<Vec<SnapRevision>, ParseError> {
-    let _ = text;
-    Err(ParseError::Header)
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty());
+    let Some((_, header)) = lines.next() else {
+        return Ok(Vec::new());
+    };
+    if header.trim().starts_with("No snaps are installed yet") && lines.next().is_none() {
+        return Ok(Vec::new());
+    }
+    let columns: Vec<&str> = header.split_whitespace().collect();
+    if columns != ["Name", "Version", "Rev", "Tracking", "Publisher", "Notes"] {
+        return Err(ParseError::Header);
+    }
+    let mut revisions = Vec::new();
+    for (index, line) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+        .skip(1)
+    {
+        let bad = ParseError::BadLine { line: index + 1 };
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        let [name, version, revision, _tracking, _publisher, notes] = tokens[..] else {
+            return Err(bad);
+        };
+        let name_ok = !name.starts_with('-')
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let rev_ok = revision.strip_prefix('x').unwrap_or(revision);
+        if !name_ok || rev_ok.is_empty() || !rev_ok.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(bad);
+        }
+        revisions.push(SnapRevision {
+            name: name.to_string(),
+            version: version.to_string(),
+            revision: revision.to_string(),
+            notes: if notes == "-" {
+                Vec::new()
+            } else {
+                notes.split(',').map(String::from).collect()
+            },
+        });
+    }
+    Ok(revisions)
 }
 
 /// The disabled revisions: what "remove old snap copies" would remove.
 pub fn old_revisions(all: &[SnapRevision]) -> Vec<&SnapRevision> {
-    let _ = all;
-    Vec::new()
+    all.iter().filter(|r| r.is_disabled()).collect()
 }
+
+const SNAP_DIR: &str = "/var/lib/snapd/snaps";
 
 /// Snap as an app source: one entry per snap (its active revision).
 pub struct SnapApps {
@@ -57,9 +102,8 @@ pub struct SnapApps {
 
 impl SnapApps {
     pub fn from_list(text: &str) -> Self {
-        let _ = text;
         SnapApps {
-            revisions: Ok(Vec::new()),
+            revisions: parse_snap_list(text).map_err(|_| SourceError::Parse("snap list".into())),
             snap_dir: None,
         }
     }
@@ -72,11 +116,36 @@ impl SnapApps {
 
     /// Ask the real snap (read-only). Not installed means no snaps, not an error.
     pub fn system() -> Self {
-        let _ = Path::new("/usr/bin/snap");
-        SnapApps {
-            revisions: Ok(Vec::new()),
-            snap_dir: None,
+        let program = "/usr/bin/snap";
+        if !Path::new(program).exists() {
+            return SnapApps {
+                revisions: Ok(Vec::new()),
+                snap_dir: None,
+            };
         }
+        let out = std::process::Command::new(program)
+            .args(["list", "--all"])
+            .env("LC_ALL", "C")
+            .output();
+        let source = match out {
+            Ok(o) if o.status.success() => Self::from_list(&String::from_utf8_lossy(&o.stdout)),
+            // With nothing installed snap says so on stderr and exits with an error.
+            Ok(o) if String::from_utf8_lossy(&o.stderr).contains("No snaps are installed yet") => {
+                Self::from_list("")
+            }
+            _ => SnapApps {
+                revisions: Err(SourceError::Run("snap".into())),
+                snap_dir: None,
+            },
+        };
+        source.with_snap_dir(SNAP_DIR)
+    }
+
+    fn size_of(&self, r: &SnapRevision) -> Option<u64> {
+        let dir = self.snap_dir.as_ref()?;
+        std::fs::metadata(dir.join(format!("{}_{}.snap", r.name, r.revision)))
+            .ok()
+            .map(|m| m.len())
     }
 }
 
@@ -86,20 +155,61 @@ impl AppSource for SnapApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = (&self.revisions, &self.snap_dir, Scope::System);
-        Ok(Vec::new())
+        let revisions = self.revisions.clone()?;
+        let mut apps: Vec<AppEntry> = Vec::new();
+        for r in revisions.iter().filter(|r| !r.is_disabled()) {
+            if apps.iter().any(|a| a.id == r.name) {
+                continue;
+            }
+            apps.push(AppEntry {
+                id: r.name.clone(),
+                name: r.name.clone(),
+                kind: SourceKind::Snap,
+                scope: Scope::System,
+                version: Some(r.version.clone()),
+                size_bytes: self.size_of(r),
+                required_by: Vec::new(),
+            });
+        }
+        Ok(apps)
     }
 
+    /// `snap remove NAME` takes every revision with it; the plan lists them, old copies marked.
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        let _ = (
-            is_plain_name(&app.id),
-            PlanItem {
-                label: String::new(),
-                bytes: None,
-            },
-            Blocked::Busy,
-        );
-        Err(SourceError::BadName(app.id.clone()))
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        let revisions = self.revisions.clone()?;
+        let mine: Vec<&SnapRevision> = revisions.iter().filter(|r| r.name == app.id).collect();
+        if mine.is_empty() {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        let items = mine
+            .iter()
+            .map(|r| PlanItem {
+                label: if r.is_disabled() {
+                    format!("{} {} (old copy)", r.name, r.revision)
+                } else {
+                    format!("{} {}", r.name, r.revision)
+                },
+                bytes: self.size_of(r),
+            })
+            .collect();
+        let blocked = mine
+            .iter()
+            .any(|r| r.is_system())
+            .then(|| Blocked::Protected(vec![app.id.clone()]));
+        Ok(RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::Snap,
+            items,
+            blocked,
+            needs_admin: true,
+            to_trash: false,
+            command: ["snap", "remove", app.id.as_str()]
+                .map(String::from)
+                .to_vec(),
+        })
     }
 }
 
