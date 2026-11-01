@@ -1,0 +1,8 @@
+bash	1864567
+vlc	4325000
+vlc-libs	51234
+gpg-pubkey	0
+kernel-core	70000000
+kernel-core	71000000
+fedora-release-common	30000
+meta-thing	0

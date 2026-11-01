@@ -1,0 +1,11 @@
+Abhängigkeiten aufgelöst.
+================================================================================
+ Paket              Architektur     Version              Paketquelle       Größe
+================================================================================
+Entfernen:
+ vlc                x86_64          1:3.0.20-1.fc40      @updates          4.2 M
+
+Transaktionszusammenfassung
+================================================================================
+Entfernen  1 Paket
+Vorgang abgebrochen.

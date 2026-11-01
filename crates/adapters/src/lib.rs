@@ -4,6 +4,7 @@
 pub mod appimage;
 pub mod apt;
 pub mod cleanup;
+pub mod dnf;
 pub mod flatpak;
 pub mod journal;
 pub mod junk;

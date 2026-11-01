@@ -1,0 +1,2 @@
+No match for argument: nosuchpkg
+Error: No packages marked for removal.
