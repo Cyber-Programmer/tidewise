@@ -384,3 +384,9 @@ Plan: `health_scan` takes the junk size (`Option<u64>`); points via the existing
 Done: red 398b62f + 928bea8, green below. Note under the ring says junk is not part of the score only until the first scan has finished.
 Next: R6-Q08 AppSource trait.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q08 AppSource trait — PARTIAL
+Plan: `adapters::source` with `AppSource { kind, list, size, removal_plan, remove }`, `list_all` that merges sources and keeps going when one fails, `is_plain_name`; pacman, Flatpak and AppImage implement it; `PackageSource` removed.
+Done: red c0f9897, green 909bb7c. `remove` is a default that answers `NotYet` for every source (removal comes with Q14 and the helper).
+Next: R6-Q09 pacman removal plan from saved `pacman -Rns --print` output.
+Blockers: none.

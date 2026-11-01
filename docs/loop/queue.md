@@ -41,7 +41,7 @@ detail; this queue wins where they differ (no root, no helper).
 
 ## C. M4 user side — Apps
 
-- [ ] **Q08 `AppSource` trait** (WBS 7.1.1): list, size, removal plan (dry-run), with the existing
+- [/] **Q08 `AppSource` trait** (WBS 7.1.1): list, size, removal plan (dry-run), with the existing
   pacman/flatpak/appimage code moved onto it.
 - [ ] **Q09 pacman adapter finished** (WBS 7.1.2): removal plan from **saved** `pacman -Rns --print`
   output (capture fixtures only if the command runs without root and without changing anything; you

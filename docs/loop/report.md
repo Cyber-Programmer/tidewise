@@ -107,3 +107,19 @@ Evidence:
 Not verified: the live Home screen was never looked at (the demo picture does not use `health_scan`); I did not open the real app. On this machine the junk probe found 25.2 GB, so the score should show −8 for junk, but that is computed by the unit tests, not seen. CPU/memory of the extra scan (every 5 min while Home is open, and once at start) is not measured (Q24). The score counts everything the scanner lists, including the Trash and admin-only items, as the artboard's 12.6 GB does; whether Trash should count is a product question. The note under the ring says "Junk … not part of this score yet" until the first scan ends.
 Errors: first `cargo test … health_scan home::` was a bad command (cargo takes one filter); rerun correctly. A format string I wrote first read "Only services and updates"; the new test caught it before commit.
 Decisions taken without the human: junk counts from all groups found (user + admin); suggestion threshold 1 GB; rescan every 5 min on Home. Not added to docs/questions.md yet — recommended to keep.
+
+## R6-Q08 AppSource trait — Partial   (2026-11-01 23:49 PKT)
+WBS: 7.1.1 → stays In Progress (row 76; `L76:N76` written below); 7.1 untouched (roll-up)
+Commits: c0f9897 (red), 909bb7c
+Evidence:
+- Red: `cargo test -p tidewise-adapters` → exit 101, 16 failed / 60 passed (hostile-name table, empty listing, trait-object and default-method tests passed vacuously against stubs).
+- Green: same command → 76 passed in the lib + the real-machine tests exit 0. New tests: merge sorted ignoring case; a failing source is named while others still list; trait objects work; `size` default; `remove` = NotYet; pacman entries from real fixtures (vlc, bash), plan with `pacman -Rns -- name`, blocked with the names that need it, non-`-Qi` text is an error not an empty list; Flatpak entries from real/hand-written/German fixtures, user vs system plan, broken fixture is an error; AppImage entries, plan = move to Trash, plans refused for any path that is not a currently listed AppImage (`../`, `/etc/passwd`, empty); hostile ids (`--force`, spaces, `../`, newline, NUL, `$(id)`, wildcards, look-alike unicode, 300 characters) refused.
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (403 passed, 0 failed, 3 ignored); `cargo deny check` → 0. (`cargo audit` not run this round.)
+- Real machine, read-only: `real_machine_lists_apps_from_every_source_and_plans_without_changing_anything` → ok: no source errors, `bash` is Pacman and its plan is blocked.
+Not verified:
+- **Missing from the WBS wording:** `remove` is not implemented for any source (AppImage and user Flatpak removal belong to Q14, the rest to the helper), hence Partial.
+- apt, dnf and Snap are not on the trait yet (Q10–Q12); pacman's plan is the package only, not the full `pacman -Rns --print` list (Q09); no protected-package list yet (golden rule 7: required before any removal exists; Q14 logic) — nothing removable exists now.
+- No fuzz target for the new code (it parses nothing new: it reuses `parse_qi`/`parse_list`); the AppImage plan check reads the real folders.
+- Flatpak `system()` against the real flatpak ran only through the real-machine test (no apps installed there: one app, system).
+Errors: my first replacement script aborted halfway because `cargo fmt` had reformatted the stubs it searched for; the first half (source.rs) was applied, the rest redone by replacing whole sections. No failed commands left in the commits.
+Decisions taken without the human: `PackageSource` (trait from M1) was deleted instead of extended, `Pacman::installed()` stays as a method; `is_plain_name` allows ASCII letters, digits and `. _ + - @ :`, no leading `-`, at most 255 characters — to be reviewed together with the helper's own name pattern later (the helper is not touched in this run). Not in docs/questions.md yet.
