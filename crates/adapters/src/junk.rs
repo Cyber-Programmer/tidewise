@@ -5,7 +5,19 @@
 //! runtimes. Everything outside `~/.cache` and the Trash needs admin access to clean, so those items
 //! carry `needs_admin`.
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::fs;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::AtomicBool;
+
+use tidewise_core::scan::{self, Progress, ScanOptions};
+
+use crate::{flatpak, journal};
+
+const JOURNAL_LABEL: &str = "System log (journal)";
+const RUNTIMES_LABEL: &str = "Unused Flatpak runtimes";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JunkKind {
@@ -45,12 +57,20 @@ pub struct JunkReport {
 impl JunkReport {
     /// Bytes the user can clean without admin access.
     pub fn user_bytes(&self) -> u64 {
-        0
+        self.items
+            .iter()
+            .filter(|i| !i.needs_admin)
+            .map(|i| i.bytes)
+            .sum()
     }
 
     /// Bytes that need admin access.
     pub fn admin_bytes(&self) -> u64 {
-        0
+        self.items
+            .iter()
+            .filter(|i| i.needs_admin)
+            .map(|i| i.bytes)
+            .sum()
     }
 }
 
@@ -71,11 +91,283 @@ pub struct Sources {
     pub flatpak_runtimes: Option<String>,
     /// Output of `flatpak list --app --columns=application,runtime,installation`.
     pub flatpak_apps: Option<String>,
+    /// Things that could not be looked at at all (a command failed), shown with the skipped ones.
+    pub unavailable: Vec<Skipped>,
 }
 
 pub fn scan(sources: &Sources) -> JunkReport {
-    let _ = sources;
-    JunkReport::default()
+    let mut report = JunkReport {
+        items: Vec::new(),
+        skipped: sources.unavailable.clone(),
+    };
+    if let Some(cache) = &sources.cache_dir {
+        app_caches(cache, &sources.running, &mut report);
+    }
+    if let Some(trash) = &sources.trash_dir {
+        let bytes = dir_bytes(trash).0;
+        if bytes > 0 {
+            report.items.push(JunkItem {
+                kind: JunkKind::Trash,
+                label: "Trash".into(),
+                path: Some(trash.clone()),
+                bytes,
+                needs_admin: false,
+            });
+        }
+    }
+    for (label, dir) in &sources.package_caches {
+        if !dir.is_dir() {
+            continue; // that package manager is not installed
+        }
+        let (bytes, unreadable) = dir_bytes(dir);
+        if bytes > 0 {
+            report.items.push(JunkItem {
+                kind: JunkKind::PackageCache,
+                label: label.clone(),
+                path: Some(dir.clone()),
+                bytes,
+                needs_admin: true,
+            });
+        } else if unreadable > 0 {
+            report.skipped.push(Skipped {
+                label: label.clone(),
+                reason: "Tidewise is not allowed to look inside it".into(),
+            });
+        }
+    }
+    if let Some(text) = &sources.journal_text {
+        match journal::parse_disk_usage(text) {
+            Ok(bytes) if bytes > 0 => report.items.push(JunkItem {
+                kind: JunkKind::Journal,
+                label: JOURNAL_LABEL.into(),
+                path: None,
+                bytes,
+                needs_admin: true,
+            }),
+            Ok(_) => {}
+            Err(_) => report.skipped.push(Skipped {
+                label: JOURNAL_LABEL.into(),
+                reason: "Tidewise could not understand what journalctl printed".into(),
+            }),
+        }
+    }
+    flatpak_runtimes(sources, &mut report);
+    report.items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
+    report
+}
+
+/// Bytes on disk (like `du`) and how many things could not be read.
+fn dir_bytes(dir: &Path) -> (u64, u64) {
+    let options = ScanOptions {
+        biggest: 0,
+        ..ScanOptions::default()
+    };
+    let result = scan::scan(dir, &options, &Progress::default(), &AtomicBool::new(false));
+    (result.total_bytes, result.skipped)
+}
+
+fn app_caches(cache: &Path, running: &[String], report: &mut JunkReport) {
+    let Ok(entries) = fs::read_dir(cache) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        let label = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            report.skipped.push(Skipped {
+                label,
+                reason: "It is a link, so it is left alone".into(),
+            });
+            continue;
+        }
+        if is_running(&label, running) {
+            report.skipped.push(Skipped {
+                label,
+                reason: "The app is running right now".into(),
+            });
+            continue;
+        }
+        let bytes = if meta.is_dir() {
+            dir_bytes(&path).0
+        } else {
+            meta.blocks() * 512
+        };
+        if bytes > 0 {
+            report.items.push(JunkItem {
+                kind: JunkKind::AppCache,
+                label,
+                path: Some(path),
+                bytes,
+                needs_admin: false,
+            });
+        }
+    }
+}
+
+/// Does a running program belong to this cache folder? A guess that errs towards "running":
+/// the names are equal, or one starts with the other (a process name is cut at 15 characters) when
+/// the shorter one has at least 5 characters, or the folder is a known alias.
+fn is_running(cache_name: &str, running: &[String]) -> bool {
+    let normal = |s: &str| s.to_lowercase().replace([' ', '_'], "-");
+    let name = normal(cache_name);
+    let name = match name.as_str() {
+        "mozilla" => "firefox".to_string(),
+        _ => name,
+    };
+    running.iter().map(|r| normal(r)).any(|r| {
+        if r.is_empty() {
+            return false;
+        }
+        let shorter = name.len().min(r.len());
+        name == r || (shorter >= 5 && (name.starts_with(&r) || r.starts_with(&name)))
+    })
+}
+
+fn flatpak_runtimes(sources: &Sources, report: &mut JunkReport) {
+    let (runtimes, apps) = match (&sources.flatpak_runtimes, &sources.flatpak_apps) {
+        (None, None) => return,
+        (Some(r), Some(a)) => (r, a),
+        _ => {
+            report.skipped.push(Skipped {
+                label: RUNTIMES_LABEL.into(),
+                reason: "Flatpak could not be asked".into(),
+            });
+            return;
+        }
+    };
+    let parsed = flatpak::parse_runtimes(runtimes)
+        .and_then(|r| flatpak::parse_app_runtimes(apps).map(|a| flatpak::unused_runtimes(&r, &a)));
+    match parsed {
+        Ok(unused) => {
+            for runtime in unused.unused {
+                let mut parts = runtime.reference.split('/');
+                let id = parts.next().unwrap_or_default();
+                let branch = parts.nth(1).unwrap_or_default();
+                report.items.push(JunkItem {
+                    kind: JunkKind::FlatpakRuntime,
+                    label: format!("{id} {branch}"),
+                    path: None,
+                    bytes: runtime.size_bytes.unwrap_or(0),
+                    needs_admin: runtime.installation != "user",
+                });
+            }
+        }
+        Err(_) => report.skipped.push(Skipped {
+            label: RUNTIMES_LABEL.into(),
+            reason: "Tidewise could not understand what flatpak printed".into(),
+        }),
+    }
+}
+
+/// Gather the real inputs: folders, running programs and read-only commands (by absolute path,
+/// no shell, `LC_ALL=C`). A command that is missing is simply not asked; one that fails is reported.
+pub fn live_sources() -> Sources {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let cache_dir = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home.map(|h| h.join(".cache")));
+    let mut sources = Sources {
+        cache_dir,
+        trash_dir: tidewise_core::trash::default_trash_dir(),
+        package_caches: vec![
+            (
+                "Package cache (pacman)".into(),
+                PathBuf::from("/var/cache/pacman/pkg"),
+            ),
+            (
+                "Package cache (apt)".into(),
+                PathBuf::from("/var/cache/apt/archives"),
+            ),
+            (
+                "Package cache (dnf)".into(),
+                PathBuf::from("/var/cache/dnf"),
+            ),
+        ],
+        running: running_names(),
+        ..Sources::default()
+    };
+    sources.journal_text = ask(
+        "/usr/bin/journalctl",
+        &["--disk-usage"],
+        JOURNAL_LABEL,
+        &mut sources.unavailable,
+    );
+    let runtimes = ask(
+        "/usr/bin/flatpak",
+        &["list", "--runtime", "--columns=ref,size,installation"],
+        RUNTIMES_LABEL,
+        &mut sources.unavailable,
+    );
+    let apps = ask(
+        "/usr/bin/flatpak",
+        &[
+            "list",
+            "--app",
+            "--columns=application,runtime,installation",
+        ],
+        RUNTIMES_LABEL,
+        &mut Vec::new(),
+    );
+    if runtimes.is_some() && apps.is_some() {
+        sources.flatpak_runtimes = runtimes;
+        sources.flatpak_apps = apps;
+    }
+    sources
+}
+
+fn ask(
+    program: &str,
+    args: &[&str],
+    label: &str,
+    unavailable: &mut Vec<Skipped>,
+) -> Option<String> {
+    if !Path::new(program).exists() {
+        return None;
+    }
+    let output = Command::new(program).args(args).env("LC_ALL", "C").output();
+    match output {
+        Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).into_owned()),
+        _ => {
+            unavailable.push(Skipped {
+                label: label.into(),
+                reason: "The command to look it up failed".into(),
+            });
+            None
+        }
+    }
+}
+
+/// Lower-case names of running programs: `/proc/<pid>/comm` and the first word of the command line.
+fn running_names() -> Vec<String> {
+    let mut names = HashSet::new();
+    if let Ok(entries) = fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            let pid = entry.file_name();
+            if !pid.to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            if let Ok(comm) = fs::read_to_string(entry.path().join("comm")) {
+                names.insert(comm.trim().to_lowercase());
+            }
+            if let Ok(cmdline) = fs::read(entry.path().join("cmdline")) {
+                let first = cmdline.split(|b| *b == 0).next().unwrap_or_default();
+                let first = String::from_utf8_lossy(first);
+                if let Some(base) = first.rsplit('/').next() {
+                    names.insert(base.to_lowercase());
+                }
+            }
+        }
+    }
+    names.retain(|n| !n.is_empty());
+    let mut names: Vec<String> = names.into_iter().collect();
+    names.sort();
+    names
 }
 
 #[cfg(test)]

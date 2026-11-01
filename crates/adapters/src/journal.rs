@@ -9,8 +9,39 @@ pub enum ParseError {
 /// Bytes the journals take, from a line like
 /// `Archived and active journals take up 2.8G in the file system.`
 pub fn parse_disk_usage(text: &str) -> Result<u64, ParseError> {
-    let _ = text;
-    Err(ParseError::NoSize)
+    text.split_whitespace()
+        .find_map(parse_size)
+        .ok_or(ParseError::NoSize)
+}
+
+/// `2.8G`, `1,5G`, `0B`: digits, optional decimal part, one unit letter. journalctl counts in
+/// powers of 1024 and, in other languages, may print a comma.
+fn parse_size(token: &str) -> Option<u64> {
+    let token = token.trim_end_matches(['.', ',']);
+    let unit = token.chars().last()?;
+    let power: i32 = match unit {
+        'B' => 0,
+        'K' => 1,
+        'M' => 2,
+        'G' => 3,
+        'T' => 4,
+        'P' => 5,
+        _ => return None,
+    };
+    let number = &token[..token.len() - 1];
+    let valid = !number.is_empty()
+        && number
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == ',')
+        && number.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && number.chars().filter(|c| matches!(c, '.' | ',')).count() <= 1;
+    if !valid {
+        return None;
+    }
+    let value: f64 = number.replace(',', ".").parse().ok()?;
+    let bytes = value * 1024f64.powi(power);
+    // Anything past an exabyte is not a journal size.
+    (bytes.is_finite() && bytes < 1e18).then(|| bytes.round() as u64)
 }
 
 #[cfg(test)]

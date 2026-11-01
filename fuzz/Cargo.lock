@@ -249,6 +249,7 @@ name = "tidewise-adapters"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "tidewise-core",
 ]
 
 [[package]]
@@ -256,6 +257,7 @@ name = "tidewise-core"
 version = "0.1.0"
 dependencies = [
  "sysinfo",
+ "thiserror",
 ]
 
 [[package]]

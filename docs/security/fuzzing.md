@@ -24,6 +24,15 @@ No crash, timeout or out-of-memory finding, so no new fixtures or regression tes
 Corpora are not committed (`fuzz/.gitignore`); `.desktop` *file* parsing does not exist yet — the
 `desktop` target covers the desktop-name list only. Add a target when that parser is written.
 
+## Run of 2026-11-01 (run 06, R6-Q05), 20 seconds each, short smoke run only
+
+| Target | Parser | Runs | Crashes |
+| --- | --- | --- | --- |
+| `journal_usage` (new) | `adapters::journal::parse_disk_usage` (`journalctl --disk-usage`) | 696 769 | 0 |
+| `flatpak_list` (extended) | `parse_list`, `parse_runtimes`, `parse_app_runtimes`, `unused_runtimes` | 301 318 | 0 |
+
+20 s is **not** the 10 minutes ENGINEERING.md §2 asks for; the full runs are queue task Q23.
+
 ## Follow-ups
 
 - CI does not run fuzzing yet. Suggested: a weekly scheduled workflow, 60 s per target, uploading any crash input.

@@ -53,21 +53,6 @@ pub struct UnusedRuntimes {
     pub kept: Vec<(Runtime, &'static str)>,
 }
 
-pub fn parse_runtimes(text: &str) -> Result<Vec<Runtime>, ParseError> {
-    let _ = text;
-    Ok(Vec::new())
-}
-
-pub fn parse_app_runtimes(text: &str) -> Result<Vec<AppRuntime>, ParseError> {
-    let _ = text;
-    Ok(Vec::new())
-}
-
-pub fn unused_runtimes(runtimes: &[Runtime], apps: &[AppRuntime]) -> UnusedRuntimes {
-    let _ = (runtimes, apps);
-    UnusedRuntimes::default()
-}
-
 pub fn parse_list(text: &str) -> Result<Vec<FlatpakApp>, ParseError> {
     let mut apps = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -89,6 +74,77 @@ pub fn parse_list(text: &str) -> Result<Vec<FlatpakApp>, ParseError> {
         });
     }
     Ok(apps)
+}
+
+pub fn parse_runtimes(text: &str) -> Result<Vec<Runtime>, ParseError> {
+    let mut runtimes = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let line_no = index + 1;
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [reference, size, installation] = columns[..] else {
+            return Err(ParseError::BadRuntimeLine { line: line_no });
+        };
+        let reference = reference.trim();
+        if reference.split('/').filter(|p| !p.is_empty()).count() != 3 {
+            return Err(ParseError::BadRuntimeLine { line: line_no });
+        }
+        runtimes.push(Runtime {
+            reference: reference.to_string(),
+            size_bytes: parse_size(size),
+            installation: installation.trim().to_string(),
+        });
+    }
+    Ok(runtimes)
+}
+
+pub fn parse_app_runtimes(text: &str) -> Result<Vec<AppRuntime>, ParseError> {
+    let mut apps = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [application_id, runtime, installation] = columns[..] else {
+            return Err(ParseError::BadAppRuntimeLine { line: index + 1 });
+        };
+        apps.push(AppRuntime {
+            application_id: application_id.trim().to_string(),
+            runtime: runtime.trim().to_string(),
+            installation: installation.trim().to_string(),
+        });
+    }
+    Ok(apps)
+}
+
+/// Which runtimes no installed app uses. Deliberately cautious, because this list only uses what
+/// `flatpak list` prints and `flatpak uninstall --unused` knows more (it also follows runtimes built
+/// on other runtimes and extensions): only base runtimes (`….Platform`, `….Sdk`) are ever offered,
+/// extensions (GL, codecs, locale, themes) and the freedesktop base (other runtimes sit on it) are
+/// kept. A runtime counts as used when an app in *any* installation names its exact reference.
+pub fn unused_runtimes(runtimes: &[Runtime], apps: &[AppRuntime]) -> UnusedRuntimes {
+    let used: std::collections::HashSet<&str> = apps.iter().map(|a| a.runtime.as_str()).collect();
+    let mut result = UnusedRuntimes::default();
+    for runtime in runtimes {
+        if used.contains(runtime.reference.as_str()) {
+            continue;
+        }
+        let id = runtime.reference.split('/').next().unwrap_or_default();
+        if !(id.ends_with(".Platform") || id.ends_with(".Sdk")) {
+            result
+                .kept
+                .push((runtime.clone(), "an extension of another runtime"));
+        } else if id.starts_with("org.freedesktop.") {
+            result
+                .kept
+                .push((runtime.clone(), "other runtimes may be built on it"));
+        } else {
+            result.unused.push(runtime.clone());
+        }
+    }
+    result
 }
 
 /// Flatpak prints sizes like `18.1 MB` (decimal units, no-break space, locale decimal separator).
