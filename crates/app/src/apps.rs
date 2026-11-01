@@ -223,6 +223,24 @@ pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
     }
 }
 
+/// What the dialog says when an uninstall is over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Done {
+    /// The app is gone (the "uninstalled" dialog); otherwise a message dialog.
+    pub removed: bool,
+    pub title: String,
+    pub text: String,
+}
+
+pub fn done(name: &str, to_trash: bool, outcome: &tidewise_adapters::uninstall::Outcome) -> Done {
+    let _ = (name, to_trash, outcome);
+    Done {
+        removed: false,
+        title: String::new(),
+        text: String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,5 +501,72 @@ mod tests {
             "Another installer is running. Try again when it is done"
         );
         assert_eq!(why(None, true), "Needs admin access (coming soon)");
+    }
+
+    use tidewise_adapters::uninstall::Outcome;
+
+    #[test]
+    fn a_removed_app_says_how_much_came_back_and_where_it_went() {
+        let o = Outcome::Removed {
+            items: vec!["x".into()],
+            freed: 732_000_000,
+        };
+        let d = done("GIMP", false, &o);
+        assert!(d.removed);
+        assert_eq!(d.title, "GIMP is uninstalled");
+        assert_eq!(
+            d.text,
+            "732 MB freed. Your settings were kept, so reinstalling later brings everything back."
+        );
+        let t = done("Krita", true, &o);
+        assert_eq!(
+            t.text,
+            "732 MB freed. The files are in your Trash, so you can still put them back from there."
+        );
+    }
+
+    #[test]
+    fn other_endings_never_claim_success() {
+        let admin = done("VLC", false, &Outcome::NeedsAdmin);
+        assert!(!admin.removed);
+        assert_eq!(admin.title, "VLC needs admin access");
+        assert!(admin.text.ends_with("Nothing was changed."));
+        let busy = done("VLC", false, &Outcome::Blocked(Blocked::Busy));
+        assert_eq!(busy.title, "Waiting for another installer");
+        let req = done(
+            "Python",
+            false,
+            &Outcome::Blocked(Blocked::RequiredBy(vec!["a".into(); 38])),
+        );
+        assert_eq!(req.title, "Python can't be removed on its own");
+        assert!(req.text.starts_with("38 installed apps need it"));
+        let prot = done(
+            "systemd",
+            false,
+            &Outcome::Blocked(Blocked::Protected(vec![])),
+        );
+        assert_eq!(prot.title, "systemd can't be removed");
+        let none = done(
+            "GIMP",
+            false,
+            &Outcome::Failed {
+                reason: "It changed.".into(),
+                removed: vec![],
+            },
+        );
+        assert_eq!(
+            (none.removed, none.title.as_str(), none.text.as_str()),
+            (false, "GIMP was not removed", "It changed.")
+        );
+        let some = done(
+            "GIMP",
+            false,
+            &Outcome::Failed {
+                reason: "Disk error.".into(),
+                removed: vec!["a".into(), "b".into()],
+            },
+        );
+        assert_eq!(some.title, "GIMP was only partly removed");
+        assert_eq!(some.text, "Disk error. 2 items were already removed.");
     }
 }
