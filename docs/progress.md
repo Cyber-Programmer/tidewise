@@ -347,3 +347,9 @@ Plan: rename `viewport-width/height/x/y` to `content-*` in `crates/app/ui/storag
 Done: renamed; deprecation lines in `cargo build` 20 → 0; tests 307 passed / 0 failed / 2 ignored; design scores unchanged.
 Next: R6-Q02 AppImage size and start time.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q02 AppImage size and start time
+Plan: rebuild with `build.sh` (appimagetool is present now), measure size, hash and `--screenshot` start-to-file time (AppImage vs binary), write follow-ups into ADR 0001, put a size-budget proposal in questions.md.
+Done: AppImage rebuilt (10,467,832 bytes); times recorded; proposal written. Corrects R4-T6 "no AppImage was produced": the 28 Oct file in dist/ was replaced by this rebuild, so its origin stays unproven.
+Next: R6-Q03 core has no network dependency.
+Blockers: none.

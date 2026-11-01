@@ -10,7 +10,7 @@ detail; this queue wins where they differ (no root, no helper).
 - [x] **Q01 Slint `viewport-*` → `content-*`** (WBS 4.23). Refactor only, no behaviour change: no red
   commit needed, but every test and the design check must stay where they were. Done: no deprecation
   warnings in `cargo build`, design scores unchanged (±0.5 %).
-- [ ] **Q02 AppImage size and start time** (WBS 2.8, 4.14). Build with `./packaging/appimage/build.sh`
+- [x] **Q02 AppImage size and start time** (WBS 2.8, 4.14). Build with `./packaging/appimage/build.sh`
   if `appimagetool` is on PATH (else Blocked for this part). Measure size and time to first window
   (`--screenshot` start-to-file is fine; say which). Record both in `docs/decisions/0001-ui-toolkit.md`
   follow-ups and propose an AppImage size budget in `docs/questions.md` (don't set it yourself). WBS 4.14:

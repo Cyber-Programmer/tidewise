@@ -87,3 +87,18 @@ draws Western scripts), for example a future Urdu or Arabic translation.
 HTML, charts are drawn by hand, and a minimised window may need extra work to pause sampling.
 
 **Follow-ups:** delete `spikes/` (done in M1-T0), measure time to first window and AppImage size in M2.
+
+## Follow-up measurements (run 06, 2026-11-01)
+
+Measured on the developer's Arch machine, `main` + run 06 branch (commit 20afd5b), Slint 1.18, software renderer.
+
+- **AppImage size:** `dist/Tidewise-0.1.0-x86_64.AppImage` = 10,467,832 bytes (≈ 10.0 MiB), built by
+  `./packaging/appimage/build.sh` (exit 0, 260 s wall including the release build). The binary alone,
+  `target/release/tidewise`, is 21,811,736 bytes (the AppImage squashfs compresses it). sha256
+  `5f9117af73026d0a6711261910e3ad13196e36ce736d7d13b7fad7e2d7911be4`. No shared libraries are bundled yet, so
+  this is a lower bound (see `docs/questions.md` R4-T6 point 2).
+- **Start time:** this measures `--screenshot home --out <file>` from process start until the PNG is written
+  and the process exits (headless render, **not** a visible window, no compositor involved). AppImage: 0.187,
+  0.170, 0.171, 0.171, 0.173 s (5 runs, all exit 0). Plain release binary: 0.083, 0.072, 0.075 s (3 runs,
+  all exit 0). The ~0.1 s gap is the AppImage mount. A real window on screen was not timed.
+- Size budget: only a proposal, see `docs/questions.md` (run 06, Q02).

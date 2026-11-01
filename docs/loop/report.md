@@ -27,3 +27,15 @@ Evidence:
 Not verified: I did not look at the screenshots or scroll the Storage page by hand (identical scores only show the static pictures agree); scroll thumb and keyboard scrolling behaviour at runtime were not exercised beyond the existing tests.
 Errors: none
 Decisions taken without the human: none
+
+## R6-Q02 AppImage size and start time — Done   (2026-11-01 ~23:05 PKT)
+WBS: 2.8 → In Progress (size budget not set by design; `G15:I15`, `L15:N15` written, status success); 4.14 → Done (`G41:I41`, `L41:N41` written, status success)
+Commits: none for code (docs only); docs commit `docs(loop): R6-Q02 report` (see `git log`)
+Evidence:
+- `./packaging/appimage/build.sh` → exit 0, 260 s wall; `dist/Tidewise-0.1.0-x86_64.AppImage` = 10,467,832 bytes, sha256 `5f9117af73026d0a6711261910e3ad13196e36ce736d7d13b7fad7e2d7911be4`. The previous 28 Oct file (10,471,928 bytes, md5 `f32e03dc2f365ce10989b498a2a010d9`) was overwritten.
+- Start time = `--screenshot home --out <file>` from process start to exit (headless render, not a visible window): AppImage 0.187 / 0.170 / 0.171 / 0.171 / 0.173 s (5 runs, all exit 0); `target/release/tidewise` 0.083 / 0.072 / 0.075 s (3 runs, all exit 0).
+- Written to `docs/decisions/0001-ui-toolkit.md` (Follow-up measurements) and a budget proposal (≤ 25 MB, not set) in `docs/questions.md`.
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (307 passed, 0 failed, 2 ignored).
+Not verified: time to a real window on screen (no compositor measurement); the AppImage was not run on Ubuntu 22.04 or any other distro and bundles no shared libraries; how the 28 Oct AppImage was built is unknowable now; picture h1.png was not looked at (`target/q02/h*.png`, 220,377 bytes each).
+Errors: (1) first measuring command failed: `ls --time-style` rejected (ls is aliased to `lsd`) and `/usr/bin/time` does not exist, so the build did not run on that attempt; re-run succeeded. (2) first timing loop printed 0.000 s because `zsh/datetime` was not loaded; re-ran with it loaded, the numbers above are from the second run. (3) I wrote one temp file (`old.md5`) to `/tmp/claude-1000/` instead of the scratchpad; outside the repo, harmless.
+Decisions taken without the human: none (the size budget is only proposed → docs/questions.md "Run 06 — Q02").

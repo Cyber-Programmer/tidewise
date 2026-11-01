@@ -75,3 +75,10 @@ Below about 700 px the main nav items scroll with the wheel or touch; Slint's Fl
 4. Sizes: the size formatter turns 999.5 GB and up into `1 TB`, so `999.9 GB` never appears; the column is nonetheless measured with that text (8 characters, the widest any size can be). The Trash button keeps the design's `22.0 GB` from 1 GB up and uses the item format below.
 5. Hard links: a file linked into two folders is now counted in both folders' sizes and once in the total, so a folder's block always equals its total when opened, and rows can add up to more than the total (one line says so). On this machine's home that is 817 MB. Recommended: keep (it is what `du` shows for each folder); the alternative, attributing a shared file to only one folder, is what caused 18.9 vs 19.8 GB.
 6. Not done by a click: keyboard handling and hit targets (checkbox vs row) are covered by tests of the logic they call and by pictures, not by a person or a UI-automation test. Please click through Storage once.
+
+## Run 06 — Q02 AppImage size budget (proposal only, not set)
+`docs/ENGINEERING.md` §5 still says the AppImage size budget is "to be set in M2". Measured today: 10.0 MiB
+(10,467,832 bytes) with no bundled libraries. Bundling fontconfig/xkbcommon/Wayland/X11 with `linuxdeploy`
+(R4-T6 point 2) would add a lot, number unknown, not measured. Recommended: budget **≤ 25 MB** for now
+(2.5× today, leaves room for bundled libraries), tighten after the libraries are bundled. The human sets it;
+I did not edit ENGINEERING.md.
