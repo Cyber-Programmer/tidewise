@@ -174,3 +174,20 @@ Errors:
 - Running all tests with TMPDIR on the repo disk made `core::scan::tests::cancelling_stops_the_scan_and_says_so` fail (it expects 0 bytes for an empty folder, true on tmpfs only). Passes on /tmp (6/6 repeated runs); not changed; noted in questions.md. Not flaky, file-system dependent.
 - One python edit of the test patched the wrong AppImage run first; caught by the leftover check, fixed.
 Decisions taken without the human: `parse_dry_run` ignores the exit status (see above); dnf5 explicitly out of scope. In docs/questions.md only the /tmp item.
+
+## R6-Q12 Snap adapter — Done   (2026-11-02 00:21 PKT)
+WBS: 7.1.6 → Needs Verification (row 81; fixtures hand-written; `G81:I81`, `L81:N81` written below)
+Commits: afe2da7 (red), 543d68a
+Evidence:
+- Red: `cargo test -p tidewise-adapters snap::` → exit 101, 11 failed / 0 passed.
+- Green: same command → 11 passed: every revision with notes (`-` = none, `x1` local install, `base,disabled`); disabled = old copies (core20 1974, firefox 3547); base snaps and snapd are "system"; nothing installed → empty list; German header, headerless text, short row, hostile name, uppercase, `/` and 7 columns refused with the line number; one entry per snap with the active revision; sizes from `<name>_<rev>.snap` in a temp folder; plan lists all revisions with old copies marked; `core20` and `snapd` protected; hostile ids and unknown snaps give no plan.
+- Fuzz: `cargo +nightly fuzz run snap_list -- -max_total_time=20` → exit 0, 863,864 runs (20 s only).
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo deny check` → 0; `cargo audit` → 0 (5 allowed warnings). Tests split because of the full /tmp: `TMPDIR=$PWD/target/tmp cargo test -p tidewise-app` → 0 (211 passed, 1 ignored); `cargo test --workspace --exclude tidewise-app` → 0 (238 passed, 2 ignored) = 449 passed, 0 failed.
+- The leak fix works: `ls /tmp | grep -c appimage_extracted` stayed 14 across this round's test runs; `target/tmp` was empty after them.
+Not verified:
+- **Plain `cargo test --all` → exit 101** again this round: the same 2 AppImage tests ("Disk quota exceeded") because /tmp is still 5.5 GB full of last round's leftovers (see docs/questions.md, needs your `rm`). Not a code failure, but the plain command has not exited 0 since Q10.
+- All fixtures are hand-written (`tests/fixtures/snap/README.md`): no `snap` here. Column layout, the `disabled`/`base`/`snapd` notes and `x1` revisions are from memory of `snap list --all`; whether `snap remove` takes `--` is unknown, so the shown command has none (names are validated instead).
+- `SnapApps::system()` never run; sizes from `/var/lib/snapd/snaps` never read for real.
+- Nothing yet turns old copies into a Clean up group (`old_revisions` exists; the queue's cleaner task is done).
+Errors: none new (the /tmp problem above is last round's).
+Decisions taken without the human: base snaps and snapd are shown as protected (Blocked::Protected) even though snap itself would refuse only when another snap needs them. Not in docs/questions.md.

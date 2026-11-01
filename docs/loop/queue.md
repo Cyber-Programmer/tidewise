@@ -51,7 +51,7 @@ detail; this queue wins where they differ (no root, no helper).
   can't produce real output; say so in the fixture README and the WBS note), non-English and broken
   cases, fuzz target.
 - [x] **Q11 dnf / rpm adapter** (WBS 7.1.4). Same rules as Q10.
-- [ ] **Q12 snap adapter** (WBS 7.1.6). Same rules as Q10; disabled revisions = old copies.
+- [x] **Q12 snap adapter** (WBS 7.1.6). Same rules as Q10; disabled revisions = old copies.
 - [ ] **Q13 Flatpak runner + AppImage menu entries; packages → apps via .desktop** (WBS 7.1.5, 7.1.7,
   7.1.8).
 - [ ] **Q14 Apps screen, view + uninstall panel up to confirm** (WBS 7.4, design `Apps`,

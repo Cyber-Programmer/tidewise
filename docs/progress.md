@@ -408,3 +408,9 @@ Plan: `adapters::dnf`: `parse_rpm_qa` (merge versions, skip gpg-pubkey), `parse_
 Done: red 459a471, green fbe0306. Also fixed the AppImage test leaking ~400 MB into /tmp per run (found when /tmp filled up).
 Next: R6-Q12 snap adapter.
 Blockers: /tmp must be cleaned by the human (docs/questions.md).
+
+## 2026-11-02 — Run 06, R6-Q12 snap adapter
+Plan: `adapters::snap`: `parse_snap_list` (C-locale header required), `old_revisions` (disabled = old copies), `SnapApps` (active revision per snap, sizes from the `.snap` files, plan lists every revision with old copies marked, base snaps and snapd protected), hand-written fixtures, fuzz target.
+Done: red afe2da7, green 543d68a.
+Next: R6-Q13 Flatpak runner, AppImage menu entries, packages → apps via .desktop.
+Blockers: /tmp still full (docs/questions.md): plain `cargo test --all` fails on 2 AppImage tests until it is cleaned.
