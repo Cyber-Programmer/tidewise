@@ -141,8 +141,20 @@ pub fn pacman_owners(
     runner: &dyn crate::runner::CommandRunner,
     files: &[PathBuf],
 ) -> Vec<(PathBuf, String)> {
-    let _ = (runner, files);
-    Vec::new()
+    let valid: Vec<&str> = files
+        .iter()
+        .filter_map(|f| f.to_str())
+        .filter(|f| f.starts_with('/') && !f.contains(['\n', '\0']))
+        .collect();
+    if valid.is_empty() {
+        return Vec::new();
+    }
+    let mut args = vec!["-Qo", "--"];
+    args.extend(valid);
+    match runner.run("/usr/bin/pacman", &args) {
+        Ok(out) => parse_pacman_qo(&out.stdout),
+        Err(_) => Vec::new(),
+    }
 }
 
 #[cfg(test)]

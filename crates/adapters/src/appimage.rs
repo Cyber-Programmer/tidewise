@@ -74,7 +74,7 @@ impl AppImageApps {
     /// Also remove the AppImage's launcher and icon: `applications_dir` and `icon_dirs` under the
     /// user's data folder.
     pub fn with_menu(mut self, applications_dir: PathBuf, icon_dirs: Vec<PathBuf>) -> Self {
-        let _ = (&applications_dir, &icon_dirs);
+        self.menu = Some((applications_dir, icon_dirs));
         self
     }
 
@@ -113,13 +113,24 @@ impl AppSource for AppImageApps {
         else {
             return Err(SourceError::BadName(app.id.clone()));
         };
+        let mut items = vec![PlanItem {
+            label: app.id.clone(),
+            bytes: Some(found.size_bytes),
+        }];
+        if let Some((applications_dir, icon_dirs)) = &self.menu {
+            for entry in menu_entries(&found.path, applications_dir, icon_dirs) {
+                for path in std::iter::once(entry.desktop_file).chain(entry.icon) {
+                    items.push(PlanItem {
+                        bytes: fs::symlink_metadata(&path).ok().map(|m| m.len()),
+                        label: path.display().to_string(),
+                    });
+                }
+            }
+        }
         Ok(RemovalPlan {
             id: app.id.clone(),
             kind: SourceKind::AppImage,
-            items: vec![PlanItem {
-                label: app.id.clone(),
-                bytes: Some(found.size_bytes),
-            }],
+            items,
             blocked: None,
             needs_admin: false,
             to_trash: true,
@@ -387,7 +398,7 @@ mod tests {
         let (_home, image, apps, icons) = menu_world();
         write(&icons.join("hicolor/256x256/apps/krita.png"), 5);
         write(&icons.join("hicolor/256x256/apps/other.png"), 5);
-        let found = menu_entries(&image, &apps, &[icons.clone()]);
+        let found = menu_entries(&image, &apps, std::slice::from_ref(&icons));
         assert_eq!(
             found,
             [MenuEntry {
@@ -417,7 +428,10 @@ mod tests {
             text.replace("Icon=krita", &format!("Icon={}", secret.display())),
         )
         .unwrap();
-        assert_eq!(menu_entries(&image, &apps, &[icons.clone()])[0].icon, None);
+        assert_eq!(
+            menu_entries(&image, &apps, std::slice::from_ref(&icons))[0].icon,
+            None
+        );
         let inside = icons.join("krita.png");
         write(&inside, 5);
         let text = fs::read_to_string(apps.join("krita.desktop")).unwrap();

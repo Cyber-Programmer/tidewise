@@ -92,3 +92,10 @@ path = "fuzz_targets/snap_list.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "desktop_files"
+path = "fuzz_targets/desktop_files.rs"
+test = false
+doc = false
+bench = false

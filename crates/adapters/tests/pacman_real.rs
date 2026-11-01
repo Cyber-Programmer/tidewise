@@ -44,3 +44,37 @@ fn real_machine_lists_apps_from_every_source_and_plans_without_changing_anything
     let plan = pacman.removal_plan(bash).unwrap();
     assert!(plan.blocked.is_some(), "bash is needed by other packages");
 }
+
+#[test]
+fn real_machine_turns_packages_into_a_much_shorter_list_of_apps() {
+    use std::collections::HashMap;
+    use tidewise_adapters::desktop::{apps_from_packages, pacman_owners, parse_desktop_file};
+    use tidewise_adapters::pacman::PacmanApps;
+    use tidewise_adapters::runner::SystemRunner;
+    use tidewise_adapters::source::AppSource;
+    if !Path::new("/usr/bin/pacman").exists() {
+        eprintln!("skipped: pacman not installed");
+        return;
+    }
+    let packages = PacmanApps::system().list().unwrap();
+    let files: Vec<std::path::PathBuf> = std::fs::read_dir("/usr/share/applications")
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
+        .collect();
+    let entries: HashMap<_, _> = files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f).ok()?;
+            Some((f.clone(), parse_desktop_file(&text)?))
+        })
+        .collect();
+    let owned = pacman_owners(&SystemRunner, &files);
+    assert!(!owned.is_empty());
+    let total = packages.len();
+    let apps = apps_from_packages(packages, &owned, &entries);
+    eprintln!("{} packages -> {} apps", total, apps.len());
+    assert!(!apps.is_empty() && apps.len() < total / 2);
+    assert!(apps.iter().all(|a| a.id != "bash" && a.id != "glibc"));
+}
