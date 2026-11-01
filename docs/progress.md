@@ -396,3 +396,9 @@ Plan: `pacman::parse_removal_print(text, succeeded)` → Targets / Blocked / Not
 Done: red 67810ae, green 57d66ad. Not wired into `PacmanApps::removal_plan` (that still gives the cautious estimate); no live runner for `pacman -Rns --print` yet.
 Next: R6-Q10 apt / dpkg adapter.
 Blockers: a real capture of `pacman -Rns --print` needs a container run (the loop may not run pacman -R*).
+
+## 2026-11-01 — Run 06, R6-Q10 apt / dpkg adapter
+Plan: `adapters::apt`: `parse_dpkg_query` (installed only, KiB → bytes), `parse_simulated_remove` (C-locale only; essential warning, unknown, not installed, lock held), plans with `Blocked::Protected` and `Blocked::Busy` (new variants), `AptApps` source; fixtures hand-written; fuzz target.
+Done: red 5e240e5, green 77fdce5.
+Next: R6-Q11 dnf / rpm adapter.
+Blockers: none; real captures need an Ubuntu/Debian container.

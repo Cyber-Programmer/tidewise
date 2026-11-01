@@ -138,3 +138,19 @@ Not verified:
 - Epoch and `~` in versions are accepted by pattern, not tested against real packages other than the handwritten ones.
 Errors: none.
 Decisions taken without the human: parser refuses non-C-locale text instead of trying to translate it; the dry run is only trusted when its first target is the app asked about. Not in docs/questions.md.
+
+## R6-Q10 apt / dpkg adapter — Done   (2026-11-02 00:02 PKT)
+WBS: 7.1.3 → Needs Verification (row 78; the code cannot be checked against real apt on this Arch machine; `G78:I78`, `L78:N78` written below)
+Commits: 5e240e5 (red), 77fdce5
+Evidence:
+- Red: `cargo test -p tidewise-adapters apt::` → exit 101, 11 failed / 4 passed (garbage-refusal, empty, removed-with-settings and hostile-Remv tests passed vacuously against the stub).
+- Green: same command → 15 passed. Cases: sizes KiB → bytes; `deinstall ok config-files` left out; `hold ok installed` kept; empty size → None; multi-arch `libc6:amd64`; bad size / too few / too many columns → `BadLine` with the line number; dry run: removes list in order, essential warning flagged, unknown package, not installed, lock held; German imitation, garbage, empty and headerless text refused; hostile name in a `Remv` line refused; plan with all packages, blocked as Protected or Busy, wrong first package refused, hostile ids refused.
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (427 passed, 0 failed, 3 ignored); `cargo deny check` → 0; `cargo audit` → 0 (5 allowed warnings).
+- Fuzz: `cargo +nightly fuzz run apt_parsers -- -max_total_time=20` → exit 0, 509,694 runs (docs/security/fuzzing.md; 20 s only).
+Not verified:
+- **Every fixture is hand-written** (`tests/fixtures/apt/README.md`); there is no `dpkg-query` or `apt-get` here. The exact wording of the essential warning, the `Remv` lines and the lock error are from memory of apt's documented behaviour; a different real wording makes the parser say `Unrecognized` (safe) rather than guess, but that also means it may refuse real output. German/other-language handling is "refuse", by design: not tested against a real localized run.
+- `AptApps::system()` was never run (dpkg-query does not exist here); it is only reached when `/usr/bin/dpkg-query` exists.
+- Nothing runs `apt-get -s remove`; the trait's `removal_plan` is the cautious estimate (the package alone). No dependency listing (`Required By`) for apt packages.
+- Mapping packages to apps via `.desktop` files is Q13; the list here is every installed package.
+Errors: none.
+Decisions taken without the human: added two variants to `source::Blocked` (`Protected`, `Busy`); dry-run text is only trusted when it carries the English `Reading package lists...` line (or the English lock error). Not in docs/questions.md.

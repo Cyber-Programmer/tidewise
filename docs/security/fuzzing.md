@@ -32,6 +32,7 @@ Corpora are not committed (`fuzz/.gitignore`); `.desktop` *file* parsing does no
 | `flatpak_list` (extended) | `parse_list`, `parse_runtimes`, `parse_app_runtimes`, `unused_runtimes` | 301 318 | 0 |
 
 | `pacman_rns_print` (new, R6-Q09) | `adapters::pacman::parse_removal_print` (both success and failure text) | 851 104 | 0 |
+| `apt_parsers` (new, R6-Q10) | `adapters::apt::{parse_dpkg_query, parse_simulated_remove}` | 509 694 | 0 |
 
 20 s is **not** the 10 minutes ENGINEERING.md §2 asks for; the full runs are queue task Q23.
 

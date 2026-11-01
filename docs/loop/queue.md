@@ -47,7 +47,7 @@ detail; this queue wins where they differ (no root, no helper).
   output (capture fixtures only if the command runs without root and without changing anything; you
   may not run `pacman -R*` yourself, so if no fixture can be made, write the parser against
   documented output and mark the fixture hand-written).
-- [ ] **Q10 apt / dpkg adapter** (WBS 7.1.3). Parsers + fixtures (hand-written where this Arch machine
+- [x] **Q10 apt / dpkg adapter** (WBS 7.1.3). Parsers + fixtures (hand-written where this Arch machine
   can't produce real output; say so in the fixture README and the WBS note), non-English and broken
   cases, fuzz target.
 - [ ] **Q11 dnf / rpm adapter** (WBS 7.1.4). Same rules as Q10.
