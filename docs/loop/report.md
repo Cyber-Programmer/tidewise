@@ -246,3 +246,50 @@ Errors:
 - Two search-and-replace edits missed because `cargo fmt` had reformatted their targets (Guard in the tests; Row literals): caught by a compile error, redone with the exact text.
 - The confirm-dialog diff (24.3 %) is over the 10 % target; reported, not hidden.
 Decisions taken without the human: signal a process group only when it holds nothing but the app (otherwise per pid), which can leave a launcher script alive but never kills a shell or terminal that shares the group; leave out the app-specific sentence of the artboard. Not in docs/questions.md.
+
+## Summary — run 06, branch run/06-2026-11-01 (2026-11-02 01:24 PKT)
+
+**Why the loop stopped:** the stop condition "3 tasks in a row ended Partial" was met (Q13, Q14, Q15). Nothing was blocked. 9 of the 24 queue items were not started.
+
+**Done (9):** Q01, Q02, Q03, Q04, Q05, Q07, Q10, Q11, Q12.
+**Partial (6):** Q06 (Clean up: no password step or admin groups), Q08 (AppSource: `remove` is NotYet), Q09 (pacman plan: hand-written fixtures, not wired), Q13 (runner/menu entries/package→app: no dpkg/rpm lookups), Q14 (Apps: never clicked, no admin removal, no apt/dnf packages), Q15 (End task: never clicked, confirm dialog 24 % off the artboard).
+**Blocked (0).**
+**Not started (9):** Q16 History, Q17 Startup apps, Q18 Services, Q19 Settings, Q20 Health, Q21 Search, Q22 Empty/loading/error pass, Q23 Fuzz 10 min, Q24 Budgets.
+
+### Final checks (on 13b8b9c plus this docs-only commit; none of the code changed after them)
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo deny check` → 0; `cargo audit` → 0 (5 allowed warnings, listed in deny.toml).
+- **`cargo test --all` → exit 101** with the default `/tmp`: the 2 AppImage tests fail with "Disk quota exceeded" because /tmp is full of 14 × 407 MB leftovers from my earlier test runs (see docs/questions.md; I tried to delete them and the permission check refused). The same code passes when run as `TMPDIR=$PWD/target/tmp cargo test -p tidewise-app` → 0 (236 passed, 1 ignored) and `cargo test --workspace --exclude tidewise-app` → 0 (276 passed, 2 ignored): 512 passed, 0 failed. After you delete the leftovers the plain command should be green (unverified until then). Baseline at the start was 307 passed, 0 failed, 2 ignored (exit 0).
+- Release build: `cargo build --release -p tidewise-app` → 0 (7 min 14 s; binary 23,771,288 bytes, 2026-11-02 01:24:16).
+- AppImage: `TMPDIR=$PWD/target/tmp ./packaging/appimage/build.sh` → 0: `dist/Tidewise-0.1.0-x86_64.AppImage` 11,069,944 bytes (up from 10,467,832 in Q02), sha256 `1a83dd2e…7640f`; `--screenshot home` start-to-file 0.279 / 0.165 / 0.175 s (3 runs, exit 0, headless, not a visible window).
+
+### Every "Not verified" item, in one list
+1. **Nothing built in this run was clicked by a person.** Clean up (Clean, Cancel, Stop, Back to Home), Apps (pick, filter, search, Uninstall, confirm), End task (End, Keep waiting, Force quit), Home's live junk score and Storage after the viewport rename: pictures and unit tests only. I removed/ended/uninstalled nothing real (rules).
+2. The real destructive paths — cache and Trash removal in the live app, AppImage → Trash, `flatpak uninstall --user`, SIGTERM/SIGKILL of a real app — ran only on temp dirs, with a fake runner, or on processes a test started.
+3. **Hand-written fixtures** (no apt/dpkg/rpm/dnf/snap/flatpak-uninstall/pacman -R here): apt, dnf, snap, `pacman -Rns --print`, `dpkg -S`, AppImage launchers, junk runtimes (README in each fixtures folder). Real captures only for pacman -Qi/-Qo, flatpak list, journalctl --disk-usage.
+4. `system()` constructors for apt, dnf and snap never ran (the programs do not exist here); no live dry-run runner for any manager.
+5. Missing features, by queue item: admin removal and password step (helper, not this run); Flatpak unused-runtime removal; orphan packages group; apt/dnf packages in the Apps list (no dpkg/rpm owner lookups); "delete my settings" checkbox; real lock/busy detection; the artboard's second sentence in the End dialog.
+6. Design checks: Cleaner 8.8 %, Apps 3.9 % (≤ 10 %). Over the target: CleanFlow whole image 58 % (placeholder backdrop; dialog crop 5.2 % passes), UninstallFlow whole image 60 % (crop 7.8 % passes), EndTask confirm crop 24.3 % (fails). Demo numbers differ from the artboards (Cleaner 5 groups not 6; Apps 8 apps not 143).
+7. Fuzzing: 7 new targets ran 20 s each (none crashed), not the 10 minutes required (Q23 not started).
+8. Not measured: CPU/memory of the Home junk rescan, the Clean up, Apps and End task pages (Q24 not started); scan time for large caches; AppImage on Ubuntu 22.04 or any other distro; keyboard use and contrast of the new screens.
+9. The unused-Flatpak-runtime rule is cautious and not compared with `flatpak uninstall --unused`; the running-app match for caches is a name heuristic.
+10. Plain `cargo test --all` has not exited 0 since the /tmp filled up (round Q10).
+
+### Every error, in one list
+- Q02: `ls --time-style` rejected (ls is `lsd`) and no `/usr/bin/time`, so the first build attempt did not run; wrong timing loop printed 0.000 s (zsh/datetime not loaded). A temp file went to /tmp/claude-1000 instead of the scratchpad.
+- Q05: clippy `unnecessary_sort_by`; I deleted `parse_list` while editing (compiler caught it); a wrong handwritten fixture. **`cargo deny check` exit 2 from Q05 until fixed in Q06** (path dependency without version).
+- Q06: one loose assertion in a red commit (sed missed after fmt); clippy items-after-test-module; first screenshots with misplaced switch and short dialog; guessed times in report headings (corrected).
+- Q07: a first test command was malformed; an early wording slip caught by a test.
+- Q08/Q09/Q13/Q14: several replacement scripts missed because `cargo fmt` had reshaped their targets (each caught by a compile error or a failing test); a duplicate-looking clippy lint in my tests; end-of-uninstall dialog texts overwritten by the panel (caught in a picture).
+- Q11–Q15: **/tmp filled by AppImage test leftovers** (above); the `core::scan::cancelling…` test depends on the file system (tmpfs vs ext4); **Q15's first red run leaked a SIGTERM-ignoring shell and a sleep** (killed by exact pid, guard added).
+- Process: the Slint screens and several controllers were written after the view-model tests, not red first (listed per round).
+
+### New questions for you (docs/questions.md)
+"Run 06 — Q02 AppImage size budget" (proposal ≤ 25 MB), "Run 06 — Q06 Clean up screen: decisions I took without you" (8 points), "Run 06 — /tmp is full of leaked AppImage unpackings (please delete)". Smaller decisions are only in each round's report entry (Q07 junk threshold and rescan, Q08 `PackageSource` removed and plain-name rule, Q10 Blocked::Protected/Busy, Q13 one CommandRunner, Q14 "kept" row, Q15 group-signal rule).
+
+### What to click through by hand
+1. First: `rm -rf /tmp/appimage_extracted_*`, then `cargo test --all` should exit 0.
+2. Clean up: tick/untick, Clean → Cancel; then a real Clean of "App caches" only (it removes real cache folders of apps that are not running) and check History in `~/.local/state/tidewise/history/`.
+3. Apps: search, chips, a user Flatpak or AppImage you do not need → Uninstall → look in the Trash; a system package should say "Needs admin access (coming soon)".
+4. Processes: End a harmless app you started yourself; try Keep waiting / Force quit on one that ignores TERM; try a protected one (Plasma).
+5. Home: the junk line and the score drop after the first scan.
+6. Look at: `target/design-check/` pictures named in each entry.

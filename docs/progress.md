@@ -432,3 +432,9 @@ Plan: `adapters::endtask` (process table from /proc, a signal plan that uses a g
 Done: red 063afa1 → d1ab130 (engine), 8d7e99b → texts/pids (green in the same step), UI 93b6e05.
 Next: R6-Q16 History records + screen.
 Blockers: none for the engine; the live flow was never clicked.
+
+## 2026-11-02 — Run 06 finished (branch run/06-2026-11-01, not merged)
+Done: Q01–Q05, Q07, Q10–Q12. Partial: Q06, Q08, Q09, Q13, Q14, Q15. Not started: Q16–Q24. Loop stopped after three Partial rounds in a row.
+Next: delete /tmp/appimage_extracted_*; click through the screens (report Summary); then Q16 History onward; real captures for the apt/dnf/snap/pacman -Rns fixtures; the admin helper work (needs your approval) unlocks the admin halves.
+Blockers: /tmp cleanup (plain cargo test), the helper (no work allowed this run).
+Rules bent in run 6: several screens and controllers were written after their tests; hand-written fixtures where no real tool exists; one `cargo deny` break in Q05 (fixed in Q06); plain `cargo test --all` not green at the end (full /tmp).
