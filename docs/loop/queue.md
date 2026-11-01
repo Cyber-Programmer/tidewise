@@ -43,7 +43,7 @@ detail; this queue wins where they differ (no root, no helper).
 
 - [/] **Q08 `AppSource` trait** (WBS 7.1.1): list, size, removal plan (dry-run), with the existing
   pacman/flatpak/appimage code moved onto it.
-- [ ] **Q09 pacman adapter finished** (WBS 7.1.2): removal plan from **saved** `pacman -Rns --print`
+- [/] **Q09 pacman adapter finished** (WBS 7.1.2): removal plan from **saved** `pacman -Rns --print`
   output (capture fixtures only if the command runs without root and without changing anything; you
   may not run `pacman -R*` yourself, so if no fixture can be made, write the parser against
   documented output and mark the fixture hand-written).

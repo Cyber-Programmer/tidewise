@@ -31,6 +31,8 @@ Corpora are not committed (`fuzz/.gitignore`); `.desktop` *file* parsing does no
 | `journal_usage` (new) | `adapters::journal::parse_disk_usage` (`journalctl --disk-usage`) | 696 769 | 0 |
 | `flatpak_list` (extended) | `parse_list`, `parse_runtimes`, `parse_app_runtimes`, `unused_runtimes` | 301 318 | 0 |
 
+| `pacman_rns_print` (new, R6-Q09) | `adapters::pacman::parse_removal_print` (both success and failure text) | 851 104 | 0 |
+
 20 s is **not** the 10 minutes ENGINEERING.md §2 asks for; the full runs are queue task Q23.
 
 ## Follow-ups

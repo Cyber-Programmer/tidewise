@@ -123,3 +123,18 @@ Not verified:
 - Flatpak `system()` against the real flatpak ran only through the real-machine test (no apps installed there: one app, system).
 Errors: my first replacement script aborted halfway because `cargo fmt` had reformatted the stubs it searched for; the first half (source.rs) was applied, the rest redone by replacing whole sections. No failed commands left in the commits.
 Decisions taken without the human: `PackageSource` (trait from M1) was deleted instead of extended, `Pacman::installed()` stays as a method; `is_plain_name` allows ASCII letters, digits and `. _ + - @ :`, no leading `-`, at most 255 characters — to be reviewed together with the helper's own name pattern later (the helper is not touched in this run). Not in docs/questions.md yet.
+
+## R6-Q09 pacman adapter finished (removal plan from saved output) — Partial   (2026-11-01 23:56 PKT)
+WBS: 7.1.2 → stays In Progress (row 77; `L77:N77` written below)
+Commits: 67810ae (red), 57d66ad
+Evidence:
+- Red: `cargo test -p tidewise-adapters pacman::` → exit 101, 5 failed / 18 passed (the refuse-garbage, success/failure-swap, not-found/hostile-id and wrong-first-target tests passed vacuously against the stub).
+- Green: same command → 23 passed. Cases: dashed names (`lib32-glibc`, `foo-bar-baz-1:2.0.1-10`) split at the last two dashes; blocked removal names each requirer once; not found; a German imitation and garbage are refused (`Unrecognized`) rather than guessed; success text read as failure and the reverse are refused; plan lists all dependencies with sizes only for the asked-for package; blocked plan; a plan for a different first target is refused; hostile id refused.
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (412 passed, 0 failed, 3 ignored); `cargo deny check` → 0; `cargo audit` → 0 (5 allowed warnings).
+- Fuzz: `cargo +nightly fuzz run pacman_rns_print -- -max_total_time=20` → exit 0, 851,104 runs (logged in docs/security/fuzzing.md; 20 s, not the 10 minutes).
+Not verified:
+- **Every fixture is hand-written** (`tests/fixtures/pacman/Rns-print-*-handwritten.txt`, README says so): I may not run `pacman -R*`, so the exact stdout format of `--print` (assumed: `name-version-release` per line) and the exact refusal text (`:: removing X breaks dependency 'X' required by Y`) are from memory of pacman's documented behaviour, not captured. If the real format differs the parser answers `Unrecognized` (safe), not a wrong plan.
+- No live runner: nothing runs `pacman -Rns --print` and `PacmanApps::removal_plan` still returns the cautious estimate; wiring needs a decision whether the app may run that command as the user (and a real capture first).
+- Epoch and `~` in versions are accepted by pattern, not tested against real packages other than the handwritten ones.
+Errors: none.
+Decisions taken without the human: parser refuses non-C-locale text instead of trying to translate it; the dry run is only trusted when its first target is the app asked about. Not in docs/questions.md.

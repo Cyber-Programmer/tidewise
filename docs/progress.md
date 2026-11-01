@@ -390,3 +390,9 @@ Plan: `adapters::source` with `AppSource { kind, list, size, removal_plan, remov
 Done: red c0f9897, green 909bb7c. `remove` is a default that answers `NotYet` for every source (removal comes with Q14 and the helper).
 Next: R6-Q09 pacman removal plan from saved `pacman -Rns --print` output.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q09 pacman removal plan from saved dry-run output — PARTIAL
+Plan: `pacman::parse_removal_print(text, succeeded)` → Targets / Blocked / NotFound or an error for anything unknown; `plan_from_print(app, outcome)`; fixtures hand-written (no `pacman -R*` allowed); fuzz target.
+Done: red 67810ae, green 57d66ad. Not wired into `PacmanApps::removal_plan` (that still gives the cautious estimate); no live runner for `pacman -Rns --print` yet.
+Next: R6-Q10 apt / dpkg adapter.
+Blockers: a real capture of `pacman -Rns --print` needs a container run (the loop may not run pacman -R*).
