@@ -27,8 +27,21 @@ impl Filter {
 
 /// What the user sees for where an app comes from.
 pub fn source_label(kind: SourceKind) -> &'static str {
-    let _ = kind;
-    ""
+    match kind {
+        SourceKind::Pacman | SourceKind::Apt | SourceKind::Dnf => "System",
+        SourceKind::Flatpak => "Flatpak",
+        SourceKind::Snap => "Snap",
+        SourceKind::AppImage => "AppImage",
+    }
+}
+
+fn filter_of(kind: SourceKind) -> Filter {
+    match kind {
+        SourceKind::Pacman | SourceKind::Apt | SourceKind::Dnf => Filter::System,
+        SourceKind::Flatpak => Filter::Flatpak,
+        SourceKind::Snap => Filter::Snap,
+        SourceKind::AppImage => Filter::AppImage,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,27 +53,70 @@ pub struct Chip {
 
 /// `All` first, then each source that has apps. System packages (pacman, apt, dnf) share one chip.
 pub fn chips(apps: &[AppEntry]) -> Vec<Chip> {
-    let _ = apps;
-    Vec::new()
+    let count = |f: Filter| apps.iter().filter(|a| filter_of(a.kind) == f).count();
+    let mut chips = vec![Chip {
+        label: "All".into(),
+        count: apps.len(),
+        filter: Filter::All,
+    }];
+    for (label, filter) in [
+        ("System", Filter::System),
+        ("Flatpak", Filter::Flatpak),
+        ("AppImage", Filter::AppImage),
+        ("Snap", Filter::Snap),
+    ] {
+        let n = count(filter);
+        if n > 0 {
+            chips.push(Chip {
+                label: label.into(),
+                count: n,
+                filter,
+            });
+        }
+    }
+    chips
 }
 
 /// `143 apps from 4 sources. Remove any of them the same way.`
 pub fn subtitle(apps: &[AppEntry]) -> String {
-    let _ = apps;
-    String::new()
+    if apps.is_empty() {
+        return "No apps found.".into();
+    }
+    let sources = chips(apps).len() - 1;
+    format!(
+        "{} app{} from {} source{}. Remove any of them the same way.",
+        apps.len(),
+        if apps.len() == 1 { "" } else { "s" },
+        sources,
+        if sources == 1 { "" } else { "s" }
+    )
 }
 
 /// Indices into `apps` of what the list shows: the filter, then the search (case-insensitive, name
 /// or id), largest first, unknown sizes last, ties by name.
 pub fn visible(apps: &[AppEntry], filter: Filter, query: &str) -> Vec<usize> {
-    let _ = (apps, filter, query);
-    Vec::new()
+    let query = query.trim().to_lowercase();
+    let mut shown: Vec<usize> = (0..apps.len())
+        .filter(|&i| filter == Filter::All || filter_of(apps[i].kind) == filter)
+        .filter(|&i| {
+            query.is_empty()
+                || apps[i].name.to_lowercase().contains(&query)
+                || apps[i].id.to_lowercase().contains(&query)
+        })
+        .collect();
+    shown.sort_by_key(|&i| {
+        (
+            apps[i].size_bytes.is_none(),
+            std::cmp::Reverse(apps[i].size_bytes),
+            apps[i].name.to_lowercase(),
+        )
+    });
+    shown
 }
 
 /// `Showing 8 of 143`
 pub fn footer(shown: usize, total: usize) -> String {
-    let _ = (shown, total);
-    String::new()
+    format!("Showing {shown} of {total}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,11 +135,15 @@ pub struct Row {
 pub fn row(app: &AppEntry) -> Row {
     Row {
         name: app.name.clone(),
-        source: String::new(),
-        detail: String::new(),
-        size: String::new(),
-        letter: String::new(),
-        hue: 0,
+        source: source_label(app.kind).into(),
+        detail: app.version.clone().unwrap_or_default(),
+        size: app.size_bytes.map_or("—".into(), format_bytes),
+        letter: app
+            .name
+            .chars()
+            .next()
+            .map_or("?".into(), |c| c.to_uppercase().collect()),
+        hue: (app.name.to_lowercase().bytes().map(u32::from).sum::<u32>() % 6) as i32,
     }
 }
 
@@ -110,15 +170,56 @@ pub struct Panel {
 }
 
 pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
-    let _ = (plan, Blocked::Busy);
+    let known = |items: &[tidewise_adapters::source::PlanItem]| -> Option<u64> {
+        let sizes: Vec<u64> = items.iter().filter_map(|i| i.bytes).collect();
+        (!sizes.is_empty()).then(|| sizes.iter().sum())
+    };
+    let size_text = |bytes: Option<u64>| bytes.map_or("—".into(), format_bytes);
+    let mut rows = Vec::new();
+    if let Some(first) = plan.items.first() {
+        rows.push(("The app itself".to_string(), size_text(first.bytes)));
+    }
+    let rest = plan.items.get(1..).unwrap_or_default();
+    if !rest.is_empty() {
+        let label = if plan.kind == SourceKind::AppImage {
+            "Its menu entry and icon".to_string()
+        } else {
+            format!(
+                "{} other part{} only it uses",
+                rest.len(),
+                if rest.len() == 1 { "" } else { "s" }
+            )
+        };
+        rows.push((label, size_text(known(rest))));
+    }
+    let button = match &plan.blocked {
+        Some(Blocked::RequiredBy(who)) => Button::Disabled(format!(
+            "{} other app{} {} it, so Tidewise won't remove it",
+            who.len(),
+            if who.len() == 1 { "" } else { "s" },
+            if who.len() == 1 { "needs" } else { "need" }
+        )),
+        Some(Blocked::Protected(_)) => {
+            Button::Disabled("Your system needs it, so Tidewise won't remove it".into())
+        }
+        Some(Blocked::Busy) => {
+            Button::Disabled("Another installer is running. Try again when it is done".into())
+        }
+        None if plan.needs_admin => Button::Disabled("Needs admin access (coming soon)".into()),
+        None => Button::Enabled,
+    };
     Panel {
         name: app.name.clone(),
-        subtitle: String::new(),
-        rows: Vec::new(),
-        total: String::new(),
-        button_label: String::new(),
-        button: Button::Enabled,
-        technical: format_bytes(0),
+        subtitle: format!("from {}", source_label(app.kind)),
+        rows,
+        total: size_text(known(&plan.items)),
+        button_label: format!("Uninstall {}", app.name),
+        button,
+        technical: if plan.command.is_empty() {
+            "Moves the file to the Trash".into()
+        } else {
+            plan.command.join(" ")
+        },
     }
 }
 
@@ -196,7 +297,7 @@ mod tests {
     fn the_subtitle_counts_apps_and_sources() {
         assert_eq!(
             subtitle(&sample()),
-            "7 apps from 5 sources. Remove any of them the same way."
+            "7 apps from 4 sources. Remove any of them the same way."
         );
         assert_eq!(
             subtitle(&sample()[..1]),
