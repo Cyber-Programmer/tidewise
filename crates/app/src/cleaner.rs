@@ -1,7 +1,7 @@
 //! Clean up screen: what the rows, the summary and the confirm dialog say, from the groups the
 //! junk scanner found and the ones the user ticked. Plain data; `view.rs` copies it into Slint.
 
-use tidewise_adapters::cleanup::{Group, GroupId};
+use tidewise_adapters::cleanup::{format_bytes, Group, GroupId, Safety};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowData {
@@ -46,33 +46,92 @@ pub struct Confirm {
 }
 
 pub fn rows(groups: &[Group], selected: &[GroupId]) -> Vec<RowData> {
-    let _ = (groups, selected);
-    Vec::new()
+    groups
+        .iter()
+        .map(|g| RowData {
+            title: g.title.to_string(),
+            description: g.description.clone(),
+            safe: if g.safety == Safety::Review {
+                "Review"
+            } else {
+                "Safe"
+            }
+            .to_string(),
+            review: g.safety == Safety::Review,
+            admin: g.admin,
+            size: format_bytes(g.bytes),
+            checked: selected.contains(&g.id),
+            detail: g.detail.clone(),
+        })
+        .collect()
+}
+
+fn chosen<'a>(groups: &'a [Group], selected: &[GroupId]) -> Vec<&'a Group> {
+    groups.iter().filter(|g| selected.contains(&g.id)).collect()
 }
 
 pub fn summary(groups: &[Group], selected: &[GroupId]) -> Summary {
-    let _ = (groups, selected);
+    let picked = chosen(groups, selected);
+    let found: u64 = groups.iter().map(|g| g.bytes).sum();
+    let total: u64 = picked.iter().map(|g| g.bytes).sum();
     Summary {
-        total: String::new(),
-        found: String::new(),
-        fraction: 0.0,
-        admin: false,
-        count: 0,
+        total: format_bytes(total),
+        found: format!(
+            "of {} found · {} of {} groups",
+            format_bytes(found),
+            picked.len(),
+            groups.len()
+        ),
+        fraction: if found == 0 {
+            0.0
+        } else {
+            (total as f64 / found as f64) as f32
+        },
+        admin: picked.iter().any(|g| g.admin),
+        count: picked.len(),
+    }
+}
+
+/// The confirm dialog always counts in gigabytes from 100 MB up (`0.9 GB`), as the design does.
+fn confirm_size(bytes: u64) -> String {
+    if bytes >= 100_000_000 {
+        format!("{:.1} GB", bytes as f64 / 1e9)
+    } else {
+        format_bytes(bytes)
     }
 }
 
 pub fn confirm(groups: &[Group], selected: &[GroupId]) -> Confirm {
-    let _ = (groups, selected);
+    let picked = chosen(groups, selected);
+    let total: u64 = picked.iter().map(|g| g.bytes).sum();
+    let admin = picked.iter().filter(|g| g.admin).count();
     Confirm {
-        title: String::new(),
-        rows: Vec::new(),
-        admin_note: None,
+        title: format!("Remove {}?", format_bytes(total)),
+        rows: picked
+            .iter()
+            .map(|g| ConfirmRow {
+                name: g.title.to_string(),
+                size: confirm_size(g.bytes),
+                admin: g.admin,
+            })
+            .collect(),
+        admin_note: match admin {
+            0 => None,
+            1 => Some("1 of these needs your password. You'll be asked once.".into()),
+            n => Some(format!(
+                "{n} of these need your password. You'll be asked once."
+            )),
+        },
     }
 }
 
 /// Tick or untick one group.
 pub fn toggle(selected: &mut Vec<GroupId>, id: GroupId) {
-    let _ = (selected, id);
+    if let Some(at) = selected.iter().position(|s| *s == id) {
+        selected.remove(at);
+    } else {
+        selected.push(id);
+    }
 }
 
 #[cfg(test)]
