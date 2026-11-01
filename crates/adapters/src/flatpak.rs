@@ -258,6 +258,28 @@ impl AppSource for FlatpakApps {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UninstallError {
+    #[error("only user Flatpaks can be removed without admin access")]
+    NeedsAdmin,
+    #[error("not a Flatpak app")]
+    NotFlatpak,
+    #[error("`{0}` is not a plain app id")]
+    BadId(String),
+    #[error("flatpak could not remove it: {0}")]
+    Failed(String),
+}
+
+/// Remove a *user* Flatpak app. System Flatpaks are refused (they need the admin helper). Never run
+/// by a test against the real flatpak: tests pass a fake runner.
+pub fn uninstall_user(
+    runner: &dyn crate::runner::CommandRunner,
+    app: &AppEntry,
+) -> Result<(), UninstallError> {
+    let _ = (runner, app);
+    Err(UninstallError::NotFlatpak)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,5 +533,112 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    use crate::runner::{CommandRunner, Output};
+    use std::cell::RefCell;
+
+    struct Fake {
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+        reply: Result<Output, String>,
+    }
+
+    impl Fake {
+        fn ok() -> Self {
+            Fake {
+                calls: RefCell::new(vec![]),
+                reply: Ok(Output {
+                    success: true,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }),
+            }
+        }
+    }
+
+    impl CommandRunner for Fake {
+        fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
+            self.calls
+                .borrow_mut()
+                .push((program.into(), args.iter().map(|a| a.to_string()).collect()));
+            self.reply.clone()
+        }
+    }
+
+    fn user_app() -> AppEntry {
+        FlatpakApps::from_list(&fixture("list-handwritten.txt"))
+            .list()
+            .unwrap()
+            .remove(1)
+    }
+
+    #[test]
+    fn a_user_flatpak_is_removed_with_one_exact_command_and_no_shell() {
+        let fake = Fake::ok();
+        uninstall_user(&fake, &user_app()).unwrap();
+        let calls = fake.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "/usr/bin/flatpak");
+        assert_eq!(
+            calls[0].1,
+            [
+                "uninstall",
+                "--user",
+                "--noninteractive",
+                "-y",
+                "org.mozilla.firefox"
+            ]
+        );
+    }
+
+    #[test]
+    fn system_flatpaks_other_sources_and_hostile_ids_never_reach_the_runner() {
+        let fake = Fake::ok();
+        let apps = FlatpakApps::from_list(&fixture("list-handwritten.txt"))
+            .list()
+            .unwrap();
+        assert_eq!(
+            uninstall_user(&fake, &apps[0]),
+            Err(UninstallError::NeedsAdmin)
+        );
+        let mut pacman = user_app();
+        pacman.kind = SourceKind::Pacman;
+        assert_eq!(
+            uninstall_user(&fake, &pacman),
+            Err(UninstallError::NotFlatpak)
+        );
+        for bad in ["--all", "a b", "../x", ""] {
+            let mut a = user_app();
+            a.id = bad.into();
+            assert!(
+                matches!(uninstall_user(&fake, &a), Err(UninstallError::BadId(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(fake.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_failing_flatpak_reports_its_message() {
+        let fake = Fake {
+            calls: RefCell::new(vec![]),
+            reply: Ok(Output {
+                success: false,
+                stdout: String::new(),
+                stderr: "error: nope".into(),
+            }),
+        };
+        assert_eq!(
+            uninstall_user(&fake, &user_app()),
+            Err(UninstallError::Failed("error: nope".into()))
+        );
+        let cannot = Fake {
+            calls: RefCell::new(vec![]),
+            reply: Err("no such file".into()),
+        };
+        assert!(matches!(
+            uninstall_user(&cannot, &user_app()),
+            Err(UninstallError::Failed(_))
+        ));
     }
 }

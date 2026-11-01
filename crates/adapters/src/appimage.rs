@@ -118,6 +118,24 @@ impl AppSource for AppImageApps {
     }
 }
 
+/// A launcher the AppImage put in the user's menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuEntry {
+    pub desktop_file: PathBuf,
+    pub icon: Option<PathBuf>,
+}
+
+/// The `.desktop` files in `applications_dir` whose `Exec=` starts exactly `appimage`, and each one's
+/// icon when it is a file inside one of `icon_dirs`. Nothing outside those folders is ever named.
+pub fn menu_entries(
+    appimage: &Path,
+    applications_dir: &Path,
+    icon_dirs: &[PathBuf],
+) -> Vec<MenuEntry> {
+    let _ = (appimage, applications_dir, icon_dirs);
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,5 +272,91 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    fn menu_world() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+        let home = tempfile::tempdir().unwrap();
+        let apps = home.path().join(".local/share/applications");
+        let icons = home.path().join(".local/share/icons");
+        fs::create_dir_all(&apps).unwrap();
+        let image = home.path().join("Applications/Krita 5.2.AppImage");
+        write(&image, 10);
+        let fx = format!(
+            "{}/../../tests/fixtures/appimage-menu",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let krita = fs::read_to_string(format!("{fx}/krita.desktop")).unwrap();
+        fs::write(
+            apps.join("krita.desktop"),
+            krita.replace("/home/u", home.path().to_str().unwrap()),
+        )
+        .unwrap();
+        fs::copy(format!("{fx}/other.desktop"), apps.join("other.desktop")).unwrap();
+        (home, image, apps, icons)
+    }
+
+    #[test]
+    fn a_launcher_whose_exec_is_the_appimage_is_found_with_its_icon() {
+        let (_home, image, apps, icons) = menu_world();
+        write(&icons.join("hicolor/256x256/apps/krita.png"), 5);
+        write(&icons.join("hicolor/256x256/apps/other.png"), 5);
+        let found = menu_entries(&image, &apps, &[icons.clone()]);
+        assert_eq!(
+            found,
+            [MenuEntry {
+                desktop_file: apps.join("krita.desktop"),
+                icon: Some(icons.join("hicolor/256x256/apps/krita.png")),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_missing_icon_or_icon_folder_is_fine() {
+        let (_home, image, apps, icons) = menu_world();
+        let found = menu_entries(&image, &apps, &[icons]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].icon, None);
+        assert!(menu_entries(&image, &apps.join("nope"), &[]).is_empty());
+    }
+
+    #[test]
+    fn an_icon_path_outside_the_icon_folders_is_never_named() {
+        let (home, image, apps, icons) = menu_world();
+        let secret = home.path().join("secret.png");
+        write(&secret, 5);
+        let text = fs::read_to_string(apps.join("krita.desktop")).unwrap();
+        fs::write(
+            apps.join("krita.desktop"),
+            text.replace("Icon=krita", &format!("Icon={}", secret.display())),
+        )
+        .unwrap();
+        assert_eq!(menu_entries(&image, &apps, &[icons.clone()])[0].icon, None);
+        let inside = icons.join("krita.png");
+        write(&inside, 5);
+        let text = fs::read_to_string(apps.join("krita.desktop")).unwrap();
+        fs::write(
+            apps.join("krita.desktop"),
+            text.replace(
+                &format!("Icon={}", secret.display()),
+                &format!("Icon={}", inside.display()),
+            ),
+        )
+        .unwrap();
+        assert_eq!(menu_entries(&image, &apps, &[icons])[0].icon, Some(inside));
+    }
+
+    #[test]
+    fn dotdot_icon_names_and_launchers_for_other_programs_are_ignored() {
+        let (home, image, apps, icons) = menu_world();
+        write(&home.path().join("evil.png"), 5);
+        let text = fs::read_to_string(apps.join("krita.desktop")).unwrap();
+        fs::write(
+            apps.join("krita.desktop"),
+            text.replace("Icon=krita", "Icon=../../../evil"),
+        )
+        .unwrap();
+        assert_eq!(menu_entries(&image, &apps, &[icons])[0].icon, None);
+        let other = home.path().join("Applications/Other.AppImage");
+        assert!(menu_entries(&other, &apps, &[]).is_empty());
     }
 }

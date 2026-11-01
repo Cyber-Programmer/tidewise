@@ -1,0 +1,4 @@
+firefox: /usr/share/applications/firefox.desktop
+libc6:amd64: /usr/share/doc/libc6
+vlc, vlc-bin: /usr/share/applications/vlc.desktop
+dpkg-query: no path found matching pattern /usr/share/applications/nope.desktop

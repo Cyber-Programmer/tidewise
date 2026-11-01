@@ -1,0 +1,2 @@
+dpkg: Das Suchmuster /x passt auf nichts
+firefox: /usr/share/applications/firefox.desktop

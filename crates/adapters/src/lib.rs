@@ -4,11 +4,13 @@
 pub mod appimage;
 pub mod apt;
 pub mod cleanup;
+pub mod desktop;
 pub mod dnf;
 pub mod flatpak;
 pub mod journal;
 pub mod junk;
 pub mod pacman;
+pub mod runner;
 pub mod snap;
 pub mod source;
 
