@@ -353,3 +353,9 @@ Plan: rebuild with `build.sh` (appimagetool is present now), measure size, hash 
 Done: AppImage rebuilt (10,467,832 bytes); times recorded; proposal written. Corrects R4-T6 "no AppImage was produced": the 28 Oct file in dist/ was replaced by this rebuild, so its origin stays unproven.
 Next: R6-Q03 core has no network dependency.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q03 core has no network dependency
+Plan: test helper runs `cargo tree --offline -e normal,build -p <crate>` and looks for 15 listed networking crate names; proven on a fixture workspace (`tests/fixtures/netdeps`, copied to a temp dir) where `leaky → middle → reqwest`; then run on `tidewise-core` and `tidewise-adapters`; threat-model row updated.
+Done: red 06102ae, green a73a8c7. Used `cargo tree` instead of `cargo metadata` (no JSON parser dependency).
+Next: R6-Q04 tester notes.
+Blockers: none.

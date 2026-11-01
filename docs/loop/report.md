@@ -39,3 +39,15 @@ Evidence:
 Not verified: time to a real window on screen (no compositor measurement); the AppImage was not run on Ubuntu 22.04 or any other distro and bundles no shared libraries; how the 28 Oct AppImage was built is unknowable now; picture h1.png was not looked at (`target/q02/h*.png`, 220,377 bytes each).
 Errors: (1) first measuring command failed: `ls --time-style` rejected (ls is aliased to `lsd`) and `/usr/bin/time` does not exist, so the build did not run on that attempt; re-run succeeded. (2) first timing loop printed 0.000 s because `zsh/datetime` was not loaded; re-ran with it loaded, the numbers above are from the second run. (3) I wrote one temp file (`old.md5`) to `/tmp/claude-1000/` instead of the scratchpad; outside the repo, harmless.
 Decisions taken without the human: none (the size budget is only proposed → docs/questions.md "Run 06 — Q02").
+
+## R6-Q03 core has no network dependency — Done   (2026-11-01 ~23:15 PKT)
+WBS: 5.9 → Done (row 60; written below, status success)
+Commits: 06102ae (red), a73a8c7
+Evidence:
+- Red: `cargo test -p tidewise-core --test no_network_deps` → exit 101; failures `fixture_with_a_transitive_networking_crate_is_caught` (left `[]`, right `["reqwest"]`) and `a_package_that_does_not_exist_is_an_error_not_a_pass`. The other 3 tests passed vacuously against the stub.
+- Green: same command → exit 0, 5 passed (includes `tidewise_core_has_no_networking_dependency`, `tidewise_adapters_has_no_networking_dependency`). Real tree is not empty (`cargo tree -p tidewise-core` has 12 distinct lines; the test also asserts the first line is the package).
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (312 passed, 0 failed, 2 ignored).
+- Threat model row (`docs/security/threat-model.md:97`) updated, with limits stated.
+Not verified: that the check catches a networking crate added to the real crates (queue said to prove it on a fixture only, not by editing the real crates); names only, so `std::net` or raw sockets are not caught; dev-dependencies are deliberately not checked; `cargo metadata` was not used (queue named it) — `cargo tree` instead, same dependency data, no new dependency.
+Errors: none
+Decisions taken without the human: none

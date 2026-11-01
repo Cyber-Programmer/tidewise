@@ -15,7 +15,7 @@ detail; this queue wins where they differ (no root, no helper).
   (`--screenshot` start-to-file is fine; say which). Record both in `docs/decisions/0001-ui-toolkit.md`
   follow-ups and propose an AppImage size budget in `docs/questions.md` (don't set it yourself). WBS 4.14:
   record how the existing `dist/` AppImage relates (rebuilt → Done with size/hash).
-- [ ] **Q03 core has no network dependency** (WBS 5.9). Test that fails if `tidewise-core` or
+- [x] **Q03 core has no network dependency** (WBS 5.9). Test that fails if `tidewise-core` or
   `tidewise-adapters` gains a networking crate in its dependency tree (`cargo metadata`, a deny list of
   crate names such as reqwest, hyper, ureq, curl, isahc, attohttpc, rustls, native-tls). Done: red
   (prove the check fails on a small fixture workspace that has such a dependency, not by adding one to
