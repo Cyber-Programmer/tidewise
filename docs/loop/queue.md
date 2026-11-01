@@ -30,7 +30,7 @@ detail; this queue wins where they differ (no root, no helper).
   only), journal size (`journalctl --disk-usage`), unused Flatpak runtimes **computed from
   `flatpak list` output** (never run `flatpak uninstall`). Output = the exact confirm list (dry-run).
   Fixture tests per source + a temp-dir tree; fuzz target if it parses outside text.
-- [ ] **Q06 Clean up screen + flow C, user-owned items only** (WBS 6.6, design `Cleaner`,
+- [/] **Q06 Clean up screen + flow C, user-owned items only** (WBS 6.6, design `Cleaner`,
   `CleanFlow`). Scan → review → confirm → progress with "stop after this step" → done report →
   partial/skipped. User caches and Trash really cleaned (golden rule 4: caches removed directly only
   after the confirm screen; tests on temp dirs only). Root items show the needs-admin state. Writes a

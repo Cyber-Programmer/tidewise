@@ -82,3 +82,13 @@ Below about 700 px the main nav items scroll with the wheel or touch; Slint's Fl
 (R4-T6 point 2) would add a lot, number unknown, not measured. Recommended: budget **≤ 25 MB** for now
 (2.5× today, leaves room for bundled libraries), tighten after the libraries are bundled. The human sets it;
 I did not edit ENGINEERING.md.
+
+## Run 06 — Q06 Clean up screen: decisions I took without you
+1. **New colours** (the design needs them, tokens.md does not list them): `note-card-bg #13221D`, `note-card-border #1F3A31`, `note-card-title #8BEACB`, `note-card-text #B9D9CC` (the "Never touched" card), `scrim #06070A` at 60 % (the dim behind dialogs) and `dialog-border #2E3541`, in `ui/theme.slint` as "extra shades". The design's dialog shadow is **not** drawn (no shadows). Recommended: add them to `docs/design/tokens.md`.
+2. **No "Packages nothing uses" group** (orphans, `pacman -Qdtq`): the junk scanner (Q05) does not look for them, so the screen shows 5 groups, not the design's 6, and "of 12.4 GB found · 4 of 5 groups" instead of "12.6 GB … 6". Recommended: add the orphan listing with the apt/dnf adapters (Q08–Q12).
+3. **No password step.** The admin helper does not exist in this run, so "Old package downloads" and "Old system logs" end as *skipped* ("they need admin access, which Tidewise does not have yet (coming soon)") and the dialog says so. The design's "Waiting for your password…" step and the "You'll be asked for your password once" line (still shown on the screen) belong to the helper milestone.
+4. **Unused Flatpak parts are never removed** (queue forbids `flatpak uninstall` this run); the step ends as skipped ("Tidewise cannot remove … yet").
+5. **Freed bytes** are the sizes measured at scan time for the items that were removed, not a fresh measurement.
+6. **"History" in step 4 of "What happens"** is plain text, not a link (Slint `Text` has no inline link); "See full report" goes to the History page, which is still "Coming in a later version".
+7. **`--demo` mode** shows the Cleaner page with sample numbers but its buttons are not wired (nothing could be removed there, by design).
+8. **Q05 slip found and fixed in Q06:** the new `tidewise-core` path dependency in `tidewise-adapters` had no `version`, so `cargo deny check` exited 2 (wildcard ban) from commit a492bd8 until 37e9ea6.

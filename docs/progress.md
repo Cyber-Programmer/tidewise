@@ -371,3 +371,10 @@ Plan: `adapters::junk` (new, depends on `tidewise-core` for sizes) takes a `Sour
 Done: red a492bd8 (18 failed), green 0595354. Unused-runtime rule is deliberately cautious (only `.Platform`/`.Sdk`, never extensions or freedesktop base).
 Next: R6-Q06 Clean up screen + flow C (user-owned items).
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q06 Clean up screen + flow C (user-owned items) — PARTIAL
+Plan: History record in `core::history` (serde/serde_json); `adapters::cleanup` (groups, plan, run with last-moment checks, record); app view-model `cleaner.rs` + end-of-run texts; Slint `cleaner.slint` (screen + dialog); `cleaner_live.rs` controller on worker threads; demo states for screenshots.
+Done: red/green pairs 55b30b4→1282a84, 618f099→c6845ea, e2a5f34→5e359aa, 6d35743→(5b07f43 with the UI). Screen scores 8.8 % on `Cleaner`.
+Rules bent: the screenshot tests and the Slint/glue code were written together (no red commit for them); `cargo deny` was broken from Q05 until 37e9ea6 (Q05 slip).
+Next: R6-Q07 Home junk score.
+Blockers: password step and admin groups need the helper (not this run).
