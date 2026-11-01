@@ -39,10 +39,30 @@ pub enum Signal {
     Kill,
 }
 
+/// The fields after the name in `/proc/<pid>/stat`: state, parent, group.
+fn stat_fields(root: &Path, pid: u32) -> Option<(char, u32)> {
+    let text = std::fs::read_to_string(root.join(pid.to_string()).join("stat")).ok()?;
+    let rest = &text[text.rfind(')')? + 1..];
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    let _parent = fields.next()?;
+    let group = fields.next()?.parse().ok()?;
+    Some((state, group))
+}
+
 /// Every process and its group, from `/proc/<pid>/stat` under `root`.
 pub fn read_table(root: &Path) -> Vec<ProcInfo> {
-    let _ = root;
-    Vec::new()
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|pid| {
+            let (_, pgid) = stat_fields(root, pid)?;
+            Some(ProcInfo { pid, pgid })
+        })
+        .collect()
 }
 
 /// Where the signals go for an app made of `members`. `own_pid`/`own_pgid` are Tidewise's own.
@@ -52,26 +72,91 @@ pub fn plan(
     own_pid: u32,
     own_pgid: u32,
 ) -> Result<Vec<Dest>, Refused> {
-    let _ = (members, table, own_pid, own_pgid);
-    Err(Refused::Empty)
+    if members.is_empty() {
+        return Err(Refused::Empty);
+    }
+    if members.iter().any(|&m| m <= 1 || m == own_pid) {
+        return Err(Refused::NotAllowed);
+    }
+    let group_of = |pid: u32| table.iter().find(|p| p.pid == pid).map(|p| p.pgid);
+    let mut dests: Vec<Dest> = Vec::new();
+    let mut covered: Vec<u32> = Vec::new();
+    for &member in members {
+        let Some(pgid) = group_of(member) else {
+            continue;
+        };
+        if pgid <= 1 || pgid == own_pgid || dests.contains(&Dest::Group(pgid)) {
+            continue;
+        }
+        // Every process in the group must be part of the app.
+        let whole = table
+            .iter()
+            .filter(|p| p.pgid == pgid)
+            .all(|p| members.contains(&p.pid));
+        if whole {
+            dests.push(Dest::Group(pgid));
+            covered.extend(table.iter().filter(|p| p.pgid == pgid).map(|p| p.pid));
+        }
+    }
+    let mut single: Vec<u32> = Vec::new();
+    for &member in members {
+        if !covered.contains(&member) && !single.contains(&member) {
+            single.push(member);
+        }
+    }
+    if !single.is_empty() {
+        dests.push(Dest::Pids(single));
+    }
+    Ok(dests)
 }
 
 /// Send one signal to one destination.
 pub fn send(runner: &dyn CommandRunner, signal: Signal, dest: &Dest) -> Result<(), String> {
-    let _ = (runner, signal, dest);
-    Err("not sent".into())
+    let targets: Vec<String> = match dest {
+        Dest::Group(g) if *g > 1 => vec![format!("-{g}")],
+        Dest::Pids(pids) if !pids.is_empty() && pids.iter().all(|p| *p > 1) => {
+            pids.iter().map(u32::to_string).collect()
+        }
+        _ => return Err("not a process Tidewise may signal".into()),
+    };
+    let name = match signal {
+        Signal::Term => "TERM",
+        Signal::Kill => "KILL",
+    };
+    let mut args = vec!["-s", name, "--"];
+    args.extend(targets.iter().map(String::as_str));
+    let out = runner.run("/usr/bin/kill", &args)?;
+    if out.success {
+        Ok(())
+    } else {
+        let message = out.stderr.trim();
+        Err(if message.is_empty() {
+            "kill failed".into()
+        } else {
+            message.to_string()
+        })
+    }
 }
 
 /// Is this process still running? A zombie (finished, not yet collected) counts as gone.
 pub fn is_alive(root: &Path, pid: u32) -> bool {
-    let _ = (root, pid);
-    true
+    stat_fields(root, pid).is_some_and(|(state, _)| state != 'Z' && state != 'X')
 }
 
 /// Wait until none of `pids` is running, at most `timeout`. Returns who is still running.
 pub fn wait_until_gone(root: &Path, pids: &[u32], timeout: Duration, poll: Duration) -> Vec<u32> {
-    let _ = (root, timeout, poll);
-    pids.to_vec()
+    let start = std::time::Instant::now();
+    loop {
+        let alive: Vec<u32> = pids
+            .iter()
+            .copied()
+            .filter(|&p| is_alive(root, p))
+            .collect();
+        if alive.is_empty() || start.elapsed() >= timeout {
+            return alive;
+        }
+        std::thread::sleep(poll);
+    }
 }
 
 #[cfg(test)]
