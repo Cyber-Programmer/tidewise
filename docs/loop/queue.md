@@ -7,7 +7,7 @@ detail; this queue wins where they differ (no root, no helper).
 
 ## A. Leftovers (small, do first)
 
-- [ ] **Q01 Slint `viewport-*` → `content-*`** (WBS 4.23). Refactor only, no behaviour change: no red
+- [x] **Q01 Slint `viewport-*` → `content-*`** (WBS 4.23). Refactor only, no behaviour change: no red
   commit needed, but every test and the design check must stay where they were. Done: no deprecation
   warnings in `cargo build`, design scores unchanged (±0.5 %).
 - [ ] **Q02 AppImage size and start time** (WBS 2.8, 4.14). Build with `./packaging/appimage/build.sh`

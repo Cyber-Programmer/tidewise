@@ -341,3 +341,9 @@ Both within budget, nothing to fix. (Run 04 had measured 7.5 % on Home; that was
 
 **Next:** click through Storage (keyboard, checkbox vs row, scrolling, Trash/Undo at depth); decide the open questions in `docs/questions.md` (R5); rename Slint `viewport-*` to `content-*`; AppImage build (needs appimagetool); M3 (helper).
 **Blockers:** none.
+
+## 2026-11-01 — Run 06, R6-Q01 Slint viewport-* → content-*
+Plan: rename `viewport-width/height/x/y` to `content-*` in `crates/app/ui/storage.slint` (only file using them); refactor only; check build warnings, tests and Storage design scores.
+Done: renamed; deprecation lines in `cargo build` 20 → 0; tests 307 passed / 0 failed / 2 ignored; design scores unchanged.
+Next: R6-Q02 AppImage size and start time.
+Blockers: none.
