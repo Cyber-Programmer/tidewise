@@ -56,6 +56,38 @@ pub fn find_appimages(dirs: &[PathBuf]) -> Vec<AppImage> {
     found
 }
 
+use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+
+/// AppImages in the usual folders as an app source.
+pub struct AppImageApps {
+    dirs: Vec<PathBuf>,
+}
+
+impl AppImageApps {
+    pub fn in_dirs(dirs: Vec<PathBuf>) -> Self {
+        AppImageApps { dirs }
+    }
+
+    pub fn for_home(home: &Path) -> Self {
+        Self::in_dirs(default_dirs(home))
+    }
+}
+
+impl AppSource for AppImageApps {
+    fn kind(&self) -> SourceKind {
+        SourceKind::AppImage
+    }
+
+    fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
+        let _ = &self.dirs;
+        Ok(Vec::new())
+    }
+
+    fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
+        Err(SourceError::BadName(app.id.clone()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +159,70 @@ mod tests {
         let dir = home.path().to_path_buf();
         write(&dir.join("a.AppImage"), 1);
         assert_eq!(find_appimages(&[dir.clone(), dir]).len(), 1);
+    }
+
+    #[test]
+    fn appimages_become_user_entries_with_their_path_as_id() {
+        let home = tempfile::tempdir().unwrap();
+        let dirs = default_dirs(home.path());
+        write(&dirs[0].join("Krita-5.2.AppImage"), 300);
+        let apps = AppImageApps::in_dirs(dirs.clone()).list().unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Krita-5.2");
+        assert_eq!(
+            apps[0].id,
+            dirs[0].join("Krita-5.2.AppImage").display().to_string()
+        );
+        assert_eq!(apps[0].kind, SourceKind::AppImage);
+        assert_eq!(apps[0].scope, crate::source::Scope::User);
+        assert_eq!(apps[0].size_bytes, Some(300));
+    }
+
+    #[test]
+    fn an_appimage_plan_moves_the_file_to_the_trash_without_admin() {
+        let home = tempfile::tempdir().unwrap();
+        let dirs = default_dirs(home.path());
+        write(&dirs[1].join("tool.AppImage"), 10);
+        let src = AppImageApps::in_dirs(dirs.clone());
+        let app = src.list().unwrap().remove(0);
+        let plan = src.removal_plan(&app).unwrap();
+        assert!(plan.to_trash && !plan.needs_admin && plan.blocked.is_none());
+        assert_eq!(
+            plan.items[0].label,
+            dirs[1].join("tool.AppImage").display().to_string()
+        );
+        assert_eq!(plan.items[0].bytes, Some(10));
+        assert!(
+            plan.command.is_empty(),
+            "no command: it is moved to the Trash"
+        );
+    }
+
+    #[test]
+    fn a_plan_is_refused_for_a_path_that_is_not_a_listed_appimage() {
+        let home = tempfile::tempdir().unwrap();
+        let dirs = default_dirs(home.path());
+        write(&dirs[0].join("a.AppImage"), 1);
+        write(&home.path().join("Documents/thesis.odt"), 1);
+        let src = AppImageApps::in_dirs(dirs);
+        let mut app = src.list().unwrap().remove(0);
+        for bad in [
+            home.path()
+                .join("Documents/thesis.odt")
+                .display()
+                .to_string(),
+            format!(
+                "{}/Applications/../Documents/thesis.odt",
+                home.path().display()
+            ),
+            "/etc/passwd".to_string(),
+            String::new(),
+        ] {
+            app.id = bad.clone();
+            assert!(
+                matches!(src.removal_plan(&app), Err(SourceError::BadName(_))),
+                "{bad:?}"
+            );
+        }
     }
 }

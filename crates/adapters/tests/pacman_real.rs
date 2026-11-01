@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use tidewise_adapters::pacman::Pacman;
-use tidewise_adapters::PackageSource;
 
 #[test]
 fn lists_real_installed_packages() {

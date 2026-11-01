@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::{Package, PackageSource};
+use crate::Package;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ParseError {
@@ -45,6 +45,15 @@ impl Pacman {
             .output()?)
     }
 
+    /// Every installed package (`pacman -Qi`).
+    pub fn installed(&self) -> Result<Vec<Package>, Error> {
+        let out = self.run(&["-Qi"])?;
+        if !out.status.success() {
+            return Err(failed(&out));
+        }
+        Ok(parse_qi(&String::from_utf8_lossy(&out.stdout))?)
+    }
+
     /// Packages installed as dependencies that nothing needs any more (`pacman -Qdtq`).
     pub fn orphans(&self) -> Result<Vec<String>, Error> {
         let out = self.run(&["-Qdtq"])?;
@@ -53,18 +62,6 @@ impl Pacman {
             return Err(failed(&out));
         }
         Ok(parse_names(&String::from_utf8_lossy(&out.stdout)))
-    }
-}
-
-impl PackageSource for Pacman {
-    type Error = Error;
-
-    fn installed(&self) -> Result<Vec<Package>, Error> {
-        let out = self.run(&["-Qi"])?;
-        if !out.status.success() {
-            return Err(failed(&out));
-        }
-        Ok(parse_qi(&String::from_utf8_lossy(&out.stdout))?)
     }
 }
 
@@ -152,6 +149,45 @@ fn parse_size(text: &str) -> Result<u64, ParseError> {
         return Err(bad());
     }
     Ok((number * factor).round() as u64)
+}
+
+use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+
+/// pacman as an app source: every installed package, from `pacman -Qi`.
+pub struct PacmanApps {
+    packages: Result<Vec<Package>, SourceError>,
+}
+
+impl PacmanApps {
+    /// From saved `pacman -Qi` output (tests, fixtures).
+    pub fn from_qi(text: &str) -> Self {
+        let _ = text;
+        PacmanApps {
+            packages: Ok(Vec::new()),
+        }
+    }
+
+    /// Ask the real pacman (read-only).
+    pub fn system() -> Self {
+        PacmanApps {
+            packages: Ok(Vec::new()),
+        }
+    }
+}
+
+impl AppSource for PacmanApps {
+    fn kind(&self) -> SourceKind {
+        SourceKind::Pacman
+    }
+
+    fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
+        let _ = &self.packages;
+        Ok(Vec::new())
+    }
+
+    fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
+        Err(SourceError::BadName(app.id.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -265,5 +301,74 @@ mod tests {
             .all(|n| !n.is_empty() && !n.contains(char::is_whitespace)));
         assert_eq!(parse_names("a\n\nb \n"), ["a", "b"]);
         assert_eq!(parse_names(&fixture("Qdtq-first8.txt")).len(), 8);
+    }
+
+    fn qi(name: &str) -> String {
+        let path = format!(
+            "{}/../../tests/fixtures/pacman/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn pacman_packages_become_app_entries() {
+        let text = format!("{}\n{}", qi("Qi-vlc.txt"), qi("Qi-bash.txt"));
+        let apps = PacmanApps::from_qi(&text).list().unwrap();
+        let vlc = apps.iter().find(|a| a.id == "vlc").unwrap();
+        assert_eq!(vlc.kind, SourceKind::Pacman);
+        assert_eq!(vlc.scope, crate::source::Scope::System);
+        assert_eq!(vlc.version.as_deref(), Some("3.0.24-1"));
+        assert!(vlc.size_bytes.unwrap() > 40_000_000);
+        assert!(vlc.required_by.is_empty());
+        assert!(!apps
+            .iter()
+            .find(|a| a.id == "bash")
+            .unwrap()
+            .required_by
+            .is_empty());
+    }
+
+    #[test]
+    fn a_package_nothing_needs_has_a_plan_that_needs_admin() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let app = src.list().unwrap().remove(0);
+        let plan = src.removal_plan(&app).unwrap();
+        assert_eq!(plan.blocked, None);
+        assert!(plan.needs_admin && !plan.to_trash);
+        assert_eq!(plan.items[0].label, "vlc");
+        assert_eq!(plan.command, ["pacman", "-Rns", "--", "vlc"]);
+    }
+
+    #[test]
+    fn a_package_others_need_is_blocked_and_names_them() {
+        let src = PacmanApps::from_qi(&qi("Qi-bash.txt"));
+        let app = src.list().unwrap().remove(0);
+        let plan = src.removal_plan(&app).unwrap();
+        match plan.blocked {
+            Some(crate::source::Blocked::RequiredBy(who)) => {
+                assert!(who.contains(&"alsa-utils".to_string()))
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn output_that_is_not_qi_is_a_source_error_not_an_empty_list() {
+        let src = PacmanApps::from_qi("Name : x\n");
+        assert!(matches!(src.list(), Err(SourceError::Parse(_))));
+    }
+
+    #[test]
+    fn a_hostile_id_never_reaches_a_plan() {
+        let src = PacmanApps::from_qi(&qi("Qi-vlc.txt"));
+        let mut app = src.list().unwrap().remove(0);
+        for bad in ["--force", "a b", "../x", ""] {
+            app.id = bad.into();
+            assert!(
+                matches!(src.removal_plan(&app), Err(SourceError::BadName(_))),
+                "{bad:?}"
+            );
+        }
     }
 }

@@ -162,6 +162,45 @@ fn parse_size(text: &str) -> Option<u64> {
     (number.is_finite() && number >= 0.0).then(|| (number * factor).round() as u64)
 }
 
+use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+
+/// Flatpak apps (user and system installations) as an app source.
+pub struct FlatpakApps {
+    apps: Result<Vec<FlatpakApp>, SourceError>,
+}
+
+impl FlatpakApps {
+    /// From saved `flatpak list --app --columns=application,name,size,installation` output.
+    pub fn from_list(text: &str) -> Self {
+        let _ = text;
+        FlatpakApps {
+            apps: Ok(Vec::new()),
+        }
+    }
+
+    /// Ask the real flatpak (read-only).
+    pub fn system() -> Self {
+        FlatpakApps {
+            apps: Ok(Vec::new()),
+        }
+    }
+}
+
+impl AppSource for FlatpakApps {
+    fn kind(&self) -> SourceKind {
+        SourceKind::Flatpak
+    }
+
+    fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
+        let _ = &self.apps;
+        Ok(Vec::new())
+    }
+
+    fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
+        Err(SourceError::BadName(app.id.clone()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +389,70 @@ mod tests {
             installation: "user".into(),
         }];
         assert_eq!(unused_runtimes(&runtimes, &apps).unused, []);
+    }
+
+    #[test]
+    fn flatpak_apps_become_entries_with_scope_and_size() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let apps = src.list().unwrap();
+        assert_eq!(apps.len(), 3);
+        let gimp = &apps[0];
+        assert_eq!(
+            (gimp.id.as_str(), gimp.name.as_str()),
+            ("org.gimp.GIMP", "GIMP")
+        );
+        assert_eq!(gimp.kind, SourceKind::Flatpak);
+        assert_eq!(gimp.scope, crate::source::Scope::System);
+        assert_eq!(gimp.size_bytes, Some(1_200_000_000));
+        assert_eq!(apps[1].scope, crate::source::Scope::User);
+    }
+
+    #[test]
+    fn user_flatpaks_need_no_admin_and_system_ones_do() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let apps = src.list().unwrap();
+        let user = src.removal_plan(&apps[1]).unwrap();
+        assert!(!user.needs_admin && !user.to_trash && user.blocked.is_none());
+        assert_eq!(
+            user.command,
+            [
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--",
+                "org.mozilla.firefox"
+            ]
+        );
+        let system = src.removal_plan(&apps[0]).unwrap();
+        assert!(system.needs_admin);
+        assert_eq!(
+            system.command,
+            ["flatpak", "uninstall", "--system", "--", "org.gimp.GIMP"]
+        );
+    }
+
+    #[test]
+    fn broken_flatpak_output_is_a_source_error() {
+        let src = FlatpakApps::from_list(&fixture("list-broken.txt"));
+        assert!(matches!(src.list(), Err(SourceError::Parse(_))));
+    }
+
+    #[test]
+    fn german_flatpak_output_lists_too() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten-de.txt"));
+        assert!(!src.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hostile_flatpak_id_never_reaches_a_plan() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let mut app = src.list().unwrap().remove(0);
+        for bad in ["--all", "x y", "../x", ""] {
+            app.id = bad.into();
+            assert!(
+                matches!(src.removal_plan(&app), Err(SourceError::BadName(_))),
+                "{bad:?}"
+            );
+        }
     }
 }
