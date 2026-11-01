@@ -50,7 +50,7 @@ detail; this queue wins where they differ (no root, no helper).
 - [x] **Q10 apt / dpkg adapter** (WBS 7.1.3). Parsers + fixtures (hand-written where this Arch machine
   can't produce real output; say so in the fixture README and the WBS note), non-English and broken
   cases, fuzz target.
-- [ ] **Q11 dnf / rpm adapter** (WBS 7.1.4). Same rules as Q10.
+- [x] **Q11 dnf / rpm adapter** (WBS 7.1.4). Same rules as Q10.
 - [ ] **Q12 snap adapter** (WBS 7.1.6). Same rules as Q10; disabled revisions = old copies.
 - [ ] **Q13 Flatpak runner + AppImage menu entries; packages → apps via .desktop** (WBS 7.1.5, 7.1.7,
   7.1.8).

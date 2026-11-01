@@ -402,3 +402,9 @@ Plan: `adapters::apt`: `parse_dpkg_query` (installed only, KiB → bytes), `pars
 Done: red 5e240e5, green 77fdce5.
 Next: R6-Q11 dnf / rpm adapter.
 Blockers: none; real captures need an Ubuntu/Debian container.
+
+## 2026-11-02 — Run 06, R6-Q11 dnf / rpm adapter
+Plan: `adapters::dnf`: `parse_rpm_qa` (merge versions, skip gpg-pubkey), `parse_dry_run` for dnf 4 `--assumeno` tables (wrapped names, protected packages, no match, lock), plans with Protected/Busy, `DnfApps` source, hand-written fixtures, fuzz target.
+Done: red 459a471, green fbe0306. Also fixed the AppImage test leaking ~400 MB into /tmp per run (found when /tmp filled up).
+Next: R6-Q12 snap adapter.
+Blockers: /tmp must be cleaned by the human (docs/questions.md).

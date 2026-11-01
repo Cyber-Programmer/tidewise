@@ -154,3 +154,23 @@ Not verified:
 - Mapping packages to apps via `.desktop` files is Q13; the list here is every installed package.
 Errors: none.
 Decisions taken without the human: added two variants to `source::Blocked` (`Protected`, `Busy`); dry-run text is only trusted when it carries the English `Reading package lists...` line (or the English lock error). Not in docs/questions.md.
+
+## R6-Q11 dnf / rpm adapter — Done   (2026-11-02 00:14 PKT)
+WBS: 7.1.4 → Needs Verification (row 79; fixtures hand-written; `G79:I79`, `L79:N79` written below)
+Commits: 459a471 (red), fbe0306
+Evidence:
+- Red: `cargo test -p tidewise-adapters dnf::` → exit 101, 9 failed / 2 passed (empty rpm output and garbage-refusal passed vacuously against stubs).
+- Green: same command → 11 passed: rpm sizes in bytes with two kernels added up and `gpg-pubkey` skipped; bad lines (1 or 3 columns, bad size, hostile name, overflow) → `BadLine` with the line number; dry-run table with a wrapped long name, protected packages, no match, lock; German imitation, garbage, empty and header-only text refused; plans (all packages, Protected, Busy, wrong first package, unknown name, hostile ids) and the estimate plan.
+- Test change in the green commit: `parse_dry_run` takes only the text (dnf `--assumeno` exits non-zero even for a good plan, so a success flag would mislead); the red tests had passed a flag.
+- Fuzz: `cargo +nightly fuzz run dnf_parsers -- -max_total_time=20` → exit 0, 541,726 runs (20 s only; docs/security/fuzzing.md).
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0. Tests: `TMPDIR=$PWD/target/tmp cargo test -p tidewise-app` → exit 0 (211 passed, 0 failed, 1 ignored) and `cargo test --workspace --exclude tidewise-app` → exit 0 (227 passed, 0 failed, 2 ignored) = 438 passed. `cargo deny check` → 0 and `cargo audit` → 0 (run earlier in the round, before the test-only change).
+Not verified:
+- **`cargo test --all` with the default `/tmp` did NOT pass** this round: see Errors. I ran it split (above) instead; the plain command will pass again once /tmp is cleaned.
+- Every fixture is hand-written (`tests/fixtures/dnf/README.md`); no `rpm`/`dnf` here. dnf 4 table layout only; dnf 5 prints differently and is refused (or mis-handled) — untested. The protected-package and lock wording are from memory.
+- `DnfApps::system()` never run; nothing runs `dnf remove --assumeno`; the trait plan is the package-only estimate.
+- `cargo deny`/`audit` were not re-run after the test-file edits (no dependency change since).
+Errors:
+- **/tmp full:** 2 tests in `crates/app/tests/appimage.rs` failed with "Disk quota exceeded" (exit 101 on `cargo test --all`). Cause: my own earlier test runs left 14 × 407 MB `appimage_extracted_*` folders in /tmp (appimagetool and the AppImage's `--appimage-extract-and-run` unpack to $TMPDIR and keep the copy). I tried to delete them with one command; the permission check refused ("Shared Scratch Sweep"); nothing was deleted and I did not retry. I fixed the test so both unpack into the test's own temp folder (verified: leftover count 0 after a run with TMPDIR=target/tmp), and asked you to delete the 14 folders (docs/questions.md).
+- Running all tests with TMPDIR on the repo disk made `core::scan::tests::cancelling_stops_the_scan_and_says_so` fail (it expects 0 bytes for an empty folder, true on tmpfs only). Passes on /tmp (6/6 repeated runs); not changed; noted in questions.md. Not flaky, file-system dependent.
+- One python edit of the test patched the wrong AppImage run first; caught by the leftover check, fixed.
+Decisions taken without the human: `parse_dry_run` ignores the exit status (see above); dnf5 explicitly out of scope. In docs/questions.md only the /tmp item.
