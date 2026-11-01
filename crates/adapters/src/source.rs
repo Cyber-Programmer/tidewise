@@ -39,6 +39,10 @@ pub struct AppEntry {
 pub enum Blocked {
     /// Other installed software needs it.
     RequiredBy(Vec<String>),
+    /// The system needs it to run (essential packages): no remove button, in code.
+    Protected(Vec<String>),
+    /// The package manager is in use by something else. Wait; never touch its lock files.
+    Busy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,0 +1,10 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+WARNING: The following essential packages will be removed.
+This should NOT be done unless you know exactly what you are doing!
+  bash (due to bash)
+  coreutils (due to bash)
+0 upgraded, 0 newly installed, 2 to remove and 0 not upgraded.
+Remv bash [5.1-6ubuntu1]
+Remv coreutils [8.32-4.1ubuntu1]

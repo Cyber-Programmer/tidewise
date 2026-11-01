@@ -1,0 +1,8 @@
+bash	1864	install ok installed
+libc6:amd64	13182	install ok installed
+vlc	4325	install ok installed
+vlc-bin	51	install ok installed
+oldpkg	100	deinstall ok config-files
+held-thing	2048	hold ok installed
+meta-pkg		install ok installed
+linux-image-5.15.0-91-generic	14480	install ok installed

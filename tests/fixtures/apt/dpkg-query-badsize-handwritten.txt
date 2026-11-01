@@ -1,0 +1,2 @@
+bash	1864	install ok installed
+vlc	viel	install ok installed
