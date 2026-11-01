@@ -441,8 +441,13 @@ pub const JUNK_RESCAN: Duration = Duration::from_secs(300);
 /// Start a junk scan? The first one starts right away; later ones only while Home is on screen,
 /// at most every `JUNK_RESCAN`, and never two at once.
 pub fn should_scan_junk(since_last: Option<Duration>, home_visible: bool, running: bool) -> bool {
-    let _ = (since_last, home_visible, running);
-    false
+    if running {
+        return false;
+    }
+    match since_last {
+        None => true,
+        Some(since) => home_visible && since >= JUNK_RESCAN,
+    }
 }
 
 /// The junk scan that feeds the Home health score, run on a worker thread.

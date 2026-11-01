@@ -488,6 +488,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage_live::wire(&ui, &storage);
     let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));
     cleaner_live::wire(&ui, &cleaner);
+    let junk_watch = Rc::new(RefCell::new(live::JunkWatch::default()));
+    junk_watch
+        .borrow_mut()
+        .poll(&mut live.borrow_mut().sampler, false);
     let sample = {
         let (live, weak) = (live.clone(), ui.as_weak());
         move || {
@@ -561,6 +565,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             sample();
+            let home_visible = ui.global::<Shell>().get_page() == 0;
+            junk_watch
+                .borrow_mut()
+                .poll(&mut live.borrow_mut().sampler, home_visible);
             show_page(
                 &ui,
                 &mut live.borrow_mut(),
