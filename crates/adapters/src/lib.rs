@@ -13,6 +13,7 @@ pub mod pacman;
 pub mod runner;
 pub mod snap;
 pub mod source;
+pub mod uninstall;
 
 /// An installed system package.
 #[derive(Debug, Clone, PartialEq, Eq)]
