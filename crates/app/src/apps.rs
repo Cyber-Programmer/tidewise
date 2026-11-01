@@ -288,6 +288,31 @@ pub fn done(name: &str, to_trash: bool, outcome: &Outcome) -> Done {
     }
 }
 
+/// Everything the screen shows at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Screen {
+    pub subtitle: String,
+    /// Each chip and whether it is the selected filter.
+    pub chips: Vec<(Chip, bool)>,
+    /// Each visible row and whether it is the picked one.
+    pub rows: Vec<(Row, bool)>,
+    pub footer: String,
+    /// The picked app's id, when there is one on the list.
+    pub picked: Option<String>,
+}
+
+/// `picked` is the id the user clicked; when it is not in the visible list the first row is used.
+pub fn screen(apps: &[AppEntry], filter: Filter, query: &str, picked: Option<&str>) -> Screen {
+    let _ = (apps, filter, query, picked);
+    Screen {
+        subtitle: String::new(),
+        chips: Vec::new(),
+        rows: Vec::new(),
+        footer: String::new(),
+        picked: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,5 +638,44 @@ mod tests {
         );
         assert_eq!(some.title, "GIMP was only partly removed");
         assert_eq!(some.text, "Disk error. 2 items were already removed.");
+    }
+
+    #[test]
+    fn the_screen_marks_the_filter_and_the_picked_row() {
+        let apps = sample();
+        let s = screen(&apps, Filter::All, "", Some("firefox"));
+        assert_eq!(s.picked.as_deref(), Some("firefox"));
+        let marked: Vec<_> = s
+            .rows
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(r, _)| r.name.as_str())
+            .collect();
+        assert_eq!(marked, ["Firefox"]);
+        assert_eq!(s.rows.len(), 7);
+        assert_eq!(s.footer, "Showing 7 of 7");
+        let selected: Vec<_> = s
+            .chips
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(c, _)| c.label.as_str())
+            .collect();
+        assert_eq!(selected, ["All"]);
+    }
+
+    #[test]
+    fn a_pick_that_is_filtered_out_or_missing_falls_back_to_the_first_row() {
+        let apps = sample();
+        let s = screen(&apps, Filter::Snap, "", Some("firefox"));
+        assert_eq!(s.picked.as_deref(), Some("spotify"));
+        assert_eq!(
+            screen(&apps, Filter::All, "", None).picked.as_deref(),
+            Some("steam")
+        );
+        let none = screen(&apps, Filter::All, "zzz", Some("steam"));
+        assert_eq!(
+            (none.picked, none.rows.len(), none.footer.as_str()),
+            (None, 0, "Showing 0 of 7")
+        );
     }
 }
