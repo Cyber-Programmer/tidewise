@@ -8,6 +8,7 @@ use std::time::Duration;
 use slint::{ComponentHandle, Timer, TimerMode};
 
 mod apps;
+mod apps_live;
 mod chart;
 mod cleaner;
 mod cleaner_live;
@@ -187,6 +188,7 @@ fn show_demo(
             view::apply_storage(ui, &demo::storage(downloads));
         }
         "clean-up" => show_demo_clean(ui, state)?,
+        "apps" => show_demo_apps(ui, state)?,
         "home" => {
             if let Some(other) = state {
                 return Err(format!("unknown home state '{other}'").into());
@@ -268,6 +270,101 @@ fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// The Apps artboard and the steps of the uninstall flow
+/// (`--state details|search|confirm|removing|done|admin|blocked|busy|failed|scanning|empty|error`).
+fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    use tidewise_adapters::source::Blocked;
+    use tidewise_adapters::uninstall::Outcome;
+    let found = demo::apps();
+    let entries: Vec<_> = found.iter().map(|(a, _)| a.clone()).collect();
+    let st = ui.global::<AppsState>();
+    let mut picked = "org.gimp.GIMP";
+    let mut query = "";
+    // The dialog's words are set after the panel, which also fills the confirm texts.
+    let mut ending: Option<(&str, Outcome)> = None;
+    match state {
+        None => {}
+        Some("details") => st.set_tech_open(true),
+        Some("search") => query = "vlc",
+        Some("confirm") => st.set_flow(1),
+        Some("removing") => {
+            st.set_flow(2);
+            st.set_d_title("Removing GIMP…".into());
+            st.set_d_command("flatpak uninstall org.gimp.GIMP".into());
+            st.set_d_text(
+                "If GIMP is open, save your work. Tidewise does not close it for you.".into(),
+            );
+            st.set_d_progress(0.45);
+        }
+        Some("done") => {
+            ending = Some((
+                "GIMP",
+                Outcome::Removed {
+                    items: vec!["org.gimp.GIMP".into()],
+                    freed: 732_000_000,
+                },
+            ));
+        }
+        Some("admin") => {
+            picked = "vlc";
+            ending = Some(("VLC", Outcome::NeedsAdmin));
+        }
+        Some("blocked") => {
+            ending = Some((
+                "Python",
+                Outcome::Blocked(Blocked::RequiredBy(vec![String::new(); 38])),
+            ));
+        }
+        Some("busy") => ending = Some(("LibreOffice", Outcome::Blocked(Blocked::Busy))),
+        Some("failed") => {
+            ending = Some((
+                "GIMP",
+                Outcome::Failed {
+                    reason: "Flatpak said: error: another operation is in progress.".into(),
+                    removed: vec![],
+                },
+            ));
+        }
+        Some("scanning") => {
+            st.set_phase(0);
+            st.set_subtitle("Looking for your apps…".into());
+            st.set_message("This only reads what is installed; nothing is changed.".into());
+            return Ok(());
+        }
+        Some("empty") => {
+            st.set_phase(2);
+            st.set_subtitle("No apps found.".into());
+            st.set_message("Tidewise did not find any apps it knows how to list.".into());
+            return Ok(());
+        }
+        Some("error") => {
+            st.set_phase(3);
+            st.set_subtitle("The search did not finish.".into());
+            st.set_message("Something stopped it. Try again from the sidebar.".into());
+            return Ok(());
+        }
+        Some("live") => return Ok(()), // drawn by `run_screenshot` from a real, read-only scan
+        Some(other) => return Err(format!("unknown apps state '{other}'").into()),
+    }
+    st.set_query(query.into());
+    let screen = apps::screen(&entries, apps::Filter::All, query, Some(picked));
+    view::apply_apps(ui, &screen);
+    let panel = screen.picked.as_ref().and_then(|id| {
+        found
+            .iter()
+            .find(|(a, _)| a.id == *id)
+            .map(|(a, plan)| (apps::panel(a, plan), apps::row(a)))
+    });
+    view::apply_apps_panel(ui, panel.as_ref().map(|(p, r)| (p, r)));
+    if let Some((name, outcome)) = ending {
+        let done = apps::done(name, false, &outcome);
+        st.set_d_title(done.title.into());
+        st.set_d_text(done.text.into());
+        st.set_flow(if done.removed { 3 } else { 4 });
+    }
+    Ok(())
+}
+
 fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
     let page = page_of(&shot.screen)?;
     let window = screenshot::install(shot.width, shot.height)?;
@@ -280,6 +377,14 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
     if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
         live_storage_screenshot(&ui, shot)?;
+    }
+    if shot.screen == "apps" && shot.state.as_deref() == Some("live") {
+        let mut ctl = apps_live::Ctl::new();
+        ctl.enter(&ui);
+        while ctl.busy() {
+            ctl.poll(&ui);
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
     if shot.screen == "clean-up" && shot.state.as_deref() == Some("live") {
         let mut ctl = cleaner_live::Ctl::new();
@@ -442,6 +547,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         show_demo(&ui, "home", None)?;
         show_demo(&ui, "storage", None)?;
         show_demo(&ui, "clean-up", None)?;
+        show_demo(&ui, "apps", None)?;
         for (open, folder) in [(true, true), (false, false)] {
             let state = ui.global::<StorageState>();
             let weak = ui.as_weak();
@@ -489,6 +595,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage_live::wire(&ui, &storage);
     let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));
     cleaner_live::wire(&ui, &cleaner);
+    let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
+    apps_live::wire(&ui, &apps_ctl);
     let junk_watch = Rc::new(RefCell::new(live::JunkWatch::default()));
     junk_watch
         .borrow_mut()
@@ -507,12 +615,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner) = (
+        let (weak, live, ctl, storage, cleaner, apps_ctl) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
             storage.clone(),
             cleaner.clone(),
+            apps_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -523,6 +632,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if page == 1 {
                     cleaner.borrow_mut().enter(&ui);
+                }
+                if page == 2 {
+                    apps_ctl.borrow_mut().enter(&ui);
                 }
                 if page == 3 {
                     storage.borrow_mut().enter(&ui);
@@ -538,6 +650,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     if ui.global::<Shell>().get_page() == 1 {
         cleaner.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 2 {
+        apps_ctl.borrow_mut().enter(&ui);
     }
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);

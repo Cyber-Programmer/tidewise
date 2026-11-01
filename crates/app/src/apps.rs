@@ -185,13 +185,12 @@ pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
         let label = if plan.kind == SourceKind::AppImage {
             "Its menu entry and icon".to_string()
         } else {
-            format!(
-                "{} other part{} only it uses",
-                rest.len(),
-                if rest.len() == 1 { "" } else { "s" }
-            )
+            "Shared parts only it uses".to_string()
         };
         rows.push((label, size_text(known(rest))));
+    }
+    if !plan.items.is_empty() {
+        rows.push(("Your settings and data".to_string(), "kept".to_string()));
     }
     let button = match &plan.blocked {
         Some(Blocked::RequiredBy(who)) => Button::Disabled(format!(
@@ -211,7 +210,10 @@ pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
     };
     Panel {
         name: app.name.clone(),
-        subtitle: format!("from {}", source_label(app.kind)),
+        subtitle: match app.version.as_deref() {
+            Some(v) if !v.is_empty() => format!("{v} · from {}", source_label(app.kind)),
+            _ => format!("from {}", source_label(app.kind)),
+        },
         rows,
         total: size_text(known(&plan.items)),
         button_label: format!("Uninstall {}", app.name),
@@ -303,13 +305,31 @@ pub struct Screen {
 
 /// `picked` is the id the user clicked; when it is not in the visible list the first row is used.
 pub fn screen(apps: &[AppEntry], filter: Filter, query: &str, picked: Option<&str>) -> Screen {
-    let _ = (apps, filter, query, picked);
+    let shown = visible(apps, filter, query);
+    let picked = picked
+        .filter(|id| shown.iter().any(|&i| apps[i].id == *id))
+        .map(str::to_string)
+        .or_else(|| shown.first().map(|&i| apps[i].id.clone()));
     Screen {
-        subtitle: String::new(),
-        chips: Vec::new(),
-        rows: Vec::new(),
-        footer: String::new(),
-        picked: None,
+        subtitle: subtitle(apps),
+        chips: chips(apps)
+            .into_iter()
+            .map(|c| {
+                let on = c.filter == filter;
+                (c, on)
+            })
+            .collect(),
+        rows: shown
+            .iter()
+            .map(|&i| {
+                (
+                    row(&apps[i]),
+                    picked.as_deref() == Some(apps[i].id.as_str()),
+                )
+            })
+            .collect(),
+        footer: footer(shown.len(), apps.len()),
+        picked,
     }
 }
 
@@ -501,15 +521,16 @@ mod tests {
             ),
         );
         assert_eq!(p.name, "GIMP");
-        assert_eq!(p.subtitle, "from Flatpak");
+        assert_eq!(p.subtitle, "1.0-1 · from Flatpak");
         assert_eq!(
             p.rows,
             [
                 ("The app itself".to_string(), "412 MB".to_string()),
                 (
-                    "1 other part only it uses".to_string(),
+                    "Shared parts only it uses".to_string(),
                     "320 MB".to_string()
-                )
+                ),
+                ("Your settings and data".to_string(), "kept".to_string()),
             ]
         );
         assert_eq!(p.total, "732 MB");

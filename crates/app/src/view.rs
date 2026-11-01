@@ -8,6 +8,7 @@ use crate::perf::{PerfData, View};
 use crate::procs::{self, ProcData};
 use crate::storage::{self, StorageData};
 use crate::CrumbPart;
+use crate::{AppChip, AppRow, AppsState, PanelRow};
 use crate::{BigRow, DriveLegend, DriveSeg, DriveTab, FolderRow, MapTile, StorageState};
 use crate::{CleanRow, CleanState, ConfirmRow as ConfirmRowUi};
 use crate::{
@@ -439,6 +440,77 @@ pub fn apply_clean(
         })
         .collect();
     st.set_confirm_rows(ModelRc::new(VecModel::from(confirm_rows)));
+}
+
+/// List, chips and search results of the Apps screen.
+pub fn apply_apps(ui: &MainWindow, screen: &crate::apps::Screen) {
+    let st = ui.global::<AppsState>();
+    st.set_subtitle(screen.subtitle.clone().into());
+    st.set_footer(screen.footer.clone().into());
+    let chips: Vec<AppChip> = screen
+        .chips
+        .iter()
+        .map(|(c, on)| AppChip {
+            label: c.label.clone().into(),
+            count: c.count as i32,
+            selected: *on,
+        })
+        .collect();
+    st.set_chips(ModelRc::new(VecModel::from(chips)));
+    let rows: Vec<AppRow> = screen
+        .rows
+        .iter()
+        .map(|(r, on)| AppRow {
+            name: r.name.clone().into(),
+            source: r.source.clone().into(),
+            detail: r.detail.clone().into(),
+            size: r.size.clone().into(),
+            letter: r.letter.clone().into(),
+            hue: r.hue,
+            selected: *on,
+        })
+        .collect();
+    st.set_rows(ModelRc::new(VecModel::from(rows)));
+}
+
+/// The uninstall panel for the picked app (or none).
+pub fn apply_apps_panel(ui: &MainWindow, panel: Option<(&crate::apps::Panel, &crate::apps::Row)>) {
+    use crate::apps::Button;
+    let st = ui.global::<AppsState>();
+    let Some((p, row)) = panel else {
+        st.set_has_panel(false);
+        return;
+    };
+    st.set_has_panel(true);
+    st.set_p_name(p.name.clone().into());
+    st.set_p_letter(row.letter.clone().into());
+    st.set_p_hue(row.hue);
+    st.set_p_sub(p.subtitle.clone().into());
+    let rows: Vec<PanelRow> = p
+        .rows
+        .iter()
+        .map(|(l, v)| PanelRow {
+            label: l.clone().into(),
+            value: v.clone().into(),
+        })
+        .collect();
+    st.set_p_rows(ModelRc::new(VecModel::from(rows)));
+    st.set_p_total(p.total.clone().into());
+    st.set_p_button(p.button_label.clone().into());
+    st.set_p_technical(p.technical.clone().into());
+    match &p.button {
+        Button::Enabled => {
+            st.set_p_enabled(true);
+            st.set_p_why("".into());
+        }
+        Button::Disabled(why) => {
+            st.set_p_enabled(false);
+            st.set_p_why(why.clone().into());
+        }
+    }
+    st.set_d_title(format!("Uninstall {}?", p.name).into());
+    st.set_d_confirm(format!("Uninstall · free {}", p.total).into());
+    st.set_d_text("Your settings are kept, so reinstalling later brings everything back.".into());
 }
 
 #[cfg(test)]
