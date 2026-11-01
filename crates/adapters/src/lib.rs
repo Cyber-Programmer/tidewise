@@ -9,6 +9,7 @@ pub mod flatpak;
 pub mod journal;
 pub mod junk;
 pub mod pacman;
+pub mod snap;
 pub mod source;
 
 /// An installed system package.
