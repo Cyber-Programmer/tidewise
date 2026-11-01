@@ -24,9 +24,43 @@ const NETWORK_CRATES: &[&str] = &[
 ];
 
 /// Names of listed networking crates in `package`'s dependency tree, sorted, no duplicates.
+/// Panics if cargo fails, so an unknown package or a broken manifest can never read as "clean".
 fn network_crates_in_tree(manifest: &Path, package: &str) -> Vec<String> {
-    let _ = (manifest, package);
-    Vec::new()
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .args([
+            "tree",
+            "--offline",
+            "--prefix",
+            "none",
+            "--edges",
+            "normal,build",
+        ])
+        .args(["--package", package, "--manifest-path"])
+        .arg(manifest)
+        .env("LC_ALL", "C")
+        .output()
+        .expect("run cargo tree");
+    assert!(
+        output.status.success(),
+        "cargo tree failed for {package}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.lines().next().is_some_and(|l| l.starts_with(package)),
+        "cargo tree printed nothing for {package}: {text}"
+    );
+    // Lines look like `reqwest v0.12.4` or `reqwest v0.12.4 (/path) (*)`.
+    let mut found: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| NETWORK_CRATES.contains(name))
+        .map(str::to_string)
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 fn real_manifest() -> PathBuf {
