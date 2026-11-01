@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::source::AppEntry;
+use crate::source::{is_plain_name, AppEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopEntry {
@@ -18,26 +18,101 @@ pub struct DesktopEntry {
 /// The `[Desktop Entry]` group of a `.desktop` file. `None` when there is none, when it is not an
 /// application, or when it has no plain `Name=`. Translated `Name[xx]=` lines are ignored.
 pub fn parse_desktop_file(text: &str) -> Option<DesktopEntry> {
-    let _ = text;
-    None
+    let mut in_group = false;
+    let mut found_group = false;
+    let (mut kind, mut name, mut exec, mut icon) = (None, None, None, None);
+    let (mut no_display, mut hidden) = (false, false);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_group = line == "[Desktop Entry]";
+            found_group |= in_group;
+            continue;
+        }
+        if !in_group || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "Type" => kind = Some(value.to_string()),
+            "Name" => name = Some(value.to_string()),
+            "Exec" => exec = Some(value.to_string()),
+            "Icon" => icon = Some(value.to_string()).filter(|v| !v.is_empty()),
+            "NoDisplay" => no_display = value == "true",
+            "Hidden" => hidden = value == "true",
+            _ => {}
+        }
+    }
+    if !found_group || kind.as_deref() != Some("Application") {
+        return None;
+    }
+    Some(DesktopEntry {
+        name: name.filter(|n| !n.is_empty())?,
+        exec: exec.unwrap_or_default(),
+        icon,
+        hidden: no_display || hidden,
+    })
+}
+
+/// One word of an `Exec=` line, unquoted, and the rest of the line.
+fn next_word(text: &str) -> Option<(String, &str)> {
+    let text = text.trim_start();
+    if let Some(quoted) = text.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        return Some((quoted[..end].to_string(), &quoted[end + 1..]));
+    }
+    let end = text.find(char::is_whitespace).unwrap_or(text.len());
+    (end > 0).then(|| (text[..end].to_string(), &text[end..]))
 }
 
 /// The program an `Exec=` line starts: the first word, unquoted, skipping a leading `env VAR=value`.
 pub fn exec_program(exec: &str) -> Option<String> {
-    let _ = exec;
-    None
+    let (first, mut rest) = next_word(exec)?;
+    if first != "env" {
+        return Some(first);
+    }
+    loop {
+        let (word, after) = next_word(rest)?;
+        if word.contains('=') && !word.starts_with('/') {
+            rest = after;
+        } else {
+            return Some(word);
+        }
+    }
 }
 
 /// `/path/file.desktop is owned by package 1.2-3` lines of `pacman -Qo`. Error lines are skipped.
 pub fn parse_pacman_qo(text: &str) -> Vec<(PathBuf, String)> {
-    let _ = text;
-    Vec::new()
+    text.lines()
+        .filter_map(|line| {
+            let (path, rest) = line.split_once(" is owned by ")?;
+            let package = rest.split_whitespace().next()?;
+            (path.starts_with('/') && is_plain_name(package))
+                .then(|| (PathBuf::from(path), package.to_string()))
+        })
+        .collect()
 }
 
 /// `package[, package]: /path` lines of `dpkg -S`. Lines that are not that are skipped.
 pub fn parse_dpkg_s(text: &str) -> Vec<(PathBuf, String)> {
-    let _ = text;
-    Vec::new()
+    let mut owned = Vec::new();
+    for line in text.lines() {
+        let Some((packages, path)) = line.rsplit_once(": ") else {
+            continue;
+        };
+        let packages: Vec<&str> = packages.split(", ").collect();
+        if path.starts_with('/') && packages.iter().all(|p| is_plain_name(p)) {
+            owned.extend(
+                packages
+                    .iter()
+                    .map(|p| (PathBuf::from(path), p.to_string())),
+            );
+        }
+    }
+    owned
 }
 
 /// Keep the packages that own a visible `.desktop` file and name them as the file does; everything
@@ -47,8 +122,27 @@ pub fn apps_from_packages(
     owned: &[(PathBuf, String)],
     entries: &HashMap<PathBuf, DesktopEntry>,
 ) -> Vec<AppEntry> {
-    let _ = (owned, entries);
     packages
+        .into_iter()
+        .filter_map(|mut package| {
+            let shown = owned
+                .iter()
+                .filter(|(_, owner)| *owner == package.id)
+                .find_map(|(path, _)| entries.get(path).filter(|e| !e.hidden))?;
+            package.name = shown.name.clone();
+            Some(package)
+        })
+        .collect()
+}
+
+/// Ask pacman who owns these files (`pacman -Qo`, read-only). Files that nobody owns are simply
+/// missing from the answer.
+pub fn pacman_owners(
+    runner: &dyn crate::runner::CommandRunner,
+    files: &[PathBuf],
+) -> Vec<(PathBuf, String)> {
+    let _ = (runner, files);
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -237,5 +331,60 @@ mod tests {
             [(PathBuf::from("/x.desktop"), entry("Ghost", false))].into();
         assert!(apps_from_packages(vec![pkg("bash")], &owned, &entries).is_empty());
         assert!(apps_from_packages(vec![pkg("bash")], &[], &HashMap::new()).is_empty());
+    }
+
+    struct Canned(
+        std::cell::RefCell<Vec<Vec<String>>>,
+        Result<crate::runner::Output, String>,
+    );
+
+    impl crate::runner::CommandRunner for Canned {
+        fn run(&self, program: &str, args: &[&str]) -> Result<crate::runner::Output, String> {
+            assert_eq!(program, "/usr/bin/pacman");
+            self.0
+                .borrow_mut()
+                .push(args.iter().map(|a| a.to_string()).collect());
+            self.1.clone()
+        }
+    }
+
+    #[test]
+    fn pacman_owners_asks_once_with_the_files_after_a_double_dash_and_reads_the_answer() {
+        let reply = crate::runner::Output {
+            success: false,
+            stdout: fx("desktop-owners/pacman-Qo-real.txt"),
+            stderr: "error: No package owns /x".into(),
+        };
+        let runner = Canned(Default::default(), Ok(reply));
+        let files: Vec<PathBuf> = vec![
+            "/usr/share/applications/a.desktop".into(),
+            "/usr/share/applications/-b.desktop".into(),
+        ];
+        let owned = pacman_owners(&runner, &files);
+        assert_eq!(
+            owned.len(),
+            6,
+            "a non-zero exit (some file unowned) still gives the answers"
+        );
+        let calls = runner.0.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0],
+            [
+                "-Qo",
+                "--",
+                "/usr/share/applications/a.desktop",
+                "/usr/share/applications/-b.desktop"
+            ]
+        );
+    }
+
+    #[test]
+    fn pacman_owners_does_nothing_for_no_files_relative_paths_or_a_failing_runner() {
+        let runner = Canned(Default::default(), Err("boom".into()));
+        assert!(pacman_owners(&runner, &[]).is_empty());
+        assert!(pacman_owners(&runner, &["relative.desktop".into(), "/a\nb".into()]).is_empty());
+        assert!(runner.0.borrow().is_empty(), "nothing valid to ask about");
+        assert!(pacman_owners(&runner, &["/usr/share/applications/a.desktop".into()]).is_empty());
     }
 }

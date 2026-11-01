@@ -61,11 +61,21 @@ use crate::source::{AppEntry, AppSource, PlanItem, RemovalPlan, Scope, SourceErr
 /// AppImages in the usual folders as an app source.
 pub struct AppImageApps {
     dirs: Vec<PathBuf>,
+    /// Where the user's launchers live and where their icons may be; when set, a removal plan also
+    /// lists the launcher and icon that belong to the AppImage.
+    menu: Option<(PathBuf, Vec<PathBuf>)>,
 }
 
 impl AppImageApps {
     pub fn in_dirs(dirs: Vec<PathBuf>) -> Self {
-        AppImageApps { dirs }
+        AppImageApps { dirs, menu: None }
+    }
+
+    /// Also remove the AppImage's launcher and icon: `applications_dir` and `icon_dirs` under the
+    /// user's data folder.
+    pub fn with_menu(mut self, applications_dir: PathBuf, icon_dirs: Vec<PathBuf>) -> Self {
+        let _ = (&applications_dir, &icon_dirs);
+        self
     }
 
     pub fn for_home(home: &Path) -> Self {
@@ -132,8 +142,85 @@ pub fn menu_entries(
     applications_dir: &Path,
     icon_dirs: &[PathBuf],
 ) -> Vec<MenuEntry> {
-    let _ = (appimage, applications_dir, icon_dirs);
-    Vec::new()
+    let Ok(read) = fs::read_dir(applications_dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = read
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
+        .collect();
+    files.sort();
+    let mut found = Vec::new();
+    for file in files {
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
+        let Some(entry) = crate::desktop::parse_desktop_file(&text) else {
+            continue;
+        };
+        if crate::desktop::exec_program(&entry.exec)
+            .as_deref()
+            .map(Path::new)
+            != Some(appimage)
+        {
+            continue;
+        }
+        let icon = entry
+            .icon
+            .as_deref()
+            .and_then(|name| find_icon(name, icon_dirs));
+        found.push(MenuEntry {
+            desktop_file: file,
+            icon,
+        });
+    }
+    found
+}
+
+fn has_dotdot(path: &Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// An icon file inside `icon_dirs`: a path that is inside one, or a name looked up below them.
+fn find_icon(name: &str, icon_dirs: &[PathBuf]) -> Option<PathBuf> {
+    let as_path = Path::new(name);
+    if as_path.is_absolute() {
+        let inside = !has_dotdot(as_path) && icon_dirs.iter().any(|d| as_path.starts_with(d));
+        let is_file = fs::symlink_metadata(as_path).is_ok_and(|m| m.is_file());
+        return (inside && is_file).then(|| as_path.to_path_buf());
+    }
+    if name.is_empty() || name.contains('/') || name.contains("..") {
+        return None;
+    }
+    icon_dirs.iter().find_map(|dir| search_icon(dir, name, 6))
+}
+
+fn search_icon(dir: &Path, name: &str, depth: u32) -> Option<PathBuf> {
+    let mut entries: Vec<_> = fs::read_dir(dir).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    for entry in &entries {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.is_file()
+            && path.file_stem().is_some_and(|s| s == name)
+            && path
+                .extension()
+                .is_some_and(|x| matches!(x.to_str(), Some("png" | "svg" | "xpm")))
+        {
+            return Some(path);
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    entries
+        .iter()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .find_map(|e| search_icon(&e.path(), name, depth - 1))
 }
 
 #[cfg(test)]
@@ -358,5 +445,37 @@ mod tests {
         assert_eq!(menu_entries(&image, &apps, &[icons])[0].icon, None);
         let other = home.path().join("Applications/Other.AppImage");
         assert!(menu_entries(&other, &apps, &[]).is_empty());
+    }
+
+    #[test]
+    fn the_plan_also_lists_the_launcher_and_icon_of_the_appimage() {
+        let (home, image, apps, icons) = menu_world();
+        write(&icons.join("hicolor/256x256/apps/krita.png"), 5);
+        let src = AppImageApps::in_dirs(vec![home.path().join("Applications")])
+            .with_menu(apps.clone(), vec![icons.clone()]);
+        let app = src.list().unwrap().remove(0);
+        let plan = src.removal_plan(&app).unwrap();
+        let labels: Vec<_> = plan.items.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(
+            labels,
+            [
+                image.display().to_string(),
+                apps.join("krita.desktop").display().to_string(),
+                icons
+                    .join("hicolor/256x256/apps/krita.png")
+                    .display()
+                    .to_string(),
+            ]
+        );
+        assert!(plan.to_trash && !plan.needs_admin);
+        assert!(plan.items.iter().all(|i| i.bytes.is_some()));
+    }
+
+    #[test]
+    fn without_menu_folders_the_plan_is_just_the_file() {
+        let (home, _image, _apps, _icons) = menu_world();
+        let src = AppImageApps::in_dirs(vec![home.path().join("Applications")]);
+        let app = src.list().unwrap().remove(0);
+        assert_eq!(src.removal_plan(&app).unwrap().items.len(), 1);
     }
 }

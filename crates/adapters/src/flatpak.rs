@@ -276,8 +276,26 @@ pub fn uninstall_user(
     runner: &dyn crate::runner::CommandRunner,
     app: &AppEntry,
 ) -> Result<(), UninstallError> {
-    let _ = (runner, app);
-    Err(UninstallError::NotFlatpak)
+    if app.kind != SourceKind::Flatpak {
+        return Err(UninstallError::NotFlatpak);
+    }
+    if !is_plain_name(&app.id) {
+        return Err(UninstallError::BadId(app.id.clone()));
+    }
+    if app.scope != Scope::User {
+        return Err(UninstallError::NeedsAdmin);
+    }
+    let out = runner
+        .run(
+            "/usr/bin/flatpak",
+            &["uninstall", "--user", "--noninteractive", "-y", &app.id],
+        )
+        .map_err(UninstallError::Failed)?;
+    if out.success {
+        Ok(())
+    } else {
+        Err(UninstallError::Failed(out.stderr.trim().to_string()))
+    }
 }
 
 #[cfg(test)]

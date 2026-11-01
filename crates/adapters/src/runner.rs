@@ -18,8 +18,19 @@ pub struct SystemRunner;
 
 impl CommandRunner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
-        let _ = (program, args);
-        Err("not implemented".into())
+        if !program.starts_with('/') {
+            return Err(format!("{program} is not an absolute path"));
+        }
+        let out = std::process::Command::new(program)
+            .args(args)
+            .env("LC_ALL", "C")
+            .output()
+            .map_err(|e| format!("could not run {program}: {e}"))?;
+        Ok(Output {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
     }
 }
 
