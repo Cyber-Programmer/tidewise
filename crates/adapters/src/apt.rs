@@ -25,8 +25,42 @@ pub enum ParseError {
 /// Installed packages from `dpkg-query -W`. Packages that were removed but kept their settings
 /// (`deinstall ok config-files`) are not installed and are left out.
 pub fn parse_dpkg_query(text: &str) -> Result<Vec<AptPackage>, ParseError> {
-    let _ = text;
-    Ok(Vec::new())
+    let mut packages = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let bad = ParseError::BadLine { line: index + 1 };
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [name, size, status] = columns[..] else {
+            return Err(bad);
+        };
+        let name = name.trim();
+        let size = size.trim();
+        let status: Vec<&str> = status.split_whitespace().collect();
+        if !is_plain_name(name) || status.len() != 3 {
+            return Err(bad);
+        }
+        let installed_size_bytes = if size.is_empty() {
+            None
+        } else if size.bytes().all(|b| b.is_ascii_digit()) {
+            Some(
+                size.parse::<u64>()
+                    .ok()
+                    .and_then(|kib| kib.checked_mul(1024))
+                    .ok_or(bad)?,
+            )
+        } else {
+            return Err(bad);
+        };
+        if status[2] == "installed" {
+            packages.push(AptPackage {
+                name: name.to_string(),
+                installed_size_bytes,
+            });
+        }
+    }
+    Ok(packages)
 }
 
 /// What a dry-run `apt-get -s remove` said.
@@ -52,16 +86,114 @@ pub struct Unrecognized;
 /// Read the dry run. Text that is not C-locale apt output (no `Reading package lists...` line, other
 /// languages, garbage) is an error: a translated "essential" warning must not be missed.
 pub fn parse_simulated_remove(text: &str, succeeded: bool) -> Result<SimOutcome, Unrecognized> {
-    let _ = (text, succeeded);
-    Err(Unrecognized)
+    let lines: Vec<&str> = text.lines().collect();
+    let first_with = |prefix: &str| lines.iter().find_map(|l| l.trim().strip_prefix(prefix));
+    if !succeeded && first_with("E: Could not get lock").is_some() {
+        return Ok(SimOutcome::Busy);
+    }
+    if !lines.iter().any(|l| l.trim() == "Reading package lists...") {
+        return Err(Unrecognized);
+    }
+    if !succeeded {
+        return first_with("E: Unable to locate package ")
+            .map(str::trim)
+            .filter(|n| is_plain_name(n))
+            .map(|n| SimOutcome::NotFound(n.to_string()))
+            .ok_or(Unrecognized);
+    }
+    let mut packages = Vec::new();
+    let mut essential = Vec::new();
+    let mut in_warning = false;
+    for line in &lines {
+        if line.starts_with("WARNING: The following essential packages will be removed.") {
+            in_warning = true;
+        } else if in_warning && line.starts_with(char::is_whitespace) {
+            let name = line.split_whitespace().next().unwrap_or_default();
+            if !is_plain_name(name) {
+                return Err(Unrecognized);
+            }
+            essential.push(name.to_string());
+        } else if !line.starts_with("This should NOT be done") {
+            in_warning = false;
+        }
+        if let Some(rest) = line.strip_prefix("Remv ") {
+            let name = rest.split_whitespace().next().unwrap_or_default();
+            if !is_plain_name(name) {
+                return Err(Unrecognized);
+            }
+            packages.push(name.to_string());
+        }
+    }
+    if !packages.is_empty() {
+        return Ok(SimOutcome::Removes {
+            packages,
+            essential,
+        });
+    }
+    lines
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("Package '")
+                .and_then(|r| r.strip_suffix("' is not installed, so not removed"))
+        })
+        .filter(|n| is_plain_name(n))
+        .map(|n| SimOutcome::NotInstalled(n.to_string()))
+        .ok_or(Unrecognized)
 }
 
 pub fn plan_from_simulation(
     app: &AppEntry,
     outcome: &SimOutcome,
 ) -> Result<RemovalPlan, SourceError> {
-    let _ = outcome;
-    Err(SourceError::BadName(app.id.clone()))
+    if !is_plain_name(&app.id) {
+        return Err(SourceError::BadName(app.id.clone()));
+    }
+    let wrong = || SourceError::Parse("apt-get -s remove".into());
+    let (items, blocked) = match outcome {
+        SimOutcome::Removes {
+            packages,
+            essential,
+        } => {
+            if packages.first().map(String::as_str) != Some(app.id.as_str()) {
+                return Err(wrong());
+            }
+            let items = packages
+                .iter()
+                .enumerate()
+                .map(|(i, name)| PlanItem {
+                    label: name.clone(),
+                    bytes: if i == 0 { app.size_bytes } else { None },
+                })
+                .collect();
+            (
+                items,
+                (!essential.is_empty()).then(|| Blocked::Protected(essential.clone())),
+            )
+        }
+        SimOutcome::Busy => (
+            vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            Some(Blocked::Busy),
+        ),
+        SimOutcome::NotFound(_) | SimOutcome::NotInstalled(_) => return Err(wrong()),
+    };
+    Ok(plan(app, items, blocked))
+}
+
+fn plan(app: &AppEntry, items: Vec<PlanItem>, blocked: Option<Blocked>) -> RemovalPlan {
+    RemovalPlan {
+        id: app.id.clone(),
+        kind: SourceKind::Apt,
+        items,
+        blocked,
+        needs_admin: true,
+        to_trash: false,
+        command: ["apt-get", "remove", "--", app.id.as_str()]
+            .map(String::from)
+            .to_vec(),
+    }
 }
 
 /// apt as an app source: every installed package, from `dpkg-query`.
@@ -71,17 +203,28 @@ pub struct AptApps {
 
 impl AptApps {
     pub fn from_dpkg(text: &str) -> Self {
-        let _ = text;
         AptApps {
-            packages: Ok(Vec::new()),
+            packages: parse_dpkg_query(text).map_err(|_| SourceError::Parse("dpkg-query".into())),
         }
     }
 
     /// Ask the real dpkg-query (read-only). Not installed means no packages, not an error.
     pub fn system() -> Self {
-        let _ = (Path::new("/usr/bin/dpkg-query"), Command::new("true"));
-        AptApps {
-            packages: Ok(Vec::new()),
+        let program = "/usr/bin/dpkg-query";
+        if !Path::new(program).exists() {
+            return AptApps {
+                packages: Ok(Vec::new()),
+            };
+        }
+        let out = Command::new(program)
+            .args(["-W", r"-f=${Package}\t${Installed-Size}\t${Status}\n"])
+            .env("LC_ALL", "C")
+            .output();
+        match out {
+            Ok(o) if o.status.success() => Self::from_dpkg(&String::from_utf8_lossy(&o.stdout)),
+            _ => AptApps {
+                packages: Err(SourceError::Run("dpkg-query".into())),
+            },
         }
     }
 }
@@ -92,20 +235,36 @@ impl AppSource for AptApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = (&self.packages, Scope::System);
-        Ok(Vec::new())
+        Ok(self
+            .packages
+            .clone()?
+            .into_iter()
+            .map(|p| AppEntry {
+                id: p.name.clone(),
+                name: p.name,
+                kind: SourceKind::Apt,
+                scope: Scope::System,
+                version: None,
+                size_bytes: p.installed_size_bytes,
+                required_by: Vec::new(),
+            })
+            .collect())
     }
 
+    /// Cautious estimate: the package itself. The packages that would go with it come from the
+    /// dry run (`plan_from_simulation`).
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        let _ = (
-            is_plain_name(&app.id),
-            PlanItem {
-                label: String::new(),
-                bytes: None,
-            },
-            Blocked::Busy,
-        );
-        Err(SourceError::BadName(app.id.clone()))
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        Ok(plan(
+            app,
+            vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            None,
+        ))
     }
 }
 
