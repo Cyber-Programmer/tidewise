@@ -3,6 +3,7 @@
 
 use tidewise_adapters::cleanup::format_bytes;
 use tidewise_adapters::source::{AppEntry, Blocked, RemovalPlan, SourceKind};
+use tidewise_adapters::uninstall::Outcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
@@ -232,12 +233,58 @@ pub struct Done {
     pub text: String,
 }
 
-pub fn done(name: &str, to_trash: bool, outcome: &tidewise_adapters::uninstall::Outcome) -> Done {
-    let _ = (name, to_trash, outcome);
-    Done {
-        removed: false,
-        title: String::new(),
-        text: String::new(),
+pub fn done(name: &str, to_trash: bool, outcome: &Outcome) -> Done {
+    let say = |removed: bool, title: String, text: String| Done {
+        removed,
+        title,
+        text,
+    };
+    match outcome {
+        Outcome::Removed { freed, .. } => say(
+            true,
+            format!("{name} is uninstalled"),
+            if to_trash {
+                format!("{} freed. The files are in your Trash, so you can still put them back from there.", format_bytes(*freed))
+            } else {
+                format!("{} freed. Your settings were kept, so reinstalling later brings everything back.", format_bytes(*freed))
+            },
+        ),
+        Outcome::NeedsAdmin => say(
+            false,
+            format!("{name} needs admin access"),
+            "Removing this kind of app needs your system's password prompt, which Tidewise does not use yet (coming soon). Nothing was changed.".into(),
+        ),
+        Outcome::Blocked(Blocked::Busy) => say(
+            false,
+            "Waiting for another installer".into(),
+            "Something else is installing or updating software right now, and only one program can do that at a time. Try again when it has finished. Nothing was changed.".into(),
+        ),
+        Outcome::Blocked(Blocked::RequiredBy(who)) => say(
+            false,
+            format!("{name} can't be removed on its own"),
+            format!(
+                "{} installed app{} {} it. Removing it would break {}, so Tidewise won't. Remove {} first if you really don't need {}.",
+                who.len(),
+                if who.len() == 1 { "" } else { "s" },
+                if who.len() == 1 { "needs" } else { "need" },
+                if who.len() == 1 { "it" } else { "them" },
+                if who.len() == 1 { "that app" } else { "those apps" },
+                if who.len() == 1 { "it" } else { "them" },
+            ),
+        ),
+        Outcome::Blocked(Blocked::Protected(_)) => say(
+            false,
+            format!("{name} can't be removed"),
+            "Your system needs it to run, so Tidewise never removes it.".into(),
+        ),
+        Outcome::Failed { reason, removed } if removed.is_empty() => {
+            say(false, format!("{name} was not removed"), reason.clone())
+        }
+        Outcome::Failed { reason, removed } => say(
+            false,
+            format!("{name} was only partly removed"),
+            format!("{reason} {} items were already removed.", removed.len()),
+        ),
     }
 }
 
@@ -502,8 +549,6 @@ mod tests {
         );
         assert_eq!(why(None, true), "Needs admin access (coming soon)");
     }
-
-    use tidewise_adapters::uninstall::Outcome;
 
     #[test]
     fn a_removed_app_says_how_much_came_back_and_where_it_went() {
