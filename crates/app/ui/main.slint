@@ -7,8 +7,9 @@ import { HomeScreen, HomeState } from "home.slint";
 import { StorageScreen, StorageState } from "storage.slint";
 import { CleanScreen, CleanDialog, CleanState } from "cleaner.slint";
 import { AppsScreen, AppsDialog, AppsState } from "apps.slint";
+import { EndDialog, EndState } from "endtask.slint";
 
-export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState }
+export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState, EndState }
 
 component ComingLater inherits Rectangle {
     in property <string> title;
@@ -47,6 +48,7 @@ export component MainWindow inherits Window {
     }
     CleanDialog { width: parent.width; height: parent.height; }
     AppsDialog { width: parent.width; height: parent.height; }
+    EndDialog { width: parent.width; height: parent.height; }
     Toast {
         x: Theme.sidebar-width + (parent.width - Theme.sidebar-width - self.width) / 2;
         y: parent.height - self.height - 28px;

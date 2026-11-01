@@ -15,6 +15,7 @@ mod cleaner_live;
 mod cli;
 mod demo;
 mod endtask;
+mod endtask_live;
 mod home;
 mod live;
 mod nav;
@@ -157,6 +158,14 @@ fn show_demo(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match screen {
         "processes" => {
+            // `end-confirm|end-frozen|end-protected|end-done` show the End task dialogs on the list.
+            let (end, state) = match state {
+                Some(s) if s.starts_with("end-") => (Some(s), None),
+                other => (None, other),
+            };
+            if let Some(end) = end {
+                show_demo_end(ui, end)?;
+            }
             let view = procs::View::from_state(state)?;
             let mut ctl = ProcsCtl::new(demo::processes());
             ctl.filter = view.filter;
@@ -362,6 +371,51 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
         st.set_d_title(done.title.into());
         st.set_d_text(done.text.into());
         st.set_flow(if done.removed { 3 } else { 4 });
+    }
+    Ok(())
+}
+
+/// The End task dialogs with the artboard's Firefox.
+fn show_demo_end(ui: &MainWindow, state: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let st = ui.global::<EndState>();
+    match state {
+        "end-confirm" => {
+            let t = endtask::confirm("Firefox", 14);
+            st.set_title(t.title.into());
+            st.set_text(t.text.into());
+            st.set_confirm(t.confirm.into());
+            st.set_flow(1);
+        }
+        "end-frozen" => {
+            let t = endtask::frozen("Firefox", 5, 2);
+            st.set_title(t.title.into());
+            st.set_text(t.text.into());
+            st.set_confirm(t.confirm.into());
+            st.set_details(endtask::details(14, 12, &[2231, 2298]).into());
+            st.set_flow(3);
+        }
+        "end-details" => {
+            let t = endtask::frozen("Firefox", 5, 2);
+            st.set_title(t.title.into());
+            st.set_text(t.text.into());
+            st.set_confirm(t.confirm.into());
+            st.set_details(endtask::details(14, 12, &[2231, 2298]).into());
+            st.set_details_open(true);
+            st.set_flow(3);
+        }
+        "end-protected" => {
+            let t = endtask::protected("plasma", "Plasma desktop");
+            st.set_title(t.title.into());
+            st.set_text(t.text.into());
+            st.set_flow(4);
+        }
+        "end-done" => {
+            let toast = ui.global::<ToastState>();
+            toast.set_message(endtask::ended("Firefox", 2_100_000_000).into());
+            toast.set_can_undo(false);
+            toast.set_shown(true);
+        }
+        other => return Err(format!("unknown processes state '{other}'").into()),
     }
     Ok(())
 }
@@ -592,6 +646,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows: Vec::new(),
     })));
     wire_procs(&ui, &ctl);
+    let end_ctl = Rc::new(RefCell::new(endtask_live::Ctl::new()));
+    endtask_live::wire(&ui, &end_ctl);
+    ui.global::<ProcState>().on_end_task({
+        let (weak, ctl, end_ctl) = (ui.as_weak(), ctl.clone(), end_ctl.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let c = ctl.borrow();
+            if let Some(row) = c.data.rows.iter().find(|r| r.id == c.selected) {
+                end_ctl.borrow_mut().start(&ui, row);
+            }
+        }
+    });
     let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
     storage_live::wire(&ui, &storage);
     let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));

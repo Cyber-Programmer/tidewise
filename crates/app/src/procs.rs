@@ -246,6 +246,7 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
         };
         let g = &mut groups[at];
         g.count += 1;
+        g.pids.push(p.pid);
         g.cpu += p.cpu;
         g.cpu_core += p.cpu_core;
         g.mem += p.mem;

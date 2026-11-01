@@ -10,46 +10,69 @@ pub struct Texts {
     pub confirm: String,
 }
 
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
 /// `End Firefox?` and what may be lost.
 pub fn confirm(name: &str, count: usize) -> Texts {
-    let _ = (name, count);
+    let who = match count {
+        0 | 1 => format!("{name} will close."),
+        2 => format!("Both {name} processes will close."),
+        n => format!("All {n} {name} processes will close."),
+    };
     Texts {
-        title: String::new(),
-        text: String::new(),
-        confirm: String::new(),
+        title: format!("End {name}?"),
+        text: format!("{who} Anything you haven't saved, like a half-written form, may be lost."),
+        confirm: format!("End {name}"),
     }
 }
 
 /// The app did not close after the polite request.
 pub fn frozen(name: &str, waited_secs: u64, remaining: usize) -> Texts {
-    let _ = (name, waited_secs, remaining);
     Texts {
-        title: String::new(),
-        text: String::new(),
-        confirm: String::new(),
+        title: format!("{name} isn't closing"),
+        text: format!(
+            "We asked it to close {} ago and {} of its processes {} still running. It may be stuck. Force quitting stops it immediately, without letting it save.",
+            plural(waited_secs as usize, "second", "seconds"),
+            remaining,
+            if remaining == 1 { "is" } else { "are" },
+        ),
+        confirm: "Force quit".into(),
     }
 }
 
 /// A protected part of the system: `id` is the group key (`plasma`, `sound`, …).
 pub fn protected(id: &str, name: &str) -> Texts {
-    let _ = (id, name);
+    let text = if id == "plasma" {
+        "It draws your desktop, panel and windows. Ending it would close your whole session and any unsaved work, so Tidewise doesn't offer it. If your desktop seems frozen, logging out and back in is the safe fix."
+    } else {
+        "Your system needs it to run. Ending it could close your whole session or cut your sound or connection, so Tidewise doesn't offer it. If something seems stuck, restarting your PC is the safe fix."
+    };
     Texts {
-        title: String::new(),
-        text: String::new(),
+        title: format!("{name} is protected"),
+        text: text.into(),
         confirm: String::new(),
     }
 }
 
 /// The toast after the app ended.
 pub fn ended(name: &str, freed: u64) -> String {
-    let _ = (name, freed, format_bytes(0));
-    String::new()
+    if freed == 0 {
+        format!("{name} ended")
+    } else {
+        format!("{name} ended · {} of memory freed", format_bytes(freed))
+    }
 }
 
 /// Technical details of the "not closing" dialog.
 pub fn details(sent: usize, exited: usize, still_running: &[u32]) -> String {
-    let _ = (sent, exited, still_running);
-    String::new()
+    let pids: Vec<String> = still_running.iter().map(u32::to_string).collect();
+    format!(
+        "sent SIGTERM to {} · {exited} exited\nstill running: PID {} · next: SIGKILL",
+        plural(sent, "process", "processes"),
+        pids.join(", ")
+    )
 }
 
 #[cfg(test)]

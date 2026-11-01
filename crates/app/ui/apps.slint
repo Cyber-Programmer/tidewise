@@ -112,23 +112,24 @@ component FilterChip inherits Rectangle {
     TouchArea { clicked => { root.clicked(); } }
 }
 
-component Button inherits Rectangle {
+export component DialogButton inherits Rectangle {
     in property <string> label;
     in property <bool> danger: false;
+    in property <bool> accent: false;
     in property <bool> enabled: true;
     in property <length> h: 44px;
     callback clicked();
     height: root.h;
     width: txt.preferred-width + 40px;
     border-radius: 11px;
-    background: !root.enabled ? Theme.control-bg : (root.danger ? Theme.danger : (touch.has-hover ? Theme.segment-on : Theme.control-bg));
-    border-width: root.danger || !root.enabled ? 0px : 1px;
+    background: !root.enabled ? Theme.control-bg : (root.danger ? Theme.danger : (root.accent ? Theme.accent : (touch.has-hover ? Theme.segment-on : Theme.control-bg)));
+    border-width: root.danger || root.accent || !root.enabled ? 0px : 1px;
     border-color: Theme.control-border;
     accessible-role: button;
     accessible-label: root.label;
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
-    txt := Text { text: root.label; color: !root.enabled ? Theme.text-3 : (root.danger ? Theme.on-danger : Theme.text); font-size: Theme.size-body; font-weight: root.danger ? 600 : 400; horizontal-alignment: center; vertical-alignment: center; }
+    txt := Text { text: root.label; color: !root.enabled ? Theme.text-3 : (root.danger ? Theme.on-danger : (root.accent ? Theme.on-accent : Theme.text)); font-size: Theme.size-body; font-weight: root.danger || root.accent ? 600 : 400; horizontal-alignment: center; vertical-alignment: center; }
     touch := TouchArea { clicked => { if (root.enabled) { root.clicked(); } } }
 }
 
@@ -405,8 +406,8 @@ export component AppsDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 10px;
                     alignment: end;
-                    Button { label: "Cancel"; clicked => { AppsState.cancel(); } }
-                    Button { label: AppsState.d-confirm; danger: true; clicked => { AppsState.confirm(); } }
+                    DialogButton { label: "Cancel"; clicked => { AppsState.cancel(); } }
+                    DialogButton { label: AppsState.d-confirm; danger: true; clicked => { AppsState.confirm(); } }
                 }
             }
             if AppsState.flow == 2: VerticalLayout {
@@ -444,7 +445,7 @@ export component AppsDialog inherits Rectangle {
                 Text { width: dlg.width - 56px; text: AppsState.d-text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.15; }
                 HorizontalLayout {
                     alignment: start;
-                    Button { label: AppsState.flow == 3 ? "Back to Apps" : "OK"; h: 44px; enabled: true; clicked => { AppsState.finish(); } }
+                    DialogButton { label: AppsState.flow == 3 ? "Back to Apps" : "OK"; h: 44px; enabled: true; clicked => { AppsState.finish(); } }
                 }
             }
         }
