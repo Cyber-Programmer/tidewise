@@ -64,3 +64,10 @@ path = "fuzz_targets/journal_usage.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "pacman_rns_print"
+path = "fuzz_targets/pacman_rns_print.rs"
+test = false
+doc = false
+bench = false

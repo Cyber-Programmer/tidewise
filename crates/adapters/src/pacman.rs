@@ -251,14 +251,109 @@ pub struct Unrecognized;
 /// run with `LC_ALL=C`. Anything it does not recognise is an error: a wrong guess could hide a
 /// package that something needs.
 pub fn parse_removal_print(text: &str, succeeded: bool) -> Result<PrintOutcome, Unrecognized> {
-    let _ = (text, succeeded);
-    Err(Unrecognized)
+    let lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if succeeded {
+        let targets = lines
+            .filter(|l| *l != "checking dependencies...")
+            .map(parse_target)
+            .collect::<Result<Vec<_>, _>>()?;
+        return if targets.is_empty() {
+            Err(Unrecognized)
+        } else {
+            Ok(PrintOutcome::Targets(targets))
+        };
+    }
+    let mut blocked: Vec<String> = Vec::new();
+    let mut not_found = None;
+    for line in lines {
+        if let Some(who) = line
+            .strip_prefix(":: removing ")
+            .and_then(|rest| rest.split_once(" breaks dependency '"))
+            .and_then(|(_, rest)| rest.split_once("' required by "))
+            .map(|(_, who)| who.trim())
+            .filter(|who| is_plain_name(who))
+        {
+            if !blocked.iter().any(|b| b == who) {
+                blocked.push(who.to_string());
+            }
+        } else if let Some(name) = line.strip_prefix("error: target not found: ") {
+            not_found = Some(name.trim().to_string());
+        }
+    }
+    if !blocked.is_empty() {
+        Ok(PrintOutcome::Blocked(blocked))
+    } else {
+        not_found
+            .filter(|n| is_plain_name(n))
+            .map(PrintOutcome::NotFound)
+            .ok_or(Unrecognized)
+    }
+}
+
+/// `name-version-release`, where the name may itself contain dashes.
+fn parse_target(line: &str) -> Result<Target, Unrecognized> {
+    let mut parts = line.rsplitn(3, '-');
+    let (Some(release), Some(version), Some(name)) = (parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Unrecognized);
+    };
+    let version_char =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | ':' | '~');
+    let ok = is_plain_name(name)
+        && !version.is_empty()
+        && !release.is_empty()
+        && version.chars().all(version_char)
+        && release.chars().all(version_char);
+    if !ok {
+        return Err(Unrecognized);
+    }
+    Ok(Target {
+        name: name.to_string(),
+        version: format!("{version}-{release}"),
+    })
 }
 
 /// The removal plan for `app` from a dry run's outcome.
 pub fn plan_from_print(app: &AppEntry, outcome: &PrintOutcome) -> Result<RemovalPlan, SourceError> {
-    let _ = (app, outcome);
-    Err(SourceError::BadName(app.id.clone()))
+    if !is_plain_name(&app.id) {
+        return Err(SourceError::BadName(app.id.clone()));
+    }
+    let wrong = || SourceError::Parse("pacman -Rns --print".into());
+    let (items, blocked) = match outcome {
+        PrintOutcome::Targets(targets) => {
+            if targets.first().map(|t| t.name.as_str()) != Some(app.id.as_str()) {
+                return Err(wrong());
+            }
+            let items = targets
+                .iter()
+                .enumerate()
+                .map(|(i, t)| PlanItem {
+                    label: t.name.clone(),
+                    bytes: if i == 0 { app.size_bytes } else { None },
+                })
+                .collect();
+            (items, None)
+        }
+        PrintOutcome::Blocked(who) => (
+            vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            Some(Blocked::RequiredBy(who.clone())),
+        ),
+        PrintOutcome::NotFound(_) => return Err(wrong()),
+    };
+    Ok(RemovalPlan {
+        id: app.id.clone(),
+        kind: SourceKind::Pacman,
+        items,
+        blocked,
+        needs_admin: true,
+        to_trash: false,
+        command: ["pacman", "-Rns", "--", app.id.as_str()]
+            .map(String::from)
+            .to_vec(),
+    })
 }
 
 #[cfg(test)]
