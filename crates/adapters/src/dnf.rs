@@ -24,15 +24,41 @@ pub enum ParseError {
 /// Installed packages from `rpm -qa`. Several versions of one package (kernels) are one entry with
 /// the sizes added; `gpg-pubkey` entries are keys, not software, and are left out.
 pub fn parse_rpm_qa(text: &str) -> Result<Vec<RpmPackage>, ParseError> {
-    let _ = text;
-    Ok(Vec::new())
+    let mut packages: Vec<RpmPackage> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let bad = ParseError::BadLine { line: index + 1 };
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [name, size] = columns[..] else {
+            return Err(bad);
+        };
+        let name = name.trim();
+        let size: u64 = size.trim().parse().map_err(|_| bad)?;
+        if !is_plain_name(name) {
+            return Err(bad);
+        }
+        if name == "gpg-pubkey" {
+            continue;
+        }
+        match packages.iter_mut().find(|p| p.name == name) {
+            Some(existing) => existing.size_bytes = existing.size_bytes.saturating_add(size),
+            None => packages.push(RpmPackage {
+                name: name.to_string(),
+                size_bytes: size,
+            }),
+        }
+    }
+    Ok(packages)
 }
 
 /// What a dry-run `dnf remove --assumeno` said.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DryRun {
     Removes {
-        /// The asked-for package first, then the dependencies that go with it.
+        /// The asked-for package first, then the dependencies that go with it. Empty when dnf
+        /// refused before listing anything.
         packages: Vec<String>,
         /// Protected packages (the system needs them); removing these must never be offered.
         protected: Vec<String>,
@@ -45,15 +71,143 @@ pub enum DryRun {
 #[error("this is not output of `dnf remove --assumeno` in the C locale")]
 pub struct Unrecognized;
 
-/// Read the dry run. Anything that is not C-locale dnf 4 output is an error, never a guess.
-pub fn parse_dry_run(text: &str, succeeded: bool) -> Result<DryRun, Unrecognized> {
-    let _ = (text, succeeded);
-    Err(Unrecognized)
+/// Read the dry run (stdout and stderr together). `--assumeno` makes dnf exit with an error even
+/// when the plan is fine, so the exit status says nothing and only the text counts. Anything that is
+/// not C-locale dnf 4 output is an error, never a guess.
+pub fn parse_dry_run(text: &str) -> Result<DryRun, Unrecognized> {
+    let lines: Vec<&str> = text.lines().collect();
+    let after = |prefix: &str| lines.iter().find_map(|l| l.trim().strip_prefix(prefix));
+    if after("Error: Failed to obtain the transaction lock").is_some()
+        || after("Waiting for process with pid").is_some()
+    {
+        return Ok(DryRun::Busy);
+    }
+    if let Some(name) = after("No match for argument: ") {
+        let name = name.trim();
+        return if is_plain_name(name) {
+            Ok(DryRun::NotFound(name.to_string()))
+        } else {
+            Err(Unrecognized)
+        };
+    }
+    if let Some(list) = lines
+        .iter()
+        .find_map(|l| l.split_once("removing the following protected packages: "))
+        .map(|(_, list)| list)
+    {
+        let protected: Vec<String> = list.split(',').map(|n| n.trim().to_string()).collect();
+        return if protected.iter().all(|n| is_plain_name(n)) {
+            Ok(DryRun::Removes {
+                packages: Vec::new(),
+                protected,
+            })
+        } else {
+            Err(Unrecognized)
+        };
+    }
+    if !lines.iter().any(|l| l.trim() == "Dependencies resolved.")
+        || !lines.iter().any(|l| l.trim() == "Transaction Summary")
+    {
+        return Err(Unrecognized);
+    }
+    let mut packages = Vec::new();
+    let mut in_rows = false;
+    let mut pending: Option<&str> = None;
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed == "Transaction Summary" {
+            break;
+        }
+        if trimmed == "Removing:" || trimmed == "Removing unused dependencies:" {
+            in_rows = true;
+            continue;
+        }
+        if !line.starts_with(' ') && trimmed.ends_with(':') && !trimmed.contains(' ') {
+            // Installing:, Upgrading:, … : not a removal.
+            return Err(Unrecognized);
+        }
+        if !in_rows || !line.starts_with(' ') || trimmed.is_empty() {
+            continue;
+        }
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        let name = match (tokens.len(), pending.take()) {
+            (1, None) => {
+                pending = Some(tokens[0]);
+                continue;
+            }
+            (n, Some(name)) if n >= 5 => name,
+            (n, None) if n >= 5 => tokens[0],
+            _ => return Err(Unrecognized),
+        };
+        if !is_plain_name(name) {
+            return Err(Unrecognized);
+        }
+        packages.push(name.to_string());
+    }
+    if packages.is_empty() || pending.is_some() {
+        return Err(Unrecognized);
+    }
+    Ok(DryRun::Removes {
+        packages,
+        protected: Vec::new(),
+    })
 }
 
 pub fn plan_from_dry_run(app: &AppEntry, outcome: &DryRun) -> Result<RemovalPlan, SourceError> {
-    let _ = outcome;
-    Err(SourceError::BadName(app.id.clone()))
+    if !is_plain_name(&app.id) {
+        return Err(SourceError::BadName(app.id.clone()));
+    }
+    let wrong = || SourceError::Parse("dnf remove --assumeno".into());
+    let own = || PlanItem {
+        label: app.id.clone(),
+        bytes: app.size_bytes,
+    };
+    let (items, blocked) = match outcome {
+        DryRun::Removes {
+            packages,
+            protected,
+        } => {
+            if packages.is_empty() && protected.is_empty() {
+                return Err(wrong());
+            }
+            if !packages.is_empty() && packages[0] != app.id {
+                return Err(wrong());
+            }
+            let items = if packages.is_empty() {
+                vec![own()]
+            } else {
+                packages
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| PlanItem {
+                        label: name.clone(),
+                        bytes: if i == 0 { app.size_bytes } else { None },
+                    })
+                    .collect()
+            };
+            (
+                items,
+                (!protected.is_empty()).then(|| Blocked::Protected(protected.clone())),
+            )
+        }
+        DryRun::Busy => (vec![own()], Some(Blocked::Busy)),
+        DryRun::NotFound(_) => return Err(wrong()),
+    };
+    Ok(plan(app, items, blocked))
+}
+
+fn plan(app: &AppEntry, items: Vec<PlanItem>, blocked: Option<Blocked>) -> RemovalPlan {
+    RemovalPlan {
+        id: app.id.clone(),
+        kind: SourceKind::Dnf,
+        items,
+        blocked,
+        needs_admin: true,
+        to_trash: false,
+        command: ["dnf", "remove", "--", app.id.as_str()]
+            .map(String::from)
+            .to_vec(),
+    }
 }
 
 /// dnf as an app source: every installed package, from `rpm -qa`.
@@ -63,16 +217,28 @@ pub struct DnfApps {
 
 impl DnfApps {
     pub fn from_rpm(text: &str) -> Self {
-        let _ = text;
         DnfApps {
-            packages: Ok(Vec::new()),
+            packages: parse_rpm_qa(text).map_err(|_| SourceError::Parse("rpm -qa".into())),
         }
     }
 
+    /// Ask the real rpm (read-only). Not installed means no packages, not an error.
     pub fn system() -> Self {
-        let _ = (Path::new("/usr/bin/rpm"), Command::new("true"));
-        DnfApps {
-            packages: Ok(Vec::new()),
+        let program = "/usr/bin/rpm";
+        if !Path::new(program).exists() {
+            return DnfApps {
+                packages: Ok(Vec::new()),
+            };
+        }
+        let out = Command::new(program)
+            .args(["-qa", "--qf", r"%{NAME}\t%{SIZE}\n"])
+            .env("LC_ALL", "C")
+            .output();
+        match out {
+            Ok(o) if o.status.success() => Self::from_rpm(&String::from_utf8_lossy(&o.stdout)),
+            _ => DnfApps {
+                packages: Err(SourceError::Run("rpm".into())),
+            },
         }
     }
 }
@@ -83,20 +249,36 @@ impl AppSource for DnfApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = (&self.packages, Scope::System);
-        Ok(Vec::new())
+        Ok(self
+            .packages
+            .clone()?
+            .into_iter()
+            .map(|p| AppEntry {
+                id: p.name.clone(),
+                name: p.name,
+                kind: SourceKind::Dnf,
+                scope: Scope::System,
+                version: None,
+                size_bytes: Some(p.size_bytes),
+                required_by: Vec::new(),
+            })
+            .collect())
     }
 
+    /// Cautious estimate: the package itself. The dependencies that would go with it come from
+    /// the dry run (`plan_from_dry_run`).
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        let _ = (
-            is_plain_name(&app.id),
-            PlanItem {
-                label: String::new(),
-                bytes: None,
-            },
-            Blocked::Busy,
-        );
-        Err(SourceError::BadName(app.id.clone()))
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        Ok(plan(
+            app,
+            vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            None,
+        ))
     }
 }
 
@@ -183,7 +365,7 @@ mod tests {
     #[test]
     fn a_dry_run_lists_the_package_and_its_unused_dependencies_including_wrapped_names() {
         assert_eq!(
-            parse_dry_run(&fx("dnf-remove-ok-handwritten.txt"), true),
+            parse_dry_run(&fx("dnf-remove-ok-handwritten.txt")),
             Ok(DryRun::Removes {
                 packages: vec![
                     "vlc".into(),
@@ -198,18 +380,18 @@ mod tests {
     #[test]
     fn protected_packages_unknown_names_and_locks_are_told_apart() {
         assert_eq!(
-            parse_dry_run(&fx("dnf-remove-protected-handwritten.txt"), false),
+            parse_dry_run(&fx("dnf-remove-protected-handwritten.txt")),
             Ok(DryRun::Removes {
                 packages: vec![],
                 protected: vec!["systemd".into(), "dnf".into()]
             })
         );
         assert_eq!(
-            parse_dry_run(&fx("dnf-remove-notfound-handwritten.txt"), false),
+            parse_dry_run(&fx("dnf-remove-notfound-handwritten.txt")),
             Ok(DryRun::NotFound("nosuchpkg".into()))
         );
         assert_eq!(
-            parse_dry_run(&fx("dnf-remove-busy-handwritten.txt"), false),
+            parse_dry_run(&fx("dnf-remove-busy-handwritten.txt")),
             Ok(DryRun::Busy)
         );
     }
@@ -221,11 +403,7 @@ mod tests {
             "dnf-remove-garbage-handwritten.txt",
         ] {
             for ok in [true, false] {
-                assert_eq!(
-                    parse_dry_run(&fx(name), ok),
-                    Err(Unrecognized),
-                    "{name} {ok}"
-                );
+                assert_eq!(parse_dry_run(&fx(name)), Err(Unrecognized), "{name} {ok}");
             }
         }
         for text in [
@@ -234,9 +412,7 @@ mod tests {
             "Removing:\n vlc x86_64 1-1 @x 1 k\n",
             "Dependencies resolved.\n",
         ] {
-            for ok in [true, false] {
-                assert_eq!(parse_dry_run(text, ok), Err(Unrecognized), "{text:?}");
-            }
+            assert_eq!(parse_dry_run(text), Err(Unrecognized), "{text:?}");
         }
     }
 
@@ -251,7 +427,7 @@ mod tests {
 
     #[test]
     fn a_dry_run_becomes_a_plan_that_needs_admin() {
-        let outcome = parse_dry_run(&fx("dnf-remove-ok-handwritten.txt"), true).unwrap();
+        let outcome = parse_dry_run(&fx("dnf-remove-ok-handwritten.txt")).unwrap();
         let plan = plan_from_dry_run(&vlc_app(), &outcome).unwrap();
         assert_eq!(plan.items.len(), 3);
         assert_eq!(plan.items[0].bytes, Some(4_325_000));
@@ -262,7 +438,7 @@ mod tests {
 
     #[test]
     fn protected_and_busy_make_blocked_plans() {
-        let protected = parse_dry_run(&fx("dnf-remove-protected-handwritten.txt"), false).unwrap();
+        let protected = parse_dry_run(&fx("dnf-remove-protected-handwritten.txt")).unwrap();
         let plan = plan_from_dry_run(&vlc_app(), &protected).unwrap();
         assert_eq!(
             plan.blocked,

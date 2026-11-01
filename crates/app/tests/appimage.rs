@@ -10,10 +10,18 @@ fn root() -> PathBuf {
 }
 
 fn script(args: &[&str]) -> std::process::Output {
-    Command::new(root().join("packaging/appimage/build.sh"))
-        .args(args)
-        .output()
-        .expect("run build.sh")
+    script_in(args, None)
+}
+
+/// `tmp`: where appimagetool (itself an AppImage) may unpack itself. It leaves that copy behind, so
+/// the real-AppImage test points it at its own temp folder.
+fn script_in(args: &[&str], tmp: Option<&Path>) -> std::process::Output {
+    let mut command = Command::new(root().join("packaging/appimage/build.sh"));
+    command.args(args);
+    if let Some(tmp) = tmp {
+        command.env("TMPDIR", tmp);
+    }
+    command.output().expect("run build.sh")
 }
 
 fn png_size(bytes: &[u8]) -> (u32, u32) {
@@ -100,12 +108,15 @@ fn the_appimage_starts_headless_and_produces_a_1360_by_960_png() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let out = script(&[
-        "--binary",
-        env!("CARGO_BIN_EXE_tidewise"),
-        "--out",
-        dir.path().to_str().unwrap(),
-    ]);
+    let out = script_in(
+        &[
+            "--binary",
+            env!("CARGO_BIN_EXE_tidewise"),
+            "--out",
+            dir.path().to_str().unwrap(),
+        ],
+        Some(dir.path()),
+    );
     assert!(
         out.status.success(),
         "{}",
@@ -127,6 +138,9 @@ fn the_appimage_starts_headless_and_produces_a_1360_by_960_png() {
         ])
         .arg(&png)
         .env("TIDEWISE_RENDERER", "software")
+        // `--appimage-extract-and-run` unpacks next to TMPDIR and leaves the copy behind (about
+        // 400 MB for a debug build, every run); keep it inside the test's own folder.
+        .env("TMPDIR", dir.path())
         .status()
         .unwrap();
     assert!(run.success());
