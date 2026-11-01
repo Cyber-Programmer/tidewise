@@ -59,7 +59,7 @@ detail; this queue wins where they differ (no root, no helper).
   with fixtures). Real removal only for AppImages (to Trash, with its .desktop and icon) and **user**
   Flatpaks (`flatpak uninstall --user` behind the confirm screen; tested with a fake runner, never run for
   real). Packages, system Flatpaks, snaps: needs-admin state. Design check ≤ 10 %.
-- [ ] **Q15 End task** (WBS 7.5, design `EndTask`). SIGTERM to the process group via `/usr/bin/kill` by
+- [/] **Q15 End task** (WBS 7.5, design `EndTask`). SIGTERM to the process group via `/usr/bin/kill` by
   absolute path (no shell, no `unsafe`), wait 5 s, offer Force quit; protected processes refused in code;
   memory-freed toast. Tests only against processes the test started.
 

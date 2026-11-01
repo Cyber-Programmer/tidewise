@@ -426,3 +426,9 @@ Plan: `adapters::uninstall` (AppImage → Trash with launcher and icon, user Fla
 Done: red/green 4e2a7d2→598b983, 9b6859d→f52fe80, ea202f6→760f22f, 8f7015d→(green in same step), UI 5fabe10. 84 apps listed on this machine (83 pacman + 1 Flatpak).
 Next: R6-Q15 End task.
 Blockers: admin helper (packages, system Flatpaks, snaps), `dpkg`/`rpm` owner lookups.
+
+## 2026-11-02 — Run 06, R6-Q15 End task — PARTIAL
+Plan: `adapters::endtask` (process table from /proc, a signal plan that uses a group only when it holds nothing but the app, `/usr/bin/kill -s TERM|KILL` through the runner, waiting that treats zombies as gone); app texts (`endtask.rs`), groups and rows carry their pids and memory; Slint `endtask.slint` dialogs; `endtask_live.rs` controller; demo states.
+Done: red 063afa1 → d1ab130 (engine), 8d7e99b → texts/pids (green in the same step), UI 93b6e05.
+Next: R6-Q16 History records + screen.
+Blockers: none for the engine; the live flow was never clicked.
