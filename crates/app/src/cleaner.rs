@@ -1,7 +1,7 @@
 //! Clean up screen: what the rows, the summary and the confirm dialog say, from the groups the
 //! junk scanner found and the ones the user ticked. Plain data; `view.rs` copies it into Slint.
 
-use tidewise_adapters::cleanup::{format_bytes, Group, GroupId, Safety};
+use tidewise_adapters::cleanup::{format_bytes, Group, GroupId, Outcome, Safety, StepResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowData {
@@ -131,6 +131,29 @@ pub fn toggle(selected: &mut Vec<GroupId>, id: GroupId) {
         selected.remove(at);
     } else {
         selected.push(id);
+    }
+}
+
+/// What the dialog says when a run is over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finish {
+    /// `true` when every step was cleaned (the Done dialog), `false` for the Skipped/Stopped one.
+    pub all_done: bool,
+    pub title: String,
+    pub text: String,
+    pub retry_label: String,
+    /// Offer to run the rest. Only after a stop: admin steps cannot be retried until the helper exists.
+    pub can_retry: bool,
+}
+
+pub fn finish(results: &[StepResult]) -> Finish {
+    let _ = results;
+    Finish {
+        all_done: false,
+        title: String::new(),
+        text: String::new(),
+        retry_label: String::new(),
+        can_retry: false,
     }
 }
 
@@ -294,5 +317,94 @@ mod tests {
         assert_eq!(sel, [GroupId::AppCaches, GroupId::Trash]);
         toggle(&mut sel, GroupId::AppCaches);
         assert_eq!(sel, [GroupId::Trash]);
+    }
+
+    fn result(title: &'static str, outcome: Outcome) -> StepResult {
+        StepResult {
+            group: GroupId::AppCaches,
+            title,
+            outcome,
+        }
+    }
+
+    fn cleaned(freed: u64) -> Outcome {
+        Outcome::Cleaned {
+            freed,
+            removed: vec!["x".into()],
+            refused: vec![],
+        }
+    }
+
+    #[test]
+    fn everything_cleaned_is_the_done_dialog() {
+        let f = finish(&[
+            result("App caches", cleaned(3_100_000_000)),
+            result("Trash", cleaned(400_000_000)),
+        ]);
+        assert!(f.all_done);
+        assert_eq!(f.title, "3.5 GB freed");
+        assert_eq!(f.text, "All 2 groups were cleaned.");
+    }
+
+    #[test]
+    fn one_group_reads_in_the_singular() {
+        let f = finish(&[result("Trash", cleaned(400_000_000))]);
+        assert_eq!(f.text, "The group was cleaned.");
+    }
+
+    #[test]
+    fn admin_steps_that_could_not_run_are_named_and_not_retryable_yet() {
+        let f = finish(&[
+            result("Old package downloads", Outcome::NeedsAdmin),
+            result("App caches", cleaned(3_100_000_000)),
+            result("Old system logs", Outcome::NeedsAdmin),
+        ]);
+        assert!(!f.all_done);
+        assert_eq!(f.title, "3.1 GB freed, 2 groups skipped");
+        assert!(f
+            .text
+            .starts_with("Old package downloads and Old system logs were skipped"));
+        assert!(f.text.contains("admin access"));
+        assert!(f
+            .text
+            .ends_with("Nothing went wrong, and nothing was half-removed."));
+        assert!(!f.can_retry);
+    }
+
+    #[test]
+    fn a_stopped_run_offers_to_clean_the_rest() {
+        let f = finish(&[
+            result("App caches", cleaned(3_100_000_000)),
+            result("Trash", Outcome::Stopped),
+        ]);
+        assert!(!f.all_done);
+        assert_eq!(f.title, "Stopped early");
+        assert!(f
+            .text
+            .starts_with("Tidewise finished the group it was working on and stopped there."));
+        assert_eq!(f.retry_label, "Clean the rest");
+        assert!(f.can_retry);
+    }
+
+    #[test]
+    fn items_left_alone_at_the_last_check_stop_it_from_saying_all_cleaned() {
+        let f = finish(&[result(
+            "App caches",
+            Outcome::Cleaned {
+                freed: 1_000_000,
+                removed: vec!["a".into()],
+                refused: vec![("b".into(), "The app is running right now".into())],
+            },
+        )]);
+        assert!(!f.all_done);
+        assert_eq!(f.title, "1 MB freed, 1 item left alone");
+        assert!(f.text.contains("changed after the scan"));
+    }
+
+    #[test]
+    fn nothing_selected_or_nothing_removed_does_not_claim_success() {
+        assert!(!finish(&[]).all_done);
+        let f = finish(&[result("Old system logs", Outcome::NeedsAdmin)]);
+        assert_eq!(f.title, "0 B freed, 1 group skipped");
     }
 }
