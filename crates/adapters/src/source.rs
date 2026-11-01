@@ -107,15 +107,25 @@ pub struct Listing {
 }
 
 pub fn list_all(sources: &[&dyn AppSource]) -> Listing {
-    let _ = sources;
-    Listing::default()
+    let mut listing = Listing::default();
+    for source in sources {
+        match source.list() {
+            Ok(apps) => listing.apps.extend(apps),
+            Err(e) => listing.errors.push((source.kind(), e.to_string())),
+        }
+    }
+    listing
+        .apps
+        .sort_by_cached_key(|a| (a.name.to_lowercase(), a.name.clone(), a.id.clone()));
+    listing
 }
 
 /// A name that is safe to put on a command line after `--`: not empty, no leading `-`, no
 /// whitespace or control characters, no `/` (AppImage ids are paths and are checked elsewhere).
 pub fn is_plain_name(name: &str) -> bool {
-    let _ = name;
-    false
+    let allowed =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '@' | ':');
+    !name.is_empty() && name.len() <= 255 && !name.starts_with('-') && name.chars().all(allowed)
 }
 
 #[cfg(test)]

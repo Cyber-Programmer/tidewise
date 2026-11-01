@@ -162,7 +162,9 @@ fn parse_size(text: &str) -> Option<u64> {
     (number.is_finite() && number >= 0.0).then(|| (number * factor).round() as u64)
 }
 
-use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+use crate::source::{
+    is_plain_name, AppEntry, AppSource, PlanItem, RemovalPlan, Scope, SourceError, SourceKind,
+};
 
 /// Flatpak apps (user and system installations) as an app source.
 pub struct FlatpakApps {
@@ -172,16 +174,32 @@ pub struct FlatpakApps {
 impl FlatpakApps {
     /// From saved `flatpak list --app --columns=application,name,size,installation` output.
     pub fn from_list(text: &str) -> Self {
-        let _ = text;
         FlatpakApps {
-            apps: Ok(Vec::new()),
+            apps: parse_list(text).map_err(|_| SourceError::Parse("flatpak list".into())),
         }
     }
 
-    /// Ask the real flatpak (read-only).
+    /// Ask the real flatpak (read-only). Not installed means no apps, not an error.
     pub fn system() -> Self {
-        FlatpakApps {
-            apps: Ok(Vec::new()),
+        let program = "/usr/bin/flatpak";
+        if !std::path::Path::new(program).exists() {
+            return FlatpakApps {
+                apps: Ok(Vec::new()),
+            };
+        }
+        let out = std::process::Command::new(program)
+            .args([
+                "list",
+                "--app",
+                "--columns=application,name,size,installation",
+            ])
+            .env("LC_ALL", "C")
+            .output();
+        match out {
+            Ok(o) if o.status.success() => Self::from_list(&String::from_utf8_lossy(&o.stdout)),
+            _ => FlatpakApps {
+                apps: Err(SourceError::Run("flatpak".into())),
+            },
         }
     }
 }
@@ -192,12 +210,51 @@ impl AppSource for FlatpakApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = &self.apps;
-        Ok(Vec::new())
+        let apps = self.apps.clone()?;
+        Ok(apps
+            .into_iter()
+            .map(|a| AppEntry {
+                id: a.application_id,
+                name: a.name,
+                kind: SourceKind::Flatpak,
+                scope: if a.installation == "user" {
+                    Scope::User
+                } else {
+                    Scope::System
+                },
+                version: None,
+                size_bytes: a.size_bytes,
+                required_by: Vec::new(),
+            })
+            .collect())
     }
 
+    /// The app itself. Which unused runtimes it would leave behind is the junk scanner's job.
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        Err(SourceError::BadName(app.id.clone()))
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        let user = app.scope == Scope::User;
+        Ok(RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::Flatpak,
+            items: vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            blocked: None,
+            needs_admin: !user,
+            to_trash: false,
+            command: [
+                "flatpak",
+                "uninstall",
+                if user { "--user" } else { "--system" },
+                "--",
+                app.id.as_str(),
+            ]
+            .map(String::from)
+            .to_vec(),
+        })
     }
 }
 

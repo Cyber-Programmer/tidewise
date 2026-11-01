@@ -56,7 +56,7 @@ pub fn find_appimages(dirs: &[PathBuf]) -> Vec<AppImage> {
     found
 }
 
-use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+use crate::source::{AppEntry, AppSource, PlanItem, RemovalPlan, Scope, SourceError, SourceKind};
 
 /// AppImages in the usual folders as an app source.
 pub struct AppImageApps {
@@ -79,12 +79,42 @@ impl AppSource for AppImageApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = &self.dirs;
-        Ok(Vec::new())
+        Ok(find_appimages(&self.dirs)
+            .into_iter()
+            .map(|a| AppEntry {
+                id: a.path.display().to_string(),
+                name: a.name,
+                kind: SourceKind::AppImage,
+                scope: Scope::User,
+                version: None,
+                size_bytes: Some(a.size_bytes),
+                required_by: Vec::new(),
+            })
+            .collect())
     }
 
+    /// Moves the file to the Trash. Only a file that is found in the searched folders right now
+    /// can be planned, so an id cannot point at some other file.
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        Err(SourceError::BadName(app.id.clone()))
+        let current = find_appimages(&self.dirs);
+        let Some(found) = current
+            .iter()
+            .find(|a| a.path.display().to_string() == app.id)
+        else {
+            return Err(SourceError::BadName(app.id.clone()));
+        };
+        Ok(RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::AppImage,
+            items: vec![PlanItem {
+                label: app.id.clone(),
+                bytes: Some(found.size_bytes),
+            }],
+            blocked: None,
+            needs_admin: false,
+            to_trash: true,
+            command: Vec::new(),
+        })
     }
 }
 

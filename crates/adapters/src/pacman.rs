@@ -151,7 +151,10 @@ fn parse_size(text: &str) -> Result<u64, ParseError> {
     Ok((number * factor).round() as u64)
 }
 
-use crate::source::{AppEntry, AppSource, RemovalPlan, SourceError, SourceKind};
+use crate::source::{
+    is_plain_name, AppEntry, AppSource, Blocked, PlanItem, RemovalPlan, Scope, SourceError,
+    SourceKind,
+};
 
 /// pacman as an app source: every installed package, from `pacman -Qi`.
 pub struct PacmanApps {
@@ -161,16 +164,18 @@ pub struct PacmanApps {
 impl PacmanApps {
     /// From saved `pacman -Qi` output (tests, fixtures).
     pub fn from_qi(text: &str) -> Self {
-        let _ = text;
         PacmanApps {
-            packages: Ok(Vec::new()),
+            packages: parse_qi(text).map_err(|_| SourceError::Parse("pacman -Qi".into())),
         }
     }
 
     /// Ask the real pacman (read-only).
     pub fn system() -> Self {
         PacmanApps {
-            packages: Ok(Vec::new()),
+            packages: Pacman::system().installed().map_err(|e| match e {
+                Error::Parse(_) => SourceError::Parse("pacman -Qi".into()),
+                _ => SourceError::Run("pacman".into()),
+            }),
         }
     }
 }
@@ -181,12 +186,43 @@ impl AppSource for PacmanApps {
     }
 
     fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
-        let _ = &self.packages;
-        Ok(Vec::new())
+        let packages = self.packages.clone()?;
+        Ok(packages
+            .into_iter()
+            .map(|p| AppEntry {
+                id: p.name.clone(),
+                name: p.name,
+                kind: SourceKind::Pacman,
+                scope: Scope::System,
+                version: Some(p.version),
+                size_bytes: Some(p.installed_size_bytes),
+                required_by: p.required_by,
+            })
+            .collect())
     }
 
+    /// Cautious estimate from the package's own record: the package itself, blocked when others
+    /// need it. The exact list `pacman -Rns --print` would give (dependencies that go with it)
+    /// comes with the removal-plan parser, not here.
     fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
-        Err(SourceError::BadName(app.id.clone()))
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        Ok(RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::Pacman,
+            items: vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            blocked: (!app.required_by.is_empty())
+                .then(|| Blocked::RequiredBy(app.required_by.clone())),
+            needs_admin: true,
+            to_trash: false,
+            command: ["pacman", "-Rns", "--", app.id.as_str()]
+                .map(String::from)
+                .to_vec(),
+        })
     }
 }
 
