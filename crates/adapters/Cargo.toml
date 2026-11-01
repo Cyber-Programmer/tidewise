@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tidewise-core = { path = "../core" }
+tidewise-core = { version = "0.1.0", path = "../core" }
 thiserror.workspace = true
 
 [dev-dependencies]
