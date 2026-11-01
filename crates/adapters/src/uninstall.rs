@@ -8,8 +8,11 @@
 use std::path::Path;
 use std::time::SystemTime;
 
+use tidewise_core::trash;
+
+use crate::flatpak::{uninstall_user, UninstallError};
 use crate::runner::CommandRunner;
-use crate::source::{AppEntry, Blocked, RemovalPlan};
+use crate::source::{AppEntry, Blocked, RemovalPlan, Scope, SourceKind};
 
 pub struct Env<'a> {
     pub trash_dir: &'a Path,
@@ -37,8 +40,66 @@ pub enum Outcome {
 }
 
 pub fn run(app: &AppEntry, confirmed: &RemovalPlan, fresh: &RemovalPlan, env: &Env) -> Outcome {
-    let _ = (app, confirmed, fresh, env);
-    Outcome::NeedsAdmin
+    if let Some(blocked) = &fresh.blocked {
+        return Outcome::Blocked(blocked.clone());
+    }
+    if confirmed.id != fresh.id || confirmed.items != fresh.items {
+        return failed(
+            "The list changed after you confirmed it, so nothing was removed. Please look at it again.",
+            Vec::new(),
+        );
+    }
+    match (app.kind, app.scope) {
+        (SourceKind::AppImage, _) => move_to_trash(confirmed, env),
+        (SourceKind::Flatpak, Scope::User) => match uninstall_user(env.runner, app) {
+            Ok(()) => Outcome::Removed {
+                items: vec![app.id.clone()],
+                freed: app.size_bytes.unwrap_or(0),
+            },
+            Err(UninstallError::NeedsAdmin) => Outcome::NeedsAdmin,
+            Err(e) => failed(&e.to_string(), Vec::new()),
+        },
+        _ => Outcome::NeedsAdmin,
+    }
+}
+
+fn failed(reason: &str, removed: Vec<String>) -> Outcome {
+    Outcome::Failed {
+        reason: reason.to_string(),
+        removed,
+    }
+}
+
+/// Every listed file goes to the Trash. All paths are checked first, so a bad one stops the whole
+/// thing before anything moves.
+fn move_to_trash(plan: &RemovalPlan, env: &Env) -> Outcome {
+    for item in &plan.items {
+        let path = Path::new(&item.label);
+        if !path.is_absolute() || !path.starts_with(env.home) || path == env.home {
+            return failed(
+                &format!(
+                    "{} is not inside your home folder, so it is left alone.",
+                    item.label
+                ),
+                Vec::new(),
+            );
+        }
+    }
+    let mut removed = Vec::new();
+    let mut freed = 0;
+    for item in &plan.items {
+        match trash::move_to_trash(Path::new(&item.label), env.trash_dir, env.home, env.now) {
+            Ok(_) => {
+                freed += item.bytes.unwrap_or(0);
+                removed.push(item.label.clone());
+            }
+            Err(e) => return failed(&e.to_string(), removed),
+        }
+    }
+    Outcome::Removed {
+        items: removed,
+        freed,
+    }
 }
 
 #[cfg(test)]
@@ -143,11 +204,13 @@ mod tests {
         let plan = w.src.removal_plan(&app).unwrap();
         let fresh = w.src.removal_plan(&app).unwrap();
         let runner = fake(true);
+        let total: u64 = plan.items.iter().filter_map(|i| i.bytes).sum();
         let out = run(&app, &plan, &fresh, &env(&w, &runner));
         match out {
             Outcome::Removed { items, freed } => {
                 assert_eq!(items.len(), 3);
-                assert_eq!(freed, 110);
+                assert_eq!(freed, total);
+                assert!(total >= 110, "image 100 + icon 10 + launcher");
             }
             other => panic!("{other:?}"),
         }
