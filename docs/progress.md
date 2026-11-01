@@ -420,3 +420,9 @@ Plan: `runner::CommandRunner` (+ `SystemRunner`: absolute path, argument list, `
 Done: red 79e21f6 / cbdefc9, green bf0580d. On this machine 1484 pacman packages become 83 apps.
 Next: R6-Q14 Apps screen.
 Blockers: rpm owner lookup, a dpkg runner and system-Flatpak removal are not done.
+
+## 2026-11-02 — Run 06, R6-Q14 Apps screen + uninstall panel — PARTIAL
+Plan: `adapters::uninstall` (AppImage → Trash with launcher and icon, user Flatpak through the runner, last-moment re-check, everything else NeedsAdmin); app view-model `apps.rs` (chips, filter, search, rows, panel, end-of-uninstall texts, screen); Slint `apps.slint` (screen + dialog); `apps_live.rs` controller on worker threads; demo states for screenshots.
+Done: red/green 4e2a7d2→598b983, 9b6859d→f52fe80, ea202f6→760f22f, 8f7015d→(green in same step), UI 5fabe10. 84 apps listed on this machine (83 pacman + 1 Flatpak).
+Next: R6-Q15 End task.
+Blockers: admin helper (packages, system Flatpaks, snaps), `dpkg`/`rpm` owner lookups.

@@ -54,7 +54,7 @@ detail; this queue wins where they differ (no root, no helper).
 - [x] **Q12 snap adapter** (WBS 7.1.6). Same rules as Q10; disabled revisions = old copies.
 - [/] **Q13 Flatpak runner + AppImage menu entries; packages → apps via .desktop** (WBS 7.1.5, 7.1.7,
   7.1.8).
-- [ ] **Q14 Apps screen, view + uninstall panel up to confirm** (WBS 7.4, design `Apps`,
+- [/] **Q14 Apps screen, view + uninstall panel up to confirm** (WBS 7.4, design `Apps`,
   `UninstallFlow`). One list across sources, search, filters, sizes, blocked/busy states (WBS 7.2 logic
   with fixtures). Real removal only for AppImages (to Trash, with its .desktop and icon) and **user**
   Flatpaks (`flatpak uninstall --user` behind the confirm screen; tested with a fake runner, never run for
