@@ -16,7 +16,7 @@ Run started 2026-11-01 22:46 PKT on branch `run/06-2026-11-01` (from `main` @ d7
 | WBS sheet read (`Overview!B1:B2`) | readable; B1 "Tidewise — Work Breakdown Structure" |
 | Baseline `cargo test --all` (starting commit d73cf3e) | exit 0; 0 failed, 2 ignored (existing `#[ignore]`s), largest suites 155 / 95 / 20 / 17 passed |
 
-## R6-Q01 Slint viewport-* → content-* — Done   (2026-11-01 ~23:00 PKT)
+## R6-Q01 Slint viewport-* → content-* — Done   (2026-11-01, exact time not recorded; before 23:36 PKT)
 WBS: 4.23 → Done (row 50; G, H, I, L, M, N written, `update_values` status success)
 Commits: none (red; refactor only, no red commit by the queue's own rule), 20afd5b
 Evidence:
@@ -28,7 +28,7 @@ Not verified: I did not look at the screenshots or scroll the Storage page by ha
 Errors: none
 Decisions taken without the human: none
 
-## R6-Q02 AppImage size and start time — Done   (2026-11-01 ~23:05 PKT)
+## R6-Q02 AppImage size and start time — Done   (2026-11-01, exact time not recorded; before 23:36 PKT)
 WBS: 2.8 → In Progress (size budget not set by design; `G15:I15`, `L15:N15` written, status success); 4.14 → Done (`G41:I41`, `L41:N41` written, status success)
 Commits: none for code (docs only); docs commit `docs(loop): R6-Q02 report` (see `git log`)
 Evidence:
@@ -40,7 +40,7 @@ Not verified: time to a real window on screen (no compositor measurement); the A
 Errors: (1) first measuring command failed: `ls --time-style` rejected (ls is aliased to `lsd`) and `/usr/bin/time` does not exist, so the build did not run on that attempt; re-run succeeded. (2) first timing loop printed 0.000 s because `zsh/datetime` was not loaded; re-ran with it loaded, the numbers above are from the second run. (3) I wrote one temp file (`old.md5`) to `/tmp/claude-1000/` instead of the scratchpad; outside the repo, harmless.
 Decisions taken without the human: none (the size budget is only proposed → docs/questions.md "Run 06 — Q02").
 
-## R6-Q03 core has no network dependency — Done   (2026-11-01 ~23:15 PKT)
+## R6-Q03 core has no network dependency — Done   (2026-11-01, exact time not recorded; before 23:36 PKT)
 WBS: 5.9 → Done (row 60; written below, status success)
 Commits: 06102ae (red), a73a8c7
 Evidence:
@@ -52,7 +52,7 @@ Not verified: that the check catches a networking crate added to the real crates
 Errors: none
 Decisions taken without the human: none
 
-## R6-Q04 Tester notes — Done   (2026-11-01 ~23:25 PKT)
+## R6-Q04 Tester notes — Done   (2026-11-01, exact time not recorded; before 23:36 PKT)
 WBS: 4.20 → Done (row 47; sheet write status success)
 Commits: none for code (docs only); docs commit `docs(loop): R6-Q04 …` follows this entry in `git log`
 Evidence: `docs/test-build-notes.md` written (what to try, known gaps, how to report, what to attach). Facts checked against `crates/app/ui/main.slint` (pages: only Home, Performance, Processes, Storage are built; others show "Coming in a later version"), `processes.slint:315` (End task does nothing), `cli.rs` (no `--version`/`--help`; `./target/release/tidewise --help` → `Error: "unknown option --help"`), `SECURITY.md`, `Cargo.toml` repository URL. `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (312 passed, 0 failed, 2 ignored).
@@ -60,7 +60,7 @@ Not verified: I did not run the app to try the listed steps myself (keyboard key
 Errors: none
 Decisions taken without the human: none
 
-## R6-Q05 Junk scanner — Done   (2026-11-01 ~23:50 PKT)
+## R6-Q05 Junk scanner — Done   (2026-11-01, exact time not recorded; before 23:36 PKT)
 WBS: 6.5 → Done (row 69; sheet write status success)
 Commits: a492bd8 (red), 0595354
 Evidence:
@@ -78,7 +78,7 @@ Not verified:
 Errors: (1) first `cargo clippy` after the green code → exit 101, `unnecessary_sort_by` in `junk.rs`; fixed with `sort_by_key(Reverse)`, rerun exit 0. (2) My first edit of `flatpak.rs` deleted `parse_list` (slicing slip); caught by the compiler (E0425), restored from `HEAD`, tests then green. (3) One test fixture (`flatpak-app-runtimes-handwritten.txt`) was wrong for the test I wrote (Tiny used the freedesktop base); I corrected the fixture in the green commit rather than the assertion, noted in the commit message. (4) Wrote one temp file to `/tmp/claude-1000/…/scratchpad` only (fine).
 Decisions taken without the human: `adapters` now depends on `tidewise-core` (a path dependency inside the workspace, not an external crate; `core` still has no networking crate — Q03 test green). Not in `docs/questions.md` as a blocker; recommended to keep.
 
-## R6-Q06 Clean up screen + flow C, user-owned items — Partial   (2026-11-01 ~00:20 PKT)
+## R6-Q06 Clean up screen + flow C, user-owned items — Partial   (2026-11-01 23:36 PKT)
 WBS: 6.6 → In Progress (row 70; G, H, L, M, N written; never Done, root part missing). Also 8.4 note only in questions.md (record type defined here).
 Commits (red → green): 55b30b4 → 1282a84 (core::history), 618f099 → c6845ea (adapters::cleanup), e2a5f34 → 5e359aa (view-model), 6d35743 → 5b07f43 (end-of-run texts + Slint screen/dialog + controller + demo states + screenshot tests), plus fix 37e9ea6 (cargo deny).
 Evidence:
@@ -93,5 +93,5 @@ Not verified:
 - Missing parts of the queue item: the password step, the admin groups (package downloads, system logs), Flatpak removal, and the design's 6th group (orphans) — see `docs/questions.md` "Run 06 — Q06".
 - Memory/CPU budget of the Clean up page not measured (Q24). Scan time for a 25 GB cache is not measured either (the scan runs off the UI thread).
 - Keyboard/Tab behaviour and 4.5:1 contrast of the new screen were not checked; the new shades come from the artboard.
-Errors: (1) `cargo deny check` exit 2 (wildcard path dependency from Q05), found while adding serde in this task, fixed in 37e9ea6. (2) A `sed` meant to tighten a test assertion did not match (rustfmt had reformatted the line), so one red-commit assertion was loose; fixed in the green commit and said in its message. (3) Clippy `items after a test module` in `demo.rs`/`view.rs` after I appended functions; moved above the tests, rerun exit 0. (4) First screenshots: header switch not right-aligned and dialog 22 px short (wrapped `Text` preferred height); fixed with widths, re-measured. (5) The Slint screen and the screenshot tests were written after/together with the code, not red first.
+Errors: (0) The times I wrote in the headings of R6-Q01–Q05 and a first one for Q06 were guesses, some later than the real clock (23:36 PKT); corrected to what is known. (1) `cargo deny check` exit 2 (wildcard path dependency from Q05), found while adding serde in this task, fixed in 37e9ea6. (2) A `sed` meant to tighten a test assertion did not match (rustfmt had reformatted the line), so one red-commit assertion was loose; fixed in the green commit and said in its message. (3) Clippy `items after a test module` in `demo.rs`/`view.rs` after I appended functions; moved above the tests, rerun exit 0. (4) First screenshots: header switch not right-aligned and dialog 22 px short (wrapped `Text` preferred height); fixed with widths, re-measured. (5) The Slint screen and the screenshot tests were written after/together with the code, not red first.
 Decisions taken without the human: yes — 8 points in `docs/questions.md` ("Run 06 — Q06"): new theme shades, no orphans group, no password step, Flatpak parts not removed, freed bytes measured at scan time, History text not a link, demo not wired, Q05 slip.
