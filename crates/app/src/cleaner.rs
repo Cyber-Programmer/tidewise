@@ -1,0 +1,239 @@
+//! Clean up screen: what the rows, the summary and the confirm dialog say, from the groups the
+//! junk scanner found and the ones the user ticked. Plain data; `view.rs` copies it into Slint.
+
+use tidewise_adapters::cleanup::{Group, GroupId};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowData {
+    pub title: String,
+    pub description: String,
+    /// `Safe` or `Review`.
+    pub safe: String,
+    pub review: bool,
+    pub admin: bool,
+    pub size: String,
+    pub checked: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Summary {
+    /// `12.0 GB`
+    pub total: String,
+    /// `of 12.6 GB found · 4 of 6 groups`
+    pub found: String,
+    /// Selected share of everything found, 0.0 to 1.0.
+    pub fraction: f32,
+    /// At least one selected group needs admin access.
+    pub admin: bool,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmRow {
+    pub name: String,
+    pub size: String,
+    pub admin: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirm {
+    /// `Remove 12.0 GB?`
+    pub title: String,
+    pub rows: Vec<ConfirmRow>,
+    /// `2 of these need your password. You'll be asked once.`
+    pub admin_note: Option<String>,
+}
+
+pub fn rows(groups: &[Group], selected: &[GroupId]) -> Vec<RowData> {
+    let _ = (groups, selected);
+    Vec::new()
+}
+
+pub fn summary(groups: &[Group], selected: &[GroupId]) -> Summary {
+    let _ = (groups, selected);
+    Summary {
+        total: String::new(),
+        found: String::new(),
+        fraction: 0.0,
+        admin: false,
+        count: 0,
+    }
+}
+
+pub fn confirm(groups: &[Group], selected: &[GroupId]) -> Confirm {
+    let _ = (groups, selected);
+    Confirm {
+        title: String::new(),
+        rows: Vec::new(),
+        admin_note: None,
+    }
+}
+
+/// Tick or untick one group.
+pub fn toggle(selected: &mut Vec<GroupId>, id: GroupId) {
+    let _ = (selected, id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tidewise_adapters::cleanup::{groups, Safety};
+    use tidewise_adapters::junk::{JunkItem, JunkKind, JunkReport};
+
+    fn item(kind: JunkKind, label: &str, bytes: u64, admin: bool) -> JunkItem {
+        JunkItem {
+            kind,
+            label: label.into(),
+            path: Some(format!("/x/{label}").into()),
+            bytes,
+            needs_admin: admin,
+        }
+    }
+
+    /// The numbers of the Cleaner artboard.
+    fn design() -> Vec<Group> {
+        groups(&JunkReport {
+            items: vec![
+                item(
+                    JunkKind::PackageCache,
+                    "Package cache (pacman)",
+                    6_800_000_000,
+                    true,
+                ),
+                item(JunkKind::AppCache, "a", 3_100_000_000, false),
+                item(
+                    JunkKind::Journal,
+                    "System log (journal)",
+                    1_200_000_000,
+                    true,
+                ),
+                item(JunkKind::FlatpakRuntime, "r", 900_000_000, false),
+                item(JunkKind::Trash, "Trash", 400_000_000, false),
+            ],
+            skipped: vec![],
+        })
+    }
+
+    fn safe_ids(g: &[Group]) -> Vec<GroupId> {
+        g.iter()
+            .filter(|g| g.safety == Safety::Safe)
+            .map(|g| g.id)
+            .collect()
+    }
+
+    #[test]
+    fn rows_say_what_the_design_says() {
+        let g = design();
+        let r = rows(&g, &safe_ids(&g));
+        let got: Vec<_> = r
+            .iter()
+            .map(|r| {
+                (
+                    r.title.as_str(),
+                    r.safe.as_str(),
+                    r.admin,
+                    r.size.as_str(),
+                    r.checked,
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("Old package downloads", "Safe", true, "6.8 GB", true),
+                ("App caches", "Safe", false, "3.1 GB", true),
+                ("Old system logs", "Safe", true, "1.2 GB", true),
+                ("Unused Flatpak parts", "Safe", false, "900 MB", true),
+                ("Trash", "Review", false, "400 MB", false),
+            ]
+        );
+        assert!(r[4].review && !r[0].review);
+        assert!(r[1]
+            .description
+            .starts_with("Temporary data like thumbnails"));
+    }
+
+    #[test]
+    fn summary_adds_up_the_ticked_groups() {
+        let g = design();
+        let s = summary(&g, &safe_ids(&g));
+        assert_eq!(s.total, "12.0 GB");
+        assert_eq!(s.found, "of 12.4 GB found · 4 of 5 groups");
+        assert_eq!(s.count, 4);
+        assert!(s.admin);
+        assert!((s.fraction - 12.0 / 12.4).abs() < 0.001, "{}", s.fraction);
+    }
+
+    #[test]
+    fn nothing_ticked_is_zero_and_asks_for_no_password() {
+        let g = design();
+        let s = summary(&g, &[]);
+        assert_eq!(
+            (s.total.as_str(), s.count, s.admin, s.fraction),
+            ("0 B", 0, false, 0.0)
+        );
+    }
+
+    #[test]
+    fn only_user_groups_ticked_means_no_password_note() {
+        let g = design();
+        let s = summary(&g, &[GroupId::AppCaches, GroupId::Trash]);
+        assert!(!s.admin);
+        assert_eq!(s.total, "3.5 GB");
+    }
+
+    #[test]
+    fn summary_of_nothing_found() {
+        let s = summary(&[], &[]);
+        assert_eq!(
+            (s.found.as_str(), s.fraction),
+            ("of 0 B found · 0 of 0 groups", 0.0)
+        );
+    }
+
+    #[test]
+    fn the_confirm_dialog_lists_exactly_the_ticked_groups() {
+        let g = design();
+        let c = confirm(&g, &safe_ids(&g));
+        assert_eq!(c.title, "Remove 12.0 GB?");
+        let rows: Vec<_> = c
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.size.as_str(), r.admin))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Old package downloads", "6.8 GB", true),
+                ("App caches", "3.1 GB", false),
+                ("Old system logs", "1.2 GB", true),
+                ("Unused Flatpak parts", "0.9 GB", false),
+            ]
+        );
+        assert_eq!(
+            c.admin_note.as_deref(),
+            Some("2 of these need your password. You'll be asked once.")
+        );
+    }
+
+    #[test]
+    fn one_admin_group_reads_in_the_singular() {
+        let g = design();
+        let c = confirm(&g, &[GroupId::SystemLogs, GroupId::AppCaches]);
+        assert_eq!(
+            c.admin_note.as_deref(),
+            Some("1 of these needs your password. You'll be asked once.")
+        );
+        assert_eq!(confirm(&g, &[GroupId::AppCaches]).admin_note, None);
+    }
+
+    #[test]
+    fn toggling_ticks_and_unticks() {
+        let mut sel = vec![GroupId::AppCaches];
+        toggle(&mut sel, GroupId::Trash);
+        assert_eq!(sel, [GroupId::AppCaches, GroupId::Trash]);
+        toggle(&mut sel, GroupId::AppCaches);
+        assert_eq!(sel, [GroupId::Trash]);
+    }
+}

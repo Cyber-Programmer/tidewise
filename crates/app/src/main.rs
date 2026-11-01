@@ -8,6 +8,7 @@ use std::time::Duration;
 use slint::{ComponentHandle, Timer, TimerMode};
 
 mod chart;
+mod cleaner;
 mod cli;
 mod demo;
 mod home;
