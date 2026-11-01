@@ -20,7 +20,7 @@ detail; this queue wins where they differ (no root, no helper).
   crate names such as reqwest, hyper, ureq, curl, isahc, attohttpc, rustls, native-tls). Done: red
   (prove the check fails on a small fixture workspace that has such a dependency, not by adding one to
   the real crates), green, threat model row updated.
-- [ ] **Q04 Tester notes** (WBS 4.20). `docs/test-build-notes.md`: what testers should try, known gaps,
+- [x] **Q04 Tester notes** (WBS 4.20). `docs/test-build-notes.md`: what testers should try, known gaps,
   how to report (GitHub issues, what to attach, `--version`). Docs only.
 
 ## B. M3 user side — Clean up without root

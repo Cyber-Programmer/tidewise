@@ -51,3 +51,11 @@ Evidence:
 Not verified: that the check catches a networking crate added to the real crates (queue said to prove it on a fixture only, not by editing the real crates); names only, so `std::net` or raw sockets are not caught; dev-dependencies are deliberately not checked; `cargo metadata` was not used (queue named it) — `cargo tree` instead, same dependency data, no new dependency.
 Errors: none
 Decisions taken without the human: none
+
+## R6-Q04 Tester notes — Done   (2026-11-01 ~23:25 PKT)
+WBS: 4.20 → Done (row 47; sheet write status success)
+Commits: none for code (docs only); docs commit `docs(loop): R6-Q04 …` follows this entry in `git log`
+Evidence: `docs/test-build-notes.md` written (what to try, known gaps, how to report, what to attach). Facts checked against `crates/app/ui/main.slint` (pages: only Home, Performance, Processes, Storage are built; others show "Coming in a later version"), `processes.slint:315` (End task does nothing), `cli.rs` (no `--version`/`--help`; `./target/release/tidewise --help` → `Error: "unknown option --help"`), `SECURITY.md`, `Cargo.toml` repository URL. `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; `cargo test --all` → 0 (312 passed, 0 failed, 2 ignored).
+Not verified: I did not run the app to try the listed steps myself (keyboard keys list is copied from the run 5 progress entry, Trash/Undo behaviour from `storage_live.rs`); the issues URL is the `repository` value in `Cargo.toml` and was not opened; I did not check that GitHub private vulnerability reporting is enabled.
+Errors: none
+Decisions taken without the human: none

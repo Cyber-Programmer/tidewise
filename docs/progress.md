@@ -359,3 +359,9 @@ Plan: test helper runs `cargo tree --offline -e normal,build -p <crate>` and loo
 Done: red 06102ae, green a73a8c7. Used `cargo tree` instead of `cargo metadata` (no JSON parser dependency).
 Next: R6-Q04 tester notes.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q04 tester notes
+Plan: write `docs/test-build-notes.md` from what the app really has (grep of `main.slint`, `cli.rs`, `processes.slint`, SECURITY.md); docs only.
+Done: file written; found there is no `--version`/`--help`, said so in the notes.
+Next: R6-Q05 junk scanner.
+Blockers: none.
