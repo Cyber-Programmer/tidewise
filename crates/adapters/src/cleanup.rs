@@ -5,11 +5,12 @@
 //! Golden rules: only caches and the Trash are removed directly, only after the confirm screen, and
 //! each path is re-checked right before it is removed (still where it was, not a link, not in use).
 
+use std::fs;
 use std::path::PathBuf;
 
 use tidewise_core::history;
 
-use crate::junk::{JunkItem, JunkReport};
+use crate::junk::{is_running, JunkItem, JunkKind, JunkReport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupId {
@@ -84,26 +85,225 @@ pub struct Env {
 }
 
 pub fn groups(report: &JunkReport) -> Vec<Group> {
-    let _ = report;
-    Vec::new()
+    const PACMAN_TEXT: &str = "Installers pacman already used. Tidewise keeps the 2 newest versions of each package so you can roll back.";
+    const GENERIC_TEXT: &str =
+        "Installers your package manager already used. Recent versions stay so you can roll back.";
+    let spec = |id: GroupId| match id {
+        GroupId::PackageDownloads => (
+            JunkKind::PackageCache,
+            "Old package downloads",
+            Safety::Safe,
+        ),
+        GroupId::AppCaches => (JunkKind::AppCache, "App caches", Safety::Safe),
+        GroupId::SystemLogs => (JunkKind::Journal, "Old system logs", Safety::Safe),
+        GroupId::FlatpakParts => (
+            JunkKind::FlatpakRuntime,
+            "Unused Flatpak parts",
+            Safety::Safe,
+        ),
+        GroupId::Trash => (JunkKind::Trash, "Trash", Safety::Review),
+    };
+    let mut out = Vec::new();
+    for id in ORDER {
+        let (kind, title, safety) = spec(id);
+        let items: Vec<JunkItem> = report
+            .items
+            .iter()
+            .filter(|i| i.kind == kind)
+            .cloned()
+            .collect();
+        if items.is_empty() {
+            continue;
+        }
+        let paths = || {
+            items
+                .iter()
+                .filter_map(|i| i.path.as_ref())
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join("  ·  ")
+        };
+        let (description, detail) = match id {
+            GroupId::PackageDownloads => (
+                if items.iter().any(|i| i.label.contains("pacman")) { PACMAN_TEXT } else { GENERIC_TEXT }.to_string(),
+                paths(),
+            ),
+            GroupId::AppCaches => (
+                "Temporary data like thumbnails and browser cache. Apps rebuild it when they need it.".into(),
+                "~/.cache/*   (skips apps that are open right now)".into(),
+            ),
+            GroupId::SystemLogs => (
+                "Records older than 2 weeks. Recent logs stay, in case you need to troubleshoot.".into(),
+                "journalctl --vacuum-time=2weeks".into(),
+            ),
+            GroupId::FlatpakParts => (
+                "Shared runtimes that no installed app needs anymore.".into(),
+                "flatpak uninstall --unused".into(),
+            ),
+            GroupId::Trash => (
+                "Files you deleted but never emptied. This removes them for good.".into(),
+                paths(),
+            ),
+        };
+        out.push(Group {
+            id,
+            title,
+            description,
+            safety,
+            admin: items.iter().any(|i| i.needs_admin),
+            bytes: items.iter().map(|i| i.bytes).sum(),
+            items,
+            detail,
+        });
+    }
+    out
 }
+
+const ORDER: [GroupId; 5] = [
+    GroupId::PackageDownloads,
+    GroupId::AppCaches,
+    GroupId::SystemLogs,
+    GroupId::FlatpakParts,
+    GroupId::Trash,
+];
 
 /// Safe groups on, Review groups off.
 pub fn default_selection(groups: &[Group]) -> Vec<GroupId> {
-    let _ = groups;
-    Vec::new()
+    groups
+        .iter()
+        .filter(|g| g.safety == Safety::Safe)
+        .map(|g| g.id)
+        .collect()
 }
 
 pub fn plan(groups: &[Group], selected: &[GroupId]) -> Vec<Step> {
-    let _ = (groups, selected);
-    Vec::new()
+    groups
+        .iter()
+        .filter(|g| selected.contains(&g.id))
+        .map(|g| Step {
+            group: g.id,
+            title: g.title,
+            admin: g.admin,
+            bytes: g.bytes,
+            items: g.items.clone(),
+        })
+        .collect()
 }
 
 pub fn run_step(step: &Step, env: &Env) -> StepResult {
+    let outcome = match step.group {
+        GroupId::PackageDownloads | GroupId::SystemLogs => Outcome::NeedsAdmin,
+        GroupId::FlatpakParts => Outcome::NotYet,
+        GroupId::AppCaches => clean_caches(step, env),
+        GroupId::Trash => empty_trash(step, env),
+    };
     StepResult {
         group: step.group,
         title: step.title,
-        outcome: Outcome::Stopped,
+        outcome,
+    }
+}
+
+fn clean_caches(step: &Step, env: &Env) -> Outcome {
+    let (mut freed, mut removed, mut refused) = (0, Vec::new(), Vec::new());
+    for item in &step.items {
+        let label = item.label.clone();
+        let Some(path) = &item.path else {
+            refused.push((label, "It has no folder".into()));
+            continue;
+        };
+        // Only a direct child of the cache folder, never the folder itself or anything above it.
+        let is_child =
+            path.file_name().is_some() && path.parent() == Some(env.cache_root.as_path());
+        if !is_child {
+            refused.push((label, "It is not inside your cache folder".into()));
+            continue;
+        }
+        let meta = match fs::symlink_metadata(path) {
+            Ok(m) => m,
+            Err(_) => {
+                refused.push((label, "It is already gone".into()));
+                continue;
+            }
+        };
+        if meta.file_type().is_symlink() {
+            refused.push((label, "It has become a link, so it is left alone".into()));
+            continue;
+        }
+        if is_running(&label, &env.running) {
+            refused.push((label, "The app is running right now".into()));
+            continue;
+        }
+        let result = if meta.is_dir() {
+            fs::remove_dir_all(path)
+        } else {
+            fs::remove_file(path)
+        };
+        match result {
+            Ok(()) => {
+                freed += item.bytes;
+                removed.push(path.display().to_string());
+            }
+            Err(e) => refused.push((label, format!("It could not be removed: {e}"))),
+        }
+    }
+    Outcome::Cleaned {
+        freed,
+        removed,
+        refused,
+    }
+}
+
+fn empty_trash(step: &Step, env: &Env) -> Outcome {
+    let (mut removed, mut refused) = (Vec::new(), Vec::new());
+    let mut freed = 0;
+    for item in &step.items {
+        let label = item.label.clone();
+        if item.path.as_deref() != Some(env.trash_root.as_path()) {
+            refused.push((label, "It is not your Trash folder".into()));
+            continue;
+        }
+        let before = refused.len();
+        for sub in ["files", "info"] {
+            let dir = env.trash_root.join(sub);
+            match fs::symlink_metadata(&dir) {
+                Ok(m) if m.is_dir() => {}
+                Ok(_) => {
+                    refused.push((
+                        format!("{label}/{sub}"),
+                        "It is a link, so it is left alone".into(),
+                    ));
+                    continue;
+                }
+                Err(_) => continue,
+            }
+            let Ok(entries) = fs::read_dir(&dir) else {
+                refused.push((format!("{label}/{sub}"), "It could not be read".into()));
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let result = match entry.file_type() {
+                    Ok(t) if t.is_dir() => fs::remove_dir_all(&path),
+                    _ => fs::remove_file(&path),
+                };
+                match result {
+                    Ok(()) => removed.push(path.display().to_string()),
+                    Err(e) => refused.push((
+                        path.display().to_string(),
+                        format!("It could not be removed: {e}"),
+                    )),
+                }
+            }
+        }
+        if refused.len() == before {
+            freed += item.bytes;
+        }
+    }
+    Outcome::Cleaned {
+        freed,
+        removed,
+        refused,
     }
 }
 
@@ -115,42 +315,105 @@ pub fn run(
     stop: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(usize, &Step),
 ) -> Vec<StepResult> {
-    let _ = (env, stop, progress);
-    steps
-        .iter()
-        .map(|s| StepResult {
-            group: s.group,
-            title: s.title,
-            outcome: Outcome::Stopped,
-        })
-        .collect()
+    let mut results = Vec::new();
+    let mut stopped = false;
+    for (i, step) in steps.iter().enumerate() {
+        if stopped {
+            results.push(StepResult {
+                group: step.group,
+                title: step.title,
+                outcome: Outcome::Stopped,
+            });
+            continue;
+        }
+        progress(i, step);
+        results.push(run_step(step, env));
+        stopped = stop();
+    }
+    results
 }
 
 pub fn freed_bytes(results: &[StepResult]) -> u64 {
-    let _ = results;
-    0
+    results
+        .iter()
+        .map(|r| match &r.outcome {
+            Outcome::Cleaned { freed, .. } => *freed,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// `12.0 GB`, `900 MB`, `10 kB`, `532 B` (decimal units, like the rest of the app).
+pub fn format_bytes(bytes: u64) -> String {
+    match bytes {
+        b if b >= 1_000_000_000 => format!("{:.1} GB", b as f64 / 1e9),
+        b if b >= 1_000_000 => format!("{:.0} MB", b as f64 / 1e6),
+        b if b >= 1_000 => format!("{:.0} kB", b as f64 / 1e3),
+        b => format!("{b} B"),
+    }
 }
 
 /// The History record for a finished run.
 pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
+    let freed = freed_bytes(results);
+    let steps = results
+        .iter()
+        .map(|r| {
+            let step = |status, bytes, items: Vec<String>, note: Option<String>| history::Step {
+                title: r.title.to_string(),
+                status,
+                bytes,
+                items,
+                note,
+            };
+            match &r.outcome {
+                Outcome::Cleaned {
+                    freed,
+                    removed,
+                    refused,
+                } => {
+                    let note = (!refused.is_empty()).then(|| {
+                        refused
+                            .iter()
+                            .map(|(what, why)| format!("{what}: {why}"))
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    });
+                    let status = if removed.is_empty() && !refused.is_empty() {
+                        history::Status::Failed
+                    } else {
+                        history::Status::Done
+                    };
+                    step(status, *freed, removed.clone(), note)
+                }
+                Outcome::NeedsAdmin => step(
+                    history::Status::Skipped,
+                    0,
+                    vec![],
+                    Some("needs admin access (coming soon)".into()),
+                ),
+                Outcome::NotYet => step(
+                    history::Status::Skipped,
+                    0,
+                    vec![],
+                    Some("Tidewise cannot remove this yet".into()),
+                ),
+                Outcome::Stopped => step(history::Status::NotRun, 0, vec![], None),
+            }
+        })
+        .collect();
     history::Record {
         version: history::VERSION,
         id: id.into(),
         time,
         kind: history::Kind::CleanUp,
-        title: String::new(),
-        freed_bytes: 0,
-        steps: results.iter().map(|_| unreachable_step()).collect(),
-    }
-}
-
-fn unreachable_step() -> history::Step {
-    history::Step {
-        title: String::new(),
-        status: history::Status::NotRun,
-        bytes: 0,
-        items: Vec::new(),
-        note: None,
+        title: if freed == 0 {
+            "Nothing was cleaned".into()
+        } else {
+            format!("Cleaned {}", format_bytes(freed))
+        },
+        freed_bytes: freed,
+        steps,
     }
 }
 
@@ -549,11 +812,7 @@ mod tests {
         assert_eq!(rec.steps[0].items.len(), 2);
         assert!(rec.steps[0].items[0].contains(".cache"));
         assert!(rec.steps[1].note.as_deref().unwrap().contains("admin"));
-        assert!(
-            rec.title.contains("10.1 GB")
-                || rec.title.contains("10 KB")
-                || rec.title.contains("freed")
-        );
+        assert_eq!(rec.title, "Cleaned 10 kB");
     }
 
     #[test]

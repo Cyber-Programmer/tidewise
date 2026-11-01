@@ -212,7 +212,7 @@ fn app_caches(cache: &Path, running: &[String], report: &mut JunkReport) {
 /// Does a running program belong to this cache folder? A guess that errs towards "running":
 /// the names are equal, or one starts with the other (a process name is cut at 15 characters) when
 /// the shorter one has at least 5 characters, or the folder is a known alias.
-fn is_running(cache_name: &str, running: &[String]) -> bool {
+pub(crate) fn is_running(cache_name: &str, running: &[String]) -> bool {
     let normal = |s: &str| s.to_lowercase().replace([' ', '_'], "-");
     let name = normal(cache_name);
     let name = match name.as_str() {
