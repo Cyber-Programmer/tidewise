@@ -63,26 +63,36 @@ pub struct HomeData {
     pub apps: Option<Apps>,
 }
 
-/// The health score and the suggestions from what is really measured: drive fullness and the
-/// app using the most memory. Junk is a labelled stub until the cleaner exists (M3).
+/// Junk is only worth a suggestion from 1 GB up.
+const JUNK_SUGGESTION_BYTES: u64 = 1_000_000_000;
+
+/// The health score and the suggestions from what is really measured: drive fullness, junk and the
+/// app using the most memory. `junk` is the size the junk scan found, `None` while no scan has
+/// finished (then nothing is claimed about junk).
 pub fn health_scan(
     drive: Option<tidewise_core::drive::DriveSpace>,
     biggest_app: Option<(String, u64)>,
     junk: Option<u64>,
 ) -> Scan {
     use tidewise_core::health;
-    let _ = junk;
     let gb = |b: u64| b as f64 / 1_000_000_000.0;
     let mut suggestions = Vec::new();
     let mut points = Vec::new();
     let mut real = 0;
-    suggestions.push(Suggestion {
-        icon: Icon::Clean,
-        title: "Junk files aren't measured yet".into(),
-        body: "Clean up arrives in a later version. Until then your score leaves junk out.".into(),
-        action: "Clean up".into(),
-        page: 1,
-    });
+    if let Some(bytes) = junk {
+        points.push(health::junk_points(bytes));
+        if bytes >= JUNK_SUGGESTION_BYTES {
+            real += 1;
+            suggestions.push(Suggestion {
+                icon: Icon::Clean,
+                title: format!("{:.1} GB of junk files can be removed", gb(bytes)),
+                body: "Old installer downloads, app caches and logs. Apps rebuild what they need."
+                    .into(),
+                action: "Clean up".into(),
+                page: 1,
+            });
+        }
+    }
     if let Some(d) = drive {
         let used = d.used_fraction();
         let p = health::disk_points(used);
@@ -126,7 +136,14 @@ pub fn health_scan(
         score,
         tag: health::tag(score).into(),
         headline,
-        sub: "Nothing changes until you review it. Every fix shows exactly what it will touch first. Junk, services and updates are not part of this score yet.".into(),
+        sub: format!(
+            "Nothing changes until you review it. Every fix shows exactly what it will touch first. {} are not part of this score yet.",
+            if junk.is_some() {
+                "Services and updates"
+            } else {
+                "Junk, services and updates"
+            }
+        ),
         suggestions,
     }
 }

@@ -435,6 +435,53 @@ pub fn row_from_group(g: &Group) -> Row {
     }
 }
 
+/// How often the junk size on Home is looked up again while Home is open.
+pub const JUNK_RESCAN: Duration = Duration::from_secs(300);
+
+/// Start a junk scan? The first one starts right away; later ones only while Home is on screen,
+/// at most every `JUNK_RESCAN`, and never two at once.
+pub fn should_scan_junk(since_last: Option<Duration>, home_visible: bool, running: bool) -> bool {
+    let _ = (since_last, home_visible, running);
+    false
+}
+
+/// The junk scan that feeds the Home health score, run on a worker thread.
+#[derive(Default)]
+pub struct JunkWatch {
+    rx: Option<std::sync::mpsc::Receiver<u64>>,
+    last: Option<Instant>,
+}
+
+impl JunkWatch {
+    /// Call once a second: collect a finished scan, start a new one when due.
+    pub fn poll(&mut self, sampler: &mut Sampler, home_visible: bool) {
+        if let Some(rx) = &self.rx {
+            match rx.try_recv() {
+                Ok(bytes) => {
+                    sampler.junk = Some(bytes);
+                    self.rx = None;
+                    self.last = Some(Instant::now());
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.rx = None;
+                    self.last = Some(Instant::now());
+                }
+            }
+        }
+        let since = self.last.map(|t| t.elapsed());
+        if should_scan_junk(since, home_visible, self.rx.is_some()) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.rx = Some(rx);
+            std::thread::spawn(move || {
+                let report =
+                    tidewise_adapters::junk::scan(&tidewise_adapters::junk::live_sources());
+                let _ = tx.send(report.user_bytes() + report.admin_bytes());
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,5 +574,34 @@ mod tests {
         let r = row_from_group(&group(3, Kind::System, 1, 0.0));
         assert!(r.protected);
         assert!(r.note.contains("Tidewise won\u{2019}t"));
+    }
+
+    #[test]
+    fn the_first_junk_scan_starts_at_once_wherever_the_user_is() {
+        assert!(should_scan_junk(None, false, false));
+        assert!(should_scan_junk(None, true, false));
+    }
+
+    #[test]
+    fn later_scans_wait_for_home_and_five_minutes() {
+        let just_now = Some(Duration::from_secs(10));
+        let old = Some(JUNK_RESCAN);
+        assert!(!should_scan_junk(just_now, true, false));
+        assert!(!should_scan_junk(
+            Some(JUNK_RESCAN - Duration::from_secs(1)),
+            true,
+            false
+        ));
+        assert!(should_scan_junk(old, true, false));
+        assert!(
+            !should_scan_junk(old, false, false),
+            "not while another page is shown"
+        );
+    }
+
+    #[test]
+    fn never_two_junk_scans_at_once() {
+        assert!(!should_scan_junk(None, true, true));
+        assert!(!should_scan_junk(Some(JUNK_RESCAN), true, true));
     }
 }
