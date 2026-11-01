@@ -191,3 +191,21 @@ Not verified:
 - Nothing yet turns old copies into a Clean up group (`old_revisions` exists; the queue's cleaner task is done).
 Errors: none new (the /tmp problem above is last round's).
 Decisions taken without the human: base snaps and snapd are shown as protected (Blocked::Protected) even though snap itself would refuse only when another snap needs them. Not in docs/questions.md.
+
+## R6-Q13 Flatpak runner, AppImage menu entries, packages → apps via .desktop — Partial   (2026-11-02 00:29 PKT)
+WBS: 7.1.5 → In Progress (row 80), 7.1.7 → In Progress (row 82), 7.1.8 → In Progress (row 83); `G/H/L:N` written below
+Commits: 79e21f6 (red), cbdefc9 (red), bf0580d
+Evidence:
+- Red: `cargo test -p tidewise-adapters` → exit 101, 16 failed, then 2 failed after the first green step.
+- Green: `cargo test -p tidewise-adapters` → 143 passed (+ real-machine tests). New: `SystemRunner` passes `"a b" "$(id)" "; x"` as plain arguments, forces `LC_ALL=C`, refuses relative programs; `uninstall_user` sends exactly `/usr/bin/flatpak uninstall --user --noninteractive -y <id>` through a fake runner and never calls it for system apps, other sources or hostile ids; `.desktop` parsing from the real Firefox/Code fixtures, broken file, wrong type, no name, hidden entries, other groups ignored; `Exec=` quoting and `env VAR=x`; real `pacman -Qo` output (fixture captured read-only) and hand-written `dpkg -S`; packages → apps keeps only packages that own a visible launcher and names them like it; AppImage launchers found by exact `Exec=`, icons only if inside the icon folders (absolute path outside, `..` and path-like names refused), plan lists launcher and icon with sizes; `pacman_owners` asks once with `-Qo -- files`, ignores relative/newline paths.
+- Real machine, read-only: `cargo test -p tidewise-adapters --test pacman_real -- --nocapture` → exit 0 (3 passed): "1484 packages -> 83 apps", `bash` and `glibc` not among them.
+- Fuzz: `cargo +nightly fuzz run desktop_files -- -max_total_time=20` → exit 0, 447,703 runs (20 s only).
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0 (after fixing 2 `cloned_ref_to_slice_refs` in my tests); `cargo deny check` → 0; `cargo audit` → 0. Tests split (full /tmp, 14 leftovers still there): `TMPDIR=$PWD/target/tmp cargo test -p tidewise-app` → 0 (211 passed); `cargo test --workspace --exclude tidewise-app` → 0 (260 passed) = 471 passed. Run before the last clippy-only edit; the adapters crate was re-run after it (143 passed).
+Not verified:
+- **Plain `cargo test --all` was not run to green** this round (same full-/tmp cause as Q11/Q12; needs your `rm -rf /tmp/appimage_extracted_*`).
+- No real `flatpak uninstall` ever ran (by rule); the exact flags (`--noninteractive -y`, no `--`) are from memory of flatpak's CLI. System Flatpaks cannot be removed here (helper).
+- The `dpkg -S` fixtures and the AppImage launcher fixtures are hand-written; no runner for `dpkg -S` or `rpm -qf` exists yet, so Debian and Fedora cannot map packages to apps. Mapping uses `/usr/share/applications` only (not Flatpak/Snap exports or `~/.local/share/applications`).
+- AppImage removal itself (moving the file, launcher and icon to the Trash) is not implemented here (Q14); `with_menu` is not yet called by the app.
+- `apps_from_packages` takes the first visible launcher as the app's name; apps with several launchers (or libraries that ship a visible launcher, e.g. some Qt tools) show up as apps.
+Errors: clippy `cloned_ref_to_slice_refs` ×2 in new tests (fixed, exit 0). No other failures.
+Decisions taken without the human: one `CommandRunner` trait in the adapters crate (the helper is not touched); `uninstall_user` omits `--` before the id because it validates the id instead. Not in docs/questions.md.

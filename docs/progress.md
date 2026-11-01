@@ -414,3 +414,9 @@ Plan: `adapters::snap`: `parse_snap_list` (C-locale header required), `old_revis
 Done: red afe2da7, green 543d68a.
 Next: R6-Q13 Flatpak runner, AppImage menu entries, packages → apps via .desktop.
 Blockers: /tmp still full (docs/questions.md): plain `cargo test --all` fails on 2 AppImage tests until it is cleaned.
+
+## 2026-11-02 — Run 06, R6-Q13 Flatpak runner, AppImage menu entries, packages → apps — PARTIAL
+Plan: `runner::CommandRunner` (+ `SystemRunner`: absolute path, argument list, `LC_ALL=C`); `flatpak::uninstall_user` through a runner (fake in tests, never real); `desktop` module (.desktop parser, `Exec=` program, `pacman -Qo` and `dpkg -S` readers, `apps_from_packages`, `pacman_owners`); `appimage::menu_entries` + plan with launcher and icon; fuzz target.
+Done: red 79e21f6 / cbdefc9, green bf0580d. On this machine 1484 pacman packages become 83 apps.
+Next: R6-Q14 Apps screen.
+Blockers: rpm owner lookup, a dpkg runner and system-Flatpak removal are not done.
