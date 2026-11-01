@@ -365,3 +365,9 @@ Plan: write `docs/test-build-notes.md` from what the app really has (grep of `ma
 Done: file written; found there is no `--version`/`--help`, said so in the notes.
 Next: R6-Q05 junk scanner.
 Blockers: none.
+
+## 2026-11-01 — Run 06, R6-Q05 junk scanner
+Plan: `adapters::junk` (new, depends on `tidewise-core` for sizes) takes a `Sources` struct (folders, running names, saved command text) and returns items + skipped; parsers `journal::parse_disk_usage` and `flatpak::{parse_runtimes, parse_app_runtimes, unused_runtimes}`; fixtures real + hand-written; fuzz target; `live_sources()` runs `journalctl --disk-usage` and `flatpak list` (read-only, absolute paths, `LC_ALL=C`).
+Done: red a492bd8 (18 failed), green 0595354. Unused-runtime rule is deliberately cautious (only `.Platform`/`.Sdk`, never extensions or freedesktop base).
+Next: R6-Q06 Clean up screen + flow C (user-owned items).
+Blockers: none.

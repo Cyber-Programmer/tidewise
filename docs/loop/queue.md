@@ -25,7 +25,7 @@ detail; this queue wins where they differ (no root, no helper).
 
 ## B. M3 user side — Clean up without root
 
-- [ ] **Q05 Junk scanner** (WBS 6.5). As the user, read-only: app caches under `~/.cache` (skip caches of
+- [x] **Q05 Junk scanner** (WBS 6.5). As the user, read-only: app caches under `~/.cache` (skip caches of
   running apps; list what's skipped and why), Trash size, package cache size (pacman/apt/dnf dirs, read
   only), journal size (`journalctl --disk-usage`), unused Flatpak runtimes **computed from
   `flatpak list` output** (never run `flatpak uninstall`). Output = the exact confirm list (dry-run).

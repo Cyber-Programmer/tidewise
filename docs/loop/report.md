@@ -59,3 +59,21 @@ Evidence: `docs/test-build-notes.md` written (what to try, known gaps, how to re
 Not verified: I did not run the app to try the listed steps myself (keyboard keys list is copied from the run 5 progress entry, Trash/Undo behaviour from `storage_live.rs`); the issues URL is the `repository` value in `Cargo.toml` and was not opened; I did not check that GitHub private vulnerability reporting is enabled.
 Errors: none
 Decisions taken without the human: none
+
+## R6-Q05 Junk scanner — Done   (2026-11-01 ~23:50 PKT)
+WBS: 6.5 → Done (row 69; sheet write status success)
+Commits: a492bd8 (red), 0595354
+Evidence:
+- Red: `cargo test -p tidewise-adapters` → exit 101, 18 failed against stubs (e.g. `junk::tests::caches_are_listed_and_caches_of_running_apps_are_skipped_with_a_reason`, `journal::tests::real_output_is_in_binary_units`, `flatpak::tests::real_machine_has_nothing_unused`).
+- Green: `cargo test -p tidewise-adapters` → exit 0, 42 passed (+ the real-command test). Sources covered by fixture tests: app caches (running → skipped with reason, symlink → skipped, 15-char process name, short-name false positive), Trash, package cache (needs admin, missing dir absent), journal (real, German/comma, `0B`, broken, empty, absurd size), Flatpak runtimes (real, hand-written, broken, cross-installation use), totals, "scanning changes nothing".
+- `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0 (after one fix, see Errors); `cargo test --all` → 0 (334 passed, 0 failed, 3 ignored — the 3rd is the new opt-in `junk_live`).
+- Real machine, read-only (`cargo test -p tidewise-adapters --test junk_live -- --ignored --nocapture` → exit 0): journal 3,006,477,107 B (matches `journalctl --disk-usage` 2.8G), pacman cache 1,865,043,968 B (`du -sh` said 1.8G), Trash 1,576,296,448 B, 8 running-app caches skipped (claude, kitty, plasmashell …), user 20,304,068,608 B / admin 4,871,521,075 B.
+- Fuzz: `cargo +nightly fuzz run journal_usage -- -max_total_time=20` → exit 0, 696,769 runs; `flatpak_list` (now also the runtime parsers) 20 s → exit 0, 301,318 runs. Logged in `docs/security/fuzzing.md`.
+Not verified:
+- The unused Flatpak runtime list is computed from `flatpak list` only and is NOT compared with `flatpak uninstall --unused` (not allowed this run); on this machine it found none. The rule is cautious (only `.Platform`/`.Sdk`, never extensions or `org.freedesktop.*`), so it can miss unused runtimes but should not offer used ones — untested against a machine that has unused runtimes.
+- Hand-written fixtures: unused runtimes, German/zero/broken journal text (README in `tests/fixtures/junk/`). apt and dnf cache folders are only checked as "missing → absent"; not run on those distros.
+- The running-app match is a name heuristic (equal / ≥5-char prefix / `mozilla`→firefox); it can wrongly skip or (for apps with unrelated process and cache names) wrongly include a cache. Sizes of `~/.cache` items were not compared with `du`.
+- Fuzzing was 20 s per target, not the 10 minutes ENGINEERING.md asks for (Q23).
+- Nothing yet uses the report: no screen, no Trash/cache removal (Q06/Q07).
+Errors: (1) first `cargo clippy` after the green code → exit 101, `unnecessary_sort_by` in `junk.rs`; fixed with `sort_by_key(Reverse)`, rerun exit 0. (2) My first edit of `flatpak.rs` deleted `parse_list` (slicing slip); caught by the compiler (E0425), restored from `HEAD`, tests then green. (3) One test fixture (`flatpak-app-runtimes-handwritten.txt`) was wrong for the test I wrote (Tiny used the freedesktop base); I corrected the fixture in the green commit rather than the assertion, noted in the commit message. (4) Wrote one temp file to `/tmp/claude-1000/…/scratchpad` only (fine).
+Decisions taken without the human: `adapters` now depends on `tidewise-core` (a path dependency inside the workspace, not an external crate; `core` still has no networking crate — Q03 test green). Not in `docs/questions.md` as a blocker; recommended to keep.
