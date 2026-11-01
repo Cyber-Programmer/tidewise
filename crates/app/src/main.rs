@@ -14,6 +14,7 @@ mod cleaner;
 mod cleaner_live;
 mod cli;
 mod demo;
+mod endtask;
 mod home;
 mod live;
 mod nav;

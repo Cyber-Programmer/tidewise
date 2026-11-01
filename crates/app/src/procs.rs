@@ -145,6 +145,8 @@ pub struct Group {
     pub rss: u64,
     pub protected: bool,
     pub pid: u32,
+    /// Every process of the group.
+    pub pids: Vec<u32>,
     pub cmd: String,
 }
 
@@ -236,6 +238,7 @@ pub fn group(procs: &[Proc], desktop: &HashMap<String, String>) -> Vec<Group> {
                     rss: 0,
                     protected: is_protected(&program),
                     pid: p.pid,
+                    pids: Vec::new(),
                     cmd: String::new(),
                 });
                 groups.len() - 1
@@ -312,6 +315,10 @@ pub struct Row {
     pub net: String,
     pub note: String,
     pub cmd: String,
+    /// Every process of the group, and how many that is.
+    pub pids: Vec<u32>,
+    /// Private memory of the whole group in bytes (what ending it gives back).
+    pub mem_bytes: u64,
 }
 
 pub struct ProcData {
@@ -664,6 +671,8 @@ mod tests {
             net: String::new(),
             note: String::new(),
             cmd: String::new(),
+            pids: Vec::new(),
+            mem_bytes: 0,
         }
     }
 
@@ -721,5 +730,18 @@ mod tests {
         for f in [Filter::Apps, Filter::Background, Filter::All] {
             assert_eq!(Filter::from_index(f.index()), f);
         }
+    }
+
+    #[test]
+    fn a_group_remembers_every_one_of_its_processes() {
+        let procs = vec![
+            proc(10, &["/usr/lib/firefox/firefox"], 1.0, 100),
+            proc(11, &["/usr/lib/firefox/firefox", "-contentproc"], 2.0, 50),
+            proc(20, &["/bin/other"], 0.0, 1),
+        ];
+        let groups = group(&procs, &HashMap::new());
+        let firefox = groups.iter().find(|g| g.key == "firefox").unwrap();
+        assert_eq!(firefox.pids, [10, 11]);
+        assert_eq!(groups.iter().find(|g| g.key == "other").unwrap().pids, [20]);
     }
 }

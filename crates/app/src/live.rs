@@ -424,6 +424,8 @@ pub fn row_from_group(g: &Group) -> Row {
         },
         color: avatar_color(&g.name),
         protected: g.protected,
+        pids: Vec::new(),
+        mem_bytes: 0,
         cpu: format!("{:.1}%", g.cpu),
         cpu_hot: g.cpu >= 5.0,
         mem: fmt_bytes(g.mem),
@@ -530,6 +532,7 @@ mod tests {
             rss: 0,
             protected: kind == Kind::System,
             pid: 42,
+            pids: vec![42],
             cmd: "/usr/bin/firefox".into(),
         }
     }
@@ -608,5 +611,23 @@ mod tests {
     fn never_two_junk_scans_at_once() {
         assert!(!should_scan_junk(None, true, true));
         assert!(!should_scan_junk(Some(JUNK_RESCAN), true, true));
+    }
+
+    #[test]
+    fn a_row_carries_its_processes_and_the_memory_ending_it_frees() {
+        use crate::procs::{group, Proc};
+        let p = |pid: u32, mem: u64| Proc {
+            pid,
+            comm: "app".into(),
+            cmdline: vec!["/bin/app".into()],
+            cpu: 0.0,
+            cpu_core: 0.0,
+            mem,
+            rss: mem,
+        };
+        let groups = group(&[p(5, 100), p(6, 250)], &std::collections::HashMap::new());
+        let row = row_from_group(&groups[0]);
+        assert_eq!(row.pids, [5, 6]);
+        assert_eq!(row.mem_bytes, 350);
     }
 }

@@ -174,6 +174,9 @@ pub fn processes() -> ProcData {
             net: d.net.into(),
             note: d.note.into(),
             cmd: d.cmd.into(),
+            // The sample data has no real processes: ending anything from the demo does nothing.
+            pids: Vec::new(),
+            mem_bytes: 0,
         })
         .collect();
     ProcData {
