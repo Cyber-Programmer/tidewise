@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Timer, TimerMode};
 
+mod apps;
 mod chart;
 mod cleaner;
 mod cleaner_live;
