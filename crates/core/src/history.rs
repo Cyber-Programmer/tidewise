@@ -55,27 +55,89 @@ pub struct Record {
 
 /// `$XDG_STATE_HOME/tidewise/history`, else `$HOME/.local/state/tidewise/history`.
 pub fn history_dir_from(xdg_state: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    let _ = (xdg_state, home);
-    None
+    let state = xdg_state
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            home.map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|h| h.join(".local/state"))
+        })?;
+    Some(state.join("tidewise/history"))
+}
+
+/// The history folder for this user, from the environment.
+pub fn history_dir() -> Option<PathBuf> {
+    history_dir_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::CleanUp => "clean_up",
+        Kind::Uninstall => "uninstall",
+        Kind::Trash => "trash",
+        Kind::Startup => "startup",
+    }
 }
 
 /// An id that is not used in `dir` yet: `<time>-<kind>`, then `-2`, `-3` ….
 pub fn unique_id(dir: &Path, time: u64, kind: Kind) -> String {
-    let _ = (dir, time, kind);
-    String::new()
+    let base = format!("{time}-{}", kind_name(kind));
+    let mut id = base.clone();
+    let mut n = 2;
+    while dir.join(format!("{id}.json")).exists() {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
+}
+
+/// A plain file name: not empty, no separators, no NUL, not hidden, not `.`/`..`.
+fn is_plain_name(id: &str) -> bool {
+    !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\', '\0'])
 }
 
 /// Write `<id>.json` atomically (temp file, then rename). Refuses an id that is not a plain file
 /// name, and never overwrites an existing record.
 pub fn write(dir: &Path, record: &Record) -> io::Result<PathBuf> {
-    let _ = (dir, record);
-    Err(io::Error::other("not written"))
+    use std::io::Write;
+    if !is_plain_name(&record.id) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "record id is not a plain file name",
+        ));
+    }
+    std::fs::create_dir_all(dir)?;
+    let target = dir.join(format!("{}.json", record.id));
+    let temp = dir.join(format!(".{}.tmp", record.id));
+    let json = serde_json::to_string_pretty(record).map_err(io::Error::other)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)?;
+    let result = file
+        .write_all(json.as_bytes())
+        .and_then(|()| file.sync_all())
+        // `hard_link` fails when the target exists, unlike `rename`, so nothing is overwritten.
+        .and_then(|()| std::fs::hard_link(&temp, &target));
+    let _ = std::fs::remove_file(&temp);
+    result?;
+    Ok(target)
 }
 
 /// All readable records, newest first. Files that are not records are skipped.
 pub fn list(dir: &Path) -> Vec<Record> {
-    let _ = dir;
-    Vec::new()
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut records: Vec<Record> = entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|text| serde_json::from_str(&text).ok())
+        .collect();
+    records.sort_by(|a, b| b.time.cmp(&a.time).then_with(|| a.id.cmp(&b.id)));
+    records
 }
 
 #[cfg(test)]
