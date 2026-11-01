@@ -378,3 +378,9 @@ Done: red/green pairs 55b30b4→1282a84, 618f099→c6845ea, e2a5f34→5e359aa, 6
 Rules bent: the screenshot tests and the Slint/glue code were written together (no red commit for them); `cargo deny` was broken from Q05 until 37e9ea6 (Q05 slip).
 Next: R6-Q07 Home junk score.
 Blockers: password step and admin groups need the helper (not this run).
+
+## 2026-11-01 — Run 06, R6-Q07 Home junk score real
+Plan: `health_scan` takes the junk size (`Option<u64>`); points via the existing `junk_points`, suggestion from 1 GB with the design's copy; stub label removed; a worker thread runs `junk::scan` once at start and every 5 min while Home is open.
+Done: red 398b62f + 928bea8, green below. Note under the ring says junk is not part of the score only until the first scan has finished.
+Next: R6-Q08 AppSource trait.
+Blockers: none.

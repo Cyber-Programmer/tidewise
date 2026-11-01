@@ -36,7 +36,7 @@ detail; this queue wins where they differ (no root, no helper).
   after the confirm screen; tests on temp dirs only). Root items show the needs-admin state. Writes a
   History record (Q16 format; if Q16 isn't done yet, define the record type here). Design check ≤ 10 %.
   WBS 6.6 → In Progress or Needs Verification, never Done (root part missing).
-- [ ] **Q07 Home junk score real** (WBS 4.11 note). Feed Q05's totals into the health score; remove the
+- [x] **Q07 Home junk score real** (WBS 4.11 note). Feed Q05's totals into the health score; remove the
   stub label. Unit tests at the rule boundaries.
 
 ## C. M4 user side — Apps
