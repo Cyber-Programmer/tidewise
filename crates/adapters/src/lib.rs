@@ -3,6 +3,8 @@
 
 pub mod appimage;
 pub mod flatpak;
+pub mod journal;
+pub mod junk;
 pub mod pacman;
 
 /// An installed system package.

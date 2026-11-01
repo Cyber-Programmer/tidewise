@@ -1,0 +1,6 @@
+org.freedesktop.Platform.GL.default/x86_64/26.08	469.9 MB	system
+org.freedesktop.Platform.GL.default/x86_64/26.08-extra	469.9 MB	system
+org.freedesktop.Platform.VAAPI.Intel/x86_64/26.08	48.0 MB	system
+org.freedesktop.Platform.codecs-extra/x86_64/26.08-extra	45.6 MB	system
+org.gnome.Platform/x86_64/51	1.1 GB	system
+org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22	3.6 kB	system

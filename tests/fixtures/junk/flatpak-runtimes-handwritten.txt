@@ -1,0 +1,7 @@
+org.gnome.Platform/x86_64/51	1.2 GB	system
+org.gnome.Platform/x86_64/47	1.1 GB	system
+org.kde.Platform/x86_64/6.7	900.0 MB	user
+org.kde.Sdk/x86_64/6.7	2.0 GB	user
+org.freedesktop.Platform/x86_64/23.08	600.0 MB	system
+org.freedesktop.Platform.GL.default/x86_64/23.08	150.0 MB	system
+org.gnome.Platform.Locale/x86_64/47	300.0 MB	system
