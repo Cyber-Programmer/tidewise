@@ -11,6 +11,9 @@ Package managers: pacman, apt, dnf; app sources: Flatpak, Snap, AppImage. Licenc
 - Current phase prompt: `docs/prompts/`
 - Progress log: `docs/progress.md` — read the last entry before starting, add one when done
 - Engineering practices (TDD, security testing, review, budgets): @docs/ENGINEERING.md
+- Work breakdown (WBS) sheet: https://docs.google.com/spreadsheets/d/1gRI9jVQAm3w0y9UL2aFld0kT-kqiUSD9oMUV5yTX3Gc
+  — update it at the end of every task (see "Tracking" below)
+- Unattended loop runs: `docs/loop/LOOP.md` (instructions), `docs/loop/queue.md`, `docs/loop/report.md`
 
 ## Golden rules (never break these)
 
@@ -41,6 +44,25 @@ Package managers: pacman, apt, dnf; app sources: Flatpak, Snap, AppImage. Licenc
 - Small commits, Conventional Commits style (`feat(core): …`, `fix(app): …`, `test(…): … (red)`),
   never mixing a refactor with a behaviour change. Decisions go in `docs/decisions/`.
 - If you are unsure how a distro tool behaves, say so and propose a fixture test; don't guess.
+
+## Tracking (WBS sheet)
+
+The Google Sheet above (tab **WBS**, columns A–O) is the human's view of the project. After every task:
+- Find the row(s) by **WBS ID in column A** (read A:A first; never assume a row number).
+- Status (G) only from the dropdown: `To Do`, `In Progress`, `Done`, `Needs Verification`. `Done` only
+  with evidence in L (commit SHAs + test names or commands with exit 0). Built but not checkable here
+  (needs a person, another distro, a click) → `Needs Verification`. Partial → `In Progress` + what's
+  missing in N. Blocked → blocker in N.
+- Dates in H/I as `1 Nov 2026`, only when they happened. Never invent an owner (J); never mark a row
+  whose owner is "Human" as Done.
+- L = evidence, M = files/docs, N = notes/blockers; replace outdated text instead of appending.
+- New work without a row: insert below the last row of its workstream, next free WBS ID under the parent,
+  Level `Task`, Workstream text copied exactly.
+- Never edit column O (Roll-up), the Overview tab (except the `B2` snapshot line) or the
+  "Sources & Verification" tab.
+- If the sheet can't be reached, write the intended changes to `docs/loop/wbs-pending.csv`
+  (WBS ID, column, old value, new value) and say so in your final message. Never claim an update you
+  didn't make.
 
 ## Workspace layout
 
