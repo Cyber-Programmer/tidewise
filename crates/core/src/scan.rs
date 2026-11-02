@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn cancelling_stops_the_scan_and_says_so() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = disk_tempdir();
         for i in 0..50 {
             write(&dir.path().join(format!("d{i}/f.bin")), 1000);
         }
