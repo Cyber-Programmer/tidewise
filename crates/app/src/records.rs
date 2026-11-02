@@ -15,12 +15,15 @@ pub fn now_secs() -> u64 {
 
 /// Write the record `build(time, id)` makes into `dir`, under a fresh id for `kind`.
 pub fn save_in(
-    _dir: &Path,
-    _kind: Kind,
-    _time: u64,
-    _build: impl FnOnce(u64, &str) -> Record,
+    dir: &Path,
+    kind: Kind,
+    time: u64,
+    build: impl FnOnce(u64, &str) -> Record,
 ) -> Result<String, String> {
-    Err("not written".into())
+    let id = history::unique_id(dir, time, kind);
+    let record = build(time, &id);
+    history::write(dir, &record).map_err(|e| e.to_string())?;
+    Ok(id)
 }
 
 /// Like `save_in`, in the user's History folder, at the current time.
