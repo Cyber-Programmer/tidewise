@@ -6,7 +6,7 @@
 //! each path is re-checked right before it is removed (still where it was, not a link, not in use).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tidewise_core::history;
 
@@ -102,10 +102,65 @@ pub struct Env {
     pub owner_uid: Option<u32>,
 }
 
-/// Make the folders inside `path` writable so they can be removed: only real folders (never a
-/// link), only when `owner_uid` owns them. Refuses anything else with the reason.
-fn make_writable_tree(_path: &std::path::Path, _owner_uid: u32) -> Result<(), String> {
+/// Make the folders inside `path` (and `path` itself) writable so they can be removed: only real
+/// folders (never a link, never followed), only when `owner_uid` owns them. Anything else is
+/// refused with the reason and left as it is. Files are not touched.
+///
+/// There is a small window between the check and the `chmod`; closing it would need `unsafe`.
+/// Whoever could win that race already runs as this user and could do the same without Tidewise.
+fn make_writable_tree(path: &Path, owner_uid: u32) -> Result<(), String> {
+    make_writable_at(path, owner_uid, 0)
+}
+
+fn make_writable_at(path: &Path, owner_uid: u32, depth: usize) -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    if depth > 200 {
+        return Err("folders nested too deeply".into());
+    }
+    let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_dir() {
+        return Ok(());
+    }
+    if meta.uid() != owner_uid {
+        return Err("the folder belongs to someone else".into());
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o700 != 0o700 {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    for entry in fs::read_dir(path).map_err(|e| e.to_string())?.flatten() {
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            make_writable_at(&entry.path(), owner_uid, depth + 1)?;
+        }
+    }
     Ok(())
+}
+
+/// `~/.cache/x` for a path inside the home folder (the parent of the cache folder), else the path.
+fn tidy(path: &Path, env: &Env) -> String {
+    match env.cache_root.parent().map(|home| path.strip_prefix(home)) {
+        Some(Ok(rest)) => format!("~/{}", rest.display()),
+        _ => path.display().to_string(),
+    }
+}
+
+/// Bytes on disk right now: a folder's whole tree, or a file's blocks. 0 when it is gone.
+fn size_now(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => {
+            tidewise_core::scan::scan(
+                path,
+                &Default::default(),
+                &Default::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            )
+            .total_bytes
+        }
+        Ok(m) => m.blocks() * 512,
+        Err(_) => 0,
+    }
 }
 
 pub fn groups(report: &JunkReport) -> Vec<Group> {
@@ -229,36 +284,60 @@ pub fn run_step(step: &Step, env: &Env) -> StepResult {
 }
 
 fn clean_caches(step: &Step, env: &Env) -> Outcome {
-    let (mut freed, mut removed, mut refused) = (0, Vec::new(), Vec::new());
+    use std::os::unix::fs::MetadataExt;
+    let owner = env
+        .owner_uid
+        .or_else(|| fs::metadata(&env.cache_root).ok().map(|m| m.uid()));
+    let (mut freed, mut removed, mut refused, mut entries) =
+        (0, Vec::new(), Vec::new(), Vec::new());
     for item in &step.items {
         let label = item.label.clone();
+        let shown = item
+            .path
+            .as_ref()
+            .map_or_else(|| label.clone(), |p| p.display().to_string());
+        let mut leave = |why: String, is_dir: bool, bytes: u64| {
+            refused.push((label.clone(), why.clone()));
+            entries.push(Entry {
+                path: shown.clone(),
+                bytes,
+                left: true,
+                reason: Some(why),
+                is_dir,
+            });
+        };
         let Some(path) = &item.path else {
-            refused.push((label, "It has no folder".into()));
+            leave("It has no folder".into(), false, 0);
             continue;
         };
         // Only a direct child of the cache folder, never the folder itself or anything above it.
         let is_child =
             path.file_name().is_some() && path.parent() == Some(env.cache_root.as_path());
         if !is_child {
-            refused.push((label, "It is not inside your cache folder".into()));
+            leave("It is not inside your cache folder".into(), false, 0);
             continue;
         }
         let meta = match fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(_) => {
-                refused.push((label, "It is already gone".into()));
+                leave("It is already gone".into(), false, 0);
                 continue;
             }
         };
         if meta.file_type().is_symlink() {
-            refused.push((label, "It has become a link, so it is left alone".into()));
+            leave("It has become a link, so it is left alone".into(), false, 0);
             continue;
         }
         if is_running(&label, &env.running) {
-            refused.push((label, "The app is running right now".into()));
+            leave("The app is running right now".into(), meta.is_dir(), 0);
             continue;
         }
         let result = if meta.is_dir() {
+            // Some tools create read-only folders. Make the user's own ones writable first; a
+            // folder that is not theirs is not changed, and the removal below then says why.
+            if let Some(uid) = owner {
+                let _ = make_writable_tree(path, uid);
+            }
             fs::remove_dir_all(path)
         } else {
             fs::remove_file(path)
@@ -267,15 +346,32 @@ fn clean_caches(step: &Step, env: &Env) -> Outcome {
             Ok(()) => {
                 freed += item.bytes;
                 removed.push(path.display().to_string());
+                entries.push(Entry {
+                    path: shown,
+                    bytes: item.bytes,
+                    left: false,
+                    reason: None,
+                    is_dir: meta.is_dir(),
+                });
             }
-            Err(e) => refused.push((label, format!("It could not be removed: {e}"))),
+            Err(e) => {
+                // Count only what really went away.
+                let gone = item.bytes.saturating_sub(size_now(path));
+                freed += gone;
+                let why = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    format!("read-only folder: {}", tidy(path, env))
+                } else {
+                    format!("could not be removed ({e}): {}", tidy(path, env))
+                };
+                leave(why, meta.is_dir(), gone);
+            }
         }
     }
     Outcome::Cleaned {
         freed,
         removed,
         refused,
-        entries: Vec::new(),
+        entries,
     }
 }
 
@@ -379,6 +475,33 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// How many items were left behind, and whether they were all folders.
+fn left_behind(results: &[StepResult]) -> (usize, bool) {
+    let (mut n, mut all_dirs) = (0, true);
+    for r in results {
+        if let Outcome::Cleaned {
+            refused, entries, ..
+        } = &r.outcome
+        {
+            n += refused.len();
+            let dirs = entries.iter().filter(|e| e.left && e.is_dir).count();
+            all_dirs &= dirs == refused.len();
+        }
+    }
+    (n, all_dirs && n > 0)
+}
+
+/// `1 folder`, `3 items`: what a run left behind, in words.
+pub fn left_words(n: usize, all_folders: bool) -> String {
+    let noun = match (all_folders, n == 1) {
+        (true, true) => "folder",
+        (true, false) => "folders",
+        (false, true) => "item",
+        (false, false) => "items",
+    };
+    format!("{n} {noun}")
+}
+
 /// The History record for a finished run.
 pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
     let freed = freed_bytes(results);
@@ -398,21 +521,45 @@ pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
                     freed,
                     removed,
                     refused,
-                    ..
+                    entries,
                 } => {
                     let note = (!refused.is_empty()).then(|| {
-                        refused
+                        let reasons: Vec<String> = entries
                             .iter()
-                            .map(|(what, why)| format!("{what}: {why}"))
-                            .collect::<Vec<_>>()
-                            .join("; ")
+                            .filter(|e| e.left)
+                            .filter_map(|e| e.reason.clone())
+                            .collect();
+                        if reasons.is_empty() {
+                            refused
+                                .iter()
+                                .map(|(what, why)| format!("{what}: {why}"))
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        } else {
+                            reasons.join("; ")
+                        }
                     });
-                    let status = if removed.is_empty() && !refused.is_empty() {
-                        history::Status::Failed
-                    } else {
-                        history::Status::Done
+                    // Anything left behind means the step is not simply "done".
+                    let status = match (removed.is_empty(), refused.is_empty()) {
+                        (_, true) => history::Status::Done,
+                        (true, false) => history::Status::Failed,
+                        (false, false) => history::Status::Partial,
                     };
-                    step(status, *freed, removed.clone(), note)
+                    let mut s = step(status, *freed, removed.clone(), note);
+                    s.entries = entries
+                        .iter()
+                        .map(|e| history::Item {
+                            path: e.path.clone(),
+                            bytes: e.bytes,
+                            result: if e.left {
+                                history::ItemResult::Left
+                            } else {
+                                history::ItemResult::Removed
+                            },
+                            reason: e.reason.clone(),
+                        })
+                        .collect();
+                    s
                 }
                 Outcome::NeedsAdmin => step(
                     history::Status::Skipped,
@@ -430,16 +577,21 @@ pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
             }
         })
         .collect();
+    let (left, folders) = left_behind(results);
+    let mut title = if freed == 0 {
+        "Nothing was cleaned".to_string()
+    } else {
+        format!("Cleaned {}", format_bytes(freed))
+    };
+    if left > 0 {
+        title += &format!(" · {} left", left_words(left, folders));
+    }
     history::Record {
         version: history::VERSION,
         id: id.into(),
         time,
         kind: history::Kind::CleanUp,
-        title: if freed == 0 {
-            "Nothing was cleaned".into()
-        } else {
-            format!("Cleaned {}", format_bytes(freed))
-        },
+        title,
         freed_bytes: freed,
         steps,
     }
@@ -972,7 +1124,12 @@ mod tests {
         let w = world();
         let ro = lock_alpha(&w);
         let step = real_step(&w);
-        let results = run(&[step.clone()], &w.env, &|| false, &mut |_, _| {});
+        let results = run(
+            std::slice::from_ref(&step),
+            &w.env,
+            &|| false,
+            &mut |_, _| {},
+        );
         unlock(&ro);
         let (freed, removed, refused) = cleaned(&results[0]);
         assert!(refused.is_empty(), "{refused:?}");

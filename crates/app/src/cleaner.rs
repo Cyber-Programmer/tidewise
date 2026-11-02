@@ -149,11 +149,24 @@ pub struct Finish {
 pub fn finish(results: &[StepResult]) -> Finish {
     let freed = tidewise_adapters::cleanup::freed_bytes(results);
     let mut left_alone = 0;
+    let mut why_left: Vec<String> = Vec::new();
+    let mut all_folders = true;
     let (mut admin, mut not_yet) = (Vec::new(), Vec::new());
     let mut stopped = false;
     for r in results {
         match &r.outcome {
-            Outcome::Cleaned { refused, .. } => left_alone += refused.len(),
+            Outcome::Cleaned {
+                refused, entries, ..
+            } => {
+                left_alone += refused.len();
+                let left: Vec<_> = entries.iter().filter(|e| e.left).collect();
+                all_folders &= left.len() == refused.len() && left.iter().all(|e| e.is_dir);
+                if left.is_empty() {
+                    why_left.extend(refused.iter().map(|(what, why)| format!("{what}: {why}")));
+                } else {
+                    why_left.extend(left.iter().filter_map(|e| e.reason.clone()));
+                }
+            }
             Outcome::NeedsAdmin => admin.push(r.title),
             Outcome::NotYet => not_yet.push(r.title),
             Outcome::Stopped => stopped = true,
@@ -196,17 +209,23 @@ pub fn finish(results: &[StepResult]) -> Finish {
         |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     let mut title = format!("{} freed", format_bytes(freed));
     if left_alone > 0 {
-        title += &format!(", {} left alone", plural(left_alone, "item", "items"));
+        title += &format!(
+            " · {} left",
+            tidewise_adapters::cleanup::left_words(left_alone, all_folders)
+        );
     }
     if skipped > 0 {
         title += &format!(", {} skipped", plural(skipped, "group", "groups"));
     }
     let mut text = Vec::new();
     if left_alone > 0 {
+        let shown: Vec<_> = why_left.iter().take(3).cloned().collect();
+        let more = why_left.len().saturating_sub(shown.len());
         text.push(format!(
-            "{} changed after the scan, so Tidewise left {} alone.",
-            plural(left_alone, "item", "items"),
-            if left_alone == 1 { "it" } else { "them" }
+            "Tidewise could not clean {}: {}{}. A folder that was left may be partly emptied; History lists exactly what went and what stayed.",
+            tidewise_adapters::cleanup::left_words(left_alone, all_folders),
+            shown.join("; "),
+            if more > 0 { format!("; and {more} more") } else { String::new() },
         ));
     }
     if !admin.is_empty() {
@@ -223,7 +242,9 @@ pub fn finish(results: &[StepResult]) -> Finish {
             join_names(&not_yet)
         ));
     }
-    text.push("Nothing went wrong, and nothing was half-removed.".into());
+    if left_alone == 0 {
+        text.push("Nothing went wrong, and nothing was half-removed.".into());
+    }
     Finish {
         all_done: false,
         title,
@@ -484,8 +505,12 @@ mod tests {
             },
         )]);
         assert!(!f.all_done);
-        assert_eq!(f.title, "1 MB freed, 1 item left alone");
-        assert!(f.text.contains("changed after the scan"));
+        assert_eq!(f.title, "1 MB freed · 1 item left");
+        assert!(
+            f.text.contains("b: The app is running right now"),
+            "{}",
+            f.text
+        );
     }
 
     #[test]
