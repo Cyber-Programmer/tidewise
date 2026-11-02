@@ -168,9 +168,28 @@ pub struct Panel {
     pub button: Button,
     /// The command, for "Technical details". Display only.
     pub technical: String,
+    /// Show the "Also delete my settings & data" choice (only where the folder is known).
+    pub settings_offer: bool,
+    /// The choice is on.
+    pub delete_settings: bool,
+}
+
+/// The settings folder Tidewise knows for the app, and whether the user ticked it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SettingsChoice {
+    pub bytes: u64,
+    pub delete: bool,
 }
 
 pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
+    panel_with_settings(app, plan, None)
+}
+
+pub fn panel_with_settings(
+    app: &AppEntry,
+    plan: &RemovalPlan,
+    _settings: Option<SettingsChoice>,
+) -> Panel {
     let known = |items: &[tidewise_adapters::source::PlanItem]| -> Option<u64> {
         let sizes: Vec<u64> = items.iter().filter_map(|i| i.bytes).collect();
         (!sizes.is_empty()).then(|| sizes.iter().sum())
@@ -223,6 +242,8 @@ pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
         } else {
             plan.command.join(" ")
         },
+        settings_offer: false,
+        delete_settings: false,
     }
 }
 
@@ -236,6 +257,11 @@ pub struct Done {
 }
 
 pub fn done(name: &str, to_trash: bool, outcome: &Outcome) -> Done {
+    done_with_settings(name, to_trash, false, outcome)
+}
+
+/// Like `done`, for an uninstall that also moved the settings folder to the Trash (`deleted`).
+pub fn done_with_settings(name: &str, to_trash: bool, _deleted: bool, outcome: &Outcome) -> Done {
     let say = |removed: bool, title: String, text: String| Done {
         removed,
         title,
@@ -539,6 +565,92 @@ mod tests {
             ("Uninstall GIMP", &Button::Enabled)
         );
         assert_eq!(p.technical, "flatpak uninstall org.gimp.GIMP");
+    }
+
+    fn flatpak_panel(settings: Option<SettingsChoice>) -> Panel {
+        let a = app("GIMP", SourceKind::Flatpak, Some(412_000_000));
+        panel_with_settings(
+            &a,
+            &plan(
+                &[
+                    ("org.gimp.GIMP", Some(412_000_000)),
+                    ("org.gnome.Platform", Some(320_000_000)),
+                ],
+                None,
+                false,
+                SourceKind::Flatpak,
+            ),
+            settings,
+        )
+    }
+
+    #[test]
+    fn without_a_known_settings_folder_nothing_is_offered() {
+        let p = flatpak_panel(None);
+        assert!(!p.settings_offer && !p.delete_settings);
+        assert_eq!(
+            p,
+            panel(
+                &app("GIMP", SourceKind::Flatpak, Some(412_000_000)),
+                &plan(
+                    &[
+                        ("org.gimp.GIMP", Some(412_000_000)),
+                        ("org.gnome.Platform", Some(320_000_000)),
+                    ],
+                    None,
+                    false,
+                    SourceKind::Flatpak,
+                ),
+            )
+        );
+    }
+
+    #[test]
+    fn a_known_settings_folder_is_offered_and_kept_until_ticked() {
+        let p = flatpak_panel(Some(SettingsChoice {
+            bytes: 2_000_000,
+            delete: false,
+        }));
+        assert!(p.settings_offer && !p.delete_settings);
+        assert_eq!(
+            p.rows[2],
+            ("Your settings and data".to_string(), "kept".to_string())
+        );
+        assert_eq!(p.total, "732 MB");
+    }
+
+    #[test]
+    fn ticking_it_shows_the_size_that_goes_to_the_trash_and_adds_it_to_the_space_back() {
+        let p = flatpak_panel(Some(SettingsChoice {
+            bytes: 2_000_000,
+            delete: true,
+        }));
+        assert!(p.settings_offer && p.delete_settings);
+        assert_eq!(
+            p.rows[2],
+            (
+                "Your settings and data".to_string(),
+                "2 MB to the Trash".to_string()
+            )
+        );
+        assert_eq!(p.total, "734 MB");
+    }
+
+    #[test]
+    fn the_done_text_says_where_the_settings_went() {
+        let o = Outcome::Removed {
+            items: vec!["x".into()],
+            freed: 734_000_000,
+        };
+        let d = done_with_settings("GIMP", false, true, &o);
+        assert_eq!(
+            d.text,
+            "734 MB freed. Your settings and data are in your Trash, so you can still put them back from there."
+        );
+        assert_eq!(
+            done_with_settings("GIMP", false, false, &o),
+            done("GIMP", false, &o)
+        );
     }
 
     #[test]

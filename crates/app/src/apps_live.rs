@@ -349,6 +349,7 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
                             home: &home,
                             now: SystemTime::now(),
                             runner: &SystemRunner,
+                            delete_settings: false,
                         };
                         uninstall::run(&app, &plan, &fresh, &env)
                     }

@@ -14,7 +14,23 @@ use crate::flatpak::{uninstall_user, UninstallError};
 use crate::runner::CommandRunner;
 use crate::source::{AppEntry, Blocked, RemovalPlan, Scope, SourceKind};
 
+/// The folder a user Flatpak keeps its settings and data in, when Tidewise knows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsFolder {
+    pub path: std::path::PathBuf,
+    pub bytes: u64,
+}
+
+/// `~/.var/app/<id>` of a **user Flatpak**, when it is a real folder (not a link) and the id is a
+/// plain name. Nothing else is ever guessed: not for AppImages, not for packages, not for system
+/// Flatpaks.
+pub fn settings_folder(_app: &AppEntry, _home: &Path) -> Option<SettingsFolder> {
+    None
+}
+
 pub struct Env<'a> {
+    /// Also move the app's settings folder (see `settings_folder`) to the Trash.
+    pub delete_settings: bool,
     pub trash_dir: &'a Path,
     /// The user's home: nothing outside it is ever moved, and it is never moved itself.
     pub home: &'a Path,
@@ -194,7 +210,27 @@ mod tests {
             home: w.home.path(),
             now: SystemTime::UNIX_EPOCH,
             runner,
+            delete_settings: false,
         }
+    }
+
+    fn user_flatpak(w: &World) -> AppEntry {
+        let fl = FlatpakApps::from_list(
+            &fs::read_to_string(format!(
+                "{}/../../tests/fixtures/flatpak/list-handwritten.txt",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        );
+        let _ = w;
+        fl.list().unwrap().remove(1)
+    }
+
+    /// `~/.var/app/org.mozilla.firefox/config/prefs.json` (500 bytes).
+    fn var_app(w: &World) -> PathBuf {
+        let dir = w.home.path().join(".var/app/org.mozilla.firefox");
+        write(&dir.join("config/prefs.json"), 500);
+        dir
     }
 
     #[test]
@@ -314,6 +350,155 @@ mod tests {
             Outcome::NeedsAdmin
         );
         assert!(runner.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn the_settings_folder_is_known_only_for_a_user_flatpaks_var_app_folder() {
+        let w = world();
+        let app = user_flatpak(&w);
+        assert_eq!(settings_folder(&app, w.home.path()), None, "no folder yet");
+        let dir = var_app(&w);
+        let found = settings_folder(&app, w.home.path()).unwrap();
+        assert_eq!(found.path, dir);
+        assert!(found.bytes >= 500, "{}", found.bytes);
+        // A system Flatpak, an AppImage and a package: never guessed, even with a folder there.
+        let fl = FlatpakApps::from_list(
+            &fs::read_to_string(format!(
+                "{}/../../tests/fixtures/flatpak/list-handwritten.txt",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        );
+        let sys = fl.list().unwrap().remove(0);
+        write(&w.home.path().join(format!(".var/app/{}/x", sys.id)), 10);
+        assert_eq!(settings_folder(&sys, w.home.path()), None);
+        let image = w.src.list().unwrap().remove(0);
+        write(&w.home.path().join(".config/Krita/kritarc"), 10);
+        assert_eq!(settings_folder(&image, w.home.path()), None);
+    }
+
+    #[test]
+    fn a_linked_or_oddly_named_settings_folder_is_not_offered() {
+        let w = world();
+        let app = user_flatpak(&w);
+        let elsewhere = w.home.path().join("Documents");
+        write(&elsewhere.join("thesis.odt"), 10);
+        fs::create_dir_all(w.home.path().join(".var/app")).unwrap();
+        std::os::unix::fs::symlink(
+            &elsewhere,
+            w.home.path().join(".var/app/org.mozilla.firefox"),
+        )
+        .unwrap();
+        assert_eq!(settings_folder(&app, w.home.path()), None, "a link");
+        for bad in ["../Documents", "a/b", "", "--force", ".."] {
+            let odd = AppEntry {
+                id: bad.into(),
+                ..app.clone()
+            };
+            assert_eq!(settings_folder(&odd, w.home.path()), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn asking_for_it_moves_the_settings_to_the_trash_after_the_app_is_gone() {
+        let w = world();
+        let app = user_flatpak(&w);
+        let dir = var_app(&w);
+        let plan = FlatpakApps::from_list(
+            &fs::read_to_string(format!(
+                "{}/../../tests/fixtures/flatpak/list-handwritten.txt",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        )
+        .removal_plan(&app)
+        .unwrap();
+        let runner = fake(true);
+        let mut e = env(&w, &runner);
+        e.delete_settings = true;
+        let size = settings_folder(&app, w.home.path()).unwrap().bytes;
+        let out = run(&app, &plan, &plan.clone(), &e);
+        assert_eq!(
+            out,
+            Outcome::Removed {
+                items: vec!["org.mozilla.firefox".into(), dir.display().to_string()],
+                freed: 310_500_000 + size
+            }
+        );
+        assert!(!dir.exists());
+        assert!(w.trash.join("files/org.mozilla.firefox").exists());
+        assert_eq!(runner.calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn by_default_the_settings_stay_and_a_failed_uninstall_never_touches_them() {
+        let w = world();
+        let app = user_flatpak(&w);
+        let dir = var_app(&w);
+        let plan = RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::Flatpak,
+            items: vec![],
+            blocked: None,
+            needs_admin: false,
+            to_trash: false,
+            command: vec![],
+        };
+        let runner = fake(true);
+        run(&app, &plan, &plan.clone(), &env(&w, &runner));
+        assert!(dir.join("config/prefs.json").exists(), "kept by default");
+        let bad = fake(false);
+        let mut e = env(&w, &bad);
+        e.delete_settings = true;
+        let out = run(&app, &plan, &plan.clone(), &e);
+        assert!(matches!(out, Outcome::Failed { .. }), "{out:?}");
+        assert!(dir.join("config/prefs.json").exists(), "uninstall failed");
+    }
+
+    #[test]
+    fn asking_for_it_never_touches_other_kinds_of_apps() {
+        let w = world();
+        write(&w.home.path().join(".config/Krita/kritarc"), 10);
+        let app = w.src.list().unwrap().remove(0);
+        let plan = w.src.removal_plan(&app).unwrap();
+        let runner = fake(true);
+        let mut e = env(&w, &runner);
+        e.delete_settings = true;
+        let out = run(&app, &plan, &plan.clone(), &e);
+        assert!(
+            matches!(&out, Outcome::Removed { items, .. } if items.len() == 3),
+            "{out:?}"
+        );
+        assert!(w.home.path().join(".config/Krita/kritarc").exists());
+    }
+
+    #[test]
+    fn if_the_settings_cannot_be_trashed_the_app_is_still_reported_as_removed_first() {
+        let w = world();
+        let app = user_flatpak(&w);
+        let dir = var_app(&w);
+        let plan = FlatpakApps::from_list(
+            &fs::read_to_string(format!(
+                "{}/../../tests/fixtures/flatpak/list-handwritten.txt",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        )
+        .removal_plan(&app)
+        .unwrap();
+        // The Trash "folder" is a file, so nothing can be moved into it.
+        let not_a_folder = w.home.path().join("not-a-folder");
+        write(&not_a_folder, 1);
+        let runner = fake(true);
+        let mut e = env(&w, &runner);
+        e.trash_dir = &not_a_folder;
+        e.delete_settings = true;
+        let out = run(&app, &plan, &plan.clone(), &e);
+        assert!(
+            matches!(&out, Outcome::Failed { removed, .. } if removed == &vec!["org.mozilla.firefox".to_string()]),
+            "{out:?}"
+        );
+        assert!(dir.join("config/prefs.json").exists(), "left where it was");
     }
 
     #[test]
