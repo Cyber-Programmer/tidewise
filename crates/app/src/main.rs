@@ -16,6 +16,7 @@ mod cli;
 mod demo;
 mod endtask;
 mod endtask_live;
+mod history_view;
 mod home;
 mod live;
 mod nav;
