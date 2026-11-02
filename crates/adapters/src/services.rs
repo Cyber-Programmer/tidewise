@@ -35,18 +35,103 @@ pub struct UnitFile {
     pub preset: Option<String>,
 }
 
-pub fn parse_units(_json: &str) -> Result<Vec<Unit>, ParseError> {
-    Ok(Vec::new())
+fn rows(json: &str) -> Result<Vec<serde_json::Value>, ParseError> {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(serde_json::Value::Array(rows)) => Ok(rows),
+        Ok(_) => Err(ParseError::Json("expected a list".into())),
+        Err(e) => Err(ParseError::Json(e.to_string())),
+    }
 }
 
-pub fn parse_unit_files(_json: &str) -> Result<Vec<UnitFile>, ParseError> {
-    Ok(Vec::new())
+fn text(row: &serde_json::Value, key: &str, index: usize) -> Result<String, ParseError> {
+    row.get(key)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| ParseError::Entry {
+            index,
+            what: format!("`{key}` is missing or not text"),
+        })
+}
+
+/// A unit name as systemd prints it: not empty, not long, no control characters.
+fn unit_name(row: &serde_json::Value, key: &str, index: usize) -> Result<String, ParseError> {
+    let name = text(row, key, index)?;
+    if name.is_empty() || name.len() > 255 || name.chars().any(char::is_control) {
+        return Err(ParseError::Entry {
+            index,
+            what: format!("`{key}` is not a unit name"),
+        });
+    }
+    Ok(name)
+}
+
+pub fn parse_units(json: &str) -> Result<Vec<Unit>, ParseError> {
+    rows(json)?
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            Ok(Unit {
+                unit: unit_name(row, "unit", i)?,
+                load: text(row, "load", i)?,
+                active: text(row, "active", i)?,
+                sub: text(row, "sub", i)?,
+                description: text(row, "description", i).unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+pub fn parse_unit_files(json: &str) -> Result<Vec<UnitFile>, ParseError> {
+    rows(json)?
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            Ok(UnitFile {
+                unit_file: unit_name(row, "unit_file", i)?,
+                state: text(row, "state", i)?,
+                preset: row.get("preset").and_then(|v| v.as_str()).map(String::from),
+            })
+        })
+        .collect()
 }
 
 /// `Id=x.service` / `MemoryCurrent=123` blocks of `systemctl show`: bytes per unit. Units that do
 /// not count memory (`[not set]`, or the "unlimited" all-ones value) are left out.
-pub fn parse_memory(_text: &str) -> Result<HashMap<String, u64>, ParseError> {
-    Ok(HashMap::new())
+pub fn parse_memory(text: &str) -> Result<HashMap<String, u64>, ParseError> {
+    let mut out = HashMap::new();
+    let (mut id, mut memory): (Option<String>, Option<(usize, String)>) = (None, None);
+    let mut flush = |id: &mut Option<String>, memory: &mut Option<(usize, String)>| {
+        let (id, memory) = (id.take(), memory.take());
+        if let (Some(id), Some((line, value))) = (id, memory) {
+            if value == "[not set]" {
+                return Ok(());
+            }
+            match value.parse::<u64>() {
+                Ok(u64::MAX) => {}
+                Ok(bytes) => {
+                    out.insert(id, bytes);
+                }
+                Err(_) => return Err(ParseError::Line { line }),
+            }
+        }
+        Ok(())
+    };
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            flush(&mut id, &mut memory)?;
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(ParseError::Line { line: index + 1 });
+        };
+        match key {
+            "Id" => id = Some(value.to_string()),
+            "MemoryCurrent" => memory = Some((index + 1, value.to_string())),
+            _ => {}
+        }
+    }
+    flush(&mut id, &mut memory)?;
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,14 +175,174 @@ pub struct Service {
 /// Parts of the system that must keep running (golden rule 7): the journal, the network, the login
 /// and session machinery, the display manager, udev, D-Bus, polkit, audio, and everything named
 /// `systemd-*`.
-pub fn is_protected(_unit: &str) -> bool {
-    false
+pub fn is_protected(unit: &str) -> bool {
+    const EXACT: [&str; 11] = [
+        "networkmanager.service",
+        "dbus.service",
+        "polkit.service",
+        "sddm.service",
+        "gdm.service",
+        "lightdm.service",
+        "display-manager.service",
+        "wpa_supplicant.service",
+        "pipewire.service",
+        "wireplumber.service",
+        "pulseaudio.service",
+    ];
+    const PREFIX: [&str; 4] = ["systemd-", "user@", "getty@", "dbus-"];
+    let lower = unit.to_lowercase();
+    EXACT.contains(&lower.as_str()) || PREFIX.iter().any(|p| lower.starts_with(p))
+}
+
+/// Plain names, descriptions and suggestions for the few services people ask about. `review`: worth
+/// a look when it runs and starts with the PC.
+struct Curated {
+    unit: &'static str,
+    name: &'static str,
+    desc: &'static str,
+    review: bool,
+    tip: &'static str,
+}
+
+const CURATED: [Curated; 8] = [
+    Curated {
+        unit: "docker.service",
+        name: "Docker",
+        desc: "Runs containers for developer tools. It uses memory all the time, even when you are not using any containers.",
+        review: true,
+        tip: "Turn off \"Start with your PC\" and start it only when you need it.",
+    },
+    Curated {
+        unit: "cups.service",
+        name: "Printing",
+        desc: "Lets you print. If you never print from this PC, it does not need to run.",
+        review: true,
+        tip: "Turn it off if you have no printer. Turn it back on any time.",
+    },
+    Curated {
+        unit: "bluetooth.service",
+        name: "Bluetooth",
+        desc: "Connects Bluetooth headphones, mice and keyboards.",
+        review: true,
+        tip: "Safe to turn off only if you never use Bluetooth.",
+    },
+    Curated {
+        unit: "avahi-daemon.service",
+        name: "Network device discovery",
+        desc: "Finds printers and shared devices on your home network automatically.",
+        review: false,
+        tip: "",
+    },
+    Curated {
+        unit: "sshd.service",
+        name: "Remote login (SSH)",
+        desc: "Lets other computers log in to yours over the network. Leave it off unless you need it.",
+        review: false,
+        tip: "",
+    },
+    Curated {
+        unit: "fwupd-refresh.service",
+        name: "Firmware update check",
+        desc: "Checks for firmware updates for your devices.",
+        review: false,
+        tip: "",
+    },
+    Curated {
+        unit: "NetworkManager.service",
+        name: "Network",
+        desc: "Keeps you connected to Wi-Fi and wired networks.",
+        review: false,
+        tip: "",
+    },
+    Curated {
+        unit: "systemd-journald.service",
+        name: "System log",
+        desc: "Records what your system does so problems can be traced.",
+        review: false,
+        tip: "",
+    },
+];
+
+fn state_of(active: &str, sub: &str) -> State {
+    match (active, sub) {
+        ("active", "exited") => State::Finished,
+        ("active" | "activating" | "deactivating" | "reloading", _) => State::Running,
+        ("failed", _) => State::Failed,
+        _ => State::Off,
+    }
+}
+
+fn boot_of(file_state: Option<&str>) -> Boot {
+    match file_state {
+        Some("enabled" | "enabled-runtime") => Boot::Yes,
+        Some("disabled") => Boot::No,
+        Some("masked" | "masked-runtime") => Boot::Masked,
+        _ => Boot::WhenNeeded,
+    }
 }
 
 /// Every installed service: the loaded ones from `units` plus unit files that are not loaded
 /// (listed as Off), without templates (`name@.service`) and aliases.
-pub fn build(_units: &[Unit], _files: &[UnitFile], _memory: &HashMap<String, u64>) -> Vec<Service> {
-    Vec::new()
+pub fn build(units: &[Unit], files: &[UnitFile], memory: &HashMap<String, u64>) -> Vec<Service> {
+    let file_state: HashMap<&str, &str> = files
+        .iter()
+        .map(|f| (f.unit_file.as_str(), f.state.as_str()))
+        .collect();
+    let make = |unit: &str, description: &str, state: State, technical: String| {
+        let curated = CURATED.iter().find(|c| c.unit == unit);
+        let boot = boot_of(file_state.get(unit).copied());
+        let protected = is_protected(unit);
+        let stem = unit.strip_suffix(".service").unwrap_or(unit);
+        let name = match curated {
+            Some(c) => c.name.to_string(),
+            None if !description.is_empty() && description != unit => description.to_string(),
+            None => stem.to_string(),
+        };
+        let tip = if protected {
+            None
+        } else if state == State::Failed {
+            Some("It failed. Nothing is necessarily broken: many services fail when there is no network and try again later. The technical details say what happened.".to_string())
+        } else {
+            curated
+                .filter(|c| c.review && state == State::Running && boot == Boot::Yes)
+                .map(|c| c.tip.to_string())
+        };
+        Service {
+            unit: unit.to_string(),
+            name,
+            desc: curated.map_or_else(|| description.to_string(), |c| c.desc.to_string()),
+            state,
+            boot,
+            memory: memory.get(unit).copied(),
+            protected,
+            tip,
+            technical,
+        }
+    };
+    let mut out: Vec<Service> = Vec::new();
+    for u in units.iter().filter(|u| u.load == "loaded") {
+        let fs = file_state.get(u.unit.as_str()).copied().unwrap_or("none");
+        out.push(make(
+            &u.unit,
+            &u.description,
+            state_of(&u.active, &u.sub),
+            format!("{}/{} · unit file: {fs}", u.active, u.sub),
+        ));
+    }
+    for f in files {
+        let (name, state) = (f.unit_file.as_str(), f.state.as_str());
+        if name.ends_with("@.service") || state == "alias" || out.iter().any(|s| s.unit == name) {
+            continue;
+        }
+        out.push(make(
+            name,
+            "",
+            State::Off,
+            format!("not loaded · unit file: {state}"),
+        ));
+    }
+    out.sort_by_key(|s| (s.name.to_lowercase(), s.unit.clone()));
+    out
 }
 
 #[cfg(test)]
