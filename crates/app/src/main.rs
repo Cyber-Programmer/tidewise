@@ -666,6 +666,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    ui.global::<ProcState>().on_force_quit({
+        let (weak, ctl, end_ctl) = (ui.as_weak(), ctl.clone(), end_ctl.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let c = ctl.borrow();
+            if let Some(row) = c.data.rows.iter().find(|r| r.id == c.selected) {
+                end_ctl.borrow_mut().start_force(&ui, row);
+            }
+        }
+    });
     let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
     storage_live::wire(&ui, &storage);
     let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));
