@@ -200,8 +200,12 @@ fn app_caches(cache: &Path, running: &[String], report: &mut JunkReport) {
             meta.blocks() * 512
         };
         if bytes > 0 {
+            let kind = match crate::cachekind::classify(&label, bytes) {
+                crate::cachekind::CacheKind::Rebuilds => JunkKind::AppCache,
+                crate::cachekind::CacheKind::SlowToDownload => JunkKind::SlowCache,
+            };
             report.items.push(JunkItem {
-                kind: JunkKind::AppCache,
+                kind,
                 label,
                 path: Some(path),
                 bytes,

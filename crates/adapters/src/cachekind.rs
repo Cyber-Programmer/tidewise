@@ -26,9 +26,125 @@ impl CacheKind {
 /// An unknown cache bigger than this (decimal bytes, like the rest of the app) is the slow kind.
 pub const UNKNOWN_SLOW_ABOVE: u64 = 2_000_000_000;
 
-/// The kind of the cache folder called `name` that weighs `bytes`.
-pub fn classify(_name: &str, _bytes: u64) -> CacheKind {
-    CacheKind::Rebuilds
+/// Names (lower case, `.` and `_` and spaces turned into `-`) that are the slow kind, whole name.
+/// Short names are matched whole on purpose: `pip` must not catch `pipewire`.
+const SLOW_EXACT: &[&str] = &[
+    // ML models and their tooling
+    "torch",
+    "tensorflow",
+    "keras",
+    "ollama",
+    "whisper",
+    "transformers",
+    // browser binaries and browser-driven test tools
+    "playwright",
+    "puppeteer",
+    "cypress",
+    "selenium",
+    "electron",
+    "chrome-devtools-mcp",
+    // language packages and their tools
+    "uv",
+    "pip",
+    "pipx",
+    "poetry",
+    "pypoetry",
+    "npm",
+    "pnpm",
+    "yarn",
+    "bun",
+    "deno",
+    "cargo",
+    "go-build",
+    "node-gyp",
+    "pre-commit",
+    // build tools and AUR helpers
+    "paru",
+    "yay",
+    "bazel",
+    "gradle",
+    "ccache",
+    "sccache",
+    "eas-cli",
+    "maestro",
+    "codex-runtimes",
+    // containers
+    "docker",
+    "docker-desktop",
+    "podman",
+    "containers",
+    "buildah",
+    // game launchers
+    "legendary",
+    "lutris",
+    "heroic",
+    "steam",
+    "itch",
+    "bottles",
+    "winetricks",
+    // streaming
+    "spotify",
+    "spotify-launcher",
+];
+
+/// Names that start like these are the slow kind.
+const SLOW_PREFIX: &[&str] = &["huggingface", "ms-playwright", "docker-"];
+
+/// Names that are the quick kind, whole name.
+const REBUILD_EXACT: &[&str] = &[
+    "thumbnails",
+    "fontconfig",
+    "mozilla",
+    "kde",
+    "krunner",
+    "appstream",
+    "drkonqi",
+    "mpv",
+    "spectacle",
+];
+
+/// Names that start like these are the quick kind: shader caches, browser caches, KDE and GNOME
+/// caches, crash metadata.
+const REBUILD_PREFIX: &[&str] = &[
+    "mesa",
+    "qtshadercache",
+    "nvidia",
+    "chromium",
+    "google-chrome",
+    "brave",
+    "vivaldi",
+    "opera",
+    "microsoft-edge",
+    "plasma",
+    "kwin",
+    "ksycoca",
+    "kscreen",
+    "kcmshell",
+    "gtk-",
+    "gnome-",
+];
+
+fn normal(name: &str) -> String {
+    name.trim_start_matches('.')
+        .to_lowercase()
+        .replace([' ', '_'], "-")
+}
+
+/// The kind of the cache folder called `name` that weighs `bytes`: the table first (slow names, then
+/// quick names), and for a name in neither, the size decides.
+pub fn classify(name: &str, bytes: u64) -> CacheKind {
+    let n = normal(name);
+    let slow = SLOW_EXACT.contains(&n.as_str()) || SLOW_PREFIX.iter().any(|p| n.starts_with(p));
+    if slow {
+        return CacheKind::SlowToDownload;
+    }
+    let quick =
+        REBUILD_EXACT.contains(&n.as_str()) || REBUILD_PREFIX.iter().any(|p| n.starts_with(p));
+    if quick || bytes <= UNKNOWN_SLOW_ABOVE {
+        CacheKind::Rebuilds
+    } else {
+        CacheKind::SlowToDownload
+    }
 }
 
 #[cfg(test)]

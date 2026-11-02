@@ -217,7 +217,32 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
                 "Temporary data like thumbnails and browser cache. Apps rebuild it when they need it.".into(),
                 "~/.cache/*   (skips apps that are open right now)".into(),
             ),
-            GroupId::SlowCaches => (String::new(), String::new()),
+            GroupId::SlowCaches => {
+                let top: Vec<String> = items
+                    .iter()
+                    .take(3)
+                    .map(|i| format!("{} {}", i.label, format_bytes(i.bytes)))
+                    .collect();
+                let more = items.len().saturating_sub(top.len());
+                (
+                    format!(
+                        "Apps would download these again, which can take minutes and use your data. {}{}. All will be downloaded again.",
+                        top.join(", "),
+                        if more > 0 { format!(" and {more} more") } else { String::new() },
+                    ),
+                    items
+                        .iter()
+                        .map(|i| {
+                            format!(
+                                "{} · {} · will be downloaded again",
+                                i.path.as_ref().map_or_else(|| i.label.clone(), |p| p.display().to_string()),
+                                format_bytes(i.bytes)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            }
             GroupId::SystemLogs => (
                 "Records older than 2 weeks. Recent logs stay, in case you need to troubleshoot.".into(),
                 "journalctl --vacuum-time=2weeks".into(),
@@ -245,9 +270,10 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
     out
 }
 
-const ORDER: [GroupId; 5] = [
+const ORDER: [GroupId; 6] = [
     GroupId::PackageDownloads,
     GroupId::AppCaches,
+    GroupId::SlowCaches,
     GroupId::SystemLogs,
     GroupId::FlatpakParts,
     GroupId::Trash,
@@ -279,8 +305,8 @@ pub fn plan(groups: &[Group], selected: &[GroupId]) -> Vec<Step> {
 pub fn run_step(step: &Step, env: &Env) -> StepResult {
     let outcome = match step.group {
         GroupId::PackageDownloads | GroupId::SystemLogs => Outcome::NeedsAdmin,
-        GroupId::FlatpakParts | GroupId::SlowCaches => Outcome::NotYet,
-        GroupId::AppCaches => clean_caches(step, env),
+        GroupId::FlatpakParts => Outcome::NotYet,
+        GroupId::AppCaches | GroupId::SlowCaches => clean_caches(step, env),
         GroupId::Trash => empty_trash(step, env),
     };
     StepResult {
