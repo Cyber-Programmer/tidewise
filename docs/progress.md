@@ -481,3 +481,10 @@ Plan: texts red-first (`force_confirm`, `closing`), then Slint button + controll
 Done: red 8a314d4 → green 496b858; UI 7de33fd (not test-first); fmt, clippy, plain and TMPDIR `cargo test --all` (567 passed), deny, audit, release build exit 0; Processes details 0.6 %; End confirm crop 26.1 % (target 10 % not met, cause: artboard's app-specific third sentence).
 Next: R7-Q07 History records + screen.
 Blockers: nobody has pressed Force quit/End in a real window.
+
+## 2026-11-02 — Run 07, R7-Q07 History records + screen — PARTIAL
+Plan: core functions red-first (day grouping, forum report, trash/end-task records, undo from the Trash), view model red-first, record writers, then the Slint screen + controller + demo + live screenshot; threat model R row.
+Done: red ace25ea → fd1ba10, d6d0793 → db3f151, 0e9c8e4 → 4e51482; wiring f22b48c; screen 132a351 (+ live hook); fmt, clippy, plain and TMPDIR `cargo test --all` (588 passed), deny, audit, release build exit 0.
+Next: R7-Q08 Startup apps.
+Blockers: History design 32.8 % (target 10 % not met: 2 artboard entries have no record kind); nothing clicked by a person; clipboard path never run.
+Rules bent: screen, controller, clipboard and writer wiring not test-first.

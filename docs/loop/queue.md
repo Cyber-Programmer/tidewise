@@ -74,7 +74,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 
 ## C. Remaining screens (user side; admin parts show "needs admin access (coming soon)")
 
-- [ ] **Q07 History records + History screen** (WBS 8.4, design `History`). Records already exist for
+- [/] **Q07 History records + History screen** (WBS 8.4, design `History`). Records already exist for
   Clean up; make Storage Trash/Undo, uninstall and End task write them too. List by day, what changed,
   Undo where it is possible without admin (Trash restore), "Copy for a help forum". Threat model 'R' row
   updated. Records in `$XDG_STATE_HOME/tidewise/history/`.
