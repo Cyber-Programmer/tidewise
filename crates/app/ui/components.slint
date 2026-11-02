@@ -87,7 +87,7 @@ export component Sidebar inherits Rectangle {
                 nav := VerticalLayout {
                     width: parent.content-width;
                     spacing: 4px;
-                    NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0; clicked => { Shell.navigate(0); } }
+                    NavItem { label: "Home"; icon: @image-url("icons/home.svg"); active: Shell.page == 0 || Shell.page == 10; clicked => { Shell.navigate(0); } }
                     NavItem { label: "Clean up"; icon: @image-url("icons/clean.svg"); active: Shell.page == 1; clicked => { Shell.navigate(1); } }
                     NavItem { label: "Apps"; icon: @image-url("icons/apps.svg"); active: Shell.page == 2; clicked => { Shell.navigate(2); } }
                     NavItem { label: "Storage"; icon: @image-url("icons/storage.svg"); active: Shell.page == 3; clicked => { Shell.navigate(3); } }

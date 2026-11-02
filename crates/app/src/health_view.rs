@@ -2,9 +2,6 @@
 //! behind it, the checks that passed and what is not measured. Plain data from
 //! `tidewise_core::health::Report`; `view.rs` copies it into Slint.
 
-// Not drawn yet: the Slint page that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_core::health::{Report, PAGE_SERVICES};
 
 /// 0 amber (it costs points), 1 red (a failure), 2 quiet.

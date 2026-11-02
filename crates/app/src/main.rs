@@ -17,6 +17,7 @@ mod clipboard;
 mod demo;
 mod endtask;
 mod endtask_live;
+mod health_live;
 mod health_view;
 mod history_live;
 mod history_view;
@@ -93,6 +94,7 @@ fn page_of(screen: &str) -> Result<i32, String> {
         "services" => Ok(7),
         "history" => Ok(8),
         "settings" => Ok(9),
+        "health" => Ok(10),
         "performance" => Ok(4),
         "processes" => Ok(5),
         other => Err(format!("unknown screen '{other}'")),
@@ -210,6 +212,46 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "health" => {
+            use tidewise_core::health::{report, Inputs};
+            let drive = tidewise_core::drive::DriveSpace {
+                total: 1_000_000_000_000,
+                free: 200_000_000_000,
+            };
+            let (inputs, open): (Inputs, Vec<usize>) = match state {
+                None => (
+                    Inputs {
+                        drive: Some(drive),
+                        junk: Some(12_600_000_000),
+                        failed_services: Some(vec!["fwupd-refresh.service".into()]),
+                    },
+                    vec![0],
+                ),
+                Some("all-open") => (
+                    Inputs {
+                        drive: Some(drive),
+                        junk: Some(12_600_000_000),
+                        failed_services: Some(vec!["fwupd-refresh.service".into()]),
+                    },
+                    vec![0, 1, 2],
+                ),
+                Some("healthy") => (
+                    Inputs {
+                        drive: Some(tidewise_core::drive::DriveSpace {
+                            total: 100,
+                            free: 60,
+                        }),
+                        junk: Some(0),
+                        failed_services: Some(vec![]),
+                    },
+                    vec![],
+                ),
+                Some("unmeasured") => (Inputs::default(), vec![]),
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from the real system
+                Some(other) => return Err(format!("unknown health state '{other}'").into()),
+            };
+            view::apply_health(ui, &health_view::screen(&report(&inputs), &open));
+        }
         "settings" => {
             // The demo never reads the user's file: the artboard's defaults.
             let st = ui.global::<SettingsState>();
@@ -545,6 +587,22 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    if shot.screen == "health" && shot.state.as_deref() == Some("live") {
+        // The same inputs Home uses: the real drive, a real junk scan and the failed services.
+        let mut sampler = live::Sampler::new();
+        let report = tidewise_adapters::junk::scan(&tidewise_adapters::junk::live_sources());
+        sampler.junk = Some(report.user_bytes() + report.admin_bytes());
+        sampler.failed_services =
+            tidewise_adapters::services::read(&tidewise_adapters::runner::SystemRunner)
+                .ok()
+                .map(|all| {
+                    all.into_iter()
+                        .filter(|s| s.state == tidewise_adapters::services::State::Failed)
+                        .map(|s| s.unit)
+                        .collect()
+                });
+        health_live::Ctl::new().enter(&ui, sampler.health_report());
+    }
     if shot.screen == "services" && shot.state.as_deref() == Some("live") {
         let mut ctl = services_live::Ctl::new();
         ctl.enter(&ui);
@@ -792,6 +850,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let health_ctl = Rc::new(RefCell::new(health_live::Ctl::new()));
+    health_live::wire(&ui, &health_ctl);
     let settings_ctl = Rc::new(RefCell::new(settings_live::Ctl::load()));
     settings_ctl.borrow().apply(&ui);
     settings_live::wire(&ui, &settings_ctl);
@@ -823,7 +883,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl, startup_ctl, services_ctl) = (
+        let (
+            weak,
+            live,
+            ctl,
+            storage,
+            cleaner,
+            apps_ctl,
+            history_ctl,
+            startup_ctl,
+            services_ctl,
+            health_ctl,
+        ) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
@@ -833,6 +904,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             history_ctl.clone(),
             startup_ctl.clone(),
             services_ctl.clone(),
+            health_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -855,6 +927,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if page == 7 {
                     services_ctl.borrow_mut().enter(&ui);
+                }
+                if page == 10 {
+                    let report = live.borrow_mut().sampler.health_report();
+                    health_ctl.borrow_mut().enter(&ui, report);
                 }
                 if page == 8 {
                     history_ctl.borrow_mut().enter(&ui);
@@ -879,6 +955,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if ui.global::<Shell>().get_page() == 7 {
         services_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 10 {
+        let report = live.borrow_mut().sampler.health_report();
+        health_ctl.borrow_mut().enter(&ui, report);
     }
     if ui.global::<Shell>().get_page() == 8 {
         history_ctl.borrow_mut().enter(&ui);

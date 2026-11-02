@@ -299,7 +299,9 @@ export component HomeScreen inherits Rectangle {
                         border-color: Theme.control-border;
                         accessible-role: button;
                         accessible-label: "Why " + HomeState.score + "?";
+                        accessible-action-default => { Shell.navigate(10); }
                         Text { text: "Why " + HomeState.score + "?"; color: Theme.text; font-size: Theme.size-body; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { Shell.navigate(10); } }
                     }
                 }
             }

@@ -443,6 +443,51 @@ pub fn apply_clean(
 }
 
 /// List, chips and search results of the Apps screen.
+/// The "Why your score is N" page.
+pub fn apply_health(ui: &MainWindow, screen: &crate::health_view::Screen) {
+    use crate::{HealthIssue, HealthNote, HealthState, HealthSum};
+    let st = ui.global::<HealthState>();
+    st.set_score(screen.score as i32);
+    st.set_tag(screen.tag.clone().into());
+    st.set_title(screen.title.clone().into());
+    st.set_ring(crate::home::ring_path(screen.score).into());
+    let sum: Vec<HealthSum> = screen
+        .sum
+        .iter()
+        .map(|p| HealthSum {
+            text: p.text.clone().into(),
+            tone: p.tone,
+        })
+        .collect();
+    st.set_sum(ModelRc::new(VecModel::from(sum)));
+    let issues: Vec<HealthIssue> = screen
+        .issues
+        .iter()
+        .map(|i| HealthIssue {
+            points: i.points.clone().into(),
+            tone: i.tone,
+            title: i.title.clone().into(),
+            desc: i.desc.clone().into(),
+            check: i.check.clone().into(),
+            action: i.action.clone().into(),
+            page: i.page,
+            open: i.open,
+        })
+        .collect();
+    st.set_issues(ModelRc::new(VecModel::from(issues)));
+    let passed: Vec<slint::SharedString> = screen.passed.iter().map(|p| p.clone().into()).collect();
+    st.set_passed(ModelRc::new(VecModel::from(passed)));
+    let notes: Vec<HealthNote> = screen
+        .not_checked
+        .iter()
+        .map(|(t, w)| HealthNote {
+            title: t.clone().into(),
+            why: w.clone().into(),
+        })
+        .collect();
+    st.set_not_checked(ModelRc::new(VecModel::from(notes)));
+}
+
 /// The Services screen. `empty`: the words to show instead of the list (phase 1 loading, 2 error).
 pub fn apply_services(
     ui: &MainWindow,

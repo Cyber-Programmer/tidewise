@@ -134,6 +134,16 @@ impl Sampler {
         }
     }
 
+    /// What the score is made of, as measured now: the same inputs Home uses.
+    pub fn health_report(&mut self) -> tidewise_core::health::Report {
+        let drive = self.main_drive();
+        tidewise_core::health::report(&tidewise_core::health::Inputs {
+            drive,
+            junk: self.junk,
+            failed_services: self.failed_services.clone(),
+        })
+    }
+
     /// The "Right now" tiles from the last sample. No health score or app counts yet.
     pub fn home(&mut self) -> HomeData {
         let drive = self.main_drive();
