@@ -19,7 +19,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   `TMPDIR=$PWD/target/tmp`; both must exit 0 and both exit codes go in the report. If `/tmp` is still
   full when you start, say so, don't try to delete in `/tmp`, and use the `TMPDIR` form for every run.
   Add a WBS row 5.13 under workstream 5 for this.
-- [ ] **Q02 Put every decision where the human will see it.** Run 06 left decisions only in report
+- [x] **Q02 Put every decision where the human will see it.** Run 06 left decisions only in report
   entries (Q07 junk threshold and 5-minute rescan, Q08 `PackageSource` removed and the plain-name rule,
   Q10 Blocked::Protected/Busy, Q13 one CommandRunner, Q14 "kept" row, Q15 group-signal rule). Add each to
   `docs/questions.md` under "Run 06 — decisions taken before they were listed here" with a recommended
