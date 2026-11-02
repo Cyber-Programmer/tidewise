@@ -217,7 +217,7 @@ pub fn panel_with_settings(
     let deleting = settings.filter(|s| s.delete);
     if let Some(s) = deleting {
         if let Some(row) = rows.iter_mut().find(|r| r.0 == "Your settings and data") {
-            row.1 = format!("{} to the Trash", format_bytes(s.bytes));
+            row.1 = format_bytes(s.bytes);
         }
         total = total.map(|t| t + s.bytes);
     }
