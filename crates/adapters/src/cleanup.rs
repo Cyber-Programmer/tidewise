@@ -219,7 +219,19 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
                 "Temporary data like thumbnails and browser cache. Apps rebuild it when they need it.".into(),
                 "~/.cache/*   (skips apps that are open right now)".into(),
             ),
-            GroupId::Orphans => (String::new(), String::new()),
+            GroupId::Orphans => (
+                "Installed as helpers for apps you already removed.".into(),
+                format!(
+                    "{}  ·  {} package{}",
+                    items
+                        .iter()
+                        .map(|i| i.label.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    items.len(),
+                    if items.len() == 1 { "" } else { "s" }
+                ),
+            ),
             GroupId::SlowCaches => {
                 let top: Vec<String> = items
                     .iter()
@@ -273,13 +285,14 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
     out
 }
 
-const ORDER: [GroupId; 6] = [
+const ORDER: [GroupId; 7] = [
     GroupId::PackageDownloads,
     GroupId::AppCaches,
     GroupId::SlowCaches,
     GroupId::SystemLogs,
     GroupId::FlatpakParts,
     GroupId::Trash,
+    GroupId::Orphans,
 ];
 
 /// Safe groups on, Review groups off.

@@ -18,6 +18,7 @@ use crate::{flatpak, journal};
 
 const JOURNAL_LABEL: &str = "System log (journal)";
 const RUNTIMES_LABEL: &str = "Unused Flatpak runtimes";
+const ORPHANS_LABEL: &str = "Packages nothing uses";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JunkKind {
@@ -158,6 +159,21 @@ pub fn scan(sources: &Sources) -> JunkReport {
         }
     }
     flatpak_runtimes(sources, &mut report);
+    for input in &sources.orphans {
+        match crate::orphans::read(input) {
+            Ok(orphans) => report.items.extend(orphans.into_iter().map(|o| JunkItem {
+                kind: JunkKind::Orphans,
+                label: o.name,
+                path: None,
+                bytes: o.bytes,
+                needs_admin: true,
+            })),
+            Err(_) => report.skipped.push(Skipped {
+                label: ORPHANS_LABEL.into(),
+                reason: "Tidewise could not understand what the package manager printed".into(),
+            }),
+        }
+    }
     report.items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
     report
 }
@@ -302,6 +318,7 @@ pub fn live_sources() -> Sources {
         running: running_names(),
         ..Sources::default()
     };
+    sources.orphans = orphan_inputs(&mut sources.unavailable);
     sources.journal_text = ask(
         "/usr/bin/journalctl",
         &["--disk-usage"],
@@ -329,6 +346,85 @@ pub fn live_sources() -> Sources {
         sources.flatpak_apps = apps;
     }
     sources
+}
+
+/// Run a read-only command by absolute path (no shell, `LC_ALL=C`) and return stdout and stderr
+/// together plus whether it succeeded. `None` when the program is missing or cannot start.
+fn capture(program: &str, args: &[&str]) -> Option<(bool, String)> {
+    if !Path::new(program).exists() {
+        return None;
+    }
+    let o = Command::new(program)
+        .args(args)
+        .env("LC_ALL", "C")
+        .output()
+        .ok()?;
+    let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
+    text += &String::from_utf8_lossy(&o.stderr);
+    Some((o.status.success(), text))
+}
+
+/// What each installed package manager says about packages nothing needs. All read-only: pacman's
+/// queries, `apt-get -s` (simulate) and `dnf --assumeno` (answers no). A manager that is not there
+/// is not asked; one that fails is reported.
+fn orphan_inputs(unavailable: &mut Vec<Skipped>) -> Vec<crate::orphans::OrphanInput> {
+    use crate::orphans::{Manager, OrphanInput};
+    let mut out = Vec::new();
+    let mut failed = || {
+        unavailable.push(Skipped {
+            label: ORPHANS_LABEL.into(),
+            reason: "The command to look it up failed".into(),
+        })
+    };
+    // pacman -Qdtq exits 1 and prints nothing when there are none, so the exit code is not used.
+    if let Some((_, list)) = capture("/usr/bin/pacman", &["-Qdtq"]) {
+        let names: Vec<&str> = list
+            .lines()
+            .map(str::trim)
+            .filter(|n| crate::source::is_plain_name(n))
+            .collect();
+        let sizes = if names.is_empty() {
+            Some(String::new())
+        } else {
+            let mut args = vec!["-Qi", "--"];
+            args.extend(names);
+            capture("/usr/bin/pacman", &args).map(|(_, text)| text)
+        };
+        match sizes {
+            Some(sizes) => out.push(OrphanInput {
+                manager: Manager::Pacman,
+                list,
+                sizes,
+            }),
+            None => failed(),
+        }
+    }
+    if let Some((ok, list)) = capture("/usr/bin/apt-get", &["-s", "autoremove"]) {
+        let sizes = capture(
+            "/usr/bin/dpkg-query",
+            &["-W", r"-f=${Package}\t${Installed-Size}\t${Status}\n"],
+        );
+        match sizes {
+            Some((true, sizes)) if ok => out.push(OrphanInput {
+                manager: Manager::Apt,
+                list,
+                sizes,
+            }),
+            _ => failed(),
+        }
+    }
+    // `--assumeno` makes dnf exit with an error even when the plan is fine; only the text counts.
+    if let Some((_, list)) = capture("/usr/bin/dnf", &["autoremove", "--assumeno"]) {
+        match capture("/usr/bin/rpm", &["-qa", "--qf", "%{NAME}\\t%{SIZE}\\n"]) {
+            Some((true, sizes)) => out.push(OrphanInput {
+                manager: Manager::Dnf,
+                list,
+                sizes,
+            }),
+            _ => failed(),
+        }
+    }
+    out
 }
 
 fn ask(
