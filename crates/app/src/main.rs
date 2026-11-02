@@ -17,6 +17,7 @@ mod clipboard;
 mod demo;
 mod endtask;
 mod endtask_live;
+mod health_view;
 mod history_live;
 mod history_view;
 mod home;
