@@ -99,3 +99,10 @@ path = "fuzz_targets/desktop_files.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "orphans"
+path = "fuzz_targets/orphans.rs"
+test = false
+doc = false
+bench = false
