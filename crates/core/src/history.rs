@@ -404,15 +404,26 @@ pub fn end_task_record(
 
 /// The record of a startup change: `name` now starts (or no longer starts) at login. `path` is the
 /// file that was written.
-pub fn startup_record(_name: &str, _now_on: bool, _path: &str, _time: u64, _id: &str) -> Record {
+pub fn startup_record(name: &str, now_on: bool, path: &str, time: u64, id: &str) -> Record {
     Record {
         version: VERSION,
-        id: _id.into(),
-        time: _time,
+        id: id.into(),
+        time,
         kind: Kind::Startup,
-        title: String::new(),
+        title: if now_on {
+            format!("{name} will start at login again")
+        } else {
+            format!("{name} won't start at login")
+        },
         freed_bytes: 0,
-        steps: Vec::new(),
+        steps: vec![Step {
+            title: format!("{name} at login"),
+            status: Status::Done,
+            bytes: 0,
+            items: vec![path.into()],
+            entries: Vec::new(),
+            note: Some(if now_on { "off → on" } else { "on → off" }.into()),
+        }],
     }
 }
 

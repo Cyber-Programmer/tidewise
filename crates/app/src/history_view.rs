@@ -227,6 +227,16 @@ fn lines(record: &Record) -> Vec<(String, String)> {
             }
             out
         }
+        Kind::Startup => record
+            .steps
+            .iter()
+            .map(|s| {
+                (
+                    s.title.clone(),
+                    s.note.clone().unwrap_or_else(|| "done".into()),
+                )
+            })
+            .collect(),
         _ => record
             .steps
             .iter()
@@ -267,7 +277,9 @@ fn note(record: &Record) -> String {
         }
         Kind::Trash => "The space is only freed after you empty the Trash.".into(),
         Kind::EndTask => "Ending an app cannot be undone.".into(),
-        Kind::Startup => String::new(),
+        Kind::Startup => {
+            "The app is still installed. Open it from your app menu whenever you like.".into()
+        }
     }
 }
 
@@ -280,7 +292,11 @@ fn log(record: &Record) -> String {
             .iter()
             .filter(|i| !step.entries.iter().any(|e| &e.path == *i))
         {
-            out.push(format!("removed {item}"));
+            out.push(if record.kind == Kind::Startup {
+                format!("wrote {item}")
+            } else {
+                format!("removed {item}")
+            });
         }
         for e in &step.entries {
             out.push(match (&e.result, &e.reason) {
