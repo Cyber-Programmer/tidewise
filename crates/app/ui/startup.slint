@@ -1,7 +1,7 @@
 // The Startup apps screen (docs/design/screens/Startup.dc.html). No "impact" chips and no memory or
 // boot-time cards: Tidewise cannot measure them honestly yet.
 import { Theme } from "theme.slint";
-import { DetailsSwitch } from "components.slint";
+import { DetailsSwitch, SkeletonList } from "components.slint";
 
 export struct StartRow { file: string, name: string, desc: string, path: string, letter: string, hue: int, enabled: bool, chip: string, locked: bool, switch-label: string }
 
@@ -108,7 +108,8 @@ export component StartupScreen inherits Rectangle {
                     }
                 }
             }
-            if StartupState.phase != 0: Rectangle {
+            if StartupState.phase == 1: SkeletonList { label: "Looking at what starts with your PC"; }
+            if StartupState.phase >= 2: Rectangle {
                 height: 120px;
                 border-radius: Theme.radius-hero;
                 background: Theme.surface;

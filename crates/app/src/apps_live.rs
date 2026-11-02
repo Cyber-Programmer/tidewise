@@ -186,6 +186,16 @@ impl Ctl {
                     self.scan = None;
                     self.found = found;
                     self.settings = settings;
+                    // What this PC has: notes about missing sources, or an unsupported distro.
+                    let tools = tidewise_core::distro::detect_tools(std::path::Path::new("/"));
+                    let distro = std::fs::read_to_string("/etc/os-release")
+                        .map(|t| tidewise_core::distro::parse_os_release(&t).name)
+                        .unwrap_or_default();
+                    view::apply_apps_notes(
+                        ui,
+                        &apps::source_notes(&tools),
+                        apps::unsupported_system_apps(&tools, &distro).as_ref(),
+                    );
                     let st = ui.global::<AppsState>();
                     if self.found.is_empty() {
                         st.set_phase(2);

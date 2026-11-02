@@ -31,6 +31,11 @@ export global HomeState {
     // Pixel width of a tile sparkline; Rust draws the paths at this width (a Path scales uniformly).
     in property <length> spark-width: 220px;
     in property <bool> has-scan: false;
+    // The warning for a nearly full drive; hidden when `alert-title` is empty.
+    in property <string> alert-title;
+    in property <string> alert-body;
+    in property <string> alert-action;
+    in property <int> alert-page: 1;
     in property <int> score;
     in property <string> ring;
     in property <string> tag;
@@ -188,6 +193,39 @@ export component HomeScreen inherits Rectangle {
         padding-right: 36px;
         spacing: 24px;
         alignment: start;
+        if HomeState.alert-title != "": Rectangle {
+            height: alert-row.preferred-height;
+            border-radius: 14px;
+            background: Theme.danger-tint;
+            border-width: 1px;
+            border-color: Theme.danger;
+            accessible-role: text;
+            accessible-label: HomeState.alert-title + ". " + HomeState.alert-body;
+            alert-row := HorizontalLayout {
+                padding: 16px;
+                spacing: 16px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Text { text: HomeState.alert-title; color: Theme.danger; font-size: Theme.size-row-title; font-weight: 600; wrap: word-wrap; }
+                    Text { text: HomeState.alert-body; color: Theme.text-soft; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 40px;
+                        width: alert-btn.preferred-width + 32px;
+                        border-radius: Theme.radius-button;
+                        background: Theme.accent;
+                        accessible-role: button;
+                        accessible-label: HomeState.alert-action;
+                        accessible-action-default => { Shell.navigate(HomeState.alert-page); }
+                        alert-btn := Text { text: HomeState.alert-action; color: Theme.on-accent; font-size: Theme.size-body; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { Shell.navigate(HomeState.alert-page); } }
+                    }
+                }
+            }
+        }
         // Header
         HorizontalLayout {
             height: 54px;

@@ -150,6 +150,7 @@ impl Sampler {
         let biggest = self.biggest.as_ref().and_then(|(_, f)| f.clone());
         let Some(s) = &self.last else {
             return HomeData {
+                alert: None,
                 last_checked: String::new(),
                 scan: None,
                 tiles: Vec::new(),
@@ -208,6 +209,7 @@ impl Sampler {
             bar: None,
         });
         HomeData {
+            alert: home::critical_drive(drive, self.junk),
             last_checked: "Live numbers, updated every second".into(),
             scan: Some(home::health_scan_with(
                 drive,

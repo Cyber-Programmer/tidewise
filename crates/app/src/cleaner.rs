@@ -157,9 +157,10 @@ pub struct EmptyState {
 
 pub fn empty_state() -> EmptyState {
     EmptyState {
-        title: String::new(),
-        text: String::new(),
-        action: String::new(),
+        title: "Already tidy".into(),
+        text: "Nothing worth cleaning right now. Junk builds up slowly; check back in a few weeks."
+            .into(),
+        action: "Check again".into(),
     }
 }
 

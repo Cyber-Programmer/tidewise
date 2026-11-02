@@ -29,17 +29,34 @@ impl Filter {
 /// What the user sees for where an app comes from.
 /// Sentences for the sources this PC does not have (the artboard's "a source isn't installed"):
 /// plain, and saying it is normal.
-pub fn source_notes(_tools: &tidewise_core::distro::Tools) -> Vec<String> {
-    Vec::new()
+pub fn source_notes(tools: &tidewise_core::distro::Tools) -> Vec<String> {
+    [("Flatpak", tools.flatpak), ("Snap", tools.snap)]
+        .into_iter()
+        .filter(|(_, present)| !present)
+        .map(|(name, _)| {
+            format!("{name} isn't installed on this PC. That's normal on many distros. If you install it later, its apps appear here automatically.")
+        })
+        .collect()
 }
 
 /// The message for a PC whose system package manager Tidewise cannot use: title and body, or
 /// `None` when pacman, apt or dnf is there. `distro` is the name from os-release (may be empty).
 pub fn unsupported_system_apps(
-    _tools: &tidewise_core::distro::Tools,
-    _distro: &str,
+    tools: &tidewise_core::distro::Tools,
+    distro: &str,
 ) -> Option<(String, String)> {
-    None
+    if tools.pacman || tools.apt || tools.dnf {
+        return None;
+    }
+    let name = if distro.trim().is_empty() {
+        "this Linux"
+    } else {
+        distro.trim()
+    };
+    Some((
+        format!("System apps on {name} aren't supported yet"),
+        "Tidewise doesn't know how to safely remove system apps on this distro. Flatpak and AppImage apps, cleaning, storage and performance all still work. You can ask for support on the project's GitHub page.".into(),
+    ))
 }
 
 pub fn source_label(kind: SourceKind) -> &'static str {

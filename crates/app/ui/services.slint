@@ -2,7 +2,7 @@
 // and points out the few worth a look, but starting, stopping and enabling need admin access and
 // are not built yet, so their buttons are drawn as unavailable.
 import { Theme } from "theme.slint";
-import { DetailsSwitch } from "components.slint";
+import { DetailsSwitch, SkeletonList } from "components.slint";
 
 export struct SvcTab { label: string, count: int, on: bool }
 // `kind`: 0 running, 1 failed, 2 quiet.
@@ -101,7 +101,8 @@ export component ServicesScreen inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
                 VerticalLayout { alignment: end; DetailsSwitch { on <=> ServicesState.details; } }
             }
-            if ServicesState.phase != 0: Rectangle {
+            if ServicesState.phase == 1: SkeletonList { label: "Looking at your services"; }
+            if ServicesState.phase >= 2: Rectangle {
                 height: 120px;
                 border-radius: Theme.radius-hero;
                 background: Theme.surface;

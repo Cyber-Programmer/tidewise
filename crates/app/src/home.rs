@@ -61,6 +61,8 @@ pub struct HomeData {
     pub scan: Option<Scan>,
     pub tiles: Vec<Tile>,
     pub apps: Option<Apps>,
+    /// The warning for a nearly full main drive (live mode).
+    pub alert: Option<Alert>,
 }
 
 /// A drive that is this full (95 % or more) gets a warning of its own, not just a suggestion.
@@ -77,10 +79,26 @@ pub struct Alert {
 }
 
 pub fn critical_drive(
-    _drive: Option<tidewise_core::drive::DriveSpace>,
-    _junk: Option<u64>,
+    drive: Option<tidewise_core::drive::DriveSpace>,
+    junk: Option<u64>,
 ) -> Option<Alert> {
-    None
+    let d = drive.filter(|d| d.used_fraction() >= CRITICAL_DRIVE_USED)?;
+    let mut body = "Updates and apps can fail when a drive is this full.".to_string();
+    if let Some(bytes) = junk.filter(|b| *b >= JUNK_SUGGESTION_BYTES) {
+        body += &format!(
+            " Clearing junk alone would free {:.1} GB.",
+            bytes as f64 / 1_000_000_000.0
+        );
+    }
+    Some(Alert {
+        title: format!(
+            "Main drive almost full: {} left",
+            tidewise_core::history::bytes_text(d.free)
+        ),
+        body,
+        action: "Free up space".into(),
+        page: 1,
+    })
 }
 
 /// Junk is only worth a suggestion from 1 GB up.

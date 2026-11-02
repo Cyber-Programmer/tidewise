@@ -1,5 +1,6 @@
 // The Apps screen and its uninstall dialog (docs/design/screens/Apps.dc.html, UninstallFlow.dc.html).
 import { Theme } from "theme.slint";
+import { SkeletonList } from "components.slint";
 
 export struct AppRow {
     name: string,
@@ -29,6 +30,10 @@ export global AppsState {
     in property <string> message;
     in property <string> footer;
     in property <[AppChip]> chips;
+    // Sources this PC does not have, and a package manager Tidewise cannot use: plain notes.
+    in property <[string]> notes;
+    in property <string> unsupported-title;
+    in property <string> unsupported-body;
     in property <[AppRow]> rows;
     in-out property <string> query;
     // The picked app and what uninstalling it does.
@@ -193,13 +198,33 @@ export component AppsScreen inherits Rectangle {
                 }
             }
 
+            if AppsState.unsupported-title != "": Rectangle {
+                height: uns.preferred-height;
+                border-radius: Theme.radius-card;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.control-border;
+                accessible-role: text;
+                accessible-label: AppsState.unsupported-title + ". " + AppsState.unsupported-body;
+                uns := VerticalLayout {
+                    padding: 18px;
+                    spacing: 6px;
+                    Text { text: AppsState.unsupported-title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; wrap: word-wrap; }
+                    Text { text: AppsState.unsupported-body; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                }
+            }
             if AppsState.phase == 1: HorizontalLayout {
                 spacing: 10px;
                 alignment: start;
                 for chip[i] in AppsState.chips: FilterChip { label: chip.label; count: chip.count; on: chip.selected; clicked => { AppsState.set-filter(i); } }
             }
+            if AppsState.phase == 1 && AppsState.notes.length > 0: VerticalLayout {
+                spacing: 6px;
+                for note in AppsState.notes: Text { text: note; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+            }
 
-            if AppsState.phase != 1: Rectangle {
+            if AppsState.phase == 0: SkeletonList { label: "Looking for your apps"; }
+            if AppsState.phase >= 2: Rectangle {
                 height: 120px;
                 border-radius: Theme.radius-hero;
                 background: Theme.surface;

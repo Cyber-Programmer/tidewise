@@ -89,6 +89,14 @@ pub fn apply_view(ui: &MainWindow, view: &View) {
 }
 
 pub fn apply_home(ui: &MainWindow, d: &HomeData) {
+    {
+        let st = ui.global::<HomeState>();
+        let a = d.alert.as_ref();
+        st.set_alert_title(a.map_or("", |a| a.title.as_str()).into());
+        st.set_alert_body(a.map_or("", |a| a.body.as_str()).into());
+        st.set_alert_action(a.map_or("", |a| a.action.as_str()).into());
+        st.set_alert_page(a.map_or(1, |a| a.page));
+    }
     let width =
         home::spark_width(ui.window().size().width as f32 / ui.window().scale_factor()) as f64;
     let tiles: Vec<HomeTile> = d
@@ -660,6 +668,16 @@ pub fn apply_history(
         }
         None => st.set_has_detail(false),
     }
+}
+
+/// The notes under the filter chips: sources this PC does not have, and an unsupported package
+/// manager (title and body, or `None`).
+pub fn apply_apps_notes(ui: &MainWindow, notes: &[String], unsupported: Option<&(String, String)>) {
+    let st = ui.global::<AppsState>();
+    let notes: Vec<slint::SharedString> = notes.iter().map(|n| n.as_str().into()).collect();
+    st.set_notes(ModelRc::new(VecModel::from(notes)));
+    st.set_unsupported_title(unsupported.map_or("", |u| u.0.as_str()).into());
+    st.set_unsupported_body(unsupported.map_or("", |u| u.1.as_str()).into());
 }
 
 pub fn apply_apps(ui: &MainWindow, screen: &crate::apps::Screen) {

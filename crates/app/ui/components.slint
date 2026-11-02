@@ -195,3 +195,39 @@ export component Toast inherits Rectangle {
         }
     }
 }
+
+// A list that is still loading: the shapes of a few rows, no spinner, so the layout stays put
+// (the artboard's "Any list · loading"). `label` is what a screen reader says.
+export component SkeletonList inherits Rectangle {
+    in property <string> label: "Loading";
+    in property <int> rows: 5;
+    height: root.rows * 63px;
+    border-radius: Theme.radius-card;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+    accessible-role: progress-indicator;
+    accessible-label: root.label;
+    VerticalLayout {
+        for i in root.rows: Rectangle {
+            height: 63px;
+            if i < root.rows - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 14px;
+                VerticalLayout { alignment: center; Rectangle { width: 38px; height: 38px; border-radius: 10px; background: Theme.badge-bg; } }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 8px;
+                    // Widths are shares of the row, inside a plain rectangle: a fixed width placed
+                    // directly in a layout would cap the width of the whole page.
+                    Rectangle { height: 12px; Rectangle { height: 12px; width: parent.width * (0.14 + Math.mod(i * 37, 5) * 0.03); border-radius: 6px; background: Theme.badge-bg; } }
+                    Rectangle { height: 10px; Rectangle { height: 10px; width: parent.width * (0.24 + Math.mod(i * 53, 4) * 0.08); border-radius: 5px; background: Theme.row-divider; } }
+                }
+            }
+        }
+    }
+}

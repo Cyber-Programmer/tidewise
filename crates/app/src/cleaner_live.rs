@@ -91,9 +91,12 @@ impl Ctl {
                 self.selected = cleanup::default_selection(&self.groups);
                 let st = ui.global::<CleanState>();
                 if self.groups.is_empty() {
+                    let empty = cleaner::empty_state();
                     st.set_phase(2);
                     st.set_subtitle("Scan finished.".into());
-                    st.set_message("Nothing worth cleaning was found right now.".into());
+                    st.set_empty_title(empty.title.into());
+                    st.set_message(empty.text.into());
+                    st.set_empty_action(empty.action.into());
                 } else {
                     st.set_phase(1);
                     st.set_subtitle(
@@ -108,7 +111,8 @@ impl Ctl {
                 let st = ui.global::<CleanState>();
                 st.set_phase(3);
                 st.set_subtitle("The scan did not finish.".into());
-                st.set_message("Something stopped the scan. Try again from the sidebar.".into());
+                st.set_message("Something stopped the scan, and nothing was changed.".into());
+                st.set_empty_action("Try again".into());
             }
         }
     }
@@ -207,6 +211,17 @@ impl Ctl {
 
 pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
     let st = ui.global::<CleanState>();
+    st.on_rescan({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move || {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            if !c.busy() {
+                c.start_scan(&ui);
+            }
+        }
+    });
     st.on_toggle({
         let (weak, ctl) = (ui.as_weak(), ctl.clone());
         move |i| {

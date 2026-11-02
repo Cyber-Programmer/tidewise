@@ -320,11 +320,18 @@ fn show_demo(
                 Some("protected") => (2, Some("NetworkManager.service")),
                 Some("failed") => (0, Some("fwupd-refresh.service")),
                 Some("empty") => (0, None),
+                Some("loading") => (0, None),
                 Some("live") => return Ok(()), // drawn by `run_screenshot` from the real system
                 Some(other) => return Err(format!("unknown services state '{other}'").into()),
             };
             let screen = services_view::screen(&list, services_view::Tab::from_index(tab), picked);
-            if state == Some("empty") {
+            if state == Some("loading") {
+                view::apply_services(
+                    ui,
+                    &services_view::Screen::default(),
+                    Some((1, "This only reads what is running; nothing is changed.")),
+                );
+            } else if state == Some("empty") {
                 view::apply_services(ui, &services_view::Screen::default(), Some((2, "Tidewise could not ask systemd: systemctl could not be run. Nothing was changed.")));
             } else {
                 view::apply_services(ui, &screen, None);
@@ -345,6 +352,12 @@ fn show_demo(
                     &screen,
                     None,
                     &startup::toast_text("Flameshot", false),
+                ),
+                Some("loading") => view::apply_startup(
+                    ui,
+                    &startup::Screen::default(),
+                    Some((1, "This only reads your startup folders; nothing is changed.")),
+                    "",
                 ),
                 Some("empty") => view::apply_startup(
                     ui,
@@ -373,10 +386,20 @@ fn show_demo(
             }
         }
         "home" => {
-            if let Some(other) = state {
+            if let Some(other) = state.filter(|s| *s != "critical") {
                 return Err(format!("unknown home state '{other}'").into());
             }
-            view::apply_home(ui, &demo::home());
+            let mut data = demo::home();
+            if state == Some("critical") {
+                data.alert = home::critical_drive(
+                    Some(tidewise_core::drive::DriveSpace {
+                        total: 100_000_000_000,
+                        free: 2_100_000_000,
+                    }),
+                    Some(12_600_000_000),
+                );
+            }
+            view::apply_home(ui, &data);
         }
         _ => {
             let view = perf::View::from_state(state)?;
@@ -430,14 +453,18 @@ fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn s
             st.set_message("This only reads your files; nothing is removed.".into());
         }
         Some("empty") => {
+            let empty = cleaner::empty_state();
             st.set_phase(2);
             st.set_subtitle("Scan finished.".into());
-            st.set_message("Nothing worth cleaning was found right now.".into());
+            st.set_empty_title(empty.title.into());
+            st.set_message(empty.text.into());
+            st.set_empty_action(empty.action.into());
         }
         Some("error") => {
             st.set_phase(3);
             st.set_subtitle("The scan did not finish.".into());
-            st.set_message("Something stopped the scan. Try again from the sidebar.".into());
+            st.set_message("Something stopped the scan, and nothing was changed.".into());
+            st.set_empty_action("Try again".into());
         }
         Some(other) => return Err(format!("unknown clean-up state '{other}'").into()),
     }
@@ -470,6 +497,30 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
     match state {
         None => {}
         Some("details") => st.set_tech_open(true),
+        Some("notes") => {
+            let tools = tidewise_core::distro::Tools {
+                pacman: true,
+                apt: false,
+                dnf: false,
+                flatpak: true,
+                snap: false,
+            };
+            view::apply_apps_notes(ui, &apps::source_notes(&tools), None);
+        }
+        Some("unsupported") => {
+            let tools = tidewise_core::distro::Tools {
+                pacman: false,
+                apt: false,
+                dnf: false,
+                flatpak: true,
+                snap: false,
+            };
+            view::apply_apps_notes(
+                ui,
+                &apps::source_notes(&tools),
+                apps::unsupported_system_apps(&tools, "Void Linux").as_ref(),
+            );
+        }
         Some(s @ ("settings" | "settings-on")) => {
             settings = Some(apps::SettingsChoice {
                 bytes: 180_000_000,

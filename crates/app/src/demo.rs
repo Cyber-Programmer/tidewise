@@ -205,6 +205,7 @@ pub fn home() -> HomeData {
         page,
     };
     HomeData {
+        alert: None,
         last_checked: "Last checked 2 minutes ago".into(),
         scan: Some(Scan {
             score: 82,
