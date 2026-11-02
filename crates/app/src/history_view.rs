@@ -597,6 +597,31 @@ mod tests {
     }
 
     #[test]
+    fn a_startup_change_shows_before_and_after() {
+        let r = history::startup_record(
+            "Discord",
+            false,
+            "/home/u/.config/autostart/discord.desktop",
+            NOW - 60,
+            "s",
+        );
+        let s = screen(vec![r], None, NOW, 0);
+        assert_eq!(s.days[0].rows[0].subtitle, "11:59 · Discord at login");
+        let d = s.detail.unwrap();
+        assert_eq!(
+            d.lines,
+            [("Discord at login".to_string(), "on → off".to_string())]
+        );
+        assert_eq!(d.result, "Done");
+        assert!(d.note.contains("still installed"), "{}", d.note);
+        assert!(
+            d.log.contains("/home/u/.config/autostart/discord.desktop"),
+            "{}",
+            d.log
+        );
+    }
+
+    #[test]
     fn an_uninstall_says_where_the_settings_went() {
         let mut kept = step("GIMP", Status::Done, 412_000_000);
         kept.note = None;

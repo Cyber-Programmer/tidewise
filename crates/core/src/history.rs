@@ -402,6 +402,20 @@ pub fn end_task_record(
     }
 }
 
+/// The record of a startup change: `name` now starts (or no longer starts) at login. `path` is the
+/// file that was written.
+pub fn startup_record(_name: &str, _now_on: bool, _path: &str, _time: u64, _id: &str) -> Record {
+    Record {
+        version: VERSION,
+        id: _id.into(),
+        time: _time,
+        kind: Kind::Startup,
+        title: String::new(),
+        freed_bytes: 0,
+        steps: Vec::new(),
+    }
+}
+
 /// What Undo would do for this record without admin access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Undo {
@@ -704,6 +718,32 @@ mod tests {
             forced.steps[0].note.as_deref(),
             Some("1 process ended · force quit")
         );
+    }
+
+    #[test]
+    fn a_startup_change_says_what_now_happens_at_login() {
+        let off = startup_record(
+            "Discord",
+            false,
+            "/home/u/.config/autostart/discord.desktop",
+            NOW,
+            "3-startup",
+        );
+        assert_eq!(
+            (off.kind, off.title.as_str()),
+            (Kind::Startup, "Discord won't start at login")
+        );
+        assert_eq!(off.freed_bytes, 0);
+        assert_eq!(off.steps[0].title, "Discord at login");
+        assert_eq!(off.steps[0].status, Status::Done);
+        assert_eq!(off.steps[0].note.as_deref(), Some("on → off"));
+        assert_eq!(
+            off.steps[0].items,
+            ["/home/u/.config/autostart/discord.desktop"]
+        );
+        let on = startup_record("Discord", true, "/x/discord.desktop", NOW, "4-startup");
+        assert_eq!(on.title, "Discord will start at login again");
+        assert_eq!(on.steps[0].note.as_deref(), Some("off → on"));
     }
 
     #[test]
