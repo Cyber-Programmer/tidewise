@@ -33,15 +33,108 @@ pub const MAX_QUERY_CHARS: usize = 100;
 pub const PER_GROUP: usize = 5;
 pub const TOTAL: usize = 12;
 
+/// The words of a query: lower case, at most `MAX_QUERY_CHARS` characters looked at.
+fn words(query: &str) -> Vec<String> {
+    query
+        .chars()
+        .take(MAX_QUERY_CHARS)
+        .collect::<String>()
+        .to_lowercase()
+        .split_whitespace()
+        .map(String::from)
+        .collect()
+}
+
+/// Are the letters of `needle` in `hay` in this order (not necessarily next to each other)?
+fn in_order(needle: &str, hay: &str) -> bool {
+    let mut letters = needle.chars();
+    let mut want = letters.next();
+    for c in hay.chars() {
+        if Some(c) == want {
+            want = letters.next();
+        }
+    }
+    want.is_none()
+}
+
+fn starts_a_word(hay: &str, word: &str) -> bool {
+    hay.split(|c: char| !c.is_alphanumeric())
+        .any(|w| w.starts_with(word))
+}
+
+/// The best place one word of the query matches in one item.
+fn word_score(word: &str, title: &str, keywords: &str, meta: &str) -> Option<u32> {
+    let places = [
+        (title == word).then_some(1000),
+        title.starts_with(word).then_some(800),
+        starts_a_word(title, word).then_some(700),
+        title.contains(word).then_some(500),
+        starts_a_word(keywords, word).then_some(350),
+        keywords.contains(word).then_some(250),
+        meta.contains(word).then_some(150),
+        // Letters in order, only for a word long enough not to match everything.
+        (word.chars().count() >= 3 && in_order(word, title)).then_some(100),
+    ];
+    places.into_iter().flatten().max()
+}
+
 /// How well `query` matches `item`: `None` when some word of the query matches nothing.
-pub fn score(_query: &str, _item: &Item) -> Option<u32> {
-    None
+pub fn score(query: &str, item: &Item) -> Option<u32> {
+    let words = words(query);
+    if words.is_empty() {
+        return None;
+    }
+    let (title, keywords, meta) = (
+        item.title.to_lowercase(),
+        item.keywords.to_lowercase(),
+        item.meta.to_lowercase(),
+    );
+    let mut total = 0;
+    for word in &words {
+        total += word_score(word, &title, &keywords, &meta)?;
+    }
+    // The whole query is the whole title: that is what the person typed.
+    if words.join(" ") == title {
+        total += 500;
+    }
+    Some(total)
 }
 
 /// The results for `query`, grouped in display order, best first inside a group. An empty query
 /// gives the suggestions: the first few actions and settings.
-pub fn search(_items: &[Item], _query: &str) -> Vec<usize> {
-    Vec::new()
+pub fn search(items: &[Item], query: &str) -> Vec<usize> {
+    if words(query).is_empty() {
+        return items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i.group, Group::Actions | Group::Settings))
+            .map(|(n, _)| n)
+            .take(6)
+            .collect();
+    }
+    let mut hits: Vec<(Group, std::cmp::Reverse<u32>, String, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(n, i)| {
+            score(query, i).map(|s| (i.group, std::cmp::Reverse(s), i.title.to_lowercase(), n))
+        })
+        .collect();
+    hits.sort();
+    let mut out = Vec::new();
+    let mut in_group = 0;
+    let mut group = None;
+    for (g, _, _, n) in hits {
+        if group != Some(g) {
+            group = Some(g);
+            in_group = 0;
+        }
+        in_group += 1;
+        if in_group <= PER_GROUP {
+            out.push(n);
+        }
+    }
+    out.truncate(TOTAL);
+    out
 }
 
 #[cfg(test)]
