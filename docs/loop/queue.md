@@ -60,7 +60,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   `CommandRunner`, so apt and dnf packages appear in the Apps list as apps (visible launchers only).
   Hand-written fixtures are fine where the tool is missing; say so in the fixture README and the WBS note.
   Rows stay `Needs Verification` unless a real capture exists.
-- [ ] **Q04 "Also delete my settings" in the uninstall panel** (WBS 7.4). Offered only where Tidewise
+- [/] **Q04 "Also delete my settings" in the uninstall panel** (WBS 7.4). Offered only where Tidewise
   knows the folder: a user Flatpak's `~/.var/app/<id>`. Never guessed for AppImages or packages. Goes to
   the Trash through `core::trash` (golden rule 4). Tests on temp dirs with `HOME` pointed there.
 - [ ] **Q05 Orphans group in Clean up** (WBS 6.6, 6.5). pacman orphans via `pacman -Qdtq` (read-only,

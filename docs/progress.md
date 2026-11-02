@@ -462,3 +462,10 @@ Plan: `dpkg_owners`, `parse_rpm_qf`, `rpm_owners`, `package_apps` in `desktop.rs
 Done: red 1ba1fe6 → green 7801b8e, refactor bae86c7, wiring e84ee4e; fmt, clippy, plain and TMPDIR `cargo test --all` (541 passed), deny, audit, release build exit 0; Apps design 3.9 %.
 Next: R7-Q04 "Also delete my settings".
 Blockers: needs a real Ubuntu/Debian and Fedora to check the fixtures (WBS 7.1.3/7.1.4/7.1.8 Needs Verification).
+
+## 2026-11-02 — Run 07, R7-Q04 "Also delete my settings" — PARTIAL
+Plan: `uninstall::settings_folder` + `Env.delete_settings` (user Flatpak `~/.var/app/<id>` only, Trash after the uninstall), view model `panel_with_settings` / `done_with_settings`, Slint checkbox + controller + demo states.
+Done: red b89e4c2 → green 3ff6a74; UI 17c6928 (not red-first); row-text red 94a934a → 4e21d37; fmt, clippy, plain and TMPDIR `cargo test --all` (551 passed), deny, audit, release build exit 0; Apps design 3.9 %.
+Next: R7-Q05 orphans group.
+Blockers: nobody has clicked the checkbox; no real user Flatpak with settings here.
+Rules bent: UI/controller commit not test-first; one mislabeled commit repaired with `reset --soft` (allowed by LOOP.md).
