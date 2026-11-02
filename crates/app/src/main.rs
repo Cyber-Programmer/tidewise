@@ -26,6 +26,7 @@ mod perf;
 mod procs;
 mod records;
 mod screenshot;
+mod services_view;
 mod startup;
 mod startup_live;
 mod storage;
