@@ -370,7 +370,7 @@ pub fn storage(downloads: bool) -> StorageData {
     }
 }
 
-/// The Cleaner artboard's groups (no "Packages nothing uses": the scanner does not look for them yet).
+/// The Cleaner artboard's six groups; "Packages nothing uses" is 7 packages of 30 MB.
 pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
     use tidewise_adapters::junk::{JunkItem, JunkKind, JunkReport};
     let item = |kind, label: &str, path: &str, bytes, needs_admin| JunkItem {
@@ -417,7 +417,27 @@ pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
                 400_000_000,
                 false,
             ),
-        ],
+        ]
+        .into_iter()
+        .chain(
+            [
+                "cmake",
+                "meson",
+                "go",
+                "scdoc",
+                "patchelf",
+                "intltool",
+                "python-installer",
+            ]
+            .map(|name| JunkItem {
+                kind: JunkKind::Orphans,
+                label: name.into(),
+                path: None,
+                bytes: 30_000_000,
+                needs_admin: true,
+            }),
+        )
+        .collect(),
         skipped: vec![],
     })
 }
