@@ -54,11 +54,10 @@ pub struct Loaded {
 }
 
 /// `$XDG_CONFIG_HOME/tidewise`, else `$HOME/.config/tidewise`.
-pub fn settings_dir_from(
-    _xdg_config: Option<OsString>,
-    _home: Option<OsString>,
-) -> Option<PathBuf> {
-    None
+pub fn settings_dir_from(xdg_config: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    let absolute = |v: Option<OsString>| v.map(PathBuf::from).filter(|p| p.is_absolute());
+    let config = absolute(xdg_config).or_else(|| absolute(home).map(|h| h.join(".config")))?;
+    Some(config.join("tidewise"))
 }
 
 /// The settings folder for this user, from the environment.
@@ -69,16 +68,67 @@ pub fn settings_dir() -> Option<PathBuf> {
     )
 }
 
-pub fn load(_dir: &Path) -> Loaded {
-    Loaded {
+const FILE: &str = "settings.json";
+
+/// Read the settings. Never fails: a missing file is the defaults, a broken one is moved aside to
+/// `settings.json.broken` (replacing an older such copy) and the defaults are used.
+pub fn load(dir: &Path) -> Loaded {
+    let path = dir.join(FILE);
+    let defaults = |problem: Option<String>| Loaded {
         settings: Settings::default(),
-        problem: None,
+        problem,
+    };
+    let meta = match std::fs::symlink_metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return defaults(None),
+        Err(e) => {
+            return defaults(Some(format!(
+                "Your settings could not be read ({e}), so Tidewise is using the defaults."
+            )))
+        }
+    };
+    let parsed = (meta.is_file() && meta.len() <= MAX_BYTES)
+        .then(|| std::fs::read_to_string(&path).ok())
+        .flatten()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .filter(serde_json::Value::is_object)
+        .and_then(|value| serde_json::from_value::<Settings>(value).ok());
+    match parsed {
+        Some(mut settings) => {
+            settings.version = VERSION;
+            Loaded {
+                settings,
+                problem: None,
+            }
+        }
+        None => {
+            let aside = dir.join(format!("{FILE}.broken"));
+            let kept = std::fs::rename(&path, &aside).is_ok();
+            defaults(Some(if kept {
+                format!(
+                    "Your settings file could not be read, so Tidewise is using the defaults. The old file was kept as {}.",
+                    aside.display()
+                )
+            } else {
+                "Your settings file could not be read, so Tidewise is using the defaults.".into()
+            }))
+        }
     }
 }
 
 /// Write `settings.json` atomically (temp file, then rename), creating the folder.
-pub fn save(_dir: &Path, _settings: &Settings) -> io::Result<()> {
-    Err(io::Error::other("not built"))
+pub fn save(dir: &Path, settings: &Settings) -> io::Result<()> {
+    use std::io::Write;
+    std::fs::create_dir_all(dir)?;
+    let json = serde_json::to_string_pretty(settings).map_err(io::Error::other)?;
+    let temp = dir.join(format!(".{FILE}.tmp"));
+    let result = std::fs::File::create(&temp)
+        .and_then(|mut f| f.write_all(json.as_bytes()).and_then(|()| f.sync_all()))
+        .and_then(|()| std::fs::rename(&temp, dir.join(FILE)));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 #[cfg(test)]
