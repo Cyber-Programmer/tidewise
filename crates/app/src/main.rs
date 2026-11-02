@@ -13,9 +13,11 @@ mod chart;
 mod cleaner;
 mod cleaner_live;
 mod cli;
+mod clipboard;
 mod demo;
 mod endtask;
 mod endtask_live;
+mod history_live;
 mod history_view;
 mod home;
 mod live;
@@ -201,6 +203,21 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "history" => {
+            let st = ui.global::<HistState>();
+            let screen = history_view::screen(demo::history(), None, demo::HISTORY_NOW, 0);
+            view::apply_history(ui, &screen, None);
+            match state {
+                None => {}
+                Some("details") => st.set_details(true),
+                Some("empty") => view::apply_history(
+                    ui,
+                    &history_view::Screen::default(),
+                    Some((1, "Cleaning up, uninstalling, moving files to the Trash and ending apps will be listed here.")),
+                ),
+                Some(other) => return Err(format!("unknown history state '{other}'").into()),
+            }
+        }
         "home" => {
             if let Some(other) = state {
                 return Err(format!("unknown home state '{other}'").into());
@@ -684,6 +701,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let history_ctl = Rc::new(RefCell::new(history_live::Ctl::new(format!(
+        "{} · {}",
+        shell_info().0,
+        shell_info().1
+    ))));
+    history_live::wire(&ui, &history_ctl);
     let junk_watch = Rc::new(RefCell::new(live::JunkWatch::default()));
     junk_watch
         .borrow_mut()
@@ -702,13 +725,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner, apps_ctl) = (
+        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
             storage.clone(),
             cleaner.clone(),
             apps_ctl.clone(),
+            history_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -726,6 +750,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if page == 3 {
                     storage.borrow_mut().enter(&ui);
                 }
+                if page == 8 {
+                    history_ctl.borrow_mut().enter(&ui);
+                }
                 show_page(
                     &ui,
                     &mut live.borrow_mut(),
@@ -740,6 +767,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if ui.global::<Shell>().get_page() == 2 {
         apps_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 8 {
+        history_ctl.borrow_mut().enter(&ui);
     }
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);

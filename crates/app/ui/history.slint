@@ -1,0 +1,222 @@
+// The History screen (docs/design/screens/History.dc.html): a timeline by day and the details of
+// the picked entry, with Undo where one exists and "Copy for a help forum".
+import { Theme } from "theme.slint";
+import { DetailsSwitch } from "components.slint";
+
+// `icon`: 0 clean up, 1 app, 2 startup, 3 trash, 4 process.
+export struct HistRow { id: string, title: string, subtitle: string, icon: int, hint: string, hint-undo: bool, selected: bool }
+// One day: its heading and its rows.
+export struct HistDay { label: string, rows: [HistRow] }
+export struct HistLine { label: string, value: string }
+
+export global HistState {
+    // 0 ready, 1 empty, 2 error
+    in property <int> phase: 1;
+    in property <string> message;
+    in property <[HistDay]> days;
+    in property <bool> has-detail: false;
+    in property <string> d-title;
+    in property <string> d-result;
+    // 0 done, 1 partly or forced (warn), 2 failed or skipped (muted)
+    in property <int> d-result-kind: 0;
+    in property <string> d-when;
+    in property <[HistLine]> d-lines;
+    in property <string> d-note;
+    in property <string> d-log;
+    in property <string> d-undo;
+    in-out property <bool> details: false;
+    callback pick(string);
+    callback undo();
+    callback copy();
+}
+
+component Badge inherits Rectangle {
+    in property <int> icon;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: icon == 0 ? Theme.accent-tint : (icon == 1 ? Theme.danger-tint : (icon == 2 ? Theme.chip-system-bg : (icon == 3 ? Theme.warn-tint : Theme.badge-bg)));
+    Image {
+        width: 18px;
+        height: 18px;
+        x: 9px;
+        y: 9px;
+        source: icon == 0 ? @image-url("icons/clean.svg") : (icon == 1 ? @image-url("icons/trash.svg") : (icon == 2 ? @image-url("icons/startup.svg") : (icon == 3 ? @image-url("icons/storage.svg") : @image-url("icons/processes.svg"))));
+        colorize: icon == 0 ? Theme.accent : (icon == 1 ? Theme.danger : (icon == 2 ? Theme.chip-system : (icon == 3 ? Theme.warn : Theme.text-soft)));
+    }
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: false;
+    callback clicked();
+    height: 44px;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius-button;
+    background: root.primary ? Theme.accent : (touch.has-hover ? Theme.segment-on : Theme.control-bg);
+    border-width: root.primary ? 0px : 1px;
+    border-color: Theme.control-border;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    Text { text: root.label; color: root.primary ? Theme.on-accent : Theme.text; font-size: Theme.size-body; font-weight: root.primary ? 600 : 500; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+export component HistoryScreen inherits Rectangle {
+    background: Theme.bg;
+    Flickable {
+        content-width: self.width;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            padding-top: 28px;
+            padding-bottom: 40px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: 18px;
+            alignment: start;
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    spacing: 6px;
+                    Text { text: "History"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                    Text { text: "Everything Tidewise changed on your PC, with a way back where one exists."; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout { alignment: end; DetailsSwitch { on <=> HistState.details; } }
+            }
+            if HistState.phase != 0: Rectangle {
+                height: 120px;
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    padding: 24px;
+                    spacing: 6px;
+                    Text { text: HistState.phase == 1 ? "Nothing here yet" : "Could not read your history"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                    Text { text: HistState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+            }
+            if HistState.phase == 0: HorizontalLayout {
+                spacing: 20px;
+                alignment: stretch;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    spacing: 18px;
+                    for day in HistState.days: VerticalLayout {
+                        spacing: 8px;
+                        Text { text: day.label; color: Theme.text-2; font-size: Theme.size-small; font-weight: 600; letter-spacing: 0.65px; }
+                        Rectangle {
+                            height: day.rows.length * 63px;
+                            border-radius: Theme.radius-card;
+                            background: Theme.surface;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            clip: true;
+                            VerticalLayout {
+                                for row[i] in day.rows: Rectangle {
+                                    height: 63px;
+                                    background: row.selected ? Theme.row-selected : transparent;
+                                    accessible-role: button;
+                                    accessible-label: row.title + ", " + row.subtitle;
+                                    accessible-action-default => { HistState.pick(row.id); }
+                                    if i < day.rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                                    HorizontalLayout {
+                                        padding-left: 16px;
+                                        padding-right: 16px;
+                                        spacing: 14px;
+                                        VerticalLayout { alignment: center; Badge { icon: row.icon; } }
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            spacing: 2px;
+                                            Text { text: row.title; color: Theme.text; font-size: Theme.size-body; font-weight: 600; overflow: elide; }
+                                            Text { text: row.subtitle; color: Theme.text-2; font-size: Theme.size-caption; overflow: elide; }
+                                        }
+                                        Text { text: row.hint; color: row.hint-undo ? Theme.accent : Theme.text-3; font-size: Theme.size-caption; font-weight: 600; vertical-alignment: center; }
+                                    }
+                                    TouchArea { clicked => { HistState.pick(row.id); } }
+                                }
+                            }
+                        }
+                    }
+                }
+                if HistState.has-detail: Rectangle {
+                    width: 380px;
+                    height: card.preferred-height;
+                    border-radius: Theme.radius-hero;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    card := VerticalLayout {
+                        padding: 22px;
+                        spacing: 16px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: start;
+                                Text { text: HistState.d-title; color: Theme.text; font-size: 19px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        height: 22px;
+                                        width: res.preferred-width + 16px;
+                                        border-radius: 6px;
+                                        background: HistState.d-result-kind == 0 ? Theme.accent-tint : (HistState.d-result-kind == 1 ? Theme.warn-tint : Theme.badge-bg);
+                                        res := Text { text: HistState.d-result; color: HistState.d-result-kind == 0 ? Theme.accent : (HistState.d-result-kind == 1 ? Theme.warn : Theme.text-soft); font-size: Theme.size-caption; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                    }
+                                }
+                            }
+                            Text { text: HistState.d-when; color: Theme.text-2; font-size: Theme.size-small; }
+                        }
+                        VerticalLayout {
+                            spacing: 8px;
+                            Text { text: "What changed"; color: Theme.text; font-size: Theme.size-small; font-weight: 600; }
+                            Rectangle {
+                                height: lines.preferred-height + 2px;
+                                border-radius: 12px;
+                                border-width: 1px;
+                                border-color: Theme.border;
+                                clip: true;
+                                lines := VerticalLayout {
+                                    for l[i] in HistState.d-lines: Rectangle {
+                                        height: 40px;
+                                        background: Theme.surface-sunk;
+                                        if i < HistState.d-lines.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                                        HorizontalLayout {
+                                            padding-left: 14px;
+                                            padding-right: 14px;
+                                            spacing: 10px;
+                                            Text { text: l.label; color: Theme.text-soft; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                            Text { text: l.value; color: Theme.text; font-family: Theme.mono; font-size: Theme.size-small; vertical-alignment: center; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Text { text: HistState.d-note; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.15; }
+                        if HistState.details: Rectangle {
+                            height: log.preferred-height + 20px;
+                            border-radius: 8px;
+                            background: Theme.drive-track;
+                            border-width: 1px;
+                            border-color: Theme.border-subtle;
+                            log := Text { x: 12px; y: 10px; width: parent.width - 24px; text: HistState.d-log; color: Theme.mono-dim; font-family: Theme.mono; font-size: 11px; wrap: word-wrap; line-height-factor: 1.5; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            if HistState.d-undo != "": ActionButton { primary: true; label: HistState.d-undo; clicked => { HistState.undo(); } }
+                            ActionButton { label: "Copy for a help forum"; clicked => { HistState.copy(); } }
+                        }
+                        Text { text: "Copy gives you a plain-text report with your distro and what ran, ready to paste when asking for help online. It never includes file contents or your username."; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.2; }
+                    }
+                }
+            }
+        }
+    }
+}

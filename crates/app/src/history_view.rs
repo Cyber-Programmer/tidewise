@@ -1,9 +1,6 @@
 //! The History screen: what the rows, the details and the Undo button say, from the records in
 //! `$XDG_STATE_HOME/tidewise/history/`. Plain data; `view.rs` copies it into Slint.
 
-// Not shown yet: the Slint screen that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_core::history::{self, Kind, Record, Status, Undo};
 
 /// Which icon a row gets (the artboard's colours per kind).

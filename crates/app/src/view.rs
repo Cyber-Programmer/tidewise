@@ -443,6 +443,82 @@ pub fn apply_clean(
 }
 
 /// List, chips and search results of the Apps screen.
+/// The History screen: the timeline (one flat list, each day's first row carries its heading) and
+/// the details of the picked entry. `empty` is the words to show when there is nothing to list.
+pub fn apply_history(
+    ui: &MainWindow,
+    screen: &crate::history_view::Screen,
+    empty: Option<(i32, &str)>,
+) {
+    use crate::history_view::Icon;
+    use crate::{HistDay, HistLine, HistRow, HistState};
+    let st = ui.global::<HistState>();
+    let days: Vec<HistDay> = screen
+        .days
+        .iter()
+        .map(|day| {
+            let rows: Vec<HistRow> = day
+                .rows
+                .iter()
+                .map(|r| HistRow {
+                    id: r.id.clone().into(),
+                    title: r.title.clone().into(),
+                    subtitle: r.subtitle.clone().into(),
+                    icon: match r.icon {
+                        Icon::Clean => 0,
+                        Icon::App => 1,
+                        Icon::Startup => 2,
+                        Icon::Trash => 3,
+                        Icon::Process => 4,
+                    },
+                    hint: r.hint.clone().into(),
+                    hint_undo: r.hint == "Restore",
+                    selected: r.selected,
+                })
+                .collect();
+            HistDay {
+                // The artboard sets the day headings in capitals.
+                label: day.label.to_uppercase().into(),
+                rows: ModelRc::new(VecModel::from(rows)),
+            }
+        })
+        .collect();
+    st.set_days(ModelRc::new(VecModel::from(days)));
+    match empty {
+        Some((phase, message)) => {
+            st.set_phase(phase);
+            st.set_message(message.into());
+        }
+        None => st.set_phase(0),
+    }
+    match &screen.detail {
+        Some(d) => {
+            st.set_has_detail(true);
+            st.set_d_title(d.title.clone().into());
+            st.set_d_result(d.result.clone().into());
+            st.set_d_result_kind(match d.result.as_str() {
+                "Done" => 0,
+                "Partly done" | "Forced" => 1,
+                _ => 2,
+            });
+            st.set_d_when(d.when.clone().into());
+            let lines: Vec<HistLine> = d
+                .lines
+                .iter()
+                .map(|(l, v)| HistLine {
+                    label: l.clone().into(),
+                    value: v.clone().into(),
+                })
+                .collect();
+            st.set_d_lines(ModelRc::new(VecModel::from(lines)));
+            st.set_d_note(d.note.clone().into());
+            st.set_d_log(d.log.clone().into());
+            st.set_d_undo(d.undo.clone().unwrap_or_default().into());
+        }
+        None => st.set_has_detail(false),
+    }
+}
+
 pub fn apply_apps(ui: &MainWindow, screen: &crate::apps::Screen) {
     let st = ui.global::<AppsState>();
     st.set_subtitle(screen.subtitle.clone().into());

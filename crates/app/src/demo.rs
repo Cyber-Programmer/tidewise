@@ -561,6 +561,84 @@ pub fn apps() -> Vec<(
     ]
 }
 
+/// "Now" for the History demo: 27 Oct 2026, 20:00 UTC (the artboard's "Today").
+pub const HISTORY_NOW: u64 = 1_793_131_200;
+
+/// The History artboard's entries that Tidewise can write today (no Docker or "set up" entries:
+/// there is no such record kind yet).
+pub fn history() -> Vec<tidewise_core::history::Record> {
+    use tidewise_core::history::{self, Kind, Record, Status, Step};
+    let step = |title: &str, bytes: u64| Step {
+        title: title.into(),
+        status: Status::Done,
+        bytes,
+        items: vec![],
+        entries: vec![],
+        note: None,
+    };
+    let record = |id: &str, time: u64, kind: Kind, title: &str, steps: Vec<Step>| Record {
+        version: history::VERSION,
+        id: id.into(),
+        time,
+        kind,
+        title: title.into(),
+        freed_bytes: steps.iter().map(|s| s.bytes).sum(),
+        steps,
+    };
+    vec![
+        record(
+            "h1",
+            1_793_130_060,
+            Kind::CleanUp,
+            "Cleaned 12.0 GB",
+            vec![
+                step("Old package downloads", 6_800_000_000),
+                step("App caches", 3_100_000_000),
+                step("Old system logs", 1_200_000_000),
+                step("Unused Flatpak parts", 900_000_000),
+            ],
+        ),
+        record(
+            "h2",
+            1_793_128_800,
+            Kind::Uninstall,
+            "Uninstalled GIMP",
+            vec![
+                step("GIMP app (Flatpak)", 412_000_000),
+                step("Shared parts only it used", 320_000_000),
+            ],
+        ),
+        record(
+            "h3",
+            1_793_124_300,
+            Kind::Startup,
+            "Discord won't start at login",
+            vec![step("Startup apps", 0)],
+        ),
+        {
+            let moved: Vec<(tidewise_core::trash::Trashed, u64)> = [
+                ("ubuntu-24.04-desktop-amd64.iso", 6_100_000_000),
+                ("archlinux-x86_64.iso", 1_400_000_000),
+                ("old-backup.zip", 1_600_000_000),
+            ]
+            .iter()
+            .map(|(name, bytes)| {
+                (
+                    tidewise_core::trash::Trashed {
+                        original: format!("/home/you/Downloads/{name}").into(),
+                        in_trash: format!("/home/you/.local/share/Trash/files/{name}").into(),
+                        info: format!("/home/you/.local/share/Trash/info/{name}.trashinfo").into(),
+                    },
+                    *bytes,
+                )
+            })
+            .collect();
+            history::trash_record(&moved, 1_793_047_500, "h5")
+        },
+        history::end_task_record("Firefox", 14, 2_300_000_000, true, 1_792_591_320, "h6"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
