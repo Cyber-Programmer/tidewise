@@ -2,6 +2,9 @@
 //! `tidewise_adapters::services` read. Plain data; `view.rs` copies it into Slint. Nothing can be
 //! started, stopped or changed here yet: the buttons say they need admin access.
 
+// Not drawn yet: the Slint screen that reads this arrives in the next commit.
+#![allow(dead_code)]
+
 use tidewise_adapters::services::{Boot, Service, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,12 +69,141 @@ pub struct Screen {
     pub detail: Option<Detail>,
 }
 
-pub fn screen(_services: &[Service], _tab: Tab, _selected: Option<&str>) -> Screen {
-    Screen::default()
+fn state_label(state: State) -> (&'static str, StateKind) {
+    match state {
+        State::Running => ("Running", 0),
+        State::Failed => ("Failed", 1),
+        State::Finished => ("Finished", 2),
+        State::Off => ("Off", 2),
+    }
 }
 
-#[allow(dead_code)]
-fn unused(_: Boot, _: State) {}
+fn boot_line(boot: Boot) -> &'static str {
+    match boot {
+        Boot::Yes => "Starts with your PC",
+        Boot::No => "Doesn't start with your PC",
+        Boot::WhenNeeded => "Starts when needed",
+        Boot::Masked => "Blocked (masked)",
+    }
+}
+
+fn boot_card(boot: Boot) -> &'static str {
+    match boot {
+        Boot::Yes => "Yes",
+        Boot::No => "No",
+        Boot::WhenNeeded => "When needed",
+        Boot::Masked => "Blocked",
+    }
+}
+
+fn row(s: &Service, selected: bool) -> Row {
+    let (state, kind) = state_label(s.state);
+    let line = match s.memory {
+        Some(bytes) => format!(
+            "{} · {}",
+            boot_line(s.boot),
+            tidewise_core::history::bytes_text(bytes)
+        ),
+        None => boot_line(s.boot).to_string(),
+    };
+    Row {
+        unit: s.unit.clone(),
+        name: s.name.clone(),
+        line,
+        state: state.into(),
+        kind,
+        protected: s.protected,
+        selected,
+    }
+}
+
+fn detail(s: &Service) -> Detail {
+    let (state, kind) = state_label(s.state);
+    let (primary, secondary) = if s.protected {
+        ("", "")
+    } else {
+        (
+            match s.state {
+                State::Running => "Stop now",
+                State::Failed => "Try again",
+                State::Finished | State::Off => "Start now",
+            },
+            match s.boot {
+                Boot::Yes => "Don't start with PC",
+                Boot::No => "Start with PC",
+                Boot::WhenNeeded | Boot::Masked => "",
+            },
+        )
+    };
+    Detail {
+        unit: s.unit.clone(),
+        name: s.name.clone(),
+        state: state.into(),
+        kind,
+        desc: s.desc.clone(),
+        tip: s.tip.clone().unwrap_or_default(),
+        boot: boot_card(s.boot).into(),
+        memory: s
+            .memory
+            .map_or_else(|| "—".to_string(), tidewise_core::history::bytes_text),
+        protected: s.protected,
+        primary: primary.into(),
+        secondary: secondary.into(),
+        technical: s.technical.clone(),
+    }
+}
+
+/// Build the screen for `tab`. `selected` is a unit name; when it is not in this tab the first row
+/// is shown.
+pub fn screen(services: &[Service], tab: Tab, selected: Option<&str>) -> Screen {
+    let review = |s: &&Service| s.tip.is_some();
+    let running = |s: &&Service| s.state == State::Running;
+    let counts = (
+        services.iter().filter(review).count(),
+        services.iter().filter(running).count(),
+        services.len(),
+    );
+    let tabs = [
+        ("Worth a look", counts.0, Tab::Review),
+        ("Running", counts.1, Tab::Running),
+        ("All", counts.2, Tab::All),
+    ]
+    .into_iter()
+    .map(|(label, count, t)| TabInfo {
+        label: label.into(),
+        count,
+        on: t == tab,
+    })
+    .collect();
+    let mut shown: Vec<&Service> = match tab {
+        Tab::Review => services.iter().filter(review).collect(),
+        Tab::Running => services.iter().filter(running).collect(),
+        Tab::All => services.iter().collect(),
+    };
+    // Biggest memory first (unknown last), failed ones on top of "worth a look", then by name.
+    let big = |s: &Service| std::cmp::Reverse(s.memory.unwrap_or(0));
+    match tab {
+        Tab::Review => {
+            shown.sort_by_key(|s| (s.state != State::Failed, big(s), s.name.to_lowercase()))
+        }
+        Tab::Running => shown.sort_by_key(|s| (big(s), s.name.to_lowercase())),
+        Tab::All => shown.sort_by_key(|s| (s.name.to_lowercase(), s.unit.clone())),
+    }
+    let picked = selected
+        .and_then(|u| shown.iter().find(|s| s.unit == u))
+        .or(shown.first())
+        .map(|s| s.unit.clone());
+    Screen {
+        tabs,
+        rows: shown
+            .iter()
+            .map(|s| row(s, picked.as_deref() == Some(s.unit.as_str())))
+            .collect(),
+        detail: picked
+            .and_then(|u| shown.iter().find(|s| s.unit == u))
+            .map(|s| detail(s)),
+    }
+}
 
 #[cfg(test)]
 mod tests {
