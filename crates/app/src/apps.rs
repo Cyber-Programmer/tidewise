@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn ticking_it_shows_the_size_that_goes_to_the_trash_and_adds_it_to_the_space_back() {
+    fn ticking_it_shows_the_size_that_goes_with_it_and_adds_it_to_the_space_back() {
         let p = flatpak_panel(Some(SettingsChoice {
             bytes: 2_000_000,
             delete: true,
@@ -640,10 +640,7 @@ mod tests {
         assert!(p.settings_offer && p.delete_settings);
         assert_eq!(
             p.rows[2],
-            (
-                "Your settings and data".to_string(),
-                "2 MB to the Trash".to_string()
-            )
+            ("Your settings and data".to_string(), "2 MB".to_string())
         );
         assert_eq!(p.total, "734 MB");
     }
