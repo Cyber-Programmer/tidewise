@@ -357,8 +357,42 @@ pub enum ReadError {
 
 /// Ask systemd (three read-only `systemctl` calls through `runner`, by absolute path) and build the
 /// list. A failing memory query only leaves the memory column empty.
-pub fn read(_runner: &dyn crate::runner::CommandRunner) -> Result<Vec<Service>, ReadError> {
-    Err(ReadError::Failed("not built".into()))
+pub fn read(runner: &dyn crate::runner::CommandRunner) -> Result<Vec<Service>, ReadError> {
+    const SYSTEMCTL: &str = "/usr/bin/systemctl";
+    let ask = |args: &[&str]| -> Result<String, ReadError> {
+        let out = runner
+            .run(SYSTEMCTL, args)
+            .map_err(ReadError::NoSystemctl)?;
+        if out.success {
+            Ok(out.stdout)
+        } else {
+            Err(ReadError::Failed(out.stderr.trim().to_string()))
+        }
+    };
+    let units = parse_units(&ask(&[
+        "list-units",
+        "--type=service",
+        "--all",
+        "--output=json",
+        "--no-pager",
+    ])?)?;
+    let files = parse_unit_files(&ask(&[
+        "list-unit-files",
+        "--type=service",
+        "--output=json",
+        "--no-pager",
+    ])?)?;
+    // Memory is a nice extra: when it cannot be read the column is simply empty.
+    let memory = ask(&[
+        "show",
+        "--type=service",
+        "--property=Id,MemoryCurrent",
+        "--no-pager",
+    ])
+    .ok()
+    .and_then(|text| parse_memory(&text).ok())
+    .unwrap_or_default();
+    Ok(build(&units, &files, &memory))
 }
 
 #[cfg(test)]
