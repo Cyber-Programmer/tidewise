@@ -30,19 +30,34 @@ pub fn confirm(name: &str, count: usize) -> Texts {
 
 /// `Force quit Firefox?`: the Force quit button of the Processes details card goes straight to
 /// this, without asking the app to close first.
-pub fn force_confirm(_name: &str, _count: usize) -> Texts {
+pub fn force_confirm(name: &str, count: usize) -> Texts {
+    let who = match count {
+        0 | 1 => format!("{name} will stop immediately."),
+        2 => format!("Both {name} processes will stop immediately."),
+        n => format!("All {n} {name} processes will stop immediately."),
+    };
     Texts {
-        title: String::new(),
-        text: String::new(),
-        confirm: String::new(),
+        title: format!("Force quit {name}?"),
+        text: format!(
+            "{who} Anything you haven't saved will be lost, and it gets no chance to clean up."
+        ),
+        confirm: "Force quit".into(),
     }
 }
 
 /// The dialog while the signal is sent and Tidewise waits (`kill`: SIGKILL, else the polite request).
-pub fn closing(_name: &str, _kill: bool) -> Texts {
+pub fn closing(name: &str, kill: bool) -> Texts {
+    let (title, text) = if kill {
+        (format!("Force quitting {name}…"), "Stopping it right away.")
+    } else {
+        (
+            format!("Closing {name}…"),
+            "Waiting up to 5 seconds for it to close on its own.",
+        )
+    };
     Texts {
-        title: String::new(),
-        text: String::new(),
+        title,
+        text: text.into(),
         confirm: String::new(),
     }
 }
