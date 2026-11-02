@@ -56,7 +56,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 
 ## B. Finish the partials that don't need the helper
 
-- [ ] **Q03 dpkg / rpm owner lookups** (WBS 7.1.8, 7.1.3, 7.1.4). `dpkg -S` and `rpm -qf` runners through
+- [/] **Q03 dpkg / rpm owner lookups** (WBS 7.1.8, 7.1.3, 7.1.4). `dpkg -S` and `rpm -qf` runners through
   `CommandRunner`, so apt and dnf packages appear in the Apps list as apps (visible launchers only).
   Hand-written fixtures are fine where the tool is missing; say so in the fixture README and the WBS note.
   Rows stay `Needs Verification` unless a real capture exists.

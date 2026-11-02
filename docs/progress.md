@@ -456,3 +456,9 @@ Plan: `cachekind::classify` (table, then 2 GB rule), `JunkKind::SlowCache` from 
 Done: red 3a31dd7 → green b2cfb5a; fmt, clippy, plain and TMPDIR `cargo test --all` (533 passed), deny, audit exit 0; Cleaner design 8.8 %.
 Next: R7-Q03 dpkg/rpm owner lookups.
 Blockers: the new group was never seen on screen (no slow caches left here, no demo state); not in the design.
+
+## 2026-11-02 — Run 07, R7-Q03 dpkg / rpm owner lookups — PARTIAL
+Plan: `dpkg_owners`, `parse_rpm_qf`, `rpm_owners`, `package_apps` in `desktop.rs` with fake-runner tests and hand-written rpm fixtures; pacman through the same function (refactor commit); apt and dnf wired into `apps_live.rs`.
+Done: red 1ba1fe6 → green 7801b8e, refactor bae86c7, wiring e84ee4e; fmt, clippy, plain and TMPDIR `cargo test --all` (541 passed), deny, audit, release build exit 0; Apps design 3.9 %.
+Next: R7-Q04 "Also delete my settings".
+Blockers: needs a real Ubuntu/Debian and Fedora to check the fixtures (WBS 7.1.3/7.1.4/7.1.8 Needs Verification).
