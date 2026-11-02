@@ -95,7 +95,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 
 ## D. Cheap docs
 
-- [ ] **Q14 CHANGELOG.md and README screenshots** (WBS 9.11). Keep a Changelog style, an `Unreleased`
+- [x] **Q14 CHANGELOG.md and README screenshots** (WBS 9.11). Keep a Changelog style, an `Unreleased`
   section listing what exists today (and nothing that doesn't). README screenshots from `--screenshot`
   of the built screens, stored under `docs/screenshots/`.
 - [ ] **Q15 Pen-test checklist** (WBS 5.10). `docs/security/pentest-checklist.md`: what a human tester

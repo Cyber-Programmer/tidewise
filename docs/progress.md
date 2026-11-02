@@ -530,3 +530,9 @@ Done: red 41b4783 → 802e847; fmt, clippy, plain and TMPDIR `cargo test --all` 
 Next: R7-Q14 CHANGELOG.md and README screenshots.
 Blockers: admin, update and sensor states not buildable; keyboard and contrast pass not done; nothing clicked.
 Rules bent: Slint parts not test-first.
+
+## 2026-11-02 — Run 07, R7-Q14 CHANGELOG and README screenshots — DONE
+Plan: docs only: Keep a Changelog `Unreleased` listing what exists, README build line and 11 demo screenshots.
+Done: CHANGELOG.md, README.md, docs/screenshots/*.png (demo data); `cargo fmt --check` exit 0; no code changed since the last full test run.
+Next: R7-Q15 pen-test checklist.
+Blockers: none.

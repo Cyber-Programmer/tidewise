@@ -224,3 +224,10 @@ Copied from the run 06 report (`docs/loop/archive/run-06-report.md`), each with 
 5. **Not built (cannot be, or no need yet):** the admin "access not set up" card (no helper), "update ready" and "Settings offline" (no update check exists), Performance "sensor not available" (no temperature card), a list of unreadable Storage folders with "Measure with admin", "Try again" and "Copy error details" on a failed Clean up action, toast "longer while hovered". The full table is `docs/states-audit.md`.
 6. **Not red-first:** the Slint banner, notes, skeleton component, demo states and controller wiring. Red-first: `source_notes`, `unsupported_system_apps`, `critical_drive`, `empty_state`.
 Rules bent: Slint parts not test-first. The keyboard pass and contrast check named by WBS 9.7 were not done.
+
+## Run 07 — R7-Q14 CHANGELOG and README screenshots: decisions taken without you
+1. **Screenshots use the demo data only** (`--screenshot <screen>`, 11 screens, `docs/screenshots/`, 2.0 MB together), never `--state live`, so no real file names, apps or paths from this machine go into the repository. Recommended: keep; replace with real-desktop captures before a release.
+2. **CHANGELOG has one `Unreleased` section** and says plainly it was not used by anyone but the author and lists what is not built. No version number was invented.
+3. **README** now says how to build and run it from source, and that admin actions are not available. The old "nothing to install yet" is replaced by "nothing released yet".
+4. **Known flaw in a picture:** in `docs/screenshots/storage.png` the demo footer line of the "Biggest files" card is cut off ("…never"). I did not touch the page for it in this docs task.
+Rules bent: none (docs only, no red test applies).

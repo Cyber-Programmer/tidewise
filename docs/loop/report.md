@@ -193,3 +193,12 @@ Evidence:
 Not verified: **nobody clicked** "Check again" or "Free up space"; the real critical-drive and missing-Flatpak/Snap paths never ran on a real machine (only demo states and unit tests); **keyboard pass and 4.5:1 contrast check, which WBS 9.7 names, were not done**; skeleton rows were not compared to the artboard by score.
 Errors: none in this task's final run.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q13" items 1–6.
+
+## R7-Q14 CHANGELOG.md and README screenshots — Done   (2026-11-02 14:01 PKT)
+WBS: 9.11 → Needs Verification
+Commits: see `git log` (docs only: CHANGELOG.md, README.md, docs/screenshots/*.png; no red test applies)
+Evidence: `./target/release/tidewise --screenshot <screen> --out docs/screenshots/<screen>.png` for home, clean-up, apps, storage, performance, processes, startup, services, history, settings, health → each exit 0 (11 files, 2.0 MB); `cargo fmt --check` → exit 0. No file under crates/, assets/, Cargo.toml or Cargo.lock changed since 802e847 (the commit of the last full run: plain and TMPDIR `cargo test --all` → 0, 684 passed), so I did not run the suite again for this docs-only commit.
+Pictures looked at: home.png, storage.png (the other nine not looked at).
+Not verified: nine of the eleven screenshots were not looked at; every CHANGELOG line is from my knowledge of the source and earlier reports, not re-checked feature by feature; README table rendering on GitHub not seen.
+Errors: none.
+Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q14" items 1–4. Known flaw: storage.png footer text cut off.
