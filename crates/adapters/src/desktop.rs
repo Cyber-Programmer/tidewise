@@ -135,17 +135,22 @@ pub fn apps_from_packages(
         .collect()
 }
 
+/// The files that can safely be handed to an owner lookup: absolute, no newline, no NUL.
+fn valid_files(files: &[PathBuf]) -> Vec<&str> {
+    files
+        .iter()
+        .filter_map(|f| f.to_str())
+        .filter(|f| f.starts_with('/') && !f.contains(['\n', '\0']))
+        .collect()
+}
+
 /// Ask pacman who owns these files (`pacman -Qo`, read-only). Files that nobody owns are simply
 /// missing from the answer.
 pub fn pacman_owners(
     runner: &dyn crate::runner::CommandRunner,
     files: &[PathBuf],
 ) -> Vec<(PathBuf, String)> {
-    let valid: Vec<&str> = files
-        .iter()
-        .filter_map(|f| f.to_str())
-        .filter(|f| f.starts_with('/') && !f.contains(['\n', '\0']))
-        .collect();
+    let valid = valid_files(files);
     if valid.is_empty() {
         return Vec::new();
     }
@@ -160,36 +165,84 @@ pub fn pacman_owners(
 /// Ask dpkg who owns these files (`dpkg -S`, read-only). It exits 1 when some file is unknown but
 /// still prints the ones it found, so the exit code is not looked at.
 pub fn dpkg_owners(
-    _runner: &dyn crate::runner::CommandRunner,
-    _files: &[PathBuf],
+    runner: &dyn crate::runner::CommandRunner,
+    files: &[PathBuf],
 ) -> Vec<(PathBuf, String)> {
-    Vec::new()
+    let valid = valid_files(files);
+    if valid.is_empty() {
+        return Vec::new();
+    }
+    let mut args = vec!["-S", "--"];
+    args.extend(valid);
+    match runner.run("/usr/bin/dpkg", &args) {
+        Ok(out) => parse_dpkg_s(&out.stdout),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// The package names `rpm -qf --qf '%{NAME}\n' FILE` printed for `file`. Lines that are not a plain
 /// package name (the "not owned" sentence in any language, an error, anything odd) are skipped.
-pub fn parse_rpm_qf(_file: &std::path::Path, _text: &str) -> Vec<(PathBuf, String)> {
-    Vec::new()
+pub fn parse_rpm_qf(file: &std::path::Path, text: &str) -> Vec<(PathBuf, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| is_plain_name(line))
+        .map(|line| (file.to_path_buf(), line.to_string()))
+        .collect()
 }
 
 /// Ask rpm who owns these files, one `rpm -qf` per file (its output does not say which file a name
-/// belongs to when several are asked at once).
+/// belongs to when several are asked at once). The files are absolute, so none can look like an
+/// option. A machine with hundreds of launchers means hundreds of short runs; this is meant for a
+/// worker thread.
 pub fn rpm_owners(
-    _runner: &dyn crate::runner::CommandRunner,
-    _files: &[PathBuf],
+    runner: &dyn crate::runner::CommandRunner,
+    files: &[PathBuf],
 ) -> Vec<(PathBuf, String)> {
-    Vec::new()
+    let mut owned = Vec::new();
+    for file in valid_files(files) {
+        let args = ["-qf", "--qf", "%{NAME}\\n", file];
+        if let Ok(out) = runner.run("/usr/bin/rpm", &args) {
+            owned.extend(parse_rpm_qf(std::path::Path::new(file), &out.stdout));
+        }
+    }
+    owned
 }
 
 /// The packages that own a visible `.desktop` file in `apps_dir`, as apps, for any package source
 /// that has an owner lookup (pacman, apt, dnf). Other kinds give nothing.
 pub fn package_apps(
-    _packages: Vec<AppEntry>,
-    _kind: crate::source::SourceKind,
-    _runner: &dyn crate::runner::CommandRunner,
-    _apps_dir: &std::path::Path,
+    packages: Vec<AppEntry>,
+    kind: crate::source::SourceKind,
+    runner: &dyn crate::runner::CommandRunner,
+    apps_dir: &std::path::Path,
 ) -> Vec<AppEntry> {
-    Vec::new()
+    use crate::source::SourceKind;
+    if !matches!(kind, SourceKind::Pacman | SourceKind::Apt | SourceKind::Dnf) {
+        return Vec::new();
+    }
+    let files: Vec<PathBuf> = std::fs::read_dir(apps_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
+        .collect();
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let entries: HashMap<PathBuf, DesktopEntry> = files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f).ok()?;
+            Some((f.clone(), parse_desktop_file(&text)?))
+        })
+        .collect();
+    let owned = match kind {
+        SourceKind::Pacman => pacman_owners(runner, &files),
+        SourceKind::Apt => dpkg_owners(runner, &files),
+        _ => rpm_owners(runner, &files),
+    };
+    apps_from_packages(packages, &owned, &entries)
 }
 
 #[cfg(test)]
@@ -307,10 +360,12 @@ mod tests {
     use crate::source::SourceKind;
     use std::cell::RefCell;
 
+    type Answer = Box<dyn Fn(&str, &[&str]) -> Result<Output, String>>;
+
     /// Answers each call from a closure and remembers what was asked.
     struct Fake {
         calls: RefCell<Vec<(String, Vec<String>)>>,
-        answer: Box<dyn Fn(&str, &[&str]) -> Result<Output, String>>,
+        answer: Answer,
     }
 
     impl Fake {
