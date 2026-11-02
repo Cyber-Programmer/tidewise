@@ -245,3 +245,9 @@ Rules bent: none (docs only).
 3. **Home file index (R7-Q12 item 1):** nothing built, nothing to measure. Recommended: if wanted, build it behind a measurement that must stay under 40 MB.
 4. WBS row 3.8 keeps `Done` (its original evidence stands); the new numbers were added to L and N.
 Rules bent: none.
+
+## Run 07 — R7-Q17 Fuzzing: decisions taken without the human
+1. **Five targets at a time** (three batches), not one by one: same 600 s per target, about 30 minutes instead of 2.5 hours. Throughput per target may be lower than a solo run (the `search` target did only 780 k runs). Recommended: keep.
+2. Corpora stay uncommitted (`fuzz/.gitignore`), as before.
+3. WBS 5.5 set to Done for the 15 existing targets; the helper-request target is part of the helper work (not built).
+Rules bent: none.

@@ -107,6 +107,6 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [x] **Q16 Budgets on every page built since run 05** (WBS 3.8 note): `tools/measure.sh` on Clean up,
   Apps (with the list loaded), Home with the junk rescan, History, Startup, Services, Settings (≤ 40 MB
   PSS, < 2 % idle CPU). Over budget → fix it, or report it as a bug with the numbers.
-- [ ] **Q17 Fuzz every target 10 minutes** (WBS 5.5). Targets in `fuzz/`; `-max_total_time=600` each.
+- [x] **Q17 Fuzz every target 10 minutes** (WBS 5.5). Targets in `fuzz/`; `-max_total_time=600` each.
   Results in `docs/security/fuzzing.md`; a crash becomes a fixture + regression test + fix. Don't start a
   target that cannot finish before the stop time.

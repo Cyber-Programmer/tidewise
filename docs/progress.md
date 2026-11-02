@@ -548,3 +548,9 @@ Plan: measure eight built pages with tools/measure.sh; fix or report anything ov
 Done: all eight within ≤ 40 MB (max 34.2, Apps) and < 2 % (max 1.0, Home); docs/budgets.md.
 Next: R7-Q17 fuzz each target 10 minutes (only what fits before 08:00 on 3 Nov).
 Blockers: none.
+
+## 2026-11-02 — Run 07, R7-Q17 Fuzz every target 10 minutes — DONE
+Plan: build all targets, run each 600 s, five in parallel, record in fuzzing.md.
+Done: 15 of 15 targets, exit 0, no findings; docs/security/fuzzing.md.
+Next: End of the run (queue has no open task).
+Blockers: none.

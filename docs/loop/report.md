@@ -218,3 +218,11 @@ Evidence: `MEASURE_WAIT=40 MEASURE_WINDOW=60 tools/measure.sh ./target/release/t
 Not verified: whether each page had finished its first scan/content at 40 s was not looked at (no screenshot during the run); Performance, Processes, Storage and the open Ctrl K box not measured; startup peak not measured; one machine, one renderer; the 5-minute failed-services read is inside the 100 s window only on Home's first scan.
 Errors: my first launch command (with an `rm` of the old output folder) was refused by the safety check; nothing was removed, I used a fresh folder target/budget2 instead (an empty folder target/budget remains).
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q16" items 1–4.
+
+## R7-Q17 Fuzz every target 10 minutes — Done   (2026-11-02 14:55 PKT)
+WBS: 5.5 → Done
+Commits: see `git log` (docs only: docs/security/fuzzing.md)
+Evidence: `cd fuzz && cargo +nightly fuzz build` → exit 0; `cargo +nightly fuzz run <target> -- -max_total_time=600` for all 15 targets (apt_parsers, desktop, desktop_files, dnf_parsers, flatpak_list, journal_usage, orphans, os_release, pacman_qi, pacman_rns_print, proc_stat, search, services, snap_list, statm) → exit 0 each (target/fuzzlogs/exits.txt, 15 lines, none non-zero), each "Done N runs in 601 second(s)", 780 184 to 25 923 631 runs; no crash, timeout or OOM line in any log; replay of the old orphans artifact → exit 0. Table in docs/security/fuzzing.md.
+Not verified: fuzzing finds only what it reaches in 10 minutes (coverage was not inspected); no fuzz target for the helper request (helper not built); five parallel jobs shared the CPU; CI runs no fuzzing.
+Errors: one `ls --time-style` call failed (the `ls` here is `lsd`); no effect on the results.
+Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q17" items 1–3.
