@@ -2,6 +2,9 @@
 //! Plain data; `view.rs` copies it into Slint. No "impact" numbers: Tidewise cannot measure what an
 //! app costs at login honestly yet, so none are shown.
 
+// Not drawn yet: the Slint screen that reads this arrives in the next commit.
+#![allow(dead_code)]
+
 use tidewise_adapters::autostart::{Scope, StartupEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,18 +37,70 @@ pub struct Screen {
     pub of: String,
 }
 
-pub fn screen(_entries: &[StartupEntry]) -> Screen {
-    Screen::default()
+pub fn screen(entries: &[StartupEntry]) -> Screen {
+    let rows: Vec<Row> = entries
+        .iter()
+        .map(|e| {
+            let origin = match e.scope {
+                Scope::User => "Added by you or by the app itself",
+                Scope::System => "Provided by your system",
+            };
+            // A user copy of a system file is still "provided by your system" to the person.
+            let origin = if e.scope == Scope::User && e.has_system_copy {
+                "Provided by your system"
+            } else {
+                origin
+            };
+            Row {
+                file: e.file.clone(),
+                name: e.name.clone(),
+                desc: match &e.comment {
+                    Some(c) => format!("{c} · {origin}"),
+                    None => origin.to_string(),
+                },
+                path: e.path.display().to_string(),
+                letter: e
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().collect())
+                    .unwrap_or_default(),
+                hue: (e.name.to_lowercase().bytes().map(u32::from).sum::<u32>() % 6) as i32,
+                enabled: e.enabled,
+                chip: if e.protected {
+                    "Part of your desktop".into()
+                } else {
+                    String::new()
+                },
+                locked: e.protected,
+                switch_label: format!("Start {} at login", e.name),
+            }
+        })
+        .collect();
+    let on = rows.iter().filter(|r| r.enabled).count();
+    Screen {
+        on: on.to_string(),
+        of: format!(
+            "of {} app{}",
+            rows.len(),
+            if rows.len() == 1 { "" } else { "s" }
+        ),
+        rows,
+    }
 }
 
 /// The toast after a switch was flipped.
-pub fn toast_text(_name: &str, _now_on: bool) -> String {
-    String::new()
+pub fn toast_text(name: &str, now_on: bool) -> String {
+    if now_on {
+        format!("{name} will start at login again.")
+    } else {
+        format!("{name} won't start at login anymore.")
+    }
 }
 
 /// A plain sentence for a switch that could not be flipped.
-pub fn failure_text(_name: &str, _why: &str) -> String {
-    String::new()
+pub fn failure_text(name: &str, why: &str) -> String {
+    format!("Couldn't change {name}: {why}")
 }
 
 #[cfg(test)]
