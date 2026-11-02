@@ -146,6 +146,23 @@ pub struct Finish {
     pub can_retry: bool,
 }
 
+/// The page when the scan found nothing worth cleaning (the artboard's "nothing found").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmptyState {
+    pub title: String,
+    pub text: String,
+    /// The one thing to do next.
+    pub action: String,
+}
+
+pub fn empty_state() -> EmptyState {
+    EmptyState {
+        title: String::new(),
+        text: String::new(),
+        action: String::new(),
+    }
+}
+
 pub fn finish(results: &[StepResult]) -> Finish {
     let freed = tidewise_adapters::cleanup::freed_bytes(results);
     let mut left_alone = 0;
@@ -535,6 +552,17 @@ mod tests {
         assert_eq!(f.title, "19.5 GB freed · 1 folder left");
         assert!(f.text.contains(why), "{}", f.text);
         assert!(!f.text.contains("changed after the scan"), "{}", f.text);
+    }
+
+    #[test]
+    fn nothing_found_says_so_calmly_and_offers_to_look_again() {
+        let e = empty_state();
+        assert_eq!(e.title, "Already tidy");
+        assert_eq!(
+            e.text,
+            "Nothing worth cleaning right now. Junk builds up slowly; check back in a few weeks."
+        );
+        assert_eq!(e.action, "Check again");
     }
 
     #[test]

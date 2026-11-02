@@ -63,6 +63,26 @@ pub struct HomeData {
     pub apps: Option<Apps>,
 }
 
+/// A drive that is this full (95 % or more) gets a warning of its own, not just a suggestion.
+pub const CRITICAL_DRIVE_USED: f64 = 0.95;
+
+/// The warning for a nearly full main drive (the artboard's "drive critically full").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alert {
+    pub title: String,
+    pub body: String,
+    pub action: String,
+    /// The sidebar page the button opens.
+    pub page: i32,
+}
+
+pub fn critical_drive(
+    _drive: Option<tidewise_core::drive::DriveSpace>,
+    _junk: Option<u64>,
+) -> Option<Alert> {
+    None
+}
+
 /// Junk is only worth a suggestion from 1 GB up.
 const JUNK_SUGGESTION_BYTES: u64 = 1_000_000_000;
 
@@ -551,6 +571,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_nearly_full_drive_gets_its_own_warning_with_the_junk_it_could_free() {
+        let d = tidewise_core::drive::DriveSpace {
+            total: 100_000_000_000,
+            free: 2_100_000_000,
+        };
+        let a = critical_drive(Some(d), Some(12_600_000_000)).unwrap();
+        assert_eq!(a.title, "Main drive almost full: 2.1 GB left");
+        assert_eq!(
+            a.body,
+            "Updates and apps can fail when a drive is this full. Clearing junk alone would free 12.6 GB."
+        );
+        assert_eq!((a.action.as_str(), a.page), ("Free up space", 1));
+    }
+
+    #[test]
+    fn the_warning_starts_at_95_percent_and_only_mentions_junk_worth_mentioning() {
+        let used = |u: f64| drive(u);
+        assert!(critical_drive(Some(used(0.949)), None).is_none());
+        assert!(critical_drive(Some(used(0.95)), None).is_some());
+        assert!(
+            critical_drive(None, Some(50_000_000_000)).is_none(),
+            "no drive, no claim"
+        );
+        let plain = critical_drive(Some(used(0.97)), None).unwrap();
+        assert_eq!(
+            plain.body,
+            "Updates and apps can fail when a drive is this full."
+        );
+        let small = critical_drive(Some(used(0.97)), Some(900_000_000)).unwrap();
+        assert_eq!(
+            small.body, plain.body,
+            "under 1 GB of junk is not worth a sentence"
+        );
     }
 
     #[test]

@@ -27,6 +27,21 @@ impl Filter {
 }
 
 /// What the user sees for where an app comes from.
+/// Sentences for the sources this PC does not have (the artboard's "a source isn't installed"):
+/// plain, and saying it is normal.
+pub fn source_notes(_tools: &tidewise_core::distro::Tools) -> Vec<String> {
+    Vec::new()
+}
+
+/// The message for a PC whose system package manager Tidewise cannot use: title and body, or
+/// `None` when pacman, apt or dnf is there. `distro` is the name from os-release (may be empty).
+pub fn unsupported_system_apps(
+    _tools: &tidewise_core::distro::Tools,
+    _distro: &str,
+) -> Option<(String, String)> {
+    None
+}
+
 pub fn source_label(kind: SourceKind) -> &'static str {
     match kind {
         SourceKind::Pacman | SourceKind::Apt | SourceKind::Dnf => "System",
@@ -540,6 +555,69 @@ mod tests {
             needs_admin: admin,
             to_trash: kind == SourceKind::AppImage,
             command: vec!["flatpak".into(), "uninstall".into(), "org.gimp.GIMP".into()],
+        }
+    }
+
+    fn tools(
+        pacman: bool,
+        apt: bool,
+        dnf: bool,
+        flatpak: bool,
+        snap: bool,
+    ) -> tidewise_core::distro::Tools {
+        tidewise_core::distro::Tools {
+            pacman,
+            apt,
+            dnf,
+            flatpak,
+            snap,
+        }
+    }
+
+    #[test]
+    fn a_missing_flatpak_or_snap_is_explained_as_normal() {
+        let snap = "Snap isn't installed on this PC. That's normal on many distros. If you install it later, its apps appear here automatically.";
+        let flatpak = "Flatpak isn't installed on this PC. That's normal on many distros. If you install it later, its apps appear here automatically.";
+        assert_eq!(
+            source_notes(&tools(true, false, false, true, false)),
+            [snap]
+        );
+        assert_eq!(
+            source_notes(&tools(true, false, false, false, true)),
+            [flatpak]
+        );
+        assert_eq!(
+            source_notes(&tools(true, false, false, false, false)),
+            [flatpak, snap]
+        );
+        assert!(source_notes(&tools(true, false, false, true, true)).is_empty());
+    }
+
+    #[test]
+    fn an_unsupported_package_manager_says_what_still_works() {
+        let (title, body) =
+            unsupported_system_apps(&tools(false, false, false, true, false), "Void Linux")
+                .unwrap();
+        assert_eq!(title, "System apps on Void Linux aren't supported yet");
+        assert!(
+            body.contains("Tidewise doesn't know how to safely remove system apps on this distro"),
+            "{body}"
+        );
+        assert!(
+            body.contains(
+                "Flatpak and AppImage apps, cleaning, storage and performance all still work"
+            ),
+            "{body}"
+        );
+        let (title, _) =
+            unsupported_system_apps(&tools(false, false, false, false, false), "").unwrap();
+        assert_eq!(title, "System apps on this Linux aren't supported yet");
+        for supported in [
+            tools(true, false, false, false, false),
+            tools(false, true, false, false, false),
+            tools(false, false, true, false, false),
+        ] {
+            assert_eq!(unsupported_system_apps(&supported, "Arch Linux"), None);
         }
     }
 
