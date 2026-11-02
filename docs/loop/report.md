@@ -226,3 +226,33 @@ Evidence: `cd fuzz && cargo +nightly fuzz build` → exit 0; `cargo +nightly fuz
 Not verified: fuzzing finds only what it reaches in 10 minutes (coverage was not inspected); no fuzz target for the helper request (helper not built); five parallel jobs shared the CPU; CI runs no fuzzing.
 Errors: one `ls --time-style` call failed (the `ls` here is `lsd`); no effect on the results.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q17" items 1–3.
+
+## Summary — end of run 07   (2026-11-02 14:58 PKT)
+Queue empty (no `[ ]` left), so the loop stopped; stop time (3 Nov 08:00 PKT) not reached.
+
+**Final checks on f8a1609 (the last code-or-docs commit before this summary; no code changed since 802e847):** `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; plain `cargo test --all` → 0 (684 passed, 0 failed, 3 ignored); `TMPDIR=$PWD/target/tmp cargo test --all` → 0 (684 passed, 3 ignored); `cargo audit` → 0; `cargo deny check` → 0; `cargo build --release -p tidewise-app` → 0 (target/release/tidewise, 26 MB, built 13:51:58, already current); `./packaging/appimage/build.sh` → 0 (dist/Tidewise-0.1.0-x86_64.AppImage, ${AI} bytes ≈ 11 MB). `ls -d /tmp/appimage_extracted_*` → none (0).
+
+- **Done:** Q01, Q02, Q14, Q15 (document only; its WBS row stays In Progress), Q16, Q17.
+- **Partial (by design: needs the admin helper, a person, or another real distro):** Q18, Q19, Q03, Q04, Q05, Q06, Q07, Q08, Q09, Q10, Q11, Q12, Q13.
+- **Blocked:** none. **Not started:** none.
+
+**Not verified (all in one list):**
+- Nobody has clicked or used any UI built in this run: Clean up end dialog and slow-cache group, uninstall settings checkbox, Force quit, History (Undo, Copy for help forum), Startup apps, Services, Settings (theme switch), Health, Search/Ctrl K, the Q13 states.
+- Keyboard use (Ctrl K, ↑ ↓, Enter, Esc, tab order) never exercised; 4.5:1 contrast not measured; keyboard/contrast pass named by WBS 9.7 not done.
+- Design scores not met (target ≤ 10 %): End dialog 26.1 %, History 32.8 %, Startup 18.7 %, Services 17.1 %, Settings 86.3 %, Health 33.7 %, Search 42.4 %; causes in each entry. Light Home 8.6 %. No score for the Q13 states.
+- apt, dnf, rpm and apt/dnf orphan paths use hand-written fixtures; nothing ran on a real Debian, Ubuntu or Fedora machine.
+- Curated "worth a look" and protected-service lists, the slow-cache classifier and the 95 % drive rule are my judgement.
+- "Follow system" theme never checked on a real desktop; the light theme looked at on four screens only.
+- Home files are not searched (no index built, so none measured).
+- Budgets: Performance, Processes, Storage, the open Ctrl K box and start-up peak not measured; 40 s wait instead of 60 s.
+- Fuzzing: coverage not inspected; no helper target (helper not built); CI runs no fuzzing.
+- Pen-test checklist: no item run; expected results are claims. A16 and A21 may expose real bugs.
+- 9 of 11 README screenshots and the CHANGELOG lines not checked one by one; storage.png footer text cut off.
+- Home score now includes failed services (changes the number).
+- Nothing real on this machine was changed (no ~/.config/autostart or ~/.config/tidewise created; Docker still running).
+
+**Errors (all in one list):** invented time stamps in three early report headings (corrected, rule: read `date` in the same command); zsh quirks; several red tests that did not compile or registered 0 tests (fixed before the red commit); a "(red)" commit that swallowed Q04 UI wiring (fixed with `git reset --soft`, allowed); fixture bug under TMPDIR (unquoted Exec path); a fuzz harness crash (`split_at`, harness fixed, replay exit 0); multi-heredoc edit mix-ups twice (duplicate `mod` lines caught by clippy); layout traps in Slint (fixed); `theme_tokens` guard test failing after a light-token edit (not weakened, see questions.md Q10); a refused `rm` in Q16 (nothing removed); a WBS row read off by one in Q15 (nothing written to the wrong row); design scores that got worse after some fixes (End dialog, History) and were reported as such.
+
+**New questions:** `docs/questions.md`, sections "Run 06 — decisions taken before they were listed here" and "Run 07 — R7-Q…" for Q01 to Q17.
+
+**Click through by hand:** Clean up (scan, untick a group, confirm, read the end dialog; slow-cache group off by default); Apps (search, uninstall panel, settings checkbox on a user Flatpak); Storage Trash and Undo; Processes End task and Force quit; Startup apps off/on; Services tabs; History Undo and Copy; Settings theme buttons and Follow system; Health page and Home "Why N?"; Ctrl K with the keyboard; Home banner and Already tidy states (`--demo --state`); run `docs/security/pentest-checklist.md` sections A and B on a VM.

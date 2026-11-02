@@ -554,3 +554,8 @@ Plan: build all targets, run each 600 s, five in parallel, record in fuzzing.md.
 Done: 15 of 15 targets, exit 0, no findings; docs/security/fuzzing.md.
 Next: End of the run (queue has no open task).
 Blockers: none.
+
+## 2026-11-02 — Run 07, End of the run
+Done: Q01, Q02, Q14, Q15, Q16, Q17; Q03–Q13, Q18, Q19 partial. Final checks (fmt, clippy, plain and TMPDIR tests 684 passed, audit, deny, release build, AppImage) all exit 0.
+Next: the human clicks through the new screens, runs the pen-test checklist, decides the items in docs/questions.md.
+Blockers: admin helper not built; design scores above 10 % on seven screens.
