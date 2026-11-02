@@ -3,7 +3,10 @@
 //! indexed. Each item carries a `key` that says what to open; `parse_key` reads it back and refuses
 //! anything that is not one of ours.
 
-use tidewise_core::search::Item;
+// Not used yet: the search box that reads this arrives in the next commits.
+#![allow(dead_code)]
+
+use tidewise_core::search::{Group, Item};
 
 /// The few things the index needs to know about an app.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,13 +37,203 @@ pub enum Open {
     Process(String),
 }
 
-pub fn parse_key(_key: &str) -> Option<Open> {
-    None
+/// Read a key back. Anything that is not exactly one of ours is refused.
+pub fn parse_key(key: &str) -> Option<Open> {
+    if key.len() > 255 || key.chars().any(char::is_control) {
+        return None;
+    }
+    if let Some(n) = key.strip_prefix("page:") {
+        let page = n
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| n.parse::<i32>().ok())
+            .flatten()?;
+        return (0..=10).contains(&page).then_some(Open::Page(page));
+    }
+    let rest = |prefix: &str| key.strip_prefix(prefix).filter(|r| !r.is_empty());
+    if let Some(id) = rest("app:") {
+        return Some(Open::App(id.into()));
+    }
+    rest("proc:").map(|name| Open::Process(name.into()))
+}
+
+fn fixed(group: Group, title: &str, meta: &str, keywords: &str, page: i32) -> Item {
+    Item {
+        group,
+        title: title.into(),
+        meta: meta.into(),
+        keywords: keywords.into(),
+        key: format!("page:{page}"),
+    }
 }
 
 /// The whole index.
-pub fn items(_apps: &[AppInfo], _procs: &[ProcInfo]) -> Vec<Item> {
-    Vec::new()
+pub fn items(apps: &[AppInfo], procs: &[ProcInfo]) -> Vec<Item> {
+    use tidewise_core::history::bytes_text;
+    let mut out = Vec::new();
+    for a in apps {
+        let source = if a.source == "System" {
+            "System app".to_string()
+        } else {
+            a.source.clone()
+        };
+        out.push(Item {
+            group: Group::Apps,
+            title: a.name.clone(),
+            meta: match a.size_bytes {
+                Some(b) => format!("{source} · {}", bytes_text(b)),
+                None => source,
+            },
+            keywords: String::new(),
+            key: format!("app:{}", a.id),
+        });
+    }
+    for p in procs {
+        out.push(Item {
+            group: Group::Processes,
+            title: p.name.clone(),
+            meta: format!(
+                "Running · {} process{} · {} memory",
+                p.count,
+                if p.count == 1 { "" } else { "es" },
+                bytes_text(p.mem_bytes)
+            ),
+            keywords: "running memory".into(),
+            key: format!("proc:{}", p.name),
+        });
+    }
+    let actions = [
+        (
+            "Clean up junk files",
+            "Clean up",
+            "free space junk cache clean",
+            1,
+        ),
+        (
+            "See what's using space",
+            "Storage",
+            "free space disk full big files",
+            3,
+        ),
+        (
+            "Stop apps opening at login",
+            "Startup apps",
+            "startup boot slow login",
+            6,
+        ),
+        (
+            "See what is slowing my PC",
+            "Performance",
+            "slow memory cpu hot laggy",
+            4,
+        ),
+        (
+            "Why is my health score what it is?",
+            "Health",
+            "health score points why",
+            10,
+        ),
+        (
+            "End an app that is stuck",
+            "Processes",
+            "frozen not responding kill close",
+            5,
+        ),
+        (
+            "See what Tidewise changed",
+            "History",
+            "undo log changes",
+            8,
+        ),
+        (
+            "Look at background services",
+            "Services",
+            "docker bluetooth printing",
+            7,
+        ),
+    ];
+    out.extend(
+        actions
+            .iter()
+            .map(|(t, m, k, page)| fixed(Group::Actions, t, m, k, *page)),
+    );
+    let pages = [
+        (
+            "Home",
+            "Your PC at a glance",
+            "home start overview score",
+            0,
+        ),
+        (
+            "Clean up",
+            "Remove junk files, caches and logs",
+            "clean junk cache remove",
+            1,
+        ),
+        (
+            "Apps",
+            "See and remove installed apps",
+            "uninstall software programs remove",
+            2,
+        ),
+        (
+            "Storage",
+            "See what is using space",
+            "disk files folders big",
+            3,
+        ),
+        (
+            "Performance",
+            "Processor, memory, network and disk",
+            "cpu ram speed",
+            4,
+        ),
+        (
+            "Processes",
+            "What is running right now",
+            "tasks end stuck frozen",
+            5,
+        ),
+        (
+            "Startup apps",
+            "What opens when you log in",
+            "boot login autostart",
+            6,
+        ),
+        (
+            "Services",
+            "Programs the system runs in the background",
+            "daemon systemctl",
+            7,
+        ),
+        (
+            "History",
+            "What Tidewise changed, and how to undo it",
+            "undo log",
+            8,
+        ),
+        ("Settings", "Theme and updates", "preferences options", 9),
+    ];
+    out.extend(
+        pages
+            .iter()
+            .map(|(t, m, k, page)| fixed(Group::Actions, &format!("Open {t}"), m, k, *page)),
+    );
+    out.push(fixed(
+        Group::Settings,
+        "Theme",
+        "Appearance",
+        "dark light follow system",
+        9,
+    ));
+    out.push(fixed(
+        Group::Settings,
+        "Check for updates",
+        "Privacy & updates",
+        "version update",
+        9,
+    ));
+    out
 }
 
 #[cfg(test)]
