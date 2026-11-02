@@ -595,6 +595,22 @@ mod tests {
     }
 
     #[test]
+    fn the_cleanup_demo_has_the_artboards_six_groups_with_the_orphans_last() {
+        use tidewise_adapters::cleanup::{default_selection, GroupId};
+        let g = cleanup();
+        assert_eq!(g.len(), 6);
+        let last = g.last().unwrap();
+        assert_eq!(
+            (last.id, last.title, last.bytes),
+            (GroupId::Orphans, "Packages nothing uses", 210_000_000)
+        );
+        assert_eq!(last.items.len(), 7, "the artboard says 7 packages");
+        assert!(last.admin);
+        assert_eq!(g.iter().map(|g| g.bytes).sum::<u64>(), 12_610_000_000);
+        assert_eq!(default_selection(&g).len(), 4, "4 of 6 are ticked");
+    }
+
+    #[test]
     fn processes_demo_has_the_artboards_eight_rows() {
         let d = processes();
         assert_eq!(d.rows.len(), 8);
