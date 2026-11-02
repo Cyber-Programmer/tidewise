@@ -1,9 +1,6 @@
 //! The Settings screen's small pieces of logic: which theme button is on and what the update-check
 //! line says. Plain data; `settings_live.rs` shows it and saves the changes.
 
-// Not drawn yet: the Slint screen that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_core::settings::ThemeChoice;
 
 /// 0 follow the system, 1 dark, 2 light: the index of the button, and what `Theme.mode` means in Slint.

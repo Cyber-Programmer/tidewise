@@ -1,0 +1,155 @@
+// The Settings screen (docs/design/screens/Settings.dc.html), only the settings that do something
+// today: the theme and the remembered update-check choice, plus About. Accent colour, text size,
+// size units, package versions to keep and the other toggles of the artboard are not built.
+import { Theme } from "theme.slint";
+
+export global SettingsState {
+    // 0 follow the system, 1 dark, 2 light
+    in-out property <int> theme: 0;
+    in-out property <bool> update-check: true;
+    in property <string> update-note;
+    in property <string> about-title;
+    in property <string> about-text;
+    // A plain sentence when the file could not be read or saved; empty hides it.
+    in property <string> problem;
+    callback set-theme(int);
+    callback toggle-update();
+}
+
+component Choice inherits Rectangle {
+    in property <string> label;
+    in property <bool> on;
+    callback clicked();
+    height: 36px;
+    width: txt.preferred-width + 28px;
+    border-radius: 9px;
+    background: root.on ? Theme.segment-on : transparent;
+    accessible-role: radio-button;
+    accessible-label: root.label;
+    accessible-checked: root.on;
+    accessible-action-default => { root.clicked(); }
+    txt := Text { text: root.label; color: root.on ? Theme.text : Theme.text-2; font-size: Theme.size-small; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component Section inherits Rectangle {
+    in property <string> title;
+    height: col.preferred-height;
+    border-radius: Theme.radius-card;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    col := VerticalLayout {
+        padding-top: 22px;
+        padding-bottom: 22px;
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 18px;
+        Text { text: root.title; color: Theme.text; font-size: 17px; font-weight: 600; }
+        @children
+    }
+}
+
+export component SettingsScreen inherits Rectangle {
+    background: Theme.bg;
+    horizontal-stretch: 1;
+    Flickable {
+        content-width: self.width;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            width: root.width;
+            padding-top: 28px;
+            padding-bottom: 48px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: 20px;
+            alignment: start;
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "Settings"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                Text { text: "Changes save as you make them."; color: Theme.text-2; font-size: Theme.size-body; }
+            }
+            if SettingsState.problem != "": Rectangle {
+                height: prob.preferred-height + 24px;
+                border-radius: 12px;
+                background: Theme.warn-banner-bg;
+                border-width: 1px;
+                border-color: Theme.warn-button-border;
+                prob := Text { x: 16px; y: 12px; width: parent.width - 32px; text: SettingsState.problem; color: Theme.warn-note; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+            }
+            Section {
+                title: "Appearance";
+                HorizontalLayout {
+                    spacing: 12px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text { text: "Theme"; color: Theme.text; font-size: Theme.size-body; font-weight: 500; }
+                        Text { text: "Follow system matches your desktop's light or dark mode."; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 46px;
+                            width: seg.preferred-width + 8px;
+                            border-radius: 12px;
+                            background: Theme.surface-sunk;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            seg := HorizontalLayout {
+                                padding: 4px;
+                                spacing: 4px;
+                                Choice { label: "Follow system"; on: SettingsState.theme == 0; clicked => { SettingsState.set-theme(0); } }
+                                Choice { label: "Dark"; on: SettingsState.theme == 1; clicked => { SettingsState.set-theme(1); } }
+                                Choice { label: "Light"; on: SettingsState.theme == 2; clicked => { SettingsState.set-theme(2); } }
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
+                title: "Privacy & updates";
+                HorizontalLayout {
+                    spacing: 16px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text { text: "Check for updates once a day"; color: Theme.text; font-size: Theme.size-body; font-weight: 500; }
+                        Text { text: SettingsState.update-note; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 46px;
+                            height: 28px;
+                            border-radius: Theme.radius-pill;
+                            background: SettingsState.update-check ? Theme.accent : Theme.control-border;
+                            accessible-role: switch;
+                            accessible-label: "Check for updates once a day";
+                            accessible-checked: SettingsState.update-check;
+                            accessible-action-default => { SettingsState.toggle-update(); }
+                            Rectangle { x: SettingsState.update-check ? 22px : 4px; y: 4px; width: 20px; height: 20px; border-radius: Theme.radius-pill; background: Theme.text; }
+                            TouchArea { clicked => { SettingsState.toggle-update(); } }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: nt.preferred-height + 24px;
+                    border-radius: 12px;
+                    background: Theme.surface-sunk;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    nt := Text { x: 14px; y: 12px; width: parent.width - 28px; text: "Tidewise has no telemetry and sends nothing about you or your PC."; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+                }
+            }
+            Section {
+                title: "About";
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: SettingsState.about-title; color: Theme.text; font-size: Theme.size-body; font-weight: 500; }
+                    Text { text: SettingsState.about-text; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                }
+            }
+        }
+    }
+}

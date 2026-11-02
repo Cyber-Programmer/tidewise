@@ -28,6 +28,7 @@ mod records;
 mod screenshot;
 mod services_live;
 mod services_view;
+mod settings_live;
 mod settings_view;
 mod startup;
 mod startup_live;
@@ -208,6 +209,25 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "settings" => {
+            // The demo never reads the user's file: the artboard's defaults.
+            let st = ui.global::<SettingsState>();
+            st.set_about_title(settings_view::about_title(env!("CARGO_PKG_VERSION")).into());
+            st.set_about_text("A PC manager for Linux: it cleans junk, shows what uses space, removes apps and watches performance. Free software under the GPL-3.0-or-later. It never runs as root.".into());
+            let (theme, update, problem) = match state {
+                None => (0, true, ""),
+                Some("light") => (2, true, ""),
+                Some("off") => (1, false, ""),
+                Some("problem") => (0, true, "Your settings file could not be read, so Tidewise is using the defaults. The old file was kept as ~/.config/tidewise/settings.json.broken."),
+                Some(other) => return Err(format!("unknown settings state '{other}'").into()),
+            };
+            ui.global::<Theme>()
+                .set_mode(if theme == 2 { 2 } else { 1 });
+            st.set_theme(theme);
+            st.set_update_check(update);
+            st.set_update_note(settings_view::update_note(update).into());
+            st.set_problem(problem.into());
+        }
         "services" => {
             let st = ui.global::<ServicesState>();
             let list = demo::services();
@@ -509,6 +529,10 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     ui.global::<Shell>()
         .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
+    // `TIDEWISE_SCREENSHOT_THEME=light` draws any screen in the light theme (screenshots only).
+    if std::env::var("TIDEWISE_SCREENSHOT_THEME").as_deref() == Ok("light") {
+        ui.global::<Theme>().set_mode(2);
+    }
     if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
         live_storage_screenshot(&ui, shot)?;
     }
@@ -767,6 +791,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let settings_ctl = Rc::new(RefCell::new(settings_live::Ctl::load()));
+    settings_ctl.borrow().apply(&ui);
+    settings_live::wire(&ui, &settings_ctl);
     let services_ctl = Rc::new(RefCell::new(services_live::Ctl::new()));
     services_live::wire(&ui, &services_ctl);
     let startup_ctl = Rc::new(RefCell::new(startup_live::Ctl::new()));

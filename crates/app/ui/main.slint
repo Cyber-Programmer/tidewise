@@ -11,8 +11,9 @@ import { EndDialog, EndState } from "endtask.slint";
 import { HistoryScreen, HistState } from "history.slint";
 import { StartupScreen, StartupState } from "startup.slint";
 import { ServicesScreen, ServicesState } from "services.slint";
+import { SettingsScreen, SettingsState } from "settings.slint";
 
-export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState, EndState, HistState, StartupState, ServicesState }
+export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState, EndState, HistState, StartupState, ServicesState, SettingsState, Theme }
 
 component ComingLater inherits Rectangle {
     in property <string> title;
@@ -48,7 +49,8 @@ export component MainWindow inherits Window {
         if Shell.page == 6: StartupScreen { }
         if Shell.page == 7: ServicesScreen { }
         if Shell.page == 8: HistoryScreen { }
-        if Shell.page != 0 && Shell.page != 1 && Shell.page != 2 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5 && Shell.page != 6 && Shell.page != 7 && Shell.page != 8: ComingLater {
+        if Shell.page == 9: SettingsScreen { }
+        if Shell.page != 0 && Shell.page != 1 && Shell.page != 2 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5 && Shell.page != 6 && Shell.page != 7 && Shell.page != 8 && Shell.page != 9: ComingLater {
             title: ["Home", "Clean up", "Apps", "Storage", "Performance", "Processes", "Startup apps", "Services", "History", "Settings"][Shell.page];
         }
     }
