@@ -30,6 +30,9 @@ pub struct Sampler {
     biggest: Option<(Instant, Option<(String, u64)>)>,
     /// Bytes of junk the last scan found; `None` until one has finished.
     pub junk: Option<u64>,
+    /// Names of the services that failed, from the same check; `None` until it has run (or when
+    /// systemd could not be asked).
+    pub failed_services: Option<Vec<String>>,
 }
 
 const DRIVE_REFRESH: Duration = Duration::from_secs(30);
@@ -92,6 +95,7 @@ impl Sampler {
             drive: None,
             biggest: None,
             junk: None,
+            failed_services: None,
         }
     }
 
@@ -195,7 +199,12 @@ impl Sampler {
         });
         HomeData {
             last_checked: "Live numbers, updated every second".into(),
-            scan: Some(home::health_scan(drive, biggest, self.junk)),
+            scan: Some(home::health_scan_with(
+                drive,
+                biggest,
+                self.junk,
+                self.failed_services.clone(),
+            )),
             tiles,
             apps: None,
         }
@@ -455,7 +464,7 @@ pub fn should_scan_junk(since_last: Option<Duration>, home_visible: bool, runnin
 /// The junk scan that feeds the Home health score, run on a worker thread.
 #[derive(Default)]
 pub struct JunkWatch {
-    rx: Option<std::sync::mpsc::Receiver<u64>>,
+    rx: Option<std::sync::mpsc::Receiver<(u64, Option<Vec<String>>)>>,
     last: Option<Instant>,
 }
 
@@ -464,8 +473,9 @@ impl JunkWatch {
     pub fn poll(&mut self, sampler: &mut Sampler, home_visible: bool) {
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
-                Ok(bytes) => {
+                Ok((bytes, failed)) => {
                     sampler.junk = Some(bytes);
+                    sampler.failed_services = failed;
                     self.rx = None;
                     self.last = Some(Instant::now());
                 }
@@ -483,7 +493,17 @@ impl JunkWatch {
             std::thread::spawn(move || {
                 let report =
                     tidewise_adapters::junk::scan(&tidewise_adapters::junk::live_sources());
-                let _ = tx.send(report.user_bytes() + report.admin_bytes());
+                // The failed services come from the same worker: three read-only systemctl calls.
+                let failed =
+                    tidewise_adapters::services::read(&tidewise_adapters::runner::SystemRunner)
+                        .ok()
+                        .map(|all| {
+                            all.into_iter()
+                                .filter(|s| s.state == tidewise_adapters::services::State::Failed)
+                                .map(|s| s.unit)
+                                .collect::<Vec<_>>()
+                        });
+                let _ = tx.send((report.user_bytes() + report.admin_bytes(), failed));
             });
         }
     }

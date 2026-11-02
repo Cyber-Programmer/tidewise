@@ -66,6 +66,31 @@ pub struct HomeData {
 /// Junk is only worth a suggestion from 1 GB up.
 const JUNK_SUGGESTION_BYTES: u64 = 1_000_000_000;
 
+/// ` Junk, services and updates are not part of this score yet.`: what the report says is still
+/// not measured, in the words the Home note uses (the two that are never measured, drive health, is
+/// not named here).
+fn not_in_score(report: &tidewise_core::health::Report) -> String {
+    let words: Vec<&str> = report
+        .not_checked
+        .iter()
+        .filter_map(|n| match n.title.as_str() {
+            "Junk" => Some("junk"),
+            "Services" => Some("services"),
+            "Waiting updates" => Some("updates"),
+            _ => None,
+        })
+        .collect();
+    let mut list = match words.as_slice() {
+        [] => return String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    if let Some(first) = list.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    format!(" {list} are not part of this score yet.")
+}
+
 /// The health score and the suggestions from what is really measured: drive fullness, junk and the
 /// app using the most memory. `junk` is the size the junk scan found, `None` while no scan has
 /// finished (then nothing is claimed about junk).
@@ -84,15 +109,18 @@ pub fn health_scan_with(
     drive: Option<tidewise_core::drive::DriveSpace>,
     biggest_app: Option<(String, u64)>,
     junk: Option<u64>,
-    _failed_services: Option<Vec<String>>,
+    failed_services: Option<Vec<String>>,
 ) -> Scan {
     use tidewise_core::health;
     let gb = |b: u64| b as f64 / 1_000_000_000.0;
+    let report = health::report(&health::Inputs {
+        drive,
+        junk,
+        failed_services,
+    });
     let mut suggestions = Vec::new();
-    let mut points = Vec::new();
     let mut real = 0;
     if let Some(bytes) = junk {
-        points.push(health::junk_points(bytes));
         if bytes >= JUNK_SUGGESTION_BYTES {
             real += 1;
             suggestions.push(Suggestion {
@@ -107,9 +135,7 @@ pub fn health_scan_with(
     }
     if let Some(d) = drive {
         let used = d.used_fraction();
-        let p = health::disk_points(used);
-        points.push(p);
-        if p > 0 {
+        if health::disk_points(used) > 0 {
             real += 1;
             suggestions.push(Suggestion {
                 icon: Icon::Warning,
@@ -133,7 +159,7 @@ pub fn health_scan_with(
             page: 5,
         });
     }
-    let score = health::score(&points);
+    let score = report.score;
     let opening = if score >= 80 {
         "Your PC is running well."
     } else {
@@ -149,12 +175,8 @@ pub fn health_scan_with(
         tag: health::tag(score).into(),
         headline,
         sub: format!(
-            "Nothing changes until you review it. Every fix shows exactly what it will touch first. {} are not part of this score yet.",
-            if junk.is_some() {
-                "Services and updates"
-            } else {
-                "Junk, services and updates"
-            }
+            "Nothing changes until you review it. Every fix shows exactly what it will touch first.{}",
+            not_in_score(&report)
         ),
         suggestions,
     }
