@@ -176,60 +176,229 @@ pub struct DayGroup {
     pub records: Vec<Record>,
 }
 
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// (year, month 1–12, day 1–31) for a count of days since 1970-01-01 (Howard Hinnant's algorithm).
+fn civil_from_days(days: i64) -> (i64, usize, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as usize;
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
+/// The local day number of `time` (seconds since 1970 UTC, shifted by `offset_secs` east of UTC).
+fn local_day(time: u64, offset_secs: i64) -> i64 {
+    (time as i64 + offset_secs).div_euclid(86_400)
+}
+
 /// `Today`, `Yesterday`, `Last week` (2 to 7 days ago), else `October 2026`; in the local day given
 /// by `offset_secs` (seconds east of UTC).
-pub fn day_label(_time: u64, _now: u64, _offset_secs: i64) -> String {
-    String::new()
+pub fn day_label(time: u64, now: u64, offset_secs: i64) -> String {
+    let ago = (local_day(now, offset_secs) - local_day(time, offset_secs)).max(0);
+    match ago {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        2..=7 => "Last week".into(),
+        _ => {
+            let (year, month, _) = civil_from_days(local_day(time, offset_secs));
+            format!("{} {year}", MONTHS[month - 1])
+        }
+    }
 }
 
 /// `19:41` for today and yesterday, `Oct 21, 14:02` for older ones.
-pub fn time_label(_time: u64, _now: u64, _offset_secs: i64) -> String {
-    String::new()
+pub fn time_label(time: u64, now: u64, offset_secs: i64) -> String {
+    let secs = (time as i64 + offset_secs).rem_euclid(86_400);
+    let clock = format!("{:02}:{:02}", secs / 3600, secs % 3600 / 60);
+    let ago = (local_day(now, offset_secs) - local_day(time, offset_secs)).max(0);
+    if ago <= 1 {
+        clock
+    } else {
+        let (_, month, day) = civil_from_days(local_day(time, offset_secs));
+        format!("{} {day}, {clock}", &MONTHS[month - 1][..3])
+    }
 }
 
 /// Newest first, one group per label, in order.
-pub fn group_by_day(_records: Vec<Record>, _now: u64, _offset_secs: i64) -> Vec<DayGroup> {
-    Vec::new()
+pub fn group_by_day(mut records: Vec<Record>, now: u64, offset_secs: i64) -> Vec<DayGroup> {
+    records.sort_by(|a, b| b.time.cmp(&a.time).then_with(|| a.id.cmp(&b.id)));
+    let mut groups: Vec<DayGroup> = Vec::new();
+    for record in records {
+        let label = day_label(record.time, now, offset_secs);
+        match groups.last_mut() {
+            Some(g) if g.label == label => g.records.push(record),
+            _ => groups.push(DayGroup {
+                label,
+                records: vec![record],
+            }),
+        }
+    }
+    groups
+}
+
+/// `3.1 GB`, `412 MB`, `9 kB`, `532 B` (decimal units, like the rest of the app).
+pub fn bytes_text(bytes: u64) -> String {
+    match bytes {
+        b if b >= 1_000_000_000 => format!("{:.1} GB", b as f64 / 1e9),
+        b if b >= 1_000_000 => format!("{:.0} MB", b as f64 / 1e6),
+        b if b >= 1_000 => format!("{:.0} kB", b as f64 / 1e3),
+        b => format!("{b} B"),
+    }
+}
+
+/// `/home/bob/x` becomes `~/x` (and a bare `/home/bob` becomes `~`).
+fn hide_home(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("/home/") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + "/home/".len()..];
+        let end = after
+            .find(|c: char| c == '/' || c.is_whitespace() || c == ':')
+            .unwrap_or(after.len());
+        out.push('~');
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn status_word(status: Status) -> &'static str {
+    match status {
+        Status::Done => "done",
+        Status::Partial => "partly done",
+        Status::Skipped => "skipped",
+        Status::Failed => "failed",
+        Status::NotRun => "not run",
+    }
 }
 
 /// A plain-text report to paste when asking for help: the system line, what ran and what happened.
 /// Never file contents; the home folder and any `/home/<name>` are written as `~`.
-pub fn report_text(_record: &Record, _system: &str) -> String {
-    String::new()
+pub fn report_text(record: &Record, system: &str) -> String {
+    let secs = record.time as i64;
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    let clock = secs.rem_euclid(86_400);
+    let mut out = format!(
+        "Tidewise report\n{}\nSystem: {system}\nWhen: {year}-{month:02}-{day:02} {:02}:{:02} UTC\n\nWhat happened:\n",
+        record.title,
+        clock / 3600,
+        clock % 3600 / 60
+    );
+    for step in &record.steps {
+        out += &format!("- {}: {}", step.title, status_word(step.status));
+        if step.bytes > 0 {
+            out += &format!(" · {}", bytes_text(step.bytes));
+        }
+        out.push('\n');
+        // Removed paths that the per-item list does not repeat (version 1 records have only these).
+        for item in step
+            .items
+            .iter()
+            .filter(|i| !step.entries.iter().any(|e| &e.path == *i))
+        {
+            out += &format!("    removed {item}\n");
+        }
+        for e in &step.entries {
+            match (&e.result, &e.reason) {
+                (ItemResult::Removed, _) => out += &format!("    removed {}\n", e.path),
+                (ItemResult::Left, Some(why)) => out += &format!("    left {}: {why}\n", e.path),
+                (ItemResult::Left, None) => out += &format!("    left {}\n", e.path),
+            }
+        }
+        if let Some(note) = &step.note {
+            out += &format!("    note: {note}\n");
+        }
+    }
+    hide_home(&out)
 }
 
 /// The record of a Storage "Move to Trash": each file's original place, its name in the Trash and
 /// its size (0 when unknown). Nothing is freed until the Trash is emptied, so `freed_bytes` is 0.
-pub fn trash_record(_moved: &[(crate::trash::Trashed, u64)], _time: u64, _id: &str) -> Record {
+pub fn trash_record(moved: &[(crate::trash::Trashed, u64)], time: u64, id: &str) -> Record {
+    let entries: Vec<Item> = moved
+        .iter()
+        .map(|(t, bytes)| Item {
+            path: t.original.display().to_string(),
+            bytes: *bytes,
+            result: ItemResult::Removed,
+            reason: None,
+            trash_name: t
+                .in_trash
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned()),
+        })
+        .collect();
     Record {
         version: VERSION,
-        id: _id.into(),
-        time: _time,
+        id: id.into(),
+        time,
         kind: Kind::Trash,
-        title: String::new(),
+        title: format!(
+            "Moved {} file{} to Trash",
+            moved.len(),
+            if moved.len() == 1 { "" } else { "s" }
+        ),
         freed_bytes: 0,
-        steps: Vec::new(),
+        steps: vec![Step {
+            title: "Moved to the Trash".into(),
+            status: Status::Done,
+            bytes: moved.iter().map(|(_, b)| b).sum(),
+            items: entries.iter().map(|e| e.path.clone()).collect(),
+            entries,
+            note: None,
+        }],
     }
 }
 
 /// The record of an ended app: how many processes, the memory it gave back, and whether it had to
 /// be force quit.
 pub fn end_task_record(
-    _name: &str,
-    _processes: usize,
-    _freed: u64,
-    _forced: bool,
-    _time: u64,
-    _id: &str,
+    name: &str,
+    processes: usize,
+    freed: u64,
+    forced: bool,
+    time: u64,
+    id: &str,
 ) -> Record {
     Record {
         version: VERSION,
-        id: _id.into(),
-        time: _time,
+        id: id.into(),
+        time,
         kind: Kind::EndTask,
-        title: String::new(),
-        freed_bytes: 0,
-        steps: Vec::new(),
+        title: format!("Ended {name}"),
+        freed_bytes: freed,
+        steps: vec![Step {
+            title: name.into(),
+            status: Status::Done,
+            bytes: freed,
+            items: Vec::new(),
+            entries: Vec::new(),
+            note: Some(format!(
+                "{processes} process{} ended{}",
+                if processes == 1 { "" } else { "es" },
+                if forced { " · force quit" } else { "" }
+            )),
+        }],
     }
 }
 
@@ -239,8 +408,17 @@ pub enum Undo {
     RestoreFromTrash { count: usize },
 }
 
-pub fn undo_kind(_record: &Record) -> Option<Undo> {
-    None
+fn trashed_entries(record: &Record) -> impl Iterator<Item = &Item> {
+    record
+        .steps
+        .iter()
+        .flat_map(|s| s.entries.iter())
+        .filter(|e| e.result == ItemResult::Removed && e.trash_name.is_some())
+}
+
+pub fn undo_kind(record: &Record) -> Option<Undo> {
+    let count = trashed_entries(record).count();
+    (count > 0).then_some(Undo::RestoreFromTrash { count })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -252,8 +430,42 @@ pub struct UndoReport {
 
 /// Put back what the record moved to the Trash at `trash_dir`. Names that are not a plain file name
 /// are refused; nothing is overwritten.
-pub fn undo_trash(_record: &Record, _trash_dir: &Path) -> UndoReport {
-    UndoReport::default()
+pub fn undo_trash(record: &Record, trash_dir: &Path) -> UndoReport {
+    use crate::trash;
+    let mut report = UndoReport::default();
+    for e in trashed_entries(record) {
+        let original = PathBuf::from(&e.path);
+        let shown = original
+            .file_name()
+            .map_or_else(|| e.path.clone(), |n| n.to_string_lossy().into_owned());
+        let name = e.trash_name.as_deref().unwrap_or_default();
+        let plain =
+            !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0']);
+        if !plain || !original.is_absolute() {
+            report
+                .failed
+                .push((shown, "Its place in the Trash is not clear.".into()));
+            continue;
+        }
+        let item = trash::Trashed {
+            original,
+            in_trash: trash_dir.join("files").join(name),
+            info: trash_dir.join("info").join(format!("{name}.trashinfo")),
+        };
+        match trash::restore(&item) {
+            Ok(()) => report.restored += 1,
+            Err(e) => {
+                let why = match e {
+                    trash::Error::NotFound(_) => "It is no longer in the Trash.",
+                    trash::Error::Occupied(_) => "Something else is already in its place.",
+                    trash::Error::OtherDrive(_) => "It is on a different drive than your Trash.",
+                    _ => "It could not be put back.",
+                };
+                report.failed.push((shown, why.into()));
+            }
+        }
+    }
+    report
 }
 
 #[cfg(test)]
@@ -542,7 +754,10 @@ mod tests {
             .iter()
             .enumerate()
         {
-            r.steps[0].entries[i % 2].trash_name = Some((*bad).to_string());
+            let _ = i;
+            for e in &mut r.steps[0].entries {
+                e.trash_name = Some(bad.to_string());
+            }
             let report = undo_trash(&r, &trash);
             assert_eq!(report.restored, 0, "{bad:?}");
         }
