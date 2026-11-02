@@ -450,3 +450,9 @@ Plan: stubs + red tests (partial status, record v2 entries, plain reasons, freed
 Done: red 576b44f → green eb62547; fmt, clippy, plain and TMPDIR `cargo test --all` (522 passed), deny, audit all exit 0; Cleaner design 8.8 %.
 Next: R7-Q19 cache classifier.
 Blockers: a person must click through the new end dialog (WBS 6.6 Needs Verification). Trash step not converted to entries.
+
+## 2026-11-02 — Run 07, R7-Q19 slow-to-download caches — PARTIAL
+Plan: `cachekind::classify` (table, then 2 GB rule), `JunkKind::SlowCache` from the scan, `GroupId::SlowCaches` (Review, off by default, listed with sizes), removed like app caches, running apps skipped.
+Done: red 3a31dd7 → green b2cfb5a; fmt, clippy, plain and TMPDIR `cargo test --all` (533 passed), deny, audit exit 0; Cleaner design 8.8 %.
+Next: R7-Q03 dpkg/rpm owner lookups.
+Blockers: the new group was never seen on screen (no slow caches left here, no demo state); not in the design.

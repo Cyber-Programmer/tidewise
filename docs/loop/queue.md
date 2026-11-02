@@ -40,7 +40,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   writable before removing, only for folders owned by the user, inside `~/.cache`, never following
   symlinks, refused otherwise. Put this decision in `docs/questions.md` with the alternative (leave them
   and say why). Rows: 6.6 stays `Needs Verification` until a person has seen the new end dialog.
-- [ ] **Q19 Split quick-to-rebuild caches from caches that take a long download** (WBS 6.5, 6.6).
+- [/] **Q19 Split quick-to-rebuild caches from caches that take a long download** (WBS 6.5, 6.6).
   Evidence: the same first record removed 17.9 GB of "App caches", all ticked by default, including
   `~/.cache/huggingface` (ML models), `ms-playwright*` (browsers), `uv`, `pip`, `paru`, `yay`,
   `Docker Desktop`, `codex-runtimes`, `chrome-devtools-mcp`, `eas-cli`, `maestro`, `spotify`. They are
