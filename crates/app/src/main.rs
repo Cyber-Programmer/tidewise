@@ -210,6 +210,7 @@ fn show_demo(
             match state {
                 None => {}
                 Some("details") => st.set_details(true),
+                Some("live") => {} // drawn by `run_screenshot` from the real records
                 Some("empty") => view::apply_history(
                     ui,
                     &history_view::Screen::default(),
@@ -467,6 +468,9 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
             ctl.poll(&ui);
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+    if shot.screen == "history" && shot.state.as_deref() == Some("live") {
+        history_live::Ctl::new("Arch Linux".into()).enter(&ui);
     }
     if shot.screen == "clean-up" && shot.state.as_deref() == Some("live") {
         let mut ctl = cleaner_live::Ctl::new();
