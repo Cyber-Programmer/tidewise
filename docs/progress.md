@@ -502,3 +502,10 @@ Done: red 9762fbc → 3ff0672; 05d0165 → 9471462; 9391be3 (fuzz); dba7b4f → 
 Next: R7-Q10 Settings screen.
 Blockers: nobody clicked it; design 17.1 % (target 10 % not met); curated/protected lists are my judgement; no failed service exists here to see live.
 Rules bent: Slint screen, controller and demo not test-first.
+
+## 2026-11-02 — Run 07, R7-Q10 Settings screen — PARTIAL
+Plan: `core::settings` red-first (config file, broken file kept aside), view helpers red-first, Slint page + controller; Theme.dark computed from a mode (Slint colour scheme for Follow system); light values for the extra shades from existing light tokens; update-check stored only.
+Done: red 458d33b → 69d3ae0; 977f643 → 9062f67; screen b58d6da; guard test f7c8cba; fmt, clippy, plain and TMPDIR `cargo test --all` (646 passed), deny, audit, release build exit 0.
+Next: R7-Q11 Health page.
+Blockers: nobody clicked it; Follow system unchecked on a real desktop; Settings design 86.3 % (most artboard settings not built); light values are aliases, not designed.
+Rules bent: Slint page, controller and theme edits not test-first; a guard test was adapted after the code (and strengthened).
