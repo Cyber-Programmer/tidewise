@@ -81,7 +81,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [/] **Q08 Startup apps** (WBS 8.1, design `Startup`). XDG autostart; turning off writes a user
   `Hidden=true` copy with a backup; Undo toast. `.desktop` parser fixtures; extend the desktop fuzz
   target. Impact numbers only if they can be measured honestly; otherwise leave them out and say so.
-- [ ] **Q09 Services list, read-only** (WBS 8.2, design `Services`). Machine-readable `systemctl` output
+- [/] **Q09 Services list, read-only** (WBS 8.2, design `Services`). Machine-readable `systemctl` output
   (fixtures from read-only commands such as `systemctl list-units --output=json`), failed units, curated
   "worth a look" list, protected units refused in code. Start/stop/enable show needs-admin.
 - [ ] **Q10 Settings screen** (WBS 9.5, 9.4, design `Settings`). Stored in `$XDG_CONFIG_HOME/tidewise/`.

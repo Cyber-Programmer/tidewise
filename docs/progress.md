@@ -495,3 +495,10 @@ Done: red 1525c5b → e134e2f; 9a24720 → 67ca32f; 40dede2 → a1057e7; screen 
 Next: R7-Q09 Services list, read-only.
 Blockers: nobody flipped a real switch; design target 10 % not met (omitted impact/memory/boot cards); TryExec and KDE autostart conditions not evaluated.
 Rules bent: Slint screen, controller and demo not test-first.
+
+## 2026-11-02 — Run 07, R7-Q09 Services list, read-only — PARTIAL
+Plan: `services` adapter red-first (JSON parsers, curated names, worth-a-look rule, protected units, three read-only systemctl calls through the runner), view model red-first, Slint screen + worker-thread controller + demo; fuzz target; start/stop/enable shown as needing admin.
+Done: red 9762fbc → 3ff0672; 05d0165 → 9471462; 9391be3 (fuzz); dba7b4f → 49ef5b4; screen e7c8258; fmt, clippy, plain and TMPDIR `cargo test --all` (634 passed), deny, audit, release build exit 0; fuzz services 20 s exit 0; Services design 17.1 %.
+Next: R7-Q10 Settings screen.
+Blockers: nobody clicked it; design 17.1 % (target 10 % not met); curated/protected lists are my judgement; no failed service exists here to see live.
+Rules bent: Slint screen, controller and demo not test-first.
