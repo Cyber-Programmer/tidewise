@@ -231,3 +231,10 @@ Rules bent: Slint parts not test-first. The keyboard pass and contrast check nam
 3. **README** now says how to build and run it from source, and that admin actions are not available. The old "nothing to install yet" is replaced by "nothing released yet".
 4. **Known flaw in a picture:** in `docs/screenshots/storage.png` the demo footer line of the "Biggest files" card is cut off ("…never"). I did not touch the page for it in this docs task.
 Rules bent: none (docs only, no red test applies).
+
+## Run 07 — R7-Q15 Pen-test checklist: decisions taken without you
+1. **Scope split:** sections A (app as a normal user, 22 items) and B (release artefact, 5 items) can be run today; C (helper) and D (polkit) are written against the threat model but marked "not built yet" so nobody ticks them early.
+2. **The "Expected" column is my claim, not a result.** Items like A21 (`--out /etc/passwd` is refused) and A16 (End task refuses PID 1) describe what the code should do; I did not run them. If one fails it is a bug to fix, not a checklist error. Recommended: run A21 and A16 yourself first.
+3. **Results go to `docs/security/reviews/pentest-<date>.md`** (the folder does not exist yet; the helper review in ENGINEERING.md §2 uses it too).
+4. WBS row 5.10 stays **In Progress** (owner Human); never Done by me.
+Rules bent: none (docs only).

@@ -536,3 +536,9 @@ Plan: docs only: Keep a Changelog `Unreleased` listing what exists, README build
 Done: CHANGELOG.md, README.md, docs/screenshots/*.png (demo data); `cargo fmt --check` exit 0; no code changed since the last full test run.
 Next: R7-Q15 pen-test checklist.
 Blockers: none.
+
+## 2026-11-02 — Run 07, R7-Q15 Pen-test checklist — DONE (document only)
+Plan: docs only; checklist per threat-model boundary, today's app first, helper/polkit marked not built.
+Done: docs/security/pentest-checklist.md; WBS 5.10 In Progress (the human runs it).
+Next: R7-Q16 budgets via tools/measure.sh.
+Blockers: none.

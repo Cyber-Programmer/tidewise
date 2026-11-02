@@ -202,3 +202,11 @@ Pictures looked at: home.png, storage.png (the other nine not looked at).
 Not verified: nine of the eleven screenshots were not looked at; every CHANGELOG line is from my knowledge of the source and earlier reports, not re-checked feature by feature; README table rendering on GitHub not seen.
 Errors: none.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q14" items 1–4. Known flaw: storage.png footer text cut off.
+
+## R7-Q15 Pen-test checklist — Done   (2026-11-02 14:04 PKT)
+WBS: 5.10 → In Progress (document written, test not run; owner Human)
+Commits: see `git log` (docs only: docs/security/pentest-checklist.md; no red test applies)
+Evidence: `wc -l docs/security/pentest-checklist.md` → 86 lines; sections A (22 items), B (5), C (9, helper not built), D (3, polkit not built); each tied to a threat-model boundary. No code changed, so no test run.
+Not verified: **no item was run**; the "Expected" results are my claims from the code and threat model; items A16 and A21 may expose real bugs; helper/polkit sections have nothing to run against.
+Errors: first WBS read of row 60 returned 5.9, not 5.10 (off by one); re-read row 61 before writing; nothing written to the wrong row.
+Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q15" items 1–4.

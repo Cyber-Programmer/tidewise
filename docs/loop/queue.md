@@ -98,7 +98,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [x] **Q14 CHANGELOG.md and README screenshots** (WBS 9.11). Keep a Changelog style, an `Unreleased`
   section listing what exists today (and nothing that doesn't). README screenshots from `--screenshot`
   of the built screens, stored under `docs/screenshots/`.
-- [ ] **Q15 Pen-test checklist** (WBS 5.10). `docs/security/pentest-checklist.md`: what a human tester
+- [x] **Q15 Pen-test checklist** (WBS 5.10). `docs/security/pentest-checklist.md`: what a human tester
   does on a VM against the AppImage, the helper (when it exists) and the polkit policy. The human runs
   it; mark the WBS row `In Progress` (document written, test not run), never `Done`.
 
