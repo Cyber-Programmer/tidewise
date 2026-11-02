@@ -29,7 +29,7 @@ Not verified: `cargo audit` and `cargo deny check` not run this round (no depend
 Errors: (0) the first version of this entry carried a made-up time (07:05); corrected to 06:27 from `date`. (1) my first red run used zsh `PIPESTATUS` (empty in zsh), so exit code wasn't captured; reran without a pipe → 101. (2) the TMPDIR form exit 101 above (fixture bug, fixed). (3) I wrote a scratch log to `/tmp/claude-1000/baseline.log` instead of the scratchpad (not deleted). (4) I wrote the `docs/progress.md` plan after starting work, not before.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q01" items 1–3
 
-## R7-Q02 Put every decision where the human will see it — Done   (2026-11-02 06:33 PKT)
+## R7-Q02 Put every decision where the human will see it — Done   (2026-11-02 06:29 PKT)
 WBS: no row named for this task (documentation only; no row added: it is not a deliverable of its own). Nothing written to the sheet this round.
 Commits: docs-only (no red/green pair: no behaviour changed), see `docs(loop): R7-Q02 report` in `git log`
 Evidence: 6 items (R6-Q07, Q08, Q10, Q13, Q14, Q15) added to `docs/questions.md` under "Run 06 — decisions taken before they were listed here", each with a recommended answer; text taken from `docs/loop/archive/run-06-report.md` lines 99–126, 142–157, 195–245. No cargo command was needed or run (no code changed); `git status` showed a clean tree before the edit.
