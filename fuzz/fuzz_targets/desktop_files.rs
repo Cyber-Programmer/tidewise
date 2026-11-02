@@ -9,5 +9,6 @@ fuzz_target!(|data: &[u8]| {
         let _ = tidewise_adapters::desktop::exec_program(s);
         let _ = tidewise_adapters::desktop::parse_pacman_qo(s);
         let _ = tidewise_adapters::desktop::parse_dpkg_s(s);
+        let _ = tidewise_adapters::autostart::parse(s);
     }
 });
