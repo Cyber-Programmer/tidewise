@@ -1,9 +1,6 @@
 //! The rows of the search box: a heading above the first result of each group, the picked row
 //! marked. Plain data; `view.rs` copies it into Slint.
 
-// Not drawn yet: the Slint box that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_core::search::{Group, Item};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

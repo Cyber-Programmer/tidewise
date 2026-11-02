@@ -1,6 +1,7 @@
 // The Home screen (docs/design/screens/Main.dc.html).
 import { Theme } from "theme.slint";
 import { Shell } from "components.slint";
+import { SearchState } from "search.slint";
 
 export struct HomeTile {
     label: string,
@@ -212,6 +213,8 @@ export component HomeScreen inherits Rectangle {
                         border-color: Theme.search-border;
                         accessible-role: button;
                         accessible-label: "Search apps, files, settings";
+                        accessible-action-default => { SearchState.open-requested(); }
+                        TouchArea { clicked => { SearchState.open-requested(); } }
                         Image { x: 12px; y: 11px; width: 16px; height: 16px; source: @image-url("icons/search.svg"); colorize: Theme.text-3; }
                         Text { x: 36px; text: "Search apps, files, settings"; color: Theme.text-3; font-size: Theme.size-body; vertical-alignment: center; }
                         Rectangle {

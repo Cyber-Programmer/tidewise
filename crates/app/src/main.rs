@@ -29,6 +29,7 @@ mod procs;
 mod records;
 mod screenshot;
 mod search_index;
+mod search_live;
 mod search_view;
 mod services_live;
 mod services_view;
@@ -97,6 +98,7 @@ fn page_of(screen: &str) -> Result<i32, String> {
         "history" => Ok(8),
         "settings" => Ok(9),
         "health" => Ok(10),
+        "search" => Ok(0),
         "performance" => Ok(4),
         "processes" => Ok(5),
         other => Err(format!("unknown screen '{other}'")),
@@ -214,6 +216,41 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "search" => {
+            let query = match state {
+                None => "fire",
+                Some("empty") => "xyzzy",
+                Some("suggestions") => "",
+                Some(other) => return Err(format!("unknown search state '{other}'").into()),
+            };
+            let app = |id: &str, name: &str, source: &str, size: u64| search_index::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                source: source.into(),
+                size_bytes: Some(size),
+            };
+            let items = search_index::items(
+                &[
+                    app("firefox", "Firefox", "System", 248_000_000),
+                    app("steam", "Steam", "Flatpak", 1_400_000_000),
+                    app("libreoffice", "LibreOffice", "System", 580_000_000),
+                    app("spotify", "Spotify", "Snap", 290_000_000),
+                ],
+                &[
+                    search_index::ProcInfo {
+                        name: "Firefox".into(),
+                        count: 14,
+                        mem_bytes: 2_100_000_000,
+                    },
+                    search_index::ProcInfo {
+                        name: "Steam".into(),
+                        count: 6,
+                        mem_bytes: 900_000_000,
+                    },
+                ],
+            );
+            search_live::Ctl::new().open_with(ui, items, query);
+        }
         "health" => {
             use tidewise_core::health::{report, Inputs};
             let drive = tidewise_core::drive::DriveSpace {
@@ -852,6 +889,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let search_ctl = Rc::new(RefCell::new(search_live::Ctl::new()));
+    search_live::wire(&ui, &search_ctl, {
+        let (apps_ctl, live) = (apps_ctl.clone(), live.clone());
+        move |ui| {
+            let apps = apps_ctl.borrow_mut().search_infos(ui);
+            let procs: Vec<search_index::ProcInfo> = {
+                let l = &mut *live.borrow_mut();
+                l.sampler
+                    .processes(&l.desktop)
+                    .rows
+                    .iter()
+                    .map(|r| search_index::ProcInfo {
+                        name: r.name.clone(),
+                        count: r.pids.len(),
+                        mem_bytes: r.mem_bytes,
+                    })
+                    .collect()
+            };
+            search_index::items(&apps, &procs)
+        }
+    });
     let health_ctl = Rc::new(RefCell::new(health_live::Ctl::new()));
     health_live::wire(&ui, &health_ctl);
     let settings_ctl = Rc::new(RefCell::new(settings_live::Ctl::load()));

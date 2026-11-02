@@ -1,0 +1,155 @@
+// The search box (docs/design/screens/Search.dc.html), opened with Ctrl K or from Home's search
+// field. Files are not searched yet, and the box says so.
+import { Theme } from "theme.slint";
+
+// `icon`: 0 apps, 1 processes, 2 actions, 3 settings.
+export struct SearchRowUi { header: string, title: string, meta: string, hint: string, icon: int, selected: bool }
+
+export global SearchState {
+    in-out property <bool> open: false;
+    in-out property <string> query: "";
+    in property <[SearchRowUi]> rows;
+    callback open-requested();
+    callback query-changed(string);
+    callback move(int);
+    // The row index to open, or -1 for the picked one (Enter).
+    callback activate(int);
+    callback close();
+}
+
+component ResultIcon inherits Rectangle {
+    in property <int> icon;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: icon == 0 ? Theme.chip-system-bg : (icon == 1 ? Theme.badge-bg : (icon == 2 ? Theme.accent-tint : Theme.chip-flatpak-bg));
+    Image {
+        width: 17px;
+        height: 17px;
+        x: 8.5px;
+        y: 8.5px;
+        source: icon == 0 ? @image-url("icons/apps.svg") : (icon == 1 ? @image-url("icons/processes.svg") : (icon == 2 ? @image-url("icons/clean.svg") : @image-url("icons/settings.svg")));
+        colorize: icon == 0 ? Theme.chip-system : (icon == 1 ? Theme.text-soft : (icon == 2 ? Theme.accent : Theme.chip-flatpak));
+    }
+}
+
+// Not shown unless `SearchState.open`.
+export component SearchOverlay inherits Rectangle {
+    visible: SearchState.open;
+    background: Theme.scrim;
+    TouchArea { clicked => { SearchState.close(); } }
+    if SearchState.open: box := Rectangle {
+        width: min(680px, parent.width - 32px);
+        x: (parent.width - self.width) / 2;
+        y: 96px;
+        height: col.preferred-height;
+        border-radius: 18px;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.dialog-border;
+        clip: true;
+        accessible-role: groupbox;
+        accessible-label: "Search";
+        TouchArea { }
+        FocusScope {
+            capture-key-pressed(e) => {
+                if (e.text == Key.Escape) { SearchState.close(); return accept; }
+                if (e.text == Key.UpArrow) { SearchState.move(-1); return accept; }
+                if (e.text == Key.DownArrow) { SearchState.move(1); return accept; }
+                if (e.text == Key.Return) { SearchState.activate(-1); return accept; }
+                reject
+            }
+            col := VerticalLayout {
+                Rectangle {
+                    height: 60px;
+                    HorizontalLayout {
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        spacing: 12px;
+                        VerticalLayout { alignment: center; Image { source: @image-url("icons/search.svg"); width: 20px; height: 20px; colorize: Theme.text-2; } }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            if SearchState.query == "": Text { text: "Search apps, settings and actions"; color: Theme.text-3; font-size: 17px; vertical-alignment: center; }
+                            TextInput {
+                                width: parent.width;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                text <=> SearchState.query;
+                                color: Theme.text;
+                                font-size: 17px;
+                                single-line: true;
+                                accessible-role: text-input;
+                                accessible-label: "Search apps, settings and actions";
+                                edited => { SearchState.query-changed(self.text); }
+                                init => { self.focus(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 34px;
+                                height: 20px;
+                                border-radius: 5px;
+                                border-width: 1px;
+                                border-color: Theme.control-border;
+                                Text { text: "Esc"; color: Theme.text-2; font-family: Theme.mono; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                }
+                if SearchState.rows.length == 0 && SearchState.query != "": Rectangle {
+                    height: 110px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 6px;
+                        Text { text: "Nothing matches \"" + SearchState.query + "\""; color: Theme.text; font-size: 15px; font-weight: 600; horizontal-alignment: center; overflow: elide; }
+                        Text { text: "Try an app name, or what you want to do, like \"free space\" or \"startup\"."; color: Theme.text-2; font-size: Theme.size-small; horizontal-alignment: center; }
+                    }
+                }
+                if SearchState.rows.length > 0: VerticalLayout {
+                    padding: 8px;
+                    for row in SearchState.rows: VerticalLayout {
+                        if row.header != "": Text { height: 40px; text: row.header; color: Theme.text-3; font-size: Theme.size-caption; font-weight: 600; letter-spacing: 0.6px; vertical-alignment: bottom; x: 10px; }
+                        Rectangle {
+                            height: 68px;
+                            border-radius: 10px;
+                            background: row.selected ? Theme.nav-active-bg : transparent;
+                            accessible-role: button;
+                            accessible-label: row.title + ", " + row.meta;
+                            accessible-action-default => { SearchState.activate(0); }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 12px;
+                                VerticalLayout { alignment: center; ResultIcon { icon: row.icon; } }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 1px;
+                                    Text { text: row.title; color: Theme.text; font-size: Theme.size-body; font-weight: 600; overflow: elide; }
+                                    Text { text: row.meta; color: Theme.text-2; font-size: Theme.size-caption; overflow: elide; }
+                                }
+                                Text { text: row.hint; color: row.selected ? Theme.accent : Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 40px;
+                    Rectangle { height: 1px; background: Theme.border; }
+                    HorizontalLayout {
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        spacing: 16px;
+                        Text { text: "↑ ↓ move"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                        Text { text: "Enter open"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                        Text { text: "Esc close"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text { text: "Files are not searched yet"; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                    }
+                }
+            }
+        }
+    }
+}

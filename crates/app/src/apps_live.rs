@@ -135,6 +135,22 @@ impl Ctl {
         }
     }
 
+    /// The apps found so far, for the search box; starts the search for apps the first time.
+    pub fn search_infos(&mut self, ui: &MainWindow) -> Vec<crate::search_index::AppInfo> {
+        if !self.started {
+            self.start_scan(ui);
+        }
+        self.found
+            .iter()
+            .map(|(a, _)| crate::search_index::AppInfo {
+                id: a.id.clone(),
+                name: a.name.clone(),
+                source: apps::source_label(a.kind).into(),
+                size_bytes: a.size_bytes,
+            })
+            .collect()
+    }
+
     pub fn busy(&self) -> bool {
         self.scan.is_some() || self.job.is_some()
     }

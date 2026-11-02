@@ -3,9 +3,6 @@
 //! indexed. Each item carries a `key` that says what to open; `parse_key` reads it back and refuses
 //! anything that is not one of ours.
 
-// Not used yet: the search box that reads this arrives in the next commits.
-#![allow(dead_code)]
-
 use tidewise_core::search::{Group, Item};
 
 /// The few things the index needs to know about an app.
