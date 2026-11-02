@@ -28,6 +28,7 @@ mod perf;
 mod procs;
 mod records;
 mod screenshot;
+mod search_index;
 mod services_live;
 mod services_view;
 mod settings_live;
