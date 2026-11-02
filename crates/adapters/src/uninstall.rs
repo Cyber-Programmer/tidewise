@@ -168,7 +168,7 @@ mod tests {
         fs::write(
             &desktop,
             format!(
-                "[Desktop Entry]\nType=Application\nName=Krita\nExec={} %U\nIcon=krita\n",
+                "[Desktop Entry]\nType=Application\nName=Krita\nExec=\"{}\" %U\nIcon=krita\n",
                 image.display()
             ),
         )

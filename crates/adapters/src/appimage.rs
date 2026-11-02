@@ -409,6 +409,25 @@ mod tests {
     }
 
     #[test]
+    fn a_quoted_exec_path_with_spaces_finds_its_launcher() {
+        let home = tempfile::tempdir().unwrap();
+        let image = home.path().join("My Apps/Krita.AppImage");
+        let apps = home.path().join("applications");
+        write(&image, 10);
+        write(&apps.join("krita.desktop"), 0);
+        fs::write(
+            apps.join("krita.desktop"),
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Krita\nExec=\"{}\" %U\n",
+                image.display()
+            ),
+        )
+        .unwrap();
+        let found = menu_entries(&image, &apps, &[]);
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
     fn a_missing_icon_or_icon_folder_is_fine() {
         let (_home, image, apps, icons) = menu_world();
         let found = menu_entries(&image, &apps, &[icons]);
