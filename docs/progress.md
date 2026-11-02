@@ -438,3 +438,9 @@ Done: Q01–Q05, Q07, Q10–Q12. Partial: Q06, Q08, Q09, Q13, Q14, Q15. Not star
 Next: delete /tmp/appimage_extracted_*; click through the screens (report Summary); then Q16 History onward; real captures for the apt/dnf/snap/pacman -Rns fixtures; the admin helper work (needs your approval) unlocks the admin halves.
 Blockers: /tmp cleanup (plain cargo test), the helper (no work allowed this run).
 Rules bent in run 6: several screens and controllers were written after their tests; hand-written fixtures where no real tool exists; one `cargo deny` break in Q05 (fixed in Q06); plain `cargo test --all` not green at the end (full /tmp).
+
+## 2026-11-02 — Run 07, R7-Q01 plain `cargo test --all` green on any file system
+Plan (written after the fact — I started the code before writing it; slip noted): make the cancelled-scan test take its expected size from the file system (red on disk first); run plain and `TMPDIR=$PWD/target/tmp` forms; fix whatever the second form shows.
+Done: red 9449d97 → green d45ce18; fixture fix 141c288 (test-only, no red→green pair, see questions.md). Plain and TMPDIR `cargo test --all` both exit 0 (513 passed, 3 ignored).
+Next: R7-Q02 decisions into questions.md.
+Blockers: none.

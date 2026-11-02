@@ -9,7 +9,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 
 ## A. Make the checks honest again (first)
 
-- [ ] **Q01 Plain `cargo test --all` must exit 0, on any file system.** Run 06 could not get it green:
+- [x] **Q01 Plain `cargo test --all` must exit 0, on any file system.** Run 06 could not get it green:
   (a) `/tmp` filled up with AppImage unpackings (the tests are fixed to clean up; verify with
   `ls -d /tmp/appimage_extracted_* | wc -l` before and after a full run, and say so; the human cleared
   `/tmp` on 2 Nov 06:05 and plain `cargo test --all` then exited 0 with 512 passed, 3 ignored); (b)
