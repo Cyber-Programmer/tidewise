@@ -345,6 +345,22 @@ pub fn build(units: &[Unit], files: &[UnitFile], memory: &HashMap<String, u64>) 
     out
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReadError {
+    #[error("systemctl could not be run: {0}")]
+    NoSystemctl(String),
+    #[error("systemctl failed: {0}")]
+    Failed(String),
+    #[error(transparent)]
+    Parse(#[from] ParseError),
+}
+
+/// Ask systemd (three read-only `systemctl` calls through `runner`, by absolute path) and build the
+/// list. A failing memory query only leaves the memory column empty.
+pub fn read(_runner: &dyn crate::runner::CommandRunner) -> Result<Vec<Service>, ReadError> {
+    Err(ReadError::Failed("not built".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +446,93 @@ mod tests {
             Err(ParseError::Line { line: 1 })
         ));
         assert!(parse_memory("Id=a.service\nMemoryCurrent=lots\n").is_err());
+    }
+
+    use crate::runner::{CommandRunner, Output};
+    use std::cell::RefCell;
+
+    struct Fake {
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+        fail: Option<&'static str>,
+        missing: bool,
+    }
+
+    impl Fake {
+        fn new() -> Self {
+            Fake {
+                calls: RefCell::new(vec![]),
+                fail: None,
+                missing: false,
+            }
+        }
+    }
+
+    impl CommandRunner for Fake {
+        fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
+            self.calls
+                .borrow_mut()
+                .push((program.into(), args.iter().map(|a| a.to_string()).collect()));
+            if self.missing {
+                return Err("no such file".into());
+            }
+            let sub = args[0];
+            let stdout = match sub {
+                "list-units" => fx("list-units-real.json"),
+                "list-unit-files" => fx("list-unit-files-real.json"),
+                _ => fx("show-memory-real.txt"),
+            };
+            let ok = self.fail != Some(sub);
+            Ok(Output {
+                success: ok,
+                stdout: if ok { stdout } else { String::new() },
+                stderr: if ok {
+                    String::new()
+                } else {
+                    "Failed to connect to bus".into()
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn reading_runs_three_read_only_systemctl_calls_and_builds_the_list() {
+        let runner = Fake::new();
+        let got = read(&runner).unwrap();
+        let (u, f, m) = real();
+        assert_eq!(got, build(&u, &f, &m));
+        let calls = runner.calls.borrow();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|(p, _)| p == "/usr/bin/systemctl"));
+        let subs: Vec<_> = calls.iter().map(|(_, a)| a[0].as_str()).collect();
+        assert_eq!(subs, ["list-units", "list-unit-files", "show"]);
+        // Only reading verbs, never a change.
+        for (_, args) in calls.iter() {
+            assert!(!args.iter().any(|a| [
+                "start", "stop", "enable", "disable", "mask", "restart", "kill"
+            ]
+            .contains(&a.as_str())));
+        }
+        assert!(
+            calls[0].1.contains(&"--output=json".to_string())
+                && calls[0].1.contains(&"--no-pager".to_string())
+        );
+    }
+
+    #[test]
+    fn a_missing_systemctl_or_a_failing_list_is_an_error_but_missing_memory_is_not() {
+        let mut none = Fake::new();
+        none.missing = true;
+        assert!(matches!(read(&none), Err(ReadError::NoSystemctl(_))));
+        for sub in ["list-units", "list-unit-files"] {
+            let mut f = Fake::new();
+            f.fail = Some(sub);
+            assert!(matches!(read(&f), Err(ReadError::Failed(_))), "{sub}");
+        }
+        let mut no_memory = Fake::new();
+        no_memory.fail = Some("show");
+        let got = read(&no_memory).unwrap();
+        assert!(!got.is_empty());
+        assert!(got.iter().all(|s| s.memory.is_none()));
     }
 
     #[test]
