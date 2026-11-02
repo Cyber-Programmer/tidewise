@@ -606,6 +606,7 @@ pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
                                 history::ItemResult::Removed
                             },
                             reason: e.reason.clone(),
+                            trash_name: None,
                         })
                         .collect();
                     s
