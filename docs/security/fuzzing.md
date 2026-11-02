@@ -24,6 +24,21 @@ No crash, timeout or out-of-memory finding, so no new fixtures or regression tes
 Corpora are not committed (`fuzz/.gitignore`); `.desktop` *file* parsing does not exist yet — the
 `desktop` target covers the desktop-name list only. Add a target when that parser is written.
 
+## Run of 2026-11-01 (run 06, R6-Q05), 20 seconds each, short smoke run only
+
+| Target | Parser | Runs | Crashes |
+| --- | --- | --- | --- |
+| `journal_usage` (new) | `adapters::journal::parse_disk_usage` (`journalctl --disk-usage`) | 696 769 | 0 |
+| `flatpak_list` (extended) | `parse_list`, `parse_runtimes`, `parse_app_runtimes`, `unused_runtimes` | 301 318 | 0 |
+
+| `pacman_rns_print` (new, R6-Q09) | `adapters::pacman::parse_removal_print` (both success and failure text) | 851 104 | 0 |
+| `apt_parsers` (new, R6-Q10) | `adapters::apt::{parse_dpkg_query, parse_simulated_remove}` | 509 694 | 0 |
+| `dnf_parsers` (new, R6-Q11) | `adapters::dnf::{parse_rpm_qa, parse_dry_run}` | 541 726 | 0 |
+| `snap_list` (new, R6-Q12) | `adapters::snap::parse_snap_list` | 863 864 | 0 |
+| `desktop_files` (new, R6-Q13) | `adapters::desktop::{parse_desktop_file, exec_program, parse_pacman_qo, parse_dpkg_s}` | 447 703 | 0 |
+
+20 s is **not** the 10 minutes ENGINEERING.md §2 asks for; the full runs are queue task Q23.
+
 ## Follow-ups
 
 - CI does not run fuzzing yet. Suggested: a weekly scheduled workflow, 60 s per target, uploading any crash input.

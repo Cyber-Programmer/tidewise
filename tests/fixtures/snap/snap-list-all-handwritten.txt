@@ -1,0 +1,9 @@
+Name               Version        Rev    Tracking         Publisher    Notes
+core20             20231123       2105   latest/stable    canonical✓   base
+core20             20230801       1974   latest/stable    canonical✓   base,disabled
+firefox            120.0.1-1      3626   latest/stable    mozilla✓     -
+firefox            119.0-1        3547   latest/stable    mozilla✓     disabled
+gnome-3-38-2004    0+git.6f39565  143    latest/stable/…  canonical✓   -
+my-local-tool      1.0            x1     -                -            -
+snapd              2.60.4         20290  latest/stable    canonical✓   snapd
+code               1.84.2         148    latest/stable    vscode✓      classic

@@ -15,6 +15,42 @@ pub struct FlatpakApp {
 pub enum ParseError {
     #[error("line {line}: expected 4 tab-separated columns, found {found}")]
     WrongColumnCount { line: usize, found: usize },
+    #[error(
+        "line {line}: not a runtime line (`ref<TAB>size<TAB>installation`, ref = id/arch/branch)"
+    )]
+    BadRuntimeLine { line: usize },
+    #[error("line {line}: not an app line (`application<TAB>runtime<TAB>installation`)")]
+    BadAppRuntimeLine { line: usize },
+}
+
+/// An installed runtime or runtime extension, from
+/// `flatpak list --runtime --columns=ref,size,installation`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Runtime {
+    /// `id/arch/branch`, as flatpak prints it.
+    pub reference: String,
+    pub size_bytes: Option<u64>,
+    /// `system` or `user`.
+    pub installation: String,
+}
+
+/// The runtime an installed app runs on, from
+/// `flatpak list --app --columns=application,runtime,installation`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppRuntime {
+    pub application_id: String,
+    /// `id/arch/branch`.
+    pub runtime: String,
+    pub installation: String,
+}
+
+/// Runtimes split by what we can say about them without asking flatpak.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnusedRuntimes {
+    /// Base runtimes (`….Platform`, `….Sdk`) that no installed app uses.
+    pub unused: Vec<Runtime>,
+    /// Not listed as unused although no app names them, with the reason.
+    pub kept: Vec<(Runtime, &'static str)>,
 }
 
 pub fn parse_list(text: &str) -> Result<Vec<FlatpakApp>, ParseError> {
@@ -40,6 +76,77 @@ pub fn parse_list(text: &str) -> Result<Vec<FlatpakApp>, ParseError> {
     Ok(apps)
 }
 
+pub fn parse_runtimes(text: &str) -> Result<Vec<Runtime>, ParseError> {
+    let mut runtimes = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let line_no = index + 1;
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [reference, size, installation] = columns[..] else {
+            return Err(ParseError::BadRuntimeLine { line: line_no });
+        };
+        let reference = reference.trim();
+        if reference.split('/').filter(|p| !p.is_empty()).count() != 3 {
+            return Err(ParseError::BadRuntimeLine { line: line_no });
+        }
+        runtimes.push(Runtime {
+            reference: reference.to_string(),
+            size_bytes: parse_size(size),
+            installation: installation.trim().to_string(),
+        });
+    }
+    Ok(runtimes)
+}
+
+pub fn parse_app_runtimes(text: &str) -> Result<Vec<AppRuntime>, ParseError> {
+    let mut apps = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let columns: Vec<&str> = line.split('\t').collect();
+        let [application_id, runtime, installation] = columns[..] else {
+            return Err(ParseError::BadAppRuntimeLine { line: index + 1 });
+        };
+        apps.push(AppRuntime {
+            application_id: application_id.trim().to_string(),
+            runtime: runtime.trim().to_string(),
+            installation: installation.trim().to_string(),
+        });
+    }
+    Ok(apps)
+}
+
+/// Which runtimes no installed app uses. Deliberately cautious, because this list only uses what
+/// `flatpak list` prints and `flatpak uninstall --unused` knows more (it also follows runtimes built
+/// on other runtimes and extensions): only base runtimes (`….Platform`, `….Sdk`) are ever offered,
+/// extensions (GL, codecs, locale, themes) and the freedesktop base (other runtimes sit on it) are
+/// kept. A runtime counts as used when an app in *any* installation names its exact reference.
+pub fn unused_runtimes(runtimes: &[Runtime], apps: &[AppRuntime]) -> UnusedRuntimes {
+    let used: std::collections::HashSet<&str> = apps.iter().map(|a| a.runtime.as_str()).collect();
+    let mut result = UnusedRuntimes::default();
+    for runtime in runtimes {
+        if used.contains(runtime.reference.as_str()) {
+            continue;
+        }
+        let id = runtime.reference.split('/').next().unwrap_or_default();
+        if !(id.ends_with(".Platform") || id.ends_with(".Sdk")) {
+            result
+                .kept
+                .push((runtime.clone(), "an extension of another runtime"));
+        } else if id.starts_with("org.freedesktop.") {
+            result
+                .kept
+                .push((runtime.clone(), "other runtimes may be built on it"));
+        } else {
+            result.unused.push(runtime.clone());
+        }
+    }
+    result
+}
+
 /// Flatpak prints sizes like `18.1 MB` (decimal units, no-break space, locale decimal separator).
 fn parse_size(text: &str) -> Option<u64> {
     let (number, unit) = text.trim().split_once(char::is_whitespace)?;
@@ -53,6 +160,142 @@ fn parse_size(text: &str) -> Option<u64> {
     };
     let number: f64 = number.replace(',', ".").parse().ok()?;
     (number.is_finite() && number >= 0.0).then(|| (number * factor).round() as u64)
+}
+
+use crate::source::{
+    is_plain_name, AppEntry, AppSource, PlanItem, RemovalPlan, Scope, SourceError, SourceKind,
+};
+
+/// Flatpak apps (user and system installations) as an app source.
+pub struct FlatpakApps {
+    apps: Result<Vec<FlatpakApp>, SourceError>,
+}
+
+impl FlatpakApps {
+    /// From saved `flatpak list --app --columns=application,name,size,installation` output.
+    pub fn from_list(text: &str) -> Self {
+        FlatpakApps {
+            apps: parse_list(text).map_err(|_| SourceError::Parse("flatpak list".into())),
+        }
+    }
+
+    /// Ask the real flatpak (read-only). Not installed means no apps, not an error.
+    pub fn system() -> Self {
+        let program = "/usr/bin/flatpak";
+        if !std::path::Path::new(program).exists() {
+            return FlatpakApps {
+                apps: Ok(Vec::new()),
+            };
+        }
+        let out = std::process::Command::new(program)
+            .args([
+                "list",
+                "--app",
+                "--columns=application,name,size,installation",
+            ])
+            .env("LC_ALL", "C")
+            .output();
+        match out {
+            Ok(o) if o.status.success() => Self::from_list(&String::from_utf8_lossy(&o.stdout)),
+            _ => FlatpakApps {
+                apps: Err(SourceError::Run("flatpak".into())),
+            },
+        }
+    }
+}
+
+impl AppSource for FlatpakApps {
+    fn kind(&self) -> SourceKind {
+        SourceKind::Flatpak
+    }
+
+    fn list(&self) -> Result<Vec<AppEntry>, SourceError> {
+        let apps = self.apps.clone()?;
+        Ok(apps
+            .into_iter()
+            .map(|a| AppEntry {
+                id: a.application_id,
+                name: a.name,
+                kind: SourceKind::Flatpak,
+                scope: if a.installation == "user" {
+                    Scope::User
+                } else {
+                    Scope::System
+                },
+                version: None,
+                size_bytes: a.size_bytes,
+                required_by: Vec::new(),
+            })
+            .collect())
+    }
+
+    /// The app itself. Which unused runtimes it would leave behind is the junk scanner's job.
+    fn removal_plan(&self, app: &AppEntry) -> Result<RemovalPlan, SourceError> {
+        if !is_plain_name(&app.id) {
+            return Err(SourceError::BadName(app.id.clone()));
+        }
+        let user = app.scope == Scope::User;
+        Ok(RemovalPlan {
+            id: app.id.clone(),
+            kind: SourceKind::Flatpak,
+            items: vec![PlanItem {
+                label: app.id.clone(),
+                bytes: app.size_bytes,
+            }],
+            blocked: None,
+            needs_admin: !user,
+            to_trash: false,
+            command: [
+                "flatpak",
+                "uninstall",
+                if user { "--user" } else { "--system" },
+                "--",
+                app.id.as_str(),
+            ]
+            .map(String::from)
+            .to_vec(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UninstallError {
+    #[error("only user Flatpaks can be removed without admin access")]
+    NeedsAdmin,
+    #[error("not a Flatpak app")]
+    NotFlatpak,
+    #[error("`{0}` is not a plain app id")]
+    BadId(String),
+    #[error("flatpak could not remove it: {0}")]
+    Failed(String),
+}
+
+/// Remove a *user* Flatpak app. System Flatpaks are refused (they need the admin helper). Never run
+/// by a test against the real flatpak: tests pass a fake runner.
+pub fn uninstall_user(
+    runner: &dyn crate::runner::CommandRunner,
+    app: &AppEntry,
+) -> Result<(), UninstallError> {
+    if app.kind != SourceKind::Flatpak {
+        return Err(UninstallError::NotFlatpak);
+    }
+    if !is_plain_name(&app.id) {
+        return Err(UninstallError::BadId(app.id.clone()));
+    }
+    if app.scope != Scope::User {
+        return Err(UninstallError::NeedsAdmin);
+    }
+    let out = runner
+        .run(
+            "/usr/bin/flatpak",
+            &["uninstall", "--user", "--noninteractive", "-y", &app.id],
+        )
+        .map_err(UninstallError::Failed)?;
+    if out.success {
+        Ok(())
+    } else {
+        Err(UninstallError::Failed(out.stderr.trim().to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -136,5 +379,284 @@ mod tests {
     fn unreadable_size_is_unknown_not_fatal() {
         let apps = parse_list("a.b.C\tC\t<1 kB?\tuser\n").unwrap();
         assert_eq!(apps, [app("a.b.C", "C", None, "user")]);
+    }
+
+    fn junk_fixture(name: &str) -> String {
+        let path = format!(
+            "{}/../../tests/fixtures/junk/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    fn rt(reference: &str, size: Option<u64>, installation: &str) -> Runtime {
+        Runtime {
+            reference: reference.into(),
+            size_bytes: size,
+            installation: installation.into(),
+        }
+    }
+
+    #[test]
+    fn real_runtimes_parse() {
+        let runtimes = parse_runtimes(&junk_fixture("flatpak-runtimes-real.txt")).unwrap();
+        assert_eq!(runtimes.len(), 6);
+        assert_eq!(
+            runtimes[4],
+            rt(
+                "org.gnome.Platform/x86_64/51",
+                runtimes[4].size_bytes,
+                "system"
+            )
+        );
+        assert!(runtimes[4].size_bytes.unwrap() > 100_000_000);
+    }
+
+    #[test]
+    fn real_app_runtimes_parse() {
+        assert_eq!(
+            parse_app_runtimes(&junk_fixture("flatpak-app-runtimes-real.txt")).unwrap(),
+            [AppRuntime {
+                application_id: "org.vinegarhq.Sober".into(),
+                runtime: "org.gnome.Platform/x86_64/51".into(),
+                installation: "system".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn runtime_lines_with_too_few_columns_are_an_error() {
+        assert_eq!(
+            parse_runtimes(&junk_fixture("flatpak-runtimes-broken.txt")),
+            Err(ParseError::BadRuntimeLine { line: 1 })
+        );
+        assert_eq!(
+            parse_runtimes("no-slashes\t1 MB\tuser\n"),
+            Err(ParseError::BadRuntimeLine { line: 1 })
+        );
+    }
+
+    #[test]
+    fn real_machine_has_nothing_unused() {
+        let runtimes = parse_runtimes(&junk_fixture("flatpak-runtimes-real.txt")).unwrap();
+        let apps = parse_app_runtimes(&junk_fixture("flatpak-app-runtimes-real.txt")).unwrap();
+        let result = unused_runtimes(&runtimes, &apps);
+        assert_eq!(result.unused, []);
+        // Extensions of a used runtime must never be offered, even though no app names them.
+        assert!(result.kept.iter().any(|(r, _)| r
+            .reference
+            .starts_with("org.freedesktop.Platform.GL.default")));
+    }
+
+    #[test]
+    fn unused_base_runtimes_are_found_and_extensions_and_freedesktop_are_kept() {
+        let runtimes = parse_runtimes(&junk_fixture("flatpak-runtimes-handwritten.txt")).unwrap();
+        let apps =
+            parse_app_runtimes(&junk_fixture("flatpak-app-runtimes-handwritten.txt")).unwrap();
+        let result = unused_runtimes(&runtimes, &apps);
+        let unused: Vec<(&str, u64)> = result
+            .unused
+            .iter()
+            .map(|r| (r.reference.as_str(), r.size_bytes.unwrap()))
+            .collect();
+        assert_eq!(
+            unused,
+            [
+                ("org.gnome.Platform/x86_64/47", 1_100_000_000),
+                ("org.kde.Platform/x86_64/6.7", 900_000_000),
+                ("org.kde.Sdk/x86_64/6.7", 2_000_000_000),
+            ]
+        );
+        assert!(result
+            .kept
+            .iter()
+            .any(|(r, _)| r.reference == "org.freedesktop.Platform/x86_64/23.08"));
+        assert!(result
+            .kept
+            .iter()
+            .any(|(r, _)| r.reference.starts_with("org.gnome.Platform.Locale")));
+    }
+
+    #[test]
+    fn a_runtime_used_from_another_installation_is_used() {
+        let runtimes = vec![rt("org.kde.Platform/x86_64/6.7", Some(1), "system")];
+        let apps = vec![AppRuntime {
+            application_id: "a.b.C".into(),
+            runtime: "org.kde.Platform/x86_64/6.7".into(),
+            installation: "user".into(),
+        }];
+        assert_eq!(unused_runtimes(&runtimes, &apps).unused, []);
+    }
+
+    #[test]
+    fn flatpak_apps_become_entries_with_scope_and_size() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let apps = src.list().unwrap();
+        assert_eq!(apps.len(), 3);
+        let gimp = &apps[0];
+        assert_eq!(
+            (gimp.id.as_str(), gimp.name.as_str()),
+            ("org.gimp.GIMP", "GIMP")
+        );
+        assert_eq!(gimp.kind, SourceKind::Flatpak);
+        assert_eq!(gimp.scope, crate::source::Scope::System);
+        assert_eq!(gimp.size_bytes, Some(1_200_000_000));
+        assert_eq!(apps[1].scope, crate::source::Scope::User);
+    }
+
+    #[test]
+    fn user_flatpaks_need_no_admin_and_system_ones_do() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let apps = src.list().unwrap();
+        let user = src.removal_plan(&apps[1]).unwrap();
+        assert!(!user.needs_admin && !user.to_trash && user.blocked.is_none());
+        assert_eq!(
+            user.command,
+            [
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--",
+                "org.mozilla.firefox"
+            ]
+        );
+        let system = src.removal_plan(&apps[0]).unwrap();
+        assert!(system.needs_admin);
+        assert_eq!(
+            system.command,
+            ["flatpak", "uninstall", "--system", "--", "org.gimp.GIMP"]
+        );
+    }
+
+    #[test]
+    fn broken_flatpak_output_is_a_source_error() {
+        let src = FlatpakApps::from_list(&fixture("list-broken.txt"));
+        assert!(matches!(src.list(), Err(SourceError::Parse(_))));
+    }
+
+    #[test]
+    fn german_flatpak_output_lists_too() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten-de.txt"));
+        assert!(!src.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hostile_flatpak_id_never_reaches_a_plan() {
+        let src = FlatpakApps::from_list(&fixture("list-handwritten.txt"));
+        let mut app = src.list().unwrap().remove(0);
+        for bad in ["--all", "x y", "../x", ""] {
+            app.id = bad.into();
+            assert!(
+                matches!(src.removal_plan(&app), Err(SourceError::BadName(_))),
+                "{bad:?}"
+            );
+        }
+    }
+
+    use crate::runner::{CommandRunner, Output};
+    use std::cell::RefCell;
+
+    struct Fake {
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+        reply: Result<Output, String>,
+    }
+
+    impl Fake {
+        fn ok() -> Self {
+            Fake {
+                calls: RefCell::new(vec![]),
+                reply: Ok(Output {
+                    success: true,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }),
+            }
+        }
+    }
+
+    impl CommandRunner for Fake {
+        fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
+            self.calls
+                .borrow_mut()
+                .push((program.into(), args.iter().map(|a| a.to_string()).collect()));
+            self.reply.clone()
+        }
+    }
+
+    fn user_app() -> AppEntry {
+        FlatpakApps::from_list(&fixture("list-handwritten.txt"))
+            .list()
+            .unwrap()
+            .remove(1)
+    }
+
+    #[test]
+    fn a_user_flatpak_is_removed_with_one_exact_command_and_no_shell() {
+        let fake = Fake::ok();
+        uninstall_user(&fake, &user_app()).unwrap();
+        let calls = fake.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "/usr/bin/flatpak");
+        assert_eq!(
+            calls[0].1,
+            [
+                "uninstall",
+                "--user",
+                "--noninteractive",
+                "-y",
+                "org.mozilla.firefox"
+            ]
+        );
+    }
+
+    #[test]
+    fn system_flatpaks_other_sources_and_hostile_ids_never_reach_the_runner() {
+        let fake = Fake::ok();
+        let apps = FlatpakApps::from_list(&fixture("list-handwritten.txt"))
+            .list()
+            .unwrap();
+        assert_eq!(
+            uninstall_user(&fake, &apps[0]),
+            Err(UninstallError::NeedsAdmin)
+        );
+        let mut pacman = user_app();
+        pacman.kind = SourceKind::Pacman;
+        assert_eq!(
+            uninstall_user(&fake, &pacman),
+            Err(UninstallError::NotFlatpak)
+        );
+        for bad in ["--all", "a b", "../x", ""] {
+            let mut a = user_app();
+            a.id = bad.into();
+            assert!(
+                matches!(uninstall_user(&fake, &a), Err(UninstallError::BadId(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(fake.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_failing_flatpak_reports_its_message() {
+        let fake = Fake {
+            calls: RefCell::new(vec![]),
+            reply: Ok(Output {
+                success: false,
+                stdout: String::new(),
+                stderr: "error: nope".into(),
+            }),
+        };
+        assert_eq!(
+            uninstall_user(&fake, &user_app()),
+            Err(UninstallError::Failed("error: nope".into()))
+        );
+        let cannot = Fake {
+            calls: RefCell::new(vec![]),
+            reply: Err("no such file".into()),
+        };
+        assert!(matches!(
+            uninstall_user(&cannot, &user_app()),
+            Err(UninstallError::Failed(_))
+        ));
     }
 }

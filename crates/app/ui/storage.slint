@@ -287,8 +287,8 @@ export component StorageScreen inherits Rectangle {
     // The page scrolls when the window is shorter than its content; the open folder's list fills
     // the rest of the window.
     page := Flickable {
-        viewport-width: self.width;
-        viewport-height: max(self.height, content.min-height);
+        content-width: self.width;
+        content-height: max(self.height, content.min-height);
         content := VerticalLayout {
         width: page.width;
         height: max(page.height, self.min-height);
@@ -468,23 +468,23 @@ export component StorageScreen inherits Rectangle {
                                     height: parent.height;
                                     property <int> cur: StorageState.cursor;
                                     changed cur => {
-                                        if (self.cur * 56px < -self.viewport-y) {
-                                            self.viewport-y = -self.cur * 56px;
-                                        } else if ((self.cur + 1) * 56px > -self.viewport-y + self.visible-height) {
-                                            self.viewport-y = -((self.cur + 1) * 56px - self.visible-height);
+                                        if (self.cur * 56px < -self.content-y) {
+                                            self.content-y = -self.cur * 56px;
+                                        } else if ((self.cur + 1) * 56px > -self.content-y + self.visible-height) {
+                                            self.content-y = -((self.cur + 1) * 56px - self.visible-height);
                                         }
                                     }
                                     for r[i] in StorageState.rows: ListRow { r: r; index: i; }
                                 }
                                 // The widget's own thumb is nearly invisible on the dark surface: draw one
                                 // in the tokens' colours, only when the rows don't fit.
-                                if list.viewport-height > list.visible-height + 1px: Rectangle {
+                                if list.content-height > list.visible-height + 1px: Rectangle {
                                     x: parent.width - 10px;
                                     width: 4px;
                                     border-radius: 2px;
                                     background: Theme.text-3;
-                                    height: max(28px, list.visible-height * list.visible-height / list.viewport-height);
-                                    y: (-list.viewport-y) / (list.viewport-height - list.visible-height) * (list.visible-height - self.height);
+                                    height: max(28px, list.visible-height * list.visible-height / list.content-height);
+                                    y: (-list.content-y) / (list.content-height - list.visible-height) * (list.visible-height - self.height);
                                 }
                             }
                         }
@@ -521,8 +521,8 @@ export component StorageScreen inherits Rectangle {
                     }
                     bigscroll := Flickable {
                         vertical-stretch: 1;
-                        viewport-width: self.width;
-                        viewport-height: bigcol.preferred-height;
+                        content-width: self.width;
+                        content-height: bigcol.preferred-height;
                         preferred-height: bigcol.preferred-height;
                         bigcol := VerticalLayout {
                             width: parent.width;
@@ -566,13 +566,13 @@ export component StorageScreen inherits Rectangle {
                         note := Text { x: 18px; y: 12px; width: parent.width - 36px; text: StorageState.big-note; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; line-height-factor: 1.4; }
                     }
                         }
-                        if bigscroll.viewport-height > bigscroll.height + 1px: Rectangle {
+                        if bigscroll.content-height > bigscroll.height + 1px: Rectangle {
                             x: parent.width - 8px;
                             width: 4px;
                             border-radius: 2px;
                             background: Theme.text-3;
-                            height: max(28px, bigscroll.height * bigscroll.height / bigscroll.viewport-height);
-                            y: (-bigscroll.viewport-y) / (bigscroll.viewport-height - bigscroll.height) * (bigscroll.height - self.height);
+                            height: max(28px, bigscroll.height * bigscroll.height / bigscroll.content-height);
+                            y: (-bigscroll.content-y) / (bigscroll.content-height - bigscroll.height) * (bigscroll.height - self.height);
                         }
                     }
                 }
@@ -581,12 +581,12 @@ export component StorageScreen inherits Rectangle {
         Rectangle { vertical-stretch: StorageState.in-folder ? 0 : 1; }
         }
     }
-    if page.viewport-height > page.height + 1px: Rectangle {
+    if page.content-height > page.height + 1px: Rectangle {
         x: parent.width - 8px;
         width: 4px;
         border-radius: 2px;
         background: Theme.text-3;
-        height: max(28px, page.height * page.height / page.viewport-height);
-        y: (-page.viewport-y) / (page.viewport-height - page.height) * (page.height - self.height);
+        height: max(28px, page.height * page.height / page.content-height);
+        y: (-page.content-y) / (page.content-height - page.height) * (page.height - self.height);
     }
 }

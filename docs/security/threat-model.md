@@ -94,7 +94,7 @@ file write, a parser of outside data or a network call (ENGINEERING.md §2). Met
 | T | Scanner follows a symlink out of the folder | `symlink_metadata`; symlinks count as themselves; other filesystems skipped | `core::scan` tests |
 | T | "Trash" silently deletes (other filesystem) | Refuse with a clear error when Trash is not on the same mount and cannot be used; never fall back to delete | R4-T4 tests |
 | T | Trashing a symlink removes its target | The link itself is moved | R4-T4 test |
-| I | Scan results leave the machine | No network code in `core`; golden rule 6 | Review; TODO a test that `core` has no network dependency |
+| I | Scan results leave the machine | No network code in `core` or `adapters`; golden rule 6 | `crates/core/tests/no_network_deps.rs`: `cargo tree` of both crates (normal + build edges) has none of 15 listed networking crates; proven to catch one on `tests/fixtures/netdeps`. Limits: list of names only, a crate using raw sockets or `std::net` is not caught |
 | D | Scan of a huge tree stalls the UI | Background thread, progress, cancel | `core::scan` cancel test |
 
 ### B6 Build ↔ release

@@ -54,6 +54,10 @@ The 10 % target is a starting guess; the human tunes it after the first screen.
 - Storage drill-in (approved 2026-10-28, after live testing): folder rows carry a chevron and open
   on click; the breadcrumb can be several levels long (middle collapses to "…"); the list scrolls with a
   scrollbar when it overflows; short folder-map blocks put name and size on one line.
+- Dialog artboards (CleanFlow, UninstallFlow, EndTask; approved 2026-11-02 after run 06): the artboard's
+  backdrop is grey placeholder blocks and a "Prototype step" bar, not the real screen, so a whole-image
+  diff measures the placeholder (58–60 %). Check the **dialog crop** (≤ 10 %) and the screen behind it
+  separately. Don't tune copy to reach the number; report the real cause of any remaining difference.
 - Anything the design shows as live (chart wiggle, numbers) only matches in demo mode.
 - Text antialiasing and sub-pixel differences.
 

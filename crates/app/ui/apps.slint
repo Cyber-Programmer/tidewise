@@ -1,0 +1,453 @@
+// The Apps screen and its uninstall dialog (docs/design/screens/Apps.dc.html, UninstallFlow.dc.html).
+import { Theme } from "theme.slint";
+
+export struct AppRow {
+    name: string,
+    source: string,
+    detail: string,
+    size: string,
+    letter: string,
+    hue: int,
+    selected: bool,
+}
+
+export struct AppChip {
+    label: string,
+    count: int,
+    selected: bool,
+}
+
+export struct PanelRow {
+    label: string,
+    value: string,
+}
+
+export global AppsState {
+    // 0 scanning, 1 ready, 2 nothing found, 3 error
+    in property <int> phase: 1;
+    in property <string> subtitle;
+    in property <string> message;
+    in property <string> footer;
+    in property <[AppChip]> chips;
+    in property <[AppRow]> rows;
+    in-out property <string> query;
+    // The picked app and what uninstalling it does.
+    in property <bool> has-panel: false;
+    in property <string> p-name;
+    in property <string> p-letter;
+    in property <int> p-hue;
+    in property <string> p-sub;
+    in property <[PanelRow]> p-rows;
+    in property <string> p-total;
+    in property <string> p-button;
+    in property <string> p-why;
+    in property <bool> p-enabled: true;
+    in property <string> p-technical;
+    in-out property <bool> tech-open: false;
+    // 0 no dialog, 1 confirm, 2 removing, 3 done, 4 message
+    in property <int> flow: 0;
+    in property <string> d-title;
+    in property <string> d-text;
+    in property <string> d-confirm;
+    in property <float> d-progress: 0.5;
+    in property <string> d-command;
+    callback pick(int);
+    callback set-filter(int);
+    callback search-edited(string);
+    callback uninstall();
+    callback cancel();
+    callback confirm();
+    callback finish();
+}
+
+component Avatar inherits Rectangle {
+    in property <string> letter;
+    in property <int> hue;
+    in property <length> side: 40px;
+    in property <length> letter-size: 17px;
+    width: root.side;
+    height: root.side;
+    border-radius: root.side * 0.25;
+    background: root.hue == 0 ? Theme.data-cpu : (root.hue == 1 ? Theme.data-disk : (root.hue == 2 ? Theme.data-network : (root.hue == 3 ? Theme.data-memory : (root.hue == 4 ? Theme.danger : Theme.chip-flatpak))));
+    Text { text: root.letter; color: Theme.bg; font-size: root.letter-size; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component SourceChip inherits Rectangle {
+    in property <string> label;
+    height: 18px;
+    width: txt.preferred-width + 14px;
+    border-radius: Theme.radius-chip;
+    background: root.label == "Flatpak" ? Theme.chip-flatpak-bg : (root.label == "AppImage" ? Theme.chip-appimage-bg : (root.label == "Snap" ? Theme.chip-snap-bg : Theme.chip-system-bg));
+    txt := Text {
+        text: root.label;
+        color: root.label == "Flatpak" ? Theme.chip-flatpak : (root.label == "AppImage" ? Theme.chip-appimage : (root.label == "Snap" ? Theme.chip-snap : Theme.chip-system));
+        font-size: 11px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component FilterChip inherits Rectangle {
+    in property <string> label;
+    in property <int> count;
+    in property <bool> on;
+    callback clicked();
+    height: 38px;
+    width: row.preferred-width;
+    border-radius: Theme.radius-button;
+    background: root.on ? Theme.accent-tint : Theme.surface;
+    border-width: 1px;
+    border-color: root.on ? Theme.accent : Theme.border;
+    accessible-role: button;
+    accessible-label: root.label + " " + root.count;
+    accessible-action-default => { root.clicked(); }
+    row := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        Text { text: root.label; color: root.on ? Theme.text : Theme.text-2; font-size: Theme.size-body; font-weight: 500; vertical-alignment: center; }
+        Text { text: root.count; color: root.on ? Theme.accent-text : Theme.text-3; font-family: Theme.mono; font-size: Theme.size-small; vertical-alignment: center; }
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+export component DialogButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> danger: false;
+    in property <bool> accent: false;
+    in property <bool> enabled: true;
+    in property <length> h: 44px;
+    callback clicked();
+    height: root.h;
+    width: txt.preferred-width + 40px;
+    border-radius: 11px;
+    background: !root.enabled ? Theme.control-bg : (root.danger ? Theme.danger : (root.accent ? Theme.accent : (touch.has-hover ? Theme.segment-on : Theme.control-bg)));
+    border-width: root.danger || root.accent || !root.enabled ? 0px : 1px;
+    border-color: Theme.control-border;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    txt := Text { text: root.label; color: !root.enabled ? Theme.text-3 : (root.danger ? Theme.on-danger : (root.accent ? Theme.on-accent : Theme.text)); font-size: Theme.size-body; font-weight: root.danger || root.accent ? 600 : 400; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { if (root.enabled) { root.clicked(); } } }
+}
+
+export component AppsScreen inherits Rectangle {
+    background: Theme.bg;
+    page := Flickable {
+        content-width: self.width;
+        content-height: max(self.height, col.min-height);
+        col := VerticalLayout {
+            width: min(page.width - 72px, Theme.content-max-width);
+            x: max(36px, (page.width - self.width) / 2);
+            padding-top: 28px;
+            padding-bottom: 40px;
+            spacing: 20px;
+            alignment: start;
+
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 6px;
+                    Text { text: "Apps"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                    Text { text: AppsState.subtitle; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Rectangle {
+                    width: 260px;
+                    height: 40px;
+                    y: 18px;
+                    background: Theme.surface;
+                    border-radius: Theme.radius-button;
+                    border-width: 1px;
+                    border-color: Theme.search-border;
+                    Image { x: 14px; y: 12px; width: 16px; height: 16px; source: @image-url("icons/search.svg"); colorize: Theme.text-3; }
+                    Text { x: 40px; text: "Search apps"; visible: AppsState.query == ""; color: Theme.text-3; font-size: Theme.size-body; vertical-alignment: center; }
+                    TextInput {
+                        x: 40px;
+                        width: parent.width - 52px;
+                        height: parent.height;
+                        text <=> AppsState.query;
+                        color: Theme.text;
+                        font-size: Theme.size-body;
+                        vertical-alignment: center;
+                        accessible-label: "Search apps";
+                        edited => { AppsState.search-edited(self.text); }
+                    }
+                }
+            }
+
+            if AppsState.phase == 1: HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+                for chip[i] in AppsState.chips: FilterChip { label: chip.label; count: chip.count; on: chip.selected; clicked => { AppsState.set-filter(i); } }
+            }
+
+            if AppsState.phase != 1: Rectangle {
+                height: 120px;
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    padding: 24px;
+                    spacing: 6px;
+                    Text {
+                        text: AppsState.phase == 0 ? "Looking for your apps…" : (AppsState.phase == 2 ? "No apps found" : "Could not list your apps");
+                        color: Theme.text; font-size: Theme.size-row-title; font-weight: 600;
+                    }
+                    Text { text: AppsState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+            }
+
+            if AppsState.phase == 1: HorizontalLayout {
+                spacing: 20px;
+                alignment: stretch;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 42px + AppsState.rows.length * 63px + 40px;
+                    background: Theme.surface;
+                    border-radius: Theme.radius-card;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    VerticalLayout {
+                        Rectangle {
+                            height: 42px;
+                            HorizontalLayout {
+                                padding-left: 18px;
+                                padding-right: 19px;
+                                Text { text: "Name"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: "Size · sorted largest first"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                        }
+                        for row[i] in AppsState.rows: Rectangle {
+                            height: 63px;
+                            background: row.selected ? Theme.row-selected : (touch.has-hover ? Theme.control-bg : transparent);
+                            accessible-role: button;
+                            accessible-label: row.name + ", " + row.source + ", " + row.size;
+                            accessible-action-default => { AppsState.pick(i); }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                padding-left: 19px;
+                                padding-right: 19px;
+                                spacing: 12px;
+                                Avatar { letter: row.letter; hue: row.hue; y: (parent.height - self.height) / 2; }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: row.name; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
+                                        SourceChip { label: row.source; y: 2px; }
+                                    }
+                                    Text { text: row.detail; color: Theme.text-2; font-size: Theme.size-small; overflow: elide; }
+                                }
+                                Text { text: row.size; color: Theme.text; font-family: Theme.mono; font-size: Theme.size-row-title; vertical-alignment: center; }
+                            }
+                            touch := TouchArea { clicked => { AppsState.pick(i); } }
+                        }
+                        Rectangle {
+                            height: 40px;
+                            Text { x: 18px; text: AppsState.footer; color: Theme.text-3; font-size: Theme.size-caption; vertical-alignment: center; }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    width: 345px;
+                    alignment: start;
+                    if AppsState.has-panel: Rectangle {
+                        background: Theme.surface;
+                        border-radius: Theme.radius-card;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        height: panel.preferred-height;
+                        panel := VerticalLayout {
+                            padding: 22px;
+                            spacing: 14px;
+                            HorizontalLayout {
+                                spacing: 14px;
+                                Avatar { letter: AppsState.p-letter; hue: AppsState.p-hue; side: 52px; letter-size: 22px; }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Text { text: AppsState.p-name; color: Theme.text; font-size: 18px; font-weight: 600; overflow: elide; }
+                                    Text { text: AppsState.p-sub; color: Theme.text-2; font-size: Theme.size-small; overflow: elide; }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: 8px;
+                                Text { text: "Uninstalling removes"; color: Theme.text; font-size: Theme.size-small; font-weight: 600; }
+                                Rectangle {
+                                    height: plist.preferred-height + 2px;
+                                    border-radius: 12px;
+                                    border-width: 1px;
+                                    border-color: Theme.border;
+                                    clip: true;
+                                    plist := VerticalLayout {
+                                        for r[i] in AppsState.p-rows: Rectangle {
+                                            height: 40px;
+                                            background: Theme.surface-sunk;
+                                            if i < AppsState.p-rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                                            HorizontalLayout {
+                                                padding-left: 14px;
+                                                padding-right: 14px;
+                                                Text { text: r.label; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; }
+                                                Text { text: r.value; color: Theme.text-soft; font-family: Theme.mono; font-size: Theme.size-small; vertical-alignment: center; }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Text { text: "Settings are kept by default, so reinstalling later brings everything back."; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
+                            Rectangle { height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                Text { text: "Space you get back"; color: Theme.text-2; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: AppsState.p-total; color: Theme.accent-text; font-family: Theme.mono; font-size: 24px; font-weight: 500; }
+                            }
+                            Rectangle {
+                                height: 24px;
+                                accessible-role: button;
+                                accessible-label: "Technical details";
+                                accessible-action-default => { AppsState.tech-open = !AppsState.tech-open; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Image { source: @image-url("icons/chevron.svg"); width: 12px; height: 12px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; transform-rotation: AppsState.tech-open ? 90deg : 0deg; }
+                                    Text { text: "Technical details"; color: Theme.text-2; font-size: Theme.size-small; vertical-alignment: center; }
+                                }
+                                TouchArea { clicked => { AppsState.tech-open = !AppsState.tech-open; } }
+                            }
+                            if AppsState.tech-open: Rectangle {
+                                height: cmd.preferred-height + 16px;
+                                border-radius: 8px;
+                                background: Theme.drive-track;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                cmd := Text { x: 10px; y: 8px; width: parent.width - 20px; text: AppsState.p-technical; color: Theme.mono-dim; font-family: Theme.mono; font-size: Theme.size-caption; wrap: word-wrap; }
+                            }
+                            Rectangle {
+                                height: 44px;
+                                border-radius: 12px;
+                                background: AppsState.p-enabled ? Theme.danger : Theme.control-bg;
+                                accessible-role: button;
+                                accessible-label: AppsState.p-button;
+                                accessible-enabled: AppsState.p-enabled;
+                                accessible-action-default => { if (AppsState.p-enabled) { AppsState.uninstall(); } }
+                                HorizontalLayout {
+                                    alignment: center;
+                                    spacing: 8px;
+                                    Image { source: @image-url("icons/trash.svg"); width: 18px; height: 18px; y: (parent.height - self.height) / 2; colorize: AppsState.p-enabled ? Theme.on-danger : Theme.text-3; }
+                                    Text { text: AppsState.p-button; color: AppsState.p-enabled ? Theme.on-danger : Theme.text-3; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                }
+                                TouchArea { clicked => { if (AppsState.p-enabled) { AppsState.uninstall(); } } }
+                            }
+                            if !AppsState.p-enabled && AppsState.p-why != "": Text { text: AppsState.p-why; color: Theme.text-2; font-size: Theme.size-caption; wrap: word-wrap; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The uninstall dialog on top of everything. Not shown when `AppsState.flow` is 0.
+export component AppsDialog inherits Rectangle {
+    visible: AppsState.flow != 0;
+    background: Theme.scrim;
+    TouchArea { }
+    dlg := Rectangle {
+        width: min(540px, parent.width - 32px);
+        x: (parent.width - self.width) / 2;
+        y: max(20px, min(114px, (parent.height - self.height) / 2));
+        height: content.preferred-height;
+        border-radius: Theme.radius-dialog;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.dialog-border;
+        accessible-role: groupbox;
+        accessible-label: AppsState.d-title;
+        content := VerticalLayout {
+            padding: 28px;
+            spacing: 18px;
+            if AppsState.flow == 1: VerticalLayout {
+                spacing: 16px;
+                HorizontalLayout {
+                    spacing: 14px;
+                    Avatar { letter: AppsState.p-letter; hue: AppsState.p-hue; side: 48px; letter-size: 20px; }
+                    Text { text: AppsState.d-title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; vertical-alignment: center; letter-spacing: -0.33px; }
+                }
+                Rectangle {
+                    height: dlist.preferred-height + 2px;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    dlist := VerticalLayout {
+                        for r[i] in AppsState.p-rows: Rectangle {
+                            height: 41px;
+                            background: Theme.surface-sunk;
+                            if i < AppsState.p-rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                Text { text: r.label; color: Theme.text; font-size: Theme.size-body; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: r.value; color: Theme.text-soft; font-family: Theme.mono; font-size: Theme.size-body; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                Text { width: dlg.width - 56px; text: AppsState.d-text; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    DialogButton { label: "Cancel"; clicked => { AppsState.cancel(); } }
+                    DialogButton { label: AppsState.d-confirm; danger: true; clicked => { AppsState.confirm(); } }
+                }
+            }
+            if AppsState.flow == 2: VerticalLayout {
+                spacing: 16px;
+                Text { text: AppsState.d-title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; }
+                Rectangle {
+                    height: 10px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.search-border;
+                    accessible-role: progress-indicator;
+                    accessible-label: "Uninstall progress";
+                    Rectangle { x: 0; width: parent.width * AppsState.d-progress; border-radius: Theme.radius-pill; background: Theme.accent; }
+                }
+                Text { text: AppsState.d-command; color: Theme.text-2; font-family: Theme.mono; font-size: Theme.size-caption; overflow: elide; }
+                Text { width: dlg.width - 56px; text: AppsState.d-text; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; }
+            }
+            if AppsState.flow == 3 || AppsState.flow == 4: VerticalLayout {
+                spacing: 16px;
+                alignment: start;
+                Rectangle {
+                    width: 52px;
+                    height: 52px;
+                    border-radius: Theme.radius-pill;
+                    background: AppsState.flow == 3 ? Theme.accent-tint : Theme.control-bg;
+                    Image {
+                        source: AppsState.flow == 3 ? @image-url("icons/done.svg") : @image-url("icons/protected.svg");
+                        width: 26px;
+                        height: 26px;
+                        x: 13px;
+                        y: 13px;
+                        colorize: AppsState.flow == 3 ? Theme.accent : Theme.text-soft;
+                    }
+                }
+                Text { width: dlg.width - 56px; text: AppsState.d-title; color: Theme.text; font-size: 24px; font-weight: 600; wrap: word-wrap; letter-spacing: -0.36px; }
+                Text { width: dlg.width - 56px; text: AppsState.d-text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.15; }
+                HorizontalLayout {
+                    alignment: start;
+                    DialogButton { label: AppsState.flow == 3 ? "Back to Apps" : "OK"; h: 44px; enabled: true; clicked => { AppsState.finish(); } }
+                }
+            }
+        }
+    }
+}

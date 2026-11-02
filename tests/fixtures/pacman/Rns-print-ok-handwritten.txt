@@ -1,0 +1,4 @@
+vlc-3.0.24-1
+libdvdcss-1.4.3-3
+lib32-glibc-2.40-2
+foo-bar-baz-1:2.0.1-10

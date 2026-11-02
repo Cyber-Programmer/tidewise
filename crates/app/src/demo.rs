@@ -174,6 +174,9 @@ pub fn processes() -> ProcData {
             net: d.net.into(),
             note: d.note.into(),
             cmd: d.cmd.into(),
+            // The sample data has no real processes: ending anything from the demo does nothing.
+            pids: Vec::new(),
+            mem_bytes: 0,
         })
         .collect();
     ProcData {
@@ -365,6 +368,177 @@ pub fn storage(downloads: bool) -> StorageData {
         ],
         big_note: "Your own files always go to Trash first, never deleted straight away.".into(),
     }
+}
+
+/// The Cleaner artboard's groups (no "Packages nothing uses": the scanner does not look for them yet).
+pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
+    use tidewise_adapters::junk::{JunkItem, JunkKind, JunkReport};
+    let item = |kind, label: &str, path: &str, bytes, needs_admin| JunkItem {
+        kind,
+        label: label.into(),
+        path: Some(path.into()),
+        bytes,
+        needs_admin,
+    };
+    tidewise_adapters::cleanup::groups(&JunkReport {
+        items: vec![
+            item(
+                JunkKind::PackageCache,
+                "Package cache (pacman)",
+                "/var/cache/pacman/pkg  ·  paccache -rk2",
+                6_800_000_000,
+                true,
+            ),
+            item(
+                JunkKind::AppCache,
+                "thumbnails",
+                "/home/you/.cache/thumbnails",
+                3_100_000_000,
+                false,
+            ),
+            item(
+                JunkKind::Journal,
+                "System log (journal)",
+                "",
+                1_200_000_000,
+                true,
+            ),
+            item(
+                JunkKind::FlatpakRuntime,
+                "org.kde.Platform 6.7",
+                "",
+                900_000_000,
+                false,
+            ),
+            item(
+                JunkKind::Trash,
+                "Trash",
+                "/home/you/.local/share/Trash/files  ·  412 items",
+                400_000_000,
+                false,
+            ),
+        ],
+        skipped: vec![],
+    })
+}
+
+/// The Apps artboard's rows with a removal plan each (GIMP is a user Flatpak so its button is live).
+pub fn apps() -> Vec<(
+    tidewise_adapters::source::AppEntry,
+    tidewise_adapters::source::RemovalPlan,
+)> {
+    use tidewise_adapters::source::{AppEntry, PlanItem, RemovalPlan, Scope, SourceKind};
+    let make = |id: &str, name: &str, about: &str, kind, scope, size: u64, extra: Option<u64>| {
+        let entry = AppEntry {
+            id: id.into(),
+            name: name.into(),
+            kind,
+            scope,
+            // The artboard shows a one-line description here; real data shows the version.
+            version: Some(about.into()),
+            size_bytes: Some(size),
+            required_by: vec![],
+        };
+        let mut items = vec![PlanItem {
+            label: id.into(),
+            bytes: Some(size),
+        }];
+        if let Some(extra) = extra {
+            items.push(PlanItem {
+                label: "org.gnome.Platform".into(),
+                bytes: Some(extra),
+            });
+        }
+        let plan = RemovalPlan {
+            id: id.into(),
+            kind,
+            items,
+            blocked: None,
+            needs_admin: scope == Scope::System,
+            to_trash: kind == SourceKind::AppImage,
+            command: if kind == SourceKind::Flatpak {
+                vec!["flatpak".into(), "uninstall".into(), id.into()]
+            } else {
+                Vec::new()
+            },
+        };
+        (entry, plan)
+    };
+    let (u, s) = (Scope::User, Scope::System);
+    vec![
+        make(
+            "com.valvesoftware.Steam",
+            "Steam",
+            "Game store and launcher",
+            SourceKind::Flatpak,
+            u,
+            1_400_000_000,
+            None,
+        ),
+        make(
+            "org.kde.kdenlive",
+            "Kdenlive",
+            "Video editor",
+            SourceKind::Flatpak,
+            u,
+            610_000_000,
+            None,
+        ),
+        make(
+            "libreoffice-fresh",
+            "LibreOffice",
+            "Documents, spreadsheets, slides",
+            SourceKind::Pacman,
+            s,
+            580_000_000,
+            None,
+        ),
+        make(
+            "org.gimp.GIMP",
+            "GIMP",
+            "Image editor",
+            SourceKind::Flatpak,
+            u,
+            412_000_000,
+            Some(320_000_000),
+        ),
+        make(
+            "spotify",
+            "Spotify",
+            "Music streaming",
+            SourceKind::Snap,
+            s,
+            290_000_000,
+            None,
+        ),
+        make(
+            "firefox",
+            "Firefox",
+            "Web browser",
+            SourceKind::Pacman,
+            s,
+            248_000_000,
+            None,
+        ),
+        make(
+            "/home/you/Applications/Obsidian.AppImage",
+            "Obsidian",
+            "Notes",
+            SourceKind::AppImage,
+            u,
+            132_000_000,
+            None,
+        ),
+        make(
+            "vlc",
+            "VLC",
+            "Media player",
+            SourceKind::Pacman,
+            s,
+            68_000_000,
+            None,
+        ),
+    ]
 }
 
 #[cfg(test)]

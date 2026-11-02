@@ -1,0 +1,83 @@
+// The End task dialogs (docs/design/screens/EndTask.dc.html).
+import { Theme } from "theme.slint";
+import { DialogButton } from "apps.slint";
+
+export global EndState {
+    // 0 none, 1 confirm, 2 closing, 3 not closing, 4 protected
+    in property <int> flow: 0;
+    in property <string> title;
+    in property <string> text;
+    // The red button; empty when there is none.
+    in property <string> confirm;
+    in property <string> details;
+    in-out property <bool> details-open: false;
+    callback cancel();
+    callback confirmed();
+    callback keep-waiting();
+    callback force();
+    callback dismiss();
+}
+
+// Not shown when `EndState.flow` is 0.
+export component EndDialog inherits Rectangle {
+    visible: EndState.flow != 0;
+    background: Theme.scrim;
+    TouchArea { }
+    dlg := Rectangle {
+        width: min(480px, parent.width - 32px);
+        x: (parent.width - self.width) / 2;
+        y: max(20px, min(114px, (parent.height - self.height) / 2));
+        height: content.preferred-height;
+        border-radius: Theme.radius-dialog;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.dialog-border;
+        accessible-role: groupbox;
+        accessible-label: EndState.title;
+        content := VerticalLayout {
+            padding: 28px;
+            spacing: 16px;
+            if EndState.flow == 3 || EndState.flow == 4: Rectangle {
+                width: 52px;
+                height: 52px;
+                border-radius: Theme.radius-pill;
+                background: EndState.flow == 3 ? Theme.warn-tint : Theme.badge-bg;
+                Image {
+                    source: EndState.flow == 3 ? @image-url("icons/warning.svg") : @image-url("icons/protected.svg");
+                    width: 24px;
+                    height: 24px;
+                    x: 14px;
+                    y: 14px;
+                    colorize: EndState.flow == 3 ? Theme.warn : Theme.text-soft;
+                }
+            }
+            Text { width: dlg.width - 56px; text: EndState.title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; wrap: word-wrap; letter-spacing: -0.33px; }
+            Text { width: dlg.width - 56px; text: EndState.text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.1; }
+            if EndState.flow == 3 && EndState.details-open: Rectangle {
+                height: det.preferred-height + 20px;
+                border-radius: 8px;
+                background: Theme.drive-track;
+                border-width: 1px;
+                border-color: Theme.border-subtle;
+                det := Text { x: 12px; y: 10px; width: parent.width - 24px; text: EndState.details; color: Theme.mono-dim; font-family: Theme.mono; font-size: 11px; wrap: word-wrap; line-height-factor: 1.5; }
+            }
+            if EndState.flow == 1: HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                DialogButton { label: "Cancel"; clicked => { EndState.cancel(); } }
+                DialogButton { label: EndState.confirm; danger: true; clicked => { EndState.confirmed(); } }
+            }
+            if EndState.flow == 3: HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                DialogButton { label: EndState.details-open ? "Hide technical details" : "Show technical details"; clicked => { EndState.details-open = !EndState.details-open; } }
+                DialogButton { label: "Keep waiting"; clicked => { EndState.keep-waiting(); } }
+                DialogButton { label: EndState.confirm; danger: true; clicked => { EndState.force(); } }
+            }
+            if EndState.flow == 4: HorizontalLayout {
+                alignment: end;
+                DialogButton { label: "Got it"; accent: true; clicked => { EndState.dismiss(); } }
+            }
+        }
+    }
+}

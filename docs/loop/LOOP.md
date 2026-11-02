@@ -1,4 +1,4 @@
-# Run 06 — unattended loop: all non-root work
+# Run 07 — unattended loop: finish the non-root work
 
 This file is the instruction for **every round** of a self-paced `/loop`. Each round does **one task**
 from `docs/loop/queue.md`, end to end, then schedules the next round. Nobody can answer questions until
@@ -44,42 +44,60 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
   **Not verified** with the reason. Every error you hit, even ones you fixed, goes under **Errors**.
 - A task is **Done** only when its acceptance in `queue.md` is met with evidence. Otherwise it is
   **Blocked** (with reason) or **Partial** (what exists, what's missing). Never stretch a definition.
+- **Every decision you take without the human goes into `docs/questions.md` with a recommended answer,
+  not only into the report.** A round isn't finished until that is done.
+- Tests must clean up what they create. Never leave large files in `/tmp`; check after a full test run.
+  You may not delete things in `/tmp` yourself: if it is full, report it and use `TMPDIR=$PWD/target/tmp`.
+- If the plain `cargo test --all` doesn't exit 0, the task is not Done, whatever else passed. Say which
+  command failed and why.
 - Never weaken, skip, `#[ignore]` or delete a failing test to get green. A test that can't run here is
   reported as not run, not as passing.
 
 ## Start of the run (first round only)
 
-1. `date '+%F %H:%M %Z'`; use that date everywhere. Create branch `run/06-<YYYY-MM-DD>` from `main`.
-2. Preflight, each with its result in `docs/loop/report.md` under "Preflight": `cargo --version`,
-   `cargo +nightly --version`, `cargo fuzz --version`, `command -v appimagetool`, and a **read of the WBS
-   sheet** (`Overview!B1`). If the sheet can't be read, say so in the report and keep going: from then on
-   write every sheet change you would have made to `docs/loop/wbs-pending.csv` (WBS ID, column, old, new)
-   so the human can apply it.
-3. `cargo test --all` on the starting commit; record the result as the baseline.
+1. `date '+%F %H:%M %Z'`; use that date everywhere. Run 06 lives on branch `run/06-2026-11-01`. If `main`
+   already contains it (`git merge-base --is-ancestor run/06-2026-11-01 main` exits 0), create
+   `run/07-<YYYY-MM-DD>` from `main`; if not, create it from the tip of `run/06-2026-11-01` and say so in
+   the report.
+2. **Stop time:** the first 08:00 local time after the run started (unless the `/loop` prompt names
+   another). Write it as a full date and time in the report.
+3. Preflight, each with its result in `docs/loop/report.md` under "Preflight": `cargo --version`,
+   `cargo +nightly --version`, `cargo fuzz --version`, `command -v appimagetool`, `df -h /tmp`,
+   `ls -d /tmp/appimage_extracted_* | wc -l`, and a **read of the WBS sheet** (`Overview!B1:B2`). If the
+   sheet can't be read, say so and write every change you would have made to `docs/loop/wbs-pending.csv`
+   (WBS ID, column, old, new).
+4. Baseline: plain `cargo test --all` and its exit code (and the `TMPDIR` form if plain fails).
 
 ## Each round
 
 1. Read `docs/loop/queue.md`; take the first task marked `[ ]`. Mark it `[~]` (in progress) and set its
    WBS row(s) to **In Progress** with today's start date if empty.
 2. Plan (3–5 lines in `docs/progress.md`), then red → green → refactor with **separate commits**
-   (`test(scope): R6-<id> … (red)`, then `feat|fix|refactor(scope): R6-<id> …`). Run the failing test and
+   (`test(scope): R7-<id> … (red)`, then `feat|fix|refactor(scope): R7-<id> …`). Run the failing test and
    paste the failure line into the report before writing code.
 3. Task checks: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all`.
    A screen task also runs its design check (≤ 10 % per reference image) and you **look** at the
    screenshot; write the picture paths in the report.
+   Dialog artboards (CleanFlow, UninstallFlow, EndTask) have a placeholder backdrop, so they are checked
+   on a crop of the dialog (see `docs/design/DESIGN-CHECK.md`). Don't tune copy or layout just to reach
+   the number: report the score and the real cause of any remaining difference.
 4. Update `docs/loop/queue.md` (`[x]` done, `[!]` blocked, `[/]` partial), append the round to
    `docs/loop/report.md` (template below), update the WBS sheet (rules below), commit
-   (`docs(loop): R6-<id> report`).
-5. **Stop conditions** — stop the loop (don't schedule another round) and go to "End of the run" if:
-   the queue has no `[ ]` left; or 3 tasks in a row ended Blocked/Partial; or the build or test suite is
-   broken and two attempts didn't fix it (don't commit broken code: `git stash push -m "R6-<id> broken"`
-   so HEAD stays the last green commit, and report the stash name). Otherwise schedule the next round
-   in about 1 minute.
+   (`docs(loop): R7-<id> report`).
+5. **Time:** at the start of every round run `date '+%F %H:%M'`. At or after the stop time don't start a
+   new task: go to "End of the run".
+6. **Stop conditions** — stop the loop (no further round) and go to "End of the run" if: the queue has no
+   `[ ]` left; or **3 tasks in a row ended `[!]`** (blocked or broken: a bug, a failing check, an error you
+   couldn't fix). A task that ends `[/]` because the rest needs the admin helper, a person or a real other
+   distro does **not** count toward the 3, as long as everything that can be done here is done and
+   reported. Also stop if the build or test suite is broken and two attempts didn't fix it (don't commit
+   broken code: `git stash push -m "R7-<id> broken"` so HEAD stays the last green commit, and report the
+   stash name). Otherwise schedule the next round in about 1 minute.
 
 ### Report entry template (`docs/loop/report.md`)
 
 ```
-## R6-<id> <title> — Done | Partial | Blocked   (<date time>)
+## R7-<id> <title> — Done | Partial | Blocked   (<date time>)
 WBS: <ids> → <new status>
 Commits: <red sha> (red), <green sha>
 Evidence: <command> → exit <n>; <test names>; design check <score>; pictures <paths>
@@ -105,7 +123,7 @@ Sheet: https://docs.google.com/spreadsheets/d/1gRI9jVQAm3w0y9UL2aFld0kT-kqiUSD9o
   free number under the parent, Level `Task`, Workstream text copied exactly from the parent.
 - **Never touch column O (Roll-up), the Overview tab's formulas, or the Sources & Verification tab.** At
   the end of the run update only `Overview!B2` to
-  `Evidence snapshot: branch run/06-<date> @ <sha> (<date time>), not merged yet.`
+  `Evidence snapshot: branch run/07-<date> @ <sha> (<date time>), not merged yet.`
 - Never mark a human-owned row (J says Human) as Done.
 
 ## End of the run

@@ -1,0 +1,2 @@
+Waiting for process with pid 1234 to finish.
+Error: Failed to obtain the transaction lock (logged in as: user).

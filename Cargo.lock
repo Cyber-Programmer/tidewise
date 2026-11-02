@@ -4425,6 +4425,7 @@ dependencies = [
  "pretty_assertions",
  "tempfile",
  "thiserror 2.0.21",
+ "tidewise-core",
 ]
 
 [[package]]
@@ -4435,6 +4436,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tempfile",
+ "tidewise-adapters",
  "tidewise-core",
 ]
 
@@ -4443,6 +4445,8 @@ name = "tidewise-core"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",
+ "serde",
+ "serde_json",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",

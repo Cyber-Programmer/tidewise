@@ -1,7 +1,7 @@
-# Run 06 report
+# Run 07 report
 
-Written by the loop, one entry per round (template in `docs/loop/LOOP.md`). Read this first in the
-morning: **Summary** at the end, then **Not verified** and **Errors** in each entry.
+Written by the loop, one entry per round (template in `docs/loop/LOOP.md`). Read the **Summary** at the
+end first, then **Not verified** and **Errors** in each entry. Run 06's report: `docs/loop/archive/`.
 
 ## Preflight
 

@@ -1,0 +1,467 @@
+// The Clean up screen and its flow (docs/design/screens/Cleaner.dc.html, CleanFlow.dc.html).
+import { Theme } from "theme.slint";
+import { DetailsSwitch } from "components.slint";
+
+export struct CleanRow {
+    title: string,
+    desc: string,
+    safe: string,
+    review: bool,
+    admin: bool,
+    size: string,
+    checked: bool,
+    detail: string,
+}
+
+export struct ConfirmRow {
+    name: string,
+    size: string,
+    admin: bool,
+}
+
+export global CleanState {
+    // 0 scanning, 1 ready, 2 nothing found, 3 error
+    in property <int> phase: 1;
+    in property <string> subtitle: "Scan finished. Nothing is removed until you press Clean.";
+    in property <string> message;
+    in property <[CleanRow]> rows;
+    in property <string> total;
+    in property <string> found;
+    in property <float> fraction;
+    in property <bool> admin-selected;
+    in property <bool> can-clean: true;
+    in-out property <bool> details;
+    // 0 no dialog, 1 confirm, 2 cleaning, 3 done, 4 partial
+    in property <int> flow: 0;
+    in property <string> confirm-title;
+    in property <[ConfirmRow]> confirm-rows;
+    in property <string> confirm-note;
+    in property <float> progress;
+    in property <string> progress-label;
+    in property <string> freed-label;
+    in property <string> done-title;
+    in property <string> done-text;
+    in property <string> partial-title;
+    in property <string> partial-text;
+    in property <string> retry-label;
+    in property <bool> can-retry: true;
+    callback toggle(int);
+    callback clean();
+    callback cancel();
+    callback confirm();
+    callback stop-early();
+    callback retry();
+    callback finish();
+    callback see-report();
+    callback rescan();
+}
+
+component Chip inherits Rectangle {
+    in property <string> label;
+    in property <color> fg;
+    in property <color> bg;
+    height: 22px;
+    width: txt.preferred-width + 16px;
+    border-radius: Theme.radius-chip;
+    background: root.bg;
+    txt := Text { text: root.label; color: root.fg; font-size: Theme.size-caption; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component AdminChip inherits Rectangle {
+    in property <length> icon-size: 12px;
+    in property <length> text-size: Theme.size-caption;
+    in property <length> pad: 8px;
+    in property <length> chip-height: 22px;
+    height: root.chip-height;
+    width: row.preferred-width;
+    border-radius: Theme.radius-chip;
+    background: Theme.badge-bg;
+    row := HorizontalLayout {
+        padding-left: root.pad;
+        padding-right: root.pad;
+        spacing: 4px;
+        Image { source: @image-url("icons/admin.svg"); width: root.icon-size; height: root.icon-size; y: (parent.height - self.height) / 2; colorize: Theme.text-soft; }
+        Text { text: "Admin"; color: Theme.text-soft; font-size: root.text-size; vertical-alignment: center; }
+    }
+}
+
+component Check inherits Rectangle {
+    in property <bool> on;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: root.on ? Theme.accent : transparent;
+    border-width: root.on ? 0px : 1.5px;
+    border-color: Theme.text-3;
+    if root.on: Image { source: @image-url("icons/done.svg"); width: 14px; height: 14px; x: 2px; y: 2px; colorize: Theme.on-accent; }
+}
+
+component GhostButton inherits Rectangle {
+    in property <string> label;
+    in property <length> h: 44px;
+    callback clicked();
+    height: root.h;
+    width: txt.preferred-width + 36px;
+    border-radius: 11px;
+    background: touch.has-hover ? Theme.segment-on : Theme.control-bg;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    txt := Text { text: root.label; color: Theme.text; font-size: Theme.size-body; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+component AccentButton inherits Rectangle {
+    in property <string> label;
+    in property <length> h: 44px;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: root.h;
+    width: txt.preferred-width + 40px;
+    border-radius: 11px;
+    background: root.enabled ? Theme.accent : Theme.control-bg;
+    opacity: touch.has-hover && root.enabled ? 0.92 : 1;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    txt := Text { text: root.label; color: root.enabled ? Theme.on-accent : Theme.text-3; font-size: Theme.size-row-title; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { if (root.enabled) { root.clicked(); } } }
+}
+
+component Step inherits HorizontalLayout {
+    in property <string> n;
+    in property <string> text;
+    spacing: 10px;
+    Rectangle {
+        width: 22px;
+        height: 22px;
+        border-radius: Theme.radius-pill;
+        background: Theme.badge-bg;
+        Text { text: root.n; color: Theme.text; font-size: Theme.size-caption; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    Text { text: root.text; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; horizontal-stretch: 1; line-height-factor: 1.1; }
+}
+
+export component CleanScreen inherits Rectangle {
+    background: Theme.bg;
+    page := Flickable {
+        content-width: self.width;
+        content-height: max(self.height, col.min-height);
+        col := VerticalLayout {
+            width: min(page.width - 72px, Theme.content-max-width);
+            x: max(36px, (page.width - self.width) / 2);
+            padding-top: 28px;
+            padding-bottom: 40px;
+            spacing: 22px;
+            alignment: start;
+
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 6px;
+                    Text { text: "Clean up"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                    Text { text: CleanState.subtitle; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                DetailsSwitch { on <=> CleanState.details; label: "Show file paths & commands"; width: 240px; y: 14px; }
+            }
+
+            if CleanState.phase != 1: Rectangle {
+                height: 120px;
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    padding: 24px;
+                    spacing: 6px;
+                    Text {
+                        text: CleanState.phase == 0 ? "Looking for things to clean…" : (CleanState.phase == 2 ? "Nothing to clean up" : "Could not look for things to clean");
+                        color: Theme.text; font-size: Theme.size-row-title; font-weight: 600;
+                    }
+                    Text { text: CleanState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+            }
+
+            if CleanState.phase == 1: Rectangle {
+                background: Theme.surface;
+                border-radius: Theme.radius-hero;
+                border-width: 1px;
+                border-color: Theme.border;
+                height: 138px;
+                HorizontalLayout {
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-top: 22px;
+                    padding-bottom: 22px;
+                    spacing: 20px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+                        Text { text: "Selected to remove"; color: Theme.text-2; font-size: Theme.size-small; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            Text { text: CleanState.total; color: Theme.text; font-family: Theme.mono; font-size: 38px; font-weight: 500; letter-spacing: -0.76px; }
+                            Text { text: CleanState.found; color: Theme.text-2; font-size: Theme.size-body; y: 18px; }
+                        }
+                        Rectangle {
+                            height: 22px;
+                            Rectangle {
+                                y: 14px;
+                                height: 8px;
+                                border-radius: Theme.radius-pill;
+                                background: Theme.search-border;
+                                Rectangle { x: 0; width: parent.width * CleanState.fraction; border-radius: Theme.radius-pill; background: Theme.accent; }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        width: 260px;
+                        alignment: center;
+                        spacing: 8px;
+                        Rectangle {
+                            height: 46px;
+                            border-radius: 12px;
+                            background: CleanState.can-clean ? Theme.accent : Theme.control-bg;
+                            accessible-role: button;
+                            accessible-label: "Clean " + CleanState.total;
+                            accessible-enabled: CleanState.can-clean;
+                            accessible-action-default => { if (CleanState.can-clean) { CleanState.clean(); } }
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 8px;
+                                Image { source: @image-url("icons/trash.svg"); width: 18px; height: 18px; y: (parent.height - self.height) / 2; colorize: CleanState.can-clean ? Theme.on-accent : Theme.text-3; }
+                                Text { text: "Clean " + CleanState.total; color: CleanState.can-clean ? Theme.on-accent : Theme.text-3; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
+                            }
+                            TouchArea { clicked => { if (CleanState.can-clean) { CleanState.clean(); } } }
+                        }
+                        if CleanState.admin-selected: HorizontalLayout {
+                            alignment: end;
+                            spacing: 6px;
+                            Image { source: @image-url("icons/admin.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2; colorize: Theme.warn; }
+                            Text { text: "You'll be asked for your password once"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 20px;
+                alignment: stretch;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 10px;
+                    alignment: start;
+                    for row[i] in CleanState.rows: Rectangle {
+                        background: Theme.surface;
+                        border-radius: Theme.radius-row;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        accessible-role: checkbox;
+                        accessible-label: row.title + ", " + row.size;
+                        accessible-checkable: true;
+                        accessible-checked: row.checked;
+                        accessible-action-default => { CleanState.toggle(i); }
+                        height: rowbox.preferred-height;
+                        rowbox := HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            padding-top: 16px;
+                            padding-bottom: 16px;
+                            spacing: 14px;
+                            Rectangle { width: 18px; Check { y: 3px; on: row.checked; } }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Text { text: row.title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
+                                    Chip { label: row.safe; fg: row.review ? Theme.warn : Theme.accent; bg: row.review ? Theme.warn-tint : Theme.accent-tint; y: 0px; }
+                                    if row.admin: AdminChip { }
+                                }
+                                Text { text: row.desc; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.15; }
+                                if CleanState.details: Rectangle {
+                                    height: pathtext.preferred-height + 16px;
+                                    border-radius: 8px;
+                                    background: Theme.drive-track;
+                                    border-width: 1px;
+                                    border-color: Theme.border-subtle;
+                                    pathtext := Text { x: 10px; y: 8px; width: parent.width - 20px; text: row.detail; color: Theme.mono-dim; font-family: Theme.mono; font-size: Theme.size-caption; overflow: elide; }
+                                }
+                            }
+                            Text { text: row.size; color: row.checked ? Theme.text : Theme.text-3; font-family: Theme.mono; font-size: Theme.size-row-title; vertical-alignment: top; y: 1px; }
+                        }
+                        TouchArea { clicked => { CleanState.toggle(i); } }
+                    }
+                }
+                VerticalLayout {
+                    width: 280px;
+                    spacing: 14px;
+                    alignment: start;
+                    Rectangle {
+                        background: Theme.surface;
+                        border-radius: Theme.radius-card;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        height: how.preferred-height;
+                        how := VerticalLayout {
+                            padding: 20px;
+                            spacing: 14px;
+                            Text { text: "What happens when you press Clean"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; wrap: word-wrap; }
+                            Step { n: "1"; text: "Tidewise re-checks every item so nothing changed since the scan."; }
+                            Step { n: "2"; text: "Items marked Admin ask for your password once, through your system's own prompt."; }
+                            Step { n: "3"; text: "Files are removed. Caches come back on their own as apps need them."; }
+                            Step { n: "4"; text: "You get a report of exactly what was removed, saved in History."; }
+                        }
+                    }
+                    Rectangle {
+                        background: Theme.note-card-bg;
+                        border-radius: Theme.radius-card;
+                        border-width: 1px;
+                        border-color: Theme.note-card-border;
+                        height: safe.preferred-height;
+                        safe := VerticalLayout {
+                            padding: 20px;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                Image { source: @image-url("icons/admin.svg"); width: 18px; height: 18px; y: (parent.height - self.height) / 2; colorize: Theme.note-card-title; }
+                                Text { text: "Never touched"; color: Theme.note-card-title; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
+                            }
+                            Text { text: "•  Your documents, photos, music and downloads\n•  Settings of apps you still have\n•  Anything that isn't in the list on the left"; color: Theme.note-card-text; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.3; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The dialog of the clean flow on top of everything. Not shown when `CleanState.flow` is 0.
+export component CleanDialog inherits Rectangle {
+    visible: CleanState.flow != 0;
+    background: Theme.scrim;
+    TouchArea { }
+    dlg := Rectangle {
+        width: min(540px, parent.width - 32px);
+        x: (parent.width - self.width) / 2;
+        y: max(20px, min(114px, (parent.height - self.height) / 2));
+        height: content.preferred-height;
+        border-radius: Theme.radius-dialog;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.dialog-border;
+        accessible-role: groupbox;
+        accessible-label: CleanState.flow == 1 ? CleanState.confirm-title : "Clean up";
+        content := VerticalLayout {
+            padding: 28px;
+            spacing: 18px;
+            if CleanState.flow == 1: VerticalLayout {
+                spacing: 16px;
+                Text { text: CleanState.confirm-title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; letter-spacing: -0.33px; }
+                Text { width: dlg.width - 56px; text: "These are removed for good. Caches and logs rebuild on their own; your files are not touched."; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.15; }
+                Rectangle {
+                    height: list.preferred-height + 2px;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    list := VerticalLayout {
+                        for r[i] in CleanState.confirm-rows: Rectangle {
+                            height: 41px;
+                            background: Theme.surface-sunk;
+                            if i < CleanState.confirm-rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 10px;
+                                Text { text: r.name; color: Theme.text; font-size: Theme.size-body; vertical-alignment: center; horizontal-stretch: 1; }
+                                if r.admin: AdminChip { icon-size: 11px; text-size: 11px; pad: 7px; chip-height: 20px; y: 10px; }
+                                Text { text: r.size; color: Theme.text-soft; font-family: Theme.mono; font-size: Theme.size-body; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                if CleanState.confirm-note != "": HorizontalLayout {
+                    spacing: 8px;
+                    Image { source: @image-url("icons/admin.svg"); width: 15px; height: 15px; y: (parent.height - self.height) / 2; colorize: Theme.warn; }
+                    Text { text: CleanState.confirm-note; color: Theme.text-2; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    GhostButton { label: "Cancel"; clicked => { CleanState.cancel(); } }
+                    AccentButton { label: "Clean " + CleanState.total; clicked => { CleanState.confirm(); } }
+                }
+            }
+            if CleanState.flow == 2: VerticalLayout {
+                spacing: 16px;
+                Text { text: "Cleaning…"; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; letter-spacing: -0.33px; }
+                Rectangle {
+                    height: 10px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.search-border;
+                    accessible-role: progress-indicator;
+                    accessible-label: "Cleaning progress";
+                    accessible-value: round(CleanState.progress * 100);
+                    accessible-value-minimum: 0;
+                    accessible-value-maximum: 100;
+                    Rectangle { x: 0; width: parent.width * CleanState.progress; border-radius: Theme.radius-pill; background: Theme.accent; }
+                }
+                HorizontalLayout {
+                    Text { text: CleanState.progress-label; color: Theme.text-2; font-size: Theme.size-small; horizontal-stretch: 1; }
+                    Text { text: CleanState.freed-label; color: Theme.text-2; font-family: Theme.mono; font-size: Theme.size-small; }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    GhostButton { label: "Stop after this step"; h: 40px; clicked => { CleanState.stop-early(); } }
+                }
+            }
+            if CleanState.flow == 3: VerticalLayout {
+                spacing: 16px;
+                alignment: start;
+                Rectangle {
+                    width: 52px;
+                    height: 52px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.accent-tint;
+                    Image { source: @image-url("icons/done.svg"); width: 26px; height: 26px; x: 13px; y: 13px; colorize: Theme.accent; }
+                }
+                Text { text: CleanState.done-title; color: Theme.text; font-size: 24px; font-weight: 600; letter-spacing: -0.36px; }
+                Text { width: dlg.width - 56px; text: CleanState.done-text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.15; }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    AccentButton { label: "Back to Home"; clicked => { CleanState.finish(); } }
+                    GhostButton { label: "See full report"; clicked => { CleanState.see-report(); } }
+                }
+            }
+            if CleanState.flow == 4: VerticalLayout {
+                spacing: 16px;
+                alignment: start;
+                Rectangle {
+                    width: 52px;
+                    height: 52px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.warn-tint;
+                    Image { source: @image-url("icons/warning.svg"); width: 26px; height: 26px; x: 13px; y: 13px; colorize: Theme.warn; }
+                }
+                Text { text: CleanState.partial-title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; }
+                Text { width: dlg.width - 56px; text: CleanState.partial-text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.15; }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    if CleanState.can-retry: AccentButton { label: CleanState.retry-label; clicked => { CleanState.retry(); } }
+                    GhostButton { label: "Done"; clicked => { CleanState.finish(); } }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Krita
+Name[de]=Krita (Deutsch)
+Exec="/home/u/Applications/Krita 5.2.AppImage" %U
+Icon=krita
+Categories=Graphics;

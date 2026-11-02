@@ -1,0 +1,2 @@
+Error: 
+ Problem: The operation would result in removing the following protected packages: systemd, dnf

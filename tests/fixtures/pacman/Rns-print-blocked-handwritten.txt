@@ -1,0 +1,5 @@
+checking dependencies...
+error: failed to prepare transaction (could not satisfy dependencies)
+:: removing bash breaks dependency 'bash' required by alsa-utils
+:: removing bash breaks dependency 'bash' required by at-spi2-core
+:: removing bash breaks dependency 'bash' required by alsa-utils

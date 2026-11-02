@@ -1,0 +1,6 @@
+/usr/share/applications/antigravity-ide-url-handler.desktop is owned by antigravity-ide 2.5.5-1
+/usr/share/applications/antigravity-ide.desktop is owned by antigravity-ide 2.5.5-1
+/usr/share/applications/arduino-ide-v2.desktop is owned by arduino-ide-bin 2.3.10-1
+/usr/share/applications/assistant.desktop is owned by qt6-tools 6.12.0-1
+/usr/share/applications/avahi-discover.desktop is owned by avahi 1:0.9rc5-1
+/usr/share/applications/blueman-adapters.desktop is owned by blueman 2.4.6-2

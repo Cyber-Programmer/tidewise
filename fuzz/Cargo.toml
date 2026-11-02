@@ -57,3 +57,45 @@ path = "fuzz_targets/desktop.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "journal_usage"
+path = "fuzz_targets/journal_usage.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pacman_rns_print"
+path = "fuzz_targets/pacman_rns_print.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "apt_parsers"
+path = "fuzz_targets/apt_parsers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dnf_parsers"
+path = "fuzz_targets/dnf_parsers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "snap_list"
+path = "fuzz_targets/snap_list.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "desktop_files"
+path = "fuzz_targets/desktop_files.rs"
+test = false
+doc = false
+bench = false

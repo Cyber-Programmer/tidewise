@@ -75,3 +75,23 @@ Below about 700 px the main nav items scroll with the wheel or touch; Slint's Fl
 4. Sizes: the size formatter turns 999.5 GB and up into `1 TB`, so `999.9 GB` never appears; the column is nonetheless measured with that text (8 characters, the widest any size can be). The Trash button keeps the design's `22.0 GB` from 1 GB up and uses the item format below.
 5. Hard links: a file linked into two folders is now counted in both folders' sizes and once in the total, so a folder's block always equals its total when opened, and rows can add up to more than the total (one line says so). On this machine's home that is 817 MB. Recommended: keep (it is what `du` shows for each folder); the alternative, attributing a shared file to only one folder, is what caused 18.9 vs 19.8 GB.
 6. Not done by a click: keyboard handling and hit targets (checkbox vs row) are covered by tests of the logic they call and by pictures, not by a person or a UI-automation test. Please click through Storage once.
+
+## Run 06 — Q02 AppImage size budget (proposal only, not set)
+`docs/ENGINEERING.md` §5 still says the AppImage size budget is "to be set in M2". Measured today: 10.0 MiB
+(10,467,832 bytes) with no bundled libraries. Bundling fontconfig/xkbcommon/Wayland/X11 with `linuxdeploy`
+(R4-T6 point 2) would add a lot, number unknown, not measured. Recommended: budget **≤ 25 MB** for now
+(2.5× today, leaves room for bundled libraries), tighten after the libraries are bundled. The human sets it;
+I did not edit ENGINEERING.md.
+
+## Run 06 — Q06 Clean up screen: decisions I took without you
+1. **New colours** (the design needs them, tokens.md does not list them): `note-card-bg #13221D`, `note-card-border #1F3A31`, `note-card-title #8BEACB`, `note-card-text #B9D9CC` (the "Never touched" card), `scrim #06070A` at 60 % (the dim behind dialogs) and `dialog-border #2E3541`, in `ui/theme.slint` as "extra shades". The design's dialog shadow is **not** drawn (no shadows). Recommended: add them to `docs/design/tokens.md`.
+2. **No "Packages nothing uses" group** (orphans, `pacman -Qdtq`): the junk scanner (Q05) does not look for them, so the screen shows 5 groups, not the design's 6, and "of 12.4 GB found · 4 of 5 groups" instead of "12.6 GB … 6". Recommended: add the orphan listing with the apt/dnf adapters (Q08–Q12).
+3. **No password step.** The admin helper does not exist in this run, so "Old package downloads" and "Old system logs" end as *skipped* ("they need admin access, which Tidewise does not have yet (coming soon)") and the dialog says so. The design's "Waiting for your password…" step and the "You'll be asked for your password once" line (still shown on the screen) belong to the helper milestone.
+4. **Unused Flatpak parts are never removed** (queue forbids `flatpak uninstall` this run); the step ends as skipped ("Tidewise cannot remove … yet").
+5. **Freed bytes** are the sizes measured at scan time for the items that were removed, not a fresh measurement.
+6. **"History" in step 4 of "What happens"** is plain text, not a link (Slint `Text` has no inline link); "See full report" goes to the History page, which is still "Coming in a later version".
+7. **`--demo` mode** shows the Cleaner page with sample numbers but its buttons are not wired (nothing could be removed there, by design).
+8. **Q05 slip found and fixed in Q06:** the new `tidewise-core` path dependency in `tidewise-adapters` had no `version`, so `cargo deny check` exited 2 (wildcard ban) from commit a492bd8 until 37e9ea6.
+
+## Run 06 — /tmp is full of leaked AppImage unpackings (please delete)
+`/tmp` holds 14 folders `appimage_extracted_*` of about 407 MB each (5.5 GB, most of the 7.7 GB tmpfs), created between 22:47 and 00:00 on 2026-11-01 by `cargo test` runs of `crates/app/tests/appimage.rs`: the test ran `appimagetool` and the built AppImage with `--appimage-extract-and-run`, which unpack to `$TMPDIR` and are not removed. When `/tmp` filled up, two AppImage tests failed with "Disk quota exceeded" (not a code bug). I tried to delete them myself and the permission check refused, so they are still there. Please run: `rm -rf /tmp/appimage_extracted_*` (check `ls -d /tmp/appimage_extracted_*` first). Fixed in the test (commit fbe0306): both now unpack into the test's own temp folder. Until you delete them, run the app tests with `TMPDIR=$PWD/target/tmp cargo test -p tidewise-app`, and the rest on the default `/tmp`: `core::scan::tests::cancelling_stops_the_scan_and_says_so` expects 0 bytes for an empty folder, which is only true on tmpfs (on ext4 a folder's own block counts) — a test that depends on the file system, not flaky; not changed.

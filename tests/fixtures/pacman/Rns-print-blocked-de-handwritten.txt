@@ -1,0 +1,3 @@
+Abhängigkeiten werden überprüft...
+Fehler: Transaktion konnte nicht vorbereitet werden (Abhängigkeiten konnten nicht erfüllt werden)
+:: Das Entfernen von bash verletzt die Abhängigkeit „bash“, benötigt von alsa-utils

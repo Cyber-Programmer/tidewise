@@ -2,8 +2,19 @@
 #![forbid(unsafe_code)]
 
 pub mod appimage;
+pub mod apt;
+pub mod cleanup;
+pub mod desktop;
+pub mod dnf;
+pub mod endtask;
 pub mod flatpak;
+pub mod journal;
+pub mod junk;
 pub mod pacman;
+pub mod runner;
+pub mod snap;
+pub mod source;
+pub mod uninstall;
 
 /// An installed system package.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,11 +24,4 @@ pub struct Package {
     pub installed_size_bytes: u64,
     /// Packages that depend on this one. Empty when nothing does.
     pub required_by: Vec<String>,
-}
-
-/// Anything that can list installed packages. Read-only.
-pub trait PackageSource {
-    type Error;
-
-    fn installed(&self) -> Result<Vec<Package>, Self::Error>;
 }
