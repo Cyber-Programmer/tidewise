@@ -69,10 +69,22 @@ const JUNK_SUGGESTION_BYTES: u64 = 1_000_000_000;
 /// The health score and the suggestions from what is really measured: drive fullness, junk and the
 /// app using the most memory. `junk` is the size the junk scan found, `None` while no scan has
 /// finished (then nothing is claimed about junk).
+#[cfg(test)]
 pub fn health_scan(
     drive: Option<tidewise_core::drive::DriveSpace>,
     biggest_app: Option<(String, u64)>,
     junk: Option<u64>,
+) -> Scan {
+    health_scan_with(drive, biggest_app, junk, None)
+}
+
+/// Like the plain scan, and failed services (`Some(names)`, empty = none failed) take off points too.
+/// The score is the same one the Health page explains: both come from `health::report`.
+pub fn health_scan_with(
+    drive: Option<tidewise_core::drive::DriveSpace>,
+    biggest_app: Option<(String, u64)>,
+    junk: Option<u64>,
+    _failed_services: Option<Vec<String>>,
 ) -> Scan {
     use tidewise_core::health;
     let gb = |b: u64| b as f64 / 1_000_000_000.0;
@@ -442,6 +454,81 @@ mod tests {
             "memory takes no points: the artboard lists it as a passed check"
         );
         assert!(s.headline.contains("1 thing could"));
+    }
+
+    #[test]
+    fn failed_services_take_three_points_each_off_the_home_score() {
+        let one = health_scan_with(None, None, Some(0), Some(vec!["a.service".into()]));
+        assert_eq!(one.score, 97);
+        let two = health_scan_with(
+            None,
+            None,
+            Some(0),
+            Some(vec!["a.service".into(), "b.service".into()]),
+        );
+        assert_eq!(two.score, 94);
+        assert_eq!(
+            health_scan_with(None, None, Some(0), Some(vec![])).score,
+            100
+        );
+        assert_eq!(
+            health_scan_with(None, None, Some(0), None).score,
+            100,
+            "not read: nothing claimed"
+        );
+    }
+
+    #[test]
+    fn the_note_names_only_what_is_still_not_part_of_the_score() {
+        let all_known = health_scan_with(Some(drive(0.5)), None, Some(0), Some(vec![]));
+        assert!(
+            all_known
+                .sub
+                .contains("Updates are not part of this score yet."),
+            "{}",
+            all_known.sub
+        );
+        assert!(!all_known.sub.contains("Services"), "{}", all_known.sub);
+        let no_services = health_scan_with(Some(drive(0.5)), None, Some(0), None);
+        assert!(
+            no_services
+                .sub
+                .contains("Services and updates are not part of this score yet."),
+            "{}",
+            no_services.sub
+        );
+        let nothing = health_scan_with(None, None, None, None);
+        assert!(
+            nothing
+                .sub
+                .contains("Junk, services and updates are not part of this score yet."),
+            "{}",
+            nothing.sub
+        );
+    }
+
+    #[test]
+    fn home_and_the_health_page_always_show_the_same_score() {
+        use tidewise_core::health::{report, Inputs};
+        for d in [None, Some(drive(0.5)), Some(drive(0.8)), Some(drive(1.0))] {
+            for junk in [None, Some(0), Some(7_000_000_000), Some(90_000_000_000)] {
+                for failed in [
+                    None,
+                    Some(vec![]),
+                    Some(vec!["x.service".to_string()]),
+                    Some((0..40).map(|i| format!("s{i}")).collect()),
+                ] {
+                    let home = health_scan_with(d, None, junk, failed.clone()).score;
+                    let page = report(&Inputs {
+                        drive: d,
+                        junk,
+                        failed_services: failed.clone(),
+                    })
+                    .score;
+                    assert_eq!(home, page, "{d:?} {junk:?} {failed:?}");
+                }
+            }
+        }
     }
 
     #[test]
