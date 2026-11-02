@@ -181,6 +181,8 @@ pub struct SettingsChoice {
     pub delete: bool,
 }
 
+/// The panel without a settings choice (what most apps get).
+#[cfg(test)]
 pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
     panel_with_settings(app, plan, None)
 }

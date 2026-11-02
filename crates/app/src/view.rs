@@ -498,6 +498,8 @@ pub fn apply_apps_panel(ui: &MainWindow, panel: Option<(&crate::apps::Panel, &cr
     st.set_p_total(p.total.clone().into());
     st.set_p_button(p.button_label.clone().into());
     st.set_p_technical(p.technical.clone().into());
+    st.set_p_settings_offer(p.settings_offer);
+    st.set_p_delete_settings(p.delete_settings);
     match &p.button {
         Button::Enabled => {
             st.set_p_enabled(true);
@@ -510,7 +512,14 @@ pub fn apply_apps_panel(ui: &MainWindow, panel: Option<(&crate::apps::Panel, &cr
     }
     st.set_d_title(format!("Uninstall {}?", p.name).into());
     st.set_d_confirm(format!("Uninstall · free {}", p.total).into());
-    st.set_d_text("Your settings are kept, so reinstalling later brings everything back.".into());
+    st.set_d_text(
+        if p.delete_settings {
+            "Your settings and data go to the Trash too, so you can still put them back."
+        } else {
+            "Your settings are kept, so reinstalling later brings everything back."
+        }
+        .into(),
+    );
 }
 
 #[cfg(test)]

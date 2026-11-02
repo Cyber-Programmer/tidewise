@@ -281,7 +281,7 @@ fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn s
 }
 
 /// The Apps artboard and the steps of the uninstall flow
-/// (`--state details|search|confirm|removing|done|admin|blocked|busy|failed|scanning|empty|error`).
+/// (`--state details|search|confirm|removing|done|admin|blocked|busy|failed|scanning|empty|error|settings|settings-on`).
 fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     use tidewise_adapters::source::Blocked;
     use tidewise_adapters::uninstall::Outcome;
@@ -290,11 +290,19 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
     let st = ui.global::<AppsState>();
     let mut picked = "org.gimp.GIMP";
     let mut query = "";
+    // Demo-only: a Flatpak with a known settings folder (180 MB), unticked or ticked.
+    let mut settings: Option<apps::SettingsChoice> = None;
     // The dialog's words are set after the panel, which also fills the confirm texts.
     let mut ending: Option<(&str, Outcome)> = None;
     match state {
         None => {}
         Some("details") => st.set_tech_open(true),
+        Some(s @ ("settings" | "settings-on")) => {
+            settings = Some(apps::SettingsChoice {
+                bytes: 180_000_000,
+                delete: s == "settings-on",
+            });
+        }
         Some("search") => query = "vlc",
         Some("confirm") => st.set_flow(1),
         Some("removing") => {
@@ -363,7 +371,7 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
         found
             .iter()
             .find(|(a, _)| a.id == *id)
-            .map(|(a, plan)| (apps::panel(a, plan), apps::row(a)))
+            .map(|(a, plan)| (apps::panel_with_settings(a, plan, settings), apps::row(a)))
     });
     view::apply_apps_panel(ui, panel.as_ref().map(|(p, r)| (p, r)));
     if let Some((name, outcome)) = ending {
