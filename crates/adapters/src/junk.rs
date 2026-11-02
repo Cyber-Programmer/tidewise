@@ -22,6 +22,8 @@ const RUNTIMES_LABEL: &str = "Unused Flatpak runtimes";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JunkKind {
     AppCache,
+    /// An app cache that takes a long download to come back (see `cachekind`).
+    SlowCache,
     Trash,
     PackageCache,
     Journal,
@@ -440,6 +442,24 @@ mod tests {
         assert!(report.items.iter().all(|i| i.label != "gamma"));
         // Biggest first.
         assert!(report.items.windows(2).all(|w| w[0].bytes >= w[1].bytes));
+    }
+
+    #[test]
+    fn slow_to_download_caches_are_listed_as_their_own_kind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        write(&cache.join("huggingface/hub/model.bin"), 200_000);
+        write(&cache.join("thumbnails/a.png"), 200_000);
+        write(&cache.join("Docker Desktop/x"), 200_000);
+        write(&cache.join("whatever/x"), 200_000);
+        let report = scan(&Sources {
+            cache_dir: Some(cache),
+            ..Sources::default()
+        });
+        assert_eq!(item(&report, "huggingface").kind, JunkKind::SlowCache);
+        assert_eq!(item(&report, "Docker Desktop").kind, JunkKind::SlowCache);
+        assert_eq!(item(&report, "thumbnails").kind, JunkKind::AppCache);
+        assert_eq!(item(&report, "whatever").kind, JunkKind::AppCache);
     }
 
     #[test]

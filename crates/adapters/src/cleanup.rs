@@ -16,6 +16,7 @@ use crate::junk::{is_running, JunkItem, JunkKind, JunkReport};
 pub enum GroupId {
     PackageDownloads,
     AppCaches,
+    SlowCaches,
     SystemLogs,
     FlatpakParts,
     Trash,
@@ -174,6 +175,11 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
             Safety::Safe,
         ),
         GroupId::AppCaches => (JunkKind::AppCache, "App caches", Safety::Safe),
+        GroupId::SlowCaches => (
+            JunkKind::SlowCache,
+            "Caches that are slow to download again",
+            Safety::Review,
+        ),
         GroupId::SystemLogs => (JunkKind::Journal, "Old system logs", Safety::Safe),
         GroupId::FlatpakParts => (
             JunkKind::FlatpakRuntime,
@@ -211,6 +217,7 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
                 "Temporary data like thumbnails and browser cache. Apps rebuild it when they need it.".into(),
                 "~/.cache/*   (skips apps that are open right now)".into(),
             ),
+            GroupId::SlowCaches => (String::new(), String::new()),
             GroupId::SystemLogs => (
                 "Records older than 2 weeks. Recent logs stay, in case you need to troubleshoot.".into(),
                 "journalctl --vacuum-time=2weeks".into(),
@@ -272,7 +279,7 @@ pub fn plan(groups: &[Group], selected: &[GroupId]) -> Vec<Step> {
 pub fn run_step(step: &Step, env: &Env) -> StepResult {
     let outcome = match step.group {
         GroupId::PackageDownloads | GroupId::SystemLogs => Outcome::NeedsAdmin,
-        GroupId::FlatpakParts => Outcome::NotYet,
+        GroupId::FlatpakParts | GroupId::SlowCaches => Outcome::NotYet,
         GroupId::AppCaches => clean_caches(step, env),
         GroupId::Trash => empty_trash(step, env),
     };
@@ -995,6 +1002,91 @@ mod tests {
         assert!(rec.steps[0].items[0].contains(".cache"));
         assert!(rec.steps[1].note.as_deref().unwrap().contains("admin"));
         assert_eq!(rec.title, "Cleaned 10 kB");
+    }
+
+    // ---- Q19: slow-to-download caches are their own group, off by default ----------------------
+
+    /// A cache folder with real bytes, so the scan lists it.
+    fn cache_item(w: &World, name: &str, kind: JunkKind) -> JunkItem {
+        let dir = w.env.cache_root.join(name);
+        write(&dir.join("blob.bin"), 3000);
+        item(kind, name, Some(&dir), 3000, false)
+    }
+
+    fn report_with_slow(w: &World) -> JunkReport {
+        let mut report = w.report.clone();
+        report
+            .items
+            .push(cache_item(w, "huggingface", JunkKind::SlowCache));
+        report.items.push(cache_item(w, "uv", JunkKind::SlowCache));
+        report
+    }
+
+    #[test]
+    fn slow_caches_are_their_own_group_after_app_caches_and_are_not_ticked() {
+        let w = world();
+        let g = groups(&report_with_slow(&w));
+        let ids: Vec<_> = g.iter().map(|g| g.id).collect();
+        assert_eq!(
+            ids,
+            [
+                GroupId::PackageDownloads,
+                GroupId::AppCaches,
+                GroupId::SlowCaches,
+                GroupId::SystemLogs,
+                GroupId::FlatpakParts,
+                GroupId::Trash
+            ]
+        );
+        let slow = &g[2];
+        assert_eq!(slow.safety, Safety::Review);
+        assert_eq!(slow.bytes, 6000);
+        assert_eq!(slow.items.len(), 2);
+        assert!(!slow.admin);
+        assert!(!default_selection(&g).contains(&GroupId::SlowCaches));
+        assert_eq!(g[1].items.len(), 2, "the quick caches keep their own group");
+    }
+
+    #[test]
+    fn every_slow_item_is_listed_with_its_size_and_says_it_will_be_downloaded_again() {
+        let w = world();
+        let g = groups(&report_with_slow(&w));
+        let slow = g.iter().find(|g| g.id == GroupId::SlowCaches).unwrap();
+        assert!(
+            slow.description.contains("downloaded again"),
+            "{}",
+            slow.description
+        );
+        for name in ["huggingface", "uv"] {
+            assert!(slow.detail.contains(name), "{}", slow.detail);
+        }
+        assert_eq!(slow.detail.matches("will be downloaded again").count(), 2);
+        assert!(slow.detail.contains("3 kB"), "{}", slow.detail);
+    }
+
+    #[test]
+    fn with_no_slow_caches_there_is_no_slow_group() {
+        let w = world();
+        assert!(groups(&w.report)
+            .iter()
+            .all(|g| g.id != GroupId::SlowCaches));
+    }
+
+    #[test]
+    fn a_ticked_slow_group_is_removed_like_app_caches_but_never_a_running_apps() {
+        let mut w = world();
+        let report = report_with_slow(&w);
+        w.env.running = vec!["uv".into()];
+        let steps = plan(&groups(&report), &[GroupId::SlowCaches]);
+        let results = run(&steps, &w.env, &|| false, &mut |_, _| {});
+        let (freed, removed, refused) = cleaned(&results[0]);
+        assert_eq!((freed, removed.len(), refused.len()), (3000, 1, 1));
+        assert!(!w.env.cache_root.join("huggingface").exists());
+        assert!(w.env.cache_root.join("uv/blob.bin").exists(), "running");
+        assert!(
+            w.env.cache_root.join("alpha/a.bin").exists(),
+            "other group untouched"
+        );
     }
 
     // ---- Q18: tell the truth when something fails -------------------------------------------

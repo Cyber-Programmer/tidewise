@@ -3,6 +3,7 @@
 
 pub mod appimage;
 pub mod apt;
+pub mod cachekind;
 pub mod cleanup;
 pub mod desktop;
 pub mod dnf;
