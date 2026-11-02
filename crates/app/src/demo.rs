@@ -561,6 +561,39 @@ pub fn apps() -> Vec<(
     ]
 }
 
+/// The Services artboard's eight services (the artboard's own numbers).
+pub fn services() -> Vec<tidewise_adapters::services::Service> {
+    use tidewise_adapters::services::{Boot, Service, State};
+    let s = |unit: &str,
+             name: &str,
+             desc: &str,
+             state: State,
+             boot: Boot,
+             mem: Option<u64>,
+             protected: bool,
+             tip: Option<&str>| Service {
+        unit: unit.into(),
+        name: name.into(),
+        desc: desc.into(),
+        state,
+        boot,
+        memory: mem,
+        protected,
+        tip: tip.map(Into::into),
+        technical: "active/running · unit file: enabled".into(),
+    };
+    vec![
+        s("docker.service", "Docker", "Runs containers for developer tools. It uses memory all the time, even when you are not using any containers.", State::Running, Boot::Yes, Some(640_000_000), false, Some("Turn off \"Start with your PC\" and start it only when you need it.")),
+        s("fwupd-refresh.service", "Firmware update check", "Checks for firmware updates for your devices. It failed 2 hours ago because there was no internet connection. It will try again tomorrow, and nothing is broken.", State::Failed, Boot::No, None, false, Some("Try again now that you are online, or hide this warning.")),
+        s("cups.service", "Printing", "Lets you print. If you never print from this PC, it does not need to run.", State::Running, Boot::Yes, Some(24_000_000), false, Some("Turn it off if you have no printer. Turn it back on any time.")),
+        s("bluetooth.service", "Bluetooth", "Connects Bluetooth headphones, mice and keyboards.", State::Running, Boot::Yes, Some(12_000_000), false, Some("Safe to turn off only if you never use Bluetooth.")),
+        s("avahi-daemon.service", "Network device discovery", "Finds printers and shared devices on your home network automatically.", State::Running, Boot::Yes, Some(8_000_000), false, None),
+        s("sshd.service", "Remote login (SSH)", "Lets other computers log in to yours over the network. It is off, which is the safe default unless you need it.", State::Off, Boot::No, None, false, None),
+        s("NetworkManager.service", "Network", "Keeps you connected to Wi-Fi and wired networks.", State::Running, Boot::Yes, Some(22_000_000), true, None),
+        s("systemd-journald.service", "System log", "Records what your system does so problems can be traced.", State::Running, Boot::Yes, Some(30_000_000), true, None),
+    ]
+}
+
 /// The Startup artboard's eight apps (Flameshot is off).
 pub fn startup() -> Vec<tidewise_adapters::autostart::StartupEntry> {
     use tidewise_adapters::autostart::{Scope, StartupEntry};

@@ -26,6 +26,7 @@ mod perf;
 mod procs;
 mod records;
 mod screenshot;
+mod services_live;
 mod services_view;
 mod startup;
 mod startup_live;
@@ -206,6 +207,27 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "services" => {
+            let st = ui.global::<ServicesState>();
+            let list = demo::services();
+            let (tab, picked) = match state {
+                None | Some("details") => (0, Some("docker.service")),
+                Some("running") => (1, Some("docker.service")),
+                Some("all") => (2, Some("docker.service")),
+                Some("protected") => (2, Some("NetworkManager.service")),
+                Some("failed") => (0, Some("fwupd-refresh.service")),
+                Some("empty") => (0, None),
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from the real system
+                Some(other) => return Err(format!("unknown services state '{other}'").into()),
+            };
+            let screen = services_view::screen(&list, services_view::Tab::from_index(tab), picked);
+            if state == Some("empty") {
+                view::apply_services(ui, &services_view::Screen::default(), Some((2, "Tidewise could not ask systemd: systemctl could not be run. Nothing was changed.")));
+            } else {
+                view::apply_services(ui, &screen, None);
+            }
+            st.set_details(state == Some("details"));
+        }
         "startup" => {
             let st = ui.global::<StartupState>();
             let screen = startup::screen(&demo::startup());
@@ -497,6 +519,14 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    if shot.screen == "services" && shot.state.as_deref() == Some("live") {
+        let mut ctl = services_live::Ctl::new();
+        ctl.enter(&ui);
+        while ctl.busy() {
+            ctl.poll(&ui);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     if shot.screen == "startup" && shot.state.as_deref() == Some("live") {
         startup_live::Ctl::new().enter(&ui);
     }
@@ -736,6 +766,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let services_ctl = Rc::new(RefCell::new(services_live::Ctl::new()));
+    services_live::wire(&ui, &services_ctl);
     let startup_ctl = Rc::new(RefCell::new(startup_live::Ctl::new()));
     startup_live::wire(&ui, &startup_ctl);
     let history_ctl = Rc::new(RefCell::new(history_live::Ctl::new(format!(
@@ -762,7 +794,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl, startup_ctl) = (
+        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl, startup_ctl, services_ctl) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
@@ -771,6 +803,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             apps_ctl.clone(),
             history_ctl.clone(),
             startup_ctl.clone(),
+            services_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -790,6 +823,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if page == 6 {
                     startup_ctl.borrow_mut().enter(&ui);
+                }
+                if page == 7 {
+                    services_ctl.borrow_mut().enter(&ui);
                 }
                 if page == 8 {
                     history_ctl.borrow_mut().enter(&ui);
@@ -811,6 +847,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if ui.global::<Shell>().get_page() == 6 {
         startup_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 7 {
+        services_ctl.borrow_mut().enter(&ui);
     }
     if ui.global::<Shell>().get_page() == 8 {
         history_ctl.borrow_mut().enter(&ui);

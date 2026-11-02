@@ -2,9 +2,6 @@
 //! `tidewise_adapters::services` read. Plain data; `view.rs` copies it into Slint. Nothing can be
 //! started, stopped or changed here yet: the buttons say they need admin access.
 
-// Not drawn yet: the Slint screen that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_adapters::services::{Boot, Service, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
