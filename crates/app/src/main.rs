@@ -22,6 +22,7 @@ mod live;
 mod nav;
 mod perf;
 mod procs;
+mod records;
 mod screenshot;
 mod storage;
 mod storage_live;
