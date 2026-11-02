@@ -37,8 +37,10 @@ pub fn tag(score: u32) -> &'static str {
 /// −3 points for every failed service.
 pub const SERVICE_POINTS_EACH: u32 = 3;
 
-pub fn service_points(_failed: usize) -> u32 {
-    0
+pub fn service_points(failed: usize) -> u32 {
+    u32::try_from(failed)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(SERVICE_POINTS_EACH)
 }
 
 /// What the score is made of: the numbers that were really measured. `None` means "not measured",
@@ -89,13 +91,101 @@ pub struct Report {
 }
 
 /// The whole picture behind the score, from what was measured.
-pub fn report(_inputs: &Inputs) -> Report {
+pub fn report(inputs: &Inputs) -> Report {
+    let gb = |b: u64| b as f64 / 1_000_000_000.0;
+    let (mut findings, mut passed, mut not_checked) = (Vec::new(), Vec::new(), Vec::new());
+    match inputs.drive {
+        Some(d) => {
+            let used = d.used_fraction();
+            let points = disk_points(used);
+            if points > 0 {
+                findings.push(Finding {
+                    points,
+                    title: format!("Main drive is {:.0}% full", used * 100.0),
+                    desc: format!(
+                        "{:.0} GB free. Below about 15% free, updates and apps can start failing.",
+                        gb(d.free)
+                    ),
+                    check: format!(
+                        "free space on your main drive: {:.1}% used\nrule: −2 points for every 5% above 60% used",
+                        used * 100.0
+                    ),
+                    action: "See what's using space".into(),
+                    page: PAGE_STORAGE,
+                });
+            } else {
+                passed.push(format!(
+                    "Your main drive has room ({:.0}% used)",
+                    used * 100.0
+                ));
+            }
+        }
+        None => not_checked.push(NotChecked {
+            title: "Main drive space".into(),
+            why: "Tidewise could not read how full your main drive is.".into(),
+        }),
+    }
+    match inputs.junk {
+        Some(bytes) => {
+            let points = junk_points(bytes);
+            if points > 0 {
+                findings.push(Finding {
+                    points,
+                    title: format!("{:.1} GB of junk files", gb(bytes)),
+                    desc: "Old package downloads, app caches and logs. Clean up shows exactly what would go before anything is removed.".into(),
+                    check: "found by the same scan as Clean up\nrule: −1 point per 2.5 GB, at most −8".into(),
+                    action: "Clean up".into(),
+                    page: PAGE_CLEAN_UP,
+                });
+            } else {
+                passed.push("Junk is under 2.5 GB".into());
+            }
+        }
+        None => not_checked.push(NotChecked {
+            title: "Junk".into(),
+            why: "The junk scan has not finished yet.".into(),
+        }),
+    }
+    match &inputs.failed_services {
+        Some(failed) if !failed.is_empty() => {
+            let n = failed.len();
+            let names = failed.join(", ");
+            findings.push(Finding {
+                points: service_points(n),
+                title: format!("{n} service{} failed", if n == 1 { "" } else { "s" }),
+                desc: format!(
+                    "{names}. A failed service is not always broken: many fail when there is no network and try again later."
+                ),
+                check: format!(
+                    "systemctl: failed → {names}\nrule: −3 points per failed service"
+                ),
+                action: "Open Services".into(),
+                page: PAGE_SERVICES,
+            });
+        }
+        Some(_) => passed.push("No service has failed".into()),
+        None => not_checked.push(NotChecked {
+            title: "Services".into(),
+            why: "Services could not be read.".into(),
+        }),
+    }
+    // These two are never part of the score today.
+    not_checked.push(NotChecked {
+        title: "Waiting updates".into(),
+        why: "Waiting updates are not checked yet, so they are not part of the score.".into(),
+    });
+    not_checked.push(NotChecked {
+        title: "Drive health".into(),
+        why: "Reading your drive's own health report needs admin access (coming soon). It doesn't change your score.".into(),
+    });
+    findings.sort_by_key(|f| std::cmp::Reverse(f.points));
+    let score = score(&findings.iter().map(|f| f.points).collect::<Vec<_>>());
     Report {
-        score: 0,
-        tag: String::new(),
-        findings: Vec::new(),
-        passed: Vec::new(),
-        not_checked: Vec::new(),
+        score,
+        tag: tag(score).into(),
+        findings,
+        passed,
+        not_checked,
     }
 }
 
