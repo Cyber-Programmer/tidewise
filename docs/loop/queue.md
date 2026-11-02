@@ -87,7 +87,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [/] **Q10 Settings screen** (WBS 9.5, 9.4, design `Settings`). Stored in `$XDG_CONFIG_HOME/tidewise/`.
   Dark/light switch; "Follow system" only if it needs no new dependency (else `docs/questions.md`).
   Update-check toggle is stored but there is no network code (WBS 9.6 has an open conflict).
-- [ ] **Q11 Health page** (WBS 9.2, design `Health`). Each rule, its points, the check, and a fix button
+- [/] **Q11 Health page** (WBS 9.2, design `Health`). Each rule, its points, the check, and a fix button
   that goes to the right screen.
 - [ ] **Q12 Search, Ctrl K** (WBS 9.1, design `Search`). Index over apps, processes, actions, settings;
   home files only if it stays inside the memory budget (measure). Ranking unit tests.

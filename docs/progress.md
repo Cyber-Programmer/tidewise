@@ -509,3 +509,10 @@ Done: red 458d33b → 69d3ae0; 977f643 → 9062f67; screen b58d6da; guard test f
 Next: R7-Q11 Health page.
 Blockers: nobody clicked it; Follow system unchecked on a real desktop; Settings design 86.3 % (most artboard settings not built); light values are aliases, not designed.
 Rules bent: Slint page, controller and theme edits not test-first; a guard test was adapted after the code (and strengthened).
+
+## 2026-11-02 — Run 07, R7-Q11 Health page — PARTIAL
+Plan: `health::report` red-first (findings, passed, not measured), Home's score from the same report with failed services (red-first), view model red-first, Slint page + controller + demo; Home's "Why N?" opens it.
+Done: red 358170e → 760076c; d598e0f → 97d38a1; 277496d → 6efddb0; page 8ea72b1; fmt, clippy, plain and TMPDIR `cargo test --all` (659 passed), deny, audit, release build exit 0; Health design 33.7 %.
+Next: R7-Q12 Search, Ctrl K.
+Blockers: nobody clicked it; design 33.7 % (updates and the artboard's other checks are not measurable); the Home score now includes failed services (changes the number).
+Rules bent: Slint page, controller and demo not test-first.
