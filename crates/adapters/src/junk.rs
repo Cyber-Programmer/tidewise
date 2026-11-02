@@ -28,6 +28,8 @@ pub enum JunkKind {
     PackageCache,
     Journal,
     FlatpakRuntime,
+    /// A package nothing needs any more (cleaning it needs admin access).
+    Orphans,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +95,8 @@ pub struct Sources {
     pub flatpak_runtimes: Option<String>,
     /// Output of `flatpak list --app --columns=application,runtime,installation`.
     pub flatpak_apps: Option<String>,
+    /// What the package managers say about packages nothing needs (see `orphans`).
+    pub orphans: Vec<crate::orphans::OrphanInput>,
     /// Things that could not be looked at at all (a command failed), shown with the skipped ones.
     pub unavailable: Vec<Skipped>,
 }
@@ -464,6 +468,57 @@ mod tests {
         assert_eq!(item(&report, "Docker Desktop").kind, JunkKind::SlowCache);
         assert_eq!(item(&report, "thumbnails").kind, JunkKind::AppCache);
         assert_eq!(item(&report, "whatever").kind, JunkKind::AppCache);
+    }
+
+    fn any_fixture(rel: &str) -> String {
+        fs::read_to_string(format!(
+            "{}/../../tests/fixtures/{rel}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn packages_nothing_uses_are_listed_one_by_one_and_need_admin() {
+        use crate::orphans::{Manager, OrphanInput};
+        let report = scan(&Sources {
+            orphans: vec![OrphanInput {
+                manager: Manager::Pacman,
+                list: any_fixture("pacman/Qdtq-real.txt"),
+                sizes: any_fixture("pacman/Qi-orphans-real.txt"),
+            }],
+            ..Sources::default()
+        });
+        let orphans: Vec<_> = report
+            .items
+            .iter()
+            .filter(|i| i.kind == JunkKind::Orphans)
+            .collect();
+        assert_eq!(orphans.len(), 25);
+        assert!(orphans.iter().all(|i| i.needs_admin && i.path.is_none()));
+        assert!(orphans.iter().any(|i| i.label == "asar" && i.bytes > 0));
+        assert!(report.items.windows(2).all(|w| w[0].bytes >= w[1].bytes));
+        assert_eq!(
+            report.admin_bytes(),
+            orphans.iter().map(|i| i.bytes).sum::<u64>()
+        );
+    }
+
+    #[test]
+    fn orphan_text_that_cannot_be_read_is_reported_not_guessed() {
+        use crate::orphans::{Manager, OrphanInput};
+        let report = scan(&Sources {
+            orphans: vec![OrphanInput {
+                manager: Manager::Apt,
+                list: any_fixture("orphans/apt-autoremove-de-handwritten.txt"),
+                sizes: String::new(),
+            }],
+            ..Sources::default()
+        });
+        assert!(report.items.is_empty());
+        assert!(skipped(&report, "Packages nothing uses")
+            .reason
+            .contains("could not understand"));
     }
 
     #[test]

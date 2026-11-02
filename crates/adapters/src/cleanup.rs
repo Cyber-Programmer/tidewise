@@ -20,6 +20,7 @@ pub enum GroupId {
     SystemLogs,
     FlatpakParts,
     Trash,
+    Orphans,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,6 +188,7 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
             Safety::Safe,
         ),
         GroupId::Trash => (JunkKind::Trash, "Trash", Safety::Review),
+        GroupId::Orphans => (JunkKind::Orphans, "Packages nothing uses", Safety::Review),
     };
     let mut out = Vec::new();
     for id in ORDER {
@@ -217,6 +219,7 @@ pub fn groups(report: &JunkReport) -> Vec<Group> {
                 "Temporary data like thumbnails and browser cache. Apps rebuild it when they need it.".into(),
                 "~/.cache/*   (skips apps that are open right now)".into(),
             ),
+            GroupId::Orphans => (String::new(), String::new()),
             GroupId::SlowCaches => {
                 let top: Vec<String> = items
                     .iter()
@@ -304,7 +307,7 @@ pub fn plan(groups: &[Group], selected: &[GroupId]) -> Vec<Step> {
 
 pub fn run_step(step: &Step, env: &Env) -> StepResult {
     let outcome = match step.group {
-        GroupId::PackageDownloads | GroupId::SystemLogs => Outcome::NeedsAdmin,
+        GroupId::PackageDownloads | GroupId::SystemLogs | GroupId::Orphans => Outcome::NeedsAdmin,
         GroupId::FlatpakParts => Outcome::NotYet,
         GroupId::AppCaches | GroupId::SlowCaches => clean_caches(step, env),
         GroupId::Trash => empty_trash(step, env),
@@ -1028,6 +1031,56 @@ mod tests {
         assert!(rec.steps[0].items[0].contains(".cache"));
         assert!(rec.steps[1].note.as_deref().unwrap().contains("admin"));
         assert_eq!(rec.title, "Cleaned 10 kB");
+    }
+
+    // ---- Q05: packages nothing uses ------------------------------------------------------------
+
+    fn report_with_orphans(w: &World) -> JunkReport {
+        let mut report = w.report.clone();
+        for (name, bytes) in [
+            ("cmake", 100_000_000),
+            ("meson", 60_000_000),
+            ("scdoc", 50_000_000),
+        ] {
+            report
+                .items
+                .push(item(JunkKind::Orphans, name, None, bytes, true));
+        }
+        report
+    }
+
+    #[test]
+    fn packages_nothing_uses_are_the_last_group_for_review_and_need_admin() {
+        let w = world();
+        let g = groups(&report_with_orphans(&w));
+        let last = g.last().unwrap();
+        assert_eq!(last.id, GroupId::Orphans);
+        assert_eq!(last.title, "Packages nothing uses");
+        assert_eq!(last.safety, Safety::Review);
+        assert!(last.admin);
+        assert_eq!(last.bytes, 210_000_000);
+        assert_eq!(last.items.len(), 3);
+        assert_eq!(
+            last.description,
+            "Installed as helpers for apps you already removed."
+        );
+        assert!(
+            last.detail.contains("cmake") && last.detail.contains("3 packages"),
+            "{}",
+            last.detail
+        );
+        assert!(!default_selection(&g).contains(&GroupId::Orphans));
+    }
+
+    #[test]
+    fn the_orphans_step_only_says_it_needs_admin_and_changes_nothing() {
+        let w = world();
+        let steps = plan(&groups(&report_with_orphans(&w)), &[GroupId::Orphans]);
+        let results = run(&steps, &w.env, &|| false, &mut |_, _| {});
+        assert_eq!(results[0].outcome, Outcome::NeedsAdmin);
+        let rec = record(&results, 1, "1-clean_up");
+        assert_eq!(rec.steps[0].status, history::Status::Skipped);
+        assert_eq!(rec.steps[0].title, "Packages nothing uses");
     }
 
     // ---- Q19: slow-to-download caches are their own group, off by default ----------------------

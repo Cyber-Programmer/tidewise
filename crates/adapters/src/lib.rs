@@ -11,6 +11,7 @@ pub mod endtask;
 pub mod flatpak;
 pub mod journal;
 pub mod junk;
+pub mod orphans;
 pub mod pacman;
 pub mod runner;
 pub mod snap;
