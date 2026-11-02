@@ -1,0 +1,1 @@
+file /usr/share/applications/nope.desktop is not owned by any package

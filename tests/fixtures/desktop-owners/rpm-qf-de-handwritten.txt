@@ -1,0 +1,1 @@
+Datei /usr/share/applications/nope.desktop gehört zu keinem Paket

@@ -1,0 +1,5 @@
+vlc
+$(id)
+--force
+name with space
+vlc-libs

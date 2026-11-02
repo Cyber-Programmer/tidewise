@@ -157,6 +157,41 @@ pub fn pacman_owners(
     }
 }
 
+/// Ask dpkg who owns these files (`dpkg -S`, read-only). It exits 1 when some file is unknown but
+/// still prints the ones it found, so the exit code is not looked at.
+pub fn dpkg_owners(
+    _runner: &dyn crate::runner::CommandRunner,
+    _files: &[PathBuf],
+) -> Vec<(PathBuf, String)> {
+    Vec::new()
+}
+
+/// The package names `rpm -qf --qf '%{NAME}\n' FILE` printed for `file`. Lines that are not a plain
+/// package name (the "not owned" sentence in any language, an error, anything odd) are skipped.
+pub fn parse_rpm_qf(_file: &std::path::Path, _text: &str) -> Vec<(PathBuf, String)> {
+    Vec::new()
+}
+
+/// Ask rpm who owns these files, one `rpm -qf` per file (its output does not say which file a name
+/// belongs to when several are asked at once).
+pub fn rpm_owners(
+    _runner: &dyn crate::runner::CommandRunner,
+    _files: &[PathBuf],
+) -> Vec<(PathBuf, String)> {
+    Vec::new()
+}
+
+/// The packages that own a visible `.desktop` file in `apps_dir`, as apps, for any package source
+/// that has an owner lookup (pacman, apt, dnf). Other kinds give nothing.
+pub fn package_apps(
+    _packages: Vec<AppEntry>,
+    _kind: crate::source::SourceKind,
+    _runner: &dyn crate::runner::CommandRunner,
+    _apps_dir: &std::path::Path,
+) -> Vec<AppEntry> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +301,238 @@ mod tests {
             parse_dpkg_s(&fx("desktop-owners/dpkg-S-de-handwritten.txt")).len(),
             1
         );
+    }
+
+    use crate::runner::{CommandRunner, Output};
+    use crate::source::SourceKind;
+    use std::cell::RefCell;
+
+    /// Answers each call from a closure and remembers what was asked.
+    struct Fake {
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+        answer: Box<dyn Fn(&str, &[&str]) -> Result<Output, String>>,
+    }
+
+    impl Fake {
+        fn new(answer: impl Fn(&str, &[&str]) -> Result<Output, String> + 'static) -> Self {
+            Fake {
+                calls: RefCell::new(Vec::new()),
+                answer: Box::new(answer),
+            }
+        }
+    }
+
+    impl CommandRunner for Fake {
+        fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
+            self.calls.borrow_mut().push((
+                program.to_string(),
+                args.iter().map(|a| a.to_string()).collect(),
+            ));
+            (self.answer)(program, args)
+        }
+    }
+
+    fn out(success: bool, stdout: &str) -> Result<Output, String> {
+        Ok(Output {
+            success,
+            stdout: stdout.into(),
+            stderr: String::new(),
+        })
+    }
+
+    #[test]
+    fn dpkg_owners_asks_once_after_a_double_dash_and_only_with_absolute_plain_paths() {
+        let text = fx("desktop-owners/dpkg-S-handwritten.txt");
+        let runner = Fake::new(move |_, _| out(false, &text)); // exit 1: some file unknown
+        let files = [
+            PathBuf::from("/usr/share/applications/firefox.desktop"),
+            PathBuf::from("relative.desktop"),
+            PathBuf::from("/usr/share/applications/new\nline.desktop"),
+            PathBuf::from("/usr/share/applications/vlc.desktop"),
+        ];
+        let owned = dpkg_owners(&runner, &files);
+        assert_eq!(owned.len(), 4, "{owned:?}");
+        let calls = runner.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "/usr/bin/dpkg");
+        assert_eq!(
+            calls[0].1,
+            [
+                "-S",
+                "--",
+                "/usr/share/applications/firefox.desktop",
+                "/usr/share/applications/vlc.desktop"
+            ]
+        );
+    }
+
+    #[test]
+    fn dpkg_owners_with_nothing_valid_or_a_failing_runner_is_empty() {
+        let never = Fake::new(|_, _| panic!("must not run"));
+        assert!(dpkg_owners(&never, &[]).is_empty());
+        assert!(dpkg_owners(&never, &[PathBuf::from("x.desktop")]).is_empty());
+        let broken = Fake::new(|_, _| Err("no dpkg".into()));
+        assert!(dpkg_owners(&broken, &[PathBuf::from("/a.desktop")]).is_empty());
+    }
+
+    #[test]
+    fn rpm_qf_output_gives_the_owner_and_skips_sentences_errors_and_odd_lines() {
+        let f = PathBuf::from("/usr/share/applications/firefox.desktop");
+        assert_eq!(
+            parse_rpm_qf(&f, &fx("desktop-owners/rpm-qf-handwritten.txt")),
+            [(f.clone(), "firefox".to_string())]
+        );
+        for skipped in [
+            "rpm-qf-notowned-handwritten.txt",
+            "rpm-qf-de-handwritten.txt",
+        ] {
+            assert!(parse_rpm_qf(&f, &fx(&format!("desktop-owners/{skipped}"))).is_empty());
+        }
+        let broken = parse_rpm_qf(&f, &fx("desktop-owners/rpm-qf-broken-handwritten.txt"));
+        let names: Vec<_> = broken.iter().map(|(_, n)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            ["vlc", "vlc-libs"],
+            "no $(id), no --force, no spaces"
+        );
+        assert!(parse_rpm_qf(&f, "").is_empty());
+    }
+
+    #[test]
+    fn rpm_owners_asks_once_per_file_with_the_name_format_and_no_shell() {
+        let yes = fx("desktop-owners/rpm-qf-handwritten.txt");
+        let no = fx("desktop-owners/rpm-qf-notowned-handwritten.txt");
+        let runner = Fake::new(move |_, args| {
+            if args.last() == Some(&"/usr/share/applications/firefox.desktop") {
+                out(true, &yes)
+            } else {
+                out(false, &no)
+            }
+        });
+        let files = [
+            PathBuf::from("/usr/share/applications/firefox.desktop"),
+            PathBuf::from("/usr/share/applications/nope.desktop"),
+            PathBuf::from("not-absolute.desktop"),
+        ];
+        let owned = rpm_owners(&runner, &files);
+        assert_eq!(
+            owned,
+            [(files[0].clone(), "firefox".to_string())],
+            "the unowned file is simply missing"
+        );
+        let calls = runner.calls.borrow();
+        assert_eq!(calls.len(), 2, "one per valid file");
+        assert_eq!(calls[0].0, "/usr/bin/rpm");
+        assert_eq!(
+            calls[0].1,
+            [
+                "-qf",
+                "--qf",
+                "%{NAME}\\n",
+                "/usr/share/applications/firefox.desktop"
+            ]
+        );
+    }
+
+    /// A temp `applications` folder with a visible launcher, a hidden one and a broken file.
+    fn apps_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let put = |name: &str, text: &str| std::fs::write(dir.path().join(name), text).unwrap();
+        put("firefox.desktop", &fx("desktop/firefox.desktop"));
+        put(
+            "helper.desktop",
+            "[Desktop Entry]\nType=Application\nName=Helper\nExec=h\nNoDisplay=true\n",
+        );
+        put("broken.desktop", &fx("desktop/broken.desktop"));
+        dir
+    }
+
+    fn pkg_of(name: &str, kind: SourceKind) -> AppEntry {
+        AppEntry { kind, ..pkg(name) }
+    }
+
+    fn owner_answer(dir: &std::path::Path, tool_is_dpkg: bool) -> Fake {
+        let d = dir.display().to_string();
+        Fake::new(move |_, args| {
+            if tool_is_dpkg {
+                out(
+                    true,
+                    &format!("firefox: {d}/firefox.desktop\nlibfoo: {d}/helper.desktop\n"),
+                )
+            } else {
+                match args.last().copied().unwrap_or_default() {
+                    f if f.ends_with("/firefox.desktop") => out(true, "firefox\n"),
+                    f if f.ends_with("/helper.desktop") => out(true, "libfoo\n"),
+                    _ => out(false, "file x is not owned by any package\n"),
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn apt_packages_with_a_visible_launcher_become_apps_through_dpkg() {
+        let dir = apps_dir();
+        let runner = owner_answer(dir.path(), true);
+        let packages = ["bash", "firefox", "libfoo"]
+            .map(|n| pkg_of(n, SourceKind::Apt))
+            .to_vec();
+        let apps = package_apps(packages, SourceKind::Apt, &runner, dir.path());
+        let got: Vec<_> = apps
+            .iter()
+            .map(|a| (a.id.as_str(), a.name.as_str()))
+            .collect();
+        assert_eq!(got, [("firefox", "Firefox")], "no bash, no hidden helper");
+        assert_eq!(runner.calls.borrow()[0].0, "/usr/bin/dpkg");
+    }
+
+    #[test]
+    fn dnf_packages_with_a_visible_launcher_become_apps_through_rpm() {
+        let dir = apps_dir();
+        let runner = owner_answer(dir.path(), false);
+        let packages = ["bash", "firefox", "libfoo"]
+            .map(|n| pkg_of(n, SourceKind::Dnf))
+            .to_vec();
+        let apps = package_apps(packages, SourceKind::Dnf, &runner, dir.path());
+        let got: Vec<_> = apps
+            .iter()
+            .map(|a| (a.id.as_str(), a.name.as_str()))
+            .collect();
+        assert_eq!(got, [("firefox", "Firefox")]);
+        assert!(runner.calls.borrow().iter().all(|c| c.0 == "/usr/bin/rpm"));
+    }
+
+    #[test]
+    fn pacman_goes_through_the_same_door_and_other_kinds_ask_nobody() {
+        let dir = apps_dir();
+        let d = dir.path().display().to_string();
+        let runner = Fake::new(move |_, _| {
+            out(
+                true,
+                &format!("{d}/firefox.desktop is owned by firefox 130-1\n"),
+            )
+        });
+        let apps = package_apps(
+            vec![pkg("firefox"), pkg("bash")],
+            SourceKind::Pacman,
+            &runner,
+            dir.path(),
+        );
+        assert_eq!(apps.len(), 1);
+        assert_eq!(runner.calls.borrow()[0].0, "/usr/bin/pacman");
+        let never = Fake::new(|_, _| panic!("must not run"));
+        assert!(package_apps(vec![pkg("x")], SourceKind::Flatpak, &never, dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_missing_applications_folder_gives_no_apps() {
+        let never = Fake::new(|_, _| panic!("must not run"));
+        let apps = package_apps(
+            vec![pkg_of("firefox", SourceKind::Apt)],
+            SourceKind::Apt,
+            &never,
+            std::path::Path::new("/definitely/not/here"),
+        );
+        assert!(apps.is_empty());
     }
 
     fn pkg(name: &str) -> AppEntry {
