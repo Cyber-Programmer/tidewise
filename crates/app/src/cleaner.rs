@@ -417,6 +417,7 @@ mod tests {
             freed,
             removed: vec!["x".into()],
             refused: vec![],
+            entries: vec![],
         }
     }
 
@@ -479,11 +480,36 @@ mod tests {
                 freed: 1_000_000,
                 removed: vec!["a".into()],
                 refused: vec![("b".into(), "The app is running right now".into())],
+                entries: vec![],
             },
         )]);
         assert!(!f.all_done);
         assert_eq!(f.title, "1 MB freed, 1 item left alone");
         assert!(f.text.contains("changed after the scan"));
+    }
+
+    #[test]
+    fn a_folder_that_could_not_be_removed_is_named_with_its_reason() {
+        let why = "read-only folder: ~/.cache/dotslash";
+        let f = finish(&[result(
+            "App caches",
+            Outcome::Cleaned {
+                freed: 19_500_000_000,
+                removed: vec!["a".into()],
+                refused: vec![("dotslash".into(), why.into())],
+                entries: vec![tidewise_adapters::cleanup::Entry {
+                    path: "/home/u/.cache/dotslash".into(),
+                    bytes: 0,
+                    left: true,
+                    reason: Some(why.into()),
+                    is_dir: true,
+                }],
+            },
+        )]);
+        assert!(!f.all_done);
+        assert_eq!(f.title, "19.5 GB freed · 1 folder left");
+        assert!(f.text.contains(why), "{}", f.text);
+        assert!(!f.text.contains("changed after the scan"), "{}", f.text);
     }
 
     #[test]

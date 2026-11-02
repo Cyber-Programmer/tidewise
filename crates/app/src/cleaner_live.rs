@@ -70,6 +70,7 @@ impl Ctl {
                 cache_root: sources.cache_dir.clone().unwrap_or_default(),
                 trash_root: sources.trash_dir.clone().unwrap_or_default(),
                 running: Vec::new(),
+                owner_uid: None,
             };
             let _ = tx.send((junk::scan(&sources), env));
         });

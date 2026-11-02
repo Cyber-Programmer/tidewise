@@ -229,6 +229,7 @@ impl Ctl {
                             status: history::Status::Done,
                             bytes: *freed,
                             items: items.clone(),
+                            entries: vec![],
                             note: to_trash.then(|| "moved to the Trash".to_string()),
                         }],
                     };

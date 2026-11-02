@@ -24,11 +24,31 @@ pub enum Kind {
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Done,
+    /// Some items were removed and some were left (could not be removed, or changed since the scan).
+    Partial,
     /// Needed admin access (or the user closed the prompt); nothing was changed.
     Skipped,
     Failed,
     /// Never started because the user stopped early.
     NotRun,
+}
+
+/// What happened to one item of a step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemResult {
+    Removed,
+    Left,
+}
+
+/// One item of a step (record version 2): the full path, the bytes that really went away, and why
+/// it was left when it was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    pub path: String,
+    pub bytes: u64,
+    pub result: ItemResult,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +58,9 @@ pub struct Step {
     pub bytes: u64,
     /// Exactly what was removed or changed (paths or names), for "Copy for a help forum".
     pub items: Vec<String>,
+    /// Version 2: every item with its result. Empty in version 1 records.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<Item>,
     pub note: Option<String>,
 }
 
@@ -159,6 +182,7 @@ mod tests {
                     status: Status::Done,
                     bytes: 3_100_000_000,
                     items: vec!["/home/u/.cache/alpha".into()],
+                    entries: vec![],
                     note: None,
                 },
                 Step {
@@ -166,10 +190,61 @@ mod tests {
                     status: Status::Skipped,
                     bytes: 0,
                     items: vec![],
+                    entries: vec![],
                     note: Some("needs admin access".into()),
                 },
             ],
         }
+    }
+
+    /// The shape run 06 wrote (taken from a real record, shortened): no `entries`, plain item paths.
+    const V1_RECORD: &str = r#"{"version":1,"id":"1793580727-clean_up","time":1793580727,"kind":"clean_up",
+        "title":"Cleaned 19.5 GB","freed_bytes":19477192704,"steps":[
+        {"title":"App caches","status":"done","bytes":17900896256,
+         "items":["/home/u/.cache/mozilla","/home/u/.cache/uv"],
+         "note":"dotslash: It could not be removed: Permission denied (os error 13)"}]}"#;
+
+    #[test]
+    fn a_version_1_record_still_reads() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("1793580727-clean_up.json"), V1_RECORD).unwrap();
+        let all = list(tmp.path());
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].version, 1);
+        assert_eq!(all[0].steps[0].status, Status::Done);
+        assert_eq!(all[0].steps[0].items.len(), 2);
+        assert!(all[0].steps[0].entries.is_empty());
+    }
+
+    #[test]
+    fn a_version_2_step_keeps_each_items_result_and_reason() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut r = record("7-clean_up", 7);
+        r.steps[0].status = Status::Partial;
+        r.steps[0].entries = vec![
+            Item {
+                path: "/home/u/.cache/alpha".into(),
+                bytes: 10,
+                result: ItemResult::Removed,
+                reason: None,
+            },
+            Item {
+                path: "/home/u/.cache/dotslash".into(),
+                bytes: 0,
+                result: ItemResult::Left,
+                reason: Some("read-only folder: ~/.cache/dotslash".into()),
+            },
+        ];
+        write(tmp.path(), &r).unwrap();
+        let text = fs::read_to_string(tmp.path().join("7-clean_up.json")).unwrap();
+        for needle in [
+            "\"status\": \"partial\"",
+            "\"result\": \"left\"",
+            "\"reason\": \"read-only folder: ~/.cache/dotslash\"",
+        ] {
+            assert!(text.contains(needle), "missing {needle} in {text}");
+        }
+        assert_eq!(list(tmp.path()), vec![r]);
     }
 
     #[test]
@@ -211,7 +286,7 @@ mod tests {
         write(tmp.path(), &record("1-clean_up", 1)).unwrap();
         let text = fs::read_to_string(tmp.path().join("1-clean_up.json")).unwrap();
         for needle in [
-            "\"version\": 1",
+            "\"version\": 2",
             "\"kind\": \"clean_up\"",
             "\"status\": \"skipped\"",
             "\"freed_bytes\": 3100000000",

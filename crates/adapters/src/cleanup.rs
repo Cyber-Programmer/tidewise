@@ -51,6 +51,19 @@ pub struct Step {
     pub items: Vec<JunkItem>,
 }
 
+/// What happened to one item of a step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// The full path.
+    pub path: String,
+    /// Bytes that really went away (measured again after the attempt for an item left behind).
+    pub bytes: u64,
+    pub left: bool,
+    /// Why it was left, in plain words naming the path.
+    pub reason: Option<String>,
+    pub is_dir: bool,
+}
+
 /// What a step did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -59,6 +72,8 @@ pub enum Outcome {
         removed: Vec<String>,
         /// Items left alone at the last check, with the reason.
         refused: Vec<(String, String)>,
+        /// Every item with its result (the History record, version 2).
+        entries: Vec<Entry>,
     },
     /// Needs the admin helper, which is not built yet. Nothing was changed.
     NeedsAdmin,
@@ -82,6 +97,15 @@ pub struct Env {
     pub trash_root: PathBuf,
     /// Names of running programs right now (see `junk::live_sources`).
     pub running: Vec<String>,
+    /// Folders owned by this user id may be made writable before removal. `None`: the owner of
+    /// `cache_root` (the user's own cache folder).
+    pub owner_uid: Option<u32>,
+}
+
+/// Make the folders inside `path` writable so they can be removed: only real folders (never a
+/// link), only when `owner_uid` owns them. Refuses anything else with the reason.
+fn make_writable_tree(_path: &std::path::Path, _owner_uid: u32) -> Result<(), String> {
+    Ok(())
 }
 
 pub fn groups(report: &JunkReport) -> Vec<Group> {
@@ -251,6 +275,7 @@ fn clean_caches(step: &Step, env: &Env) -> Outcome {
         freed,
         removed,
         refused,
+        entries: Vec::new(),
     }
 }
 
@@ -304,6 +329,7 @@ fn empty_trash(step: &Step, env: &Env) -> Outcome {
         freed,
         removed,
         refused,
+        entries: Vec::new(),
     }
 }
 
@@ -364,6 +390,7 @@ pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
                 status,
                 bytes,
                 items,
+                entries: Vec::new(),
                 note,
             };
             match &r.outcome {
@@ -371,6 +398,7 @@ pub fn record(results: &[StepResult], time: u64, id: &str) -> history::Record {
                     freed,
                     removed,
                     refused,
+                    ..
                 } => {
                     let note = (!refused.is_empty()).then(|| {
                         refused
@@ -503,6 +531,7 @@ mod tests {
                 cache_root: cache,
                 trash_root: trash,
                 running: vec![],
+                owner_uid: None,
             },
             report,
             _tmp: tmp,
@@ -519,6 +548,7 @@ mod tests {
                 freed,
                 removed,
                 refused,
+                ..
             } => (*freed, removed, refused),
             other => panic!("{} was {other:?}", r.title),
         }
@@ -813,6 +843,172 @@ mod tests {
         assert!(rec.steps[0].items[0].contains(".cache"));
         assert!(rec.steps[1].note.as_deref().unwrap().contains("admin"));
         assert_eq!(rec.title, "Cleaned 10 kB");
+    }
+
+    // ---- Q18: tell the truth when something fails -------------------------------------------
+
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::sync::atomic::AtomicBool;
+
+    fn measure(path: &Path) -> u64 {
+        tidewise_core::scan::scan(
+            path,
+            &Default::default(),
+            &Default::default(),
+            &AtomicBool::new(false),
+        )
+        .total_bytes
+    }
+
+    fn my_uid(w: &World) -> u32 {
+        fs::metadata(&w.env.cache_root).unwrap().uid()
+    }
+
+    /// `alpha` gets a read-only (0555) folder `ro` holding a file: removing `alpha` needs `ro`
+    /// made writable first.
+    fn lock_alpha(w: &World) -> PathBuf {
+        let ro = w.env.cache_root.join("alpha/ro");
+        write(&ro.join("r.bin"), 1000);
+        fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+        ro
+    }
+
+    fn unlock(ro: &Path) {
+        let _ = fs::set_permissions(ro, fs::Permissions::from_mode(0o755));
+    }
+
+    /// The app-cache step with sizes measured now, not the fake ones of `world()`.
+    fn real_step(w: &World) -> Step {
+        let mut step = select(w, &[GroupId::AppCaches]).remove(0);
+        for item in &mut step.items {
+            item.bytes = measure(item.path.as_ref().unwrap());
+        }
+        step.bytes = step.items.iter().map(|i| i.bytes).sum();
+        step
+    }
+
+    /// An env in which the user does not own `alpha/ro`, so it must be left alone.
+    fn stranger_env(w: &World) -> Env {
+        Env {
+            owner_uid: Some(my_uid(w) + 1),
+            ..w.env.clone()
+        }
+    }
+
+    #[test]
+    fn a_folder_left_behind_makes_the_step_partial_and_the_title_says_so() {
+        let w = world();
+        let ro = lock_alpha(&w);
+        let results = run(
+            &[real_step(&w)],
+            &stranger_env(&w),
+            &|| false,
+            &mut |_, _| {},
+        );
+        unlock(&ro);
+        let rec = record(&results, 5, "5-clean_up");
+        assert_eq!(rec.steps[0].status, history::Status::Partial);
+        assert_eq!(
+            rec.title,
+            format!("Cleaned {} · 1 folder left", format_bytes(rec.freed_bytes))
+        );
+        assert!(rec.freed_bytes > 0, "beta still went away");
+    }
+
+    #[test]
+    fn every_item_is_recorded_with_path_bytes_result_and_a_plain_reason() {
+        let w = world();
+        let ro = lock_alpha(&w);
+        let step = real_step(&w);
+        let beta_before = measure(&w.env.cache_root.join("beta"));
+        let results = run(&[step], &stranger_env(&w), &|| false, &mut |_, _| {});
+        unlock(&ro);
+        let rec = record(&results, 5, "5-clean_up");
+        assert_eq!(rec.version, 2);
+        let entries = &rec.steps[0].entries;
+        assert_eq!(entries.len(), 2, "{entries:?}");
+        let beta = entries.iter().find(|e| e.path.ends_with("/beta")).unwrap();
+        assert_eq!(beta.result, history::ItemResult::Removed);
+        assert_eq!(beta.bytes, beta_before);
+        assert_eq!(beta.reason, None);
+        let alpha = entries.iter().find(|e| e.path.ends_with("/alpha")).unwrap();
+        assert_eq!(
+            alpha.path,
+            w.env.cache_root.join("alpha").display().to_string()
+        );
+        assert_eq!(alpha.result, history::ItemResult::Left);
+        assert_eq!(
+            alpha.reason.as_deref(),
+            Some("read-only folder: ~/.cache/alpha")
+        );
+    }
+
+    #[test]
+    fn freed_bytes_are_what_really_disappeared_not_the_scan_time_sizes() {
+        let w = world();
+        let ro = lock_alpha(&w);
+        let step = real_step(&w);
+        let alpha_before = measure(&w.env.cache_root.join("alpha"));
+        let beta_before = measure(&w.env.cache_root.join("beta"));
+        let results = run(&[step], &stranger_env(&w), &|| false, &mut |_, _| {});
+        let alpha_after = measure(&w.env.cache_root.join("alpha"));
+        unlock(&ro);
+        assert!(alpha_after > 0, "alpha is still there");
+        let (freed, _, _) = cleaned(&results[0]);
+        assert_eq!(freed, beta_before + (alpha_before - alpha_after));
+        assert!(freed < alpha_before + beta_before);
+        let rec = record(&results, 5, "5-clean_up");
+        assert_eq!(rec.freed_bytes, freed);
+        let alpha = rec.steps[0]
+            .entries
+            .iter()
+            .find(|e| e.path.ends_with("/alpha"))
+            .unwrap();
+        assert_eq!(alpha.bytes, alpha_before - alpha_after);
+    }
+
+    #[test]
+    fn read_only_folders_the_user_owns_are_made_writable_and_removed() {
+        let w = world();
+        let ro = lock_alpha(&w);
+        let step = real_step(&w);
+        let results = run(&[step.clone()], &w.env, &|| false, &mut |_, _| {});
+        unlock(&ro);
+        let (freed, removed, refused) = cleaned(&results[0]);
+        assert!(refused.is_empty(), "{refused:?}");
+        assert_eq!(removed.len(), 2);
+        assert_eq!(freed, step.bytes);
+        assert!(!w.env.cache_root.join("alpha").exists());
+    }
+
+    #[test]
+    fn a_link_inside_a_cache_is_never_followed_when_folders_are_made_writable() {
+        let w = world();
+        let outside = w.env.cache_root.parent().unwrap().join("precious-ro");
+        write(&outside.join("doc.txt"), 100);
+        fs::set_permissions(&outside, fs::Permissions::from_mode(0o555)).unwrap();
+        std::os::unix::fs::symlink(&outside, w.env.cache_root.join("alpha/link")).unwrap();
+        let results = run(&[real_step(&w)], &w.env, &|| false, &mut |_, _| {});
+        let mode = fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
+        unlock(&outside);
+        assert_eq!(mode, 0o555, "the link target was not touched");
+        assert!(outside.join("doc.txt").exists());
+        assert_eq!(cleaned(&results[0]).1.len(), 2);
+    }
+
+    #[test]
+    fn making_folders_writable_refuses_folders_owned_by_someone_else() {
+        let w = world();
+        let ro = lock_alpha(&w);
+        let alpha = w.env.cache_root.join("alpha");
+        let refused = make_writable_tree(&alpha, my_uid(&w) + 1);
+        let mode = fs::metadata(&ro).unwrap().permissions().mode() & 0o777;
+        assert!(refused.is_err(), "not ours, so not changed");
+        assert_eq!(mode, 0o555);
+        assert!(make_writable_tree(&alpha, my_uid(&w)).is_ok());
+        let mode = fs::metadata(&ro).unwrap().permissions().mode() & 0o777;
+        unlock(&ro);
+        assert_ne!(mode & 0o200, 0, "ours, so now writable");
     }
 
     #[test]
