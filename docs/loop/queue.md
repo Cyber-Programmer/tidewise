@@ -66,7 +66,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [/] **Q05 Orphans group in Clean up** (WBS 6.6, 6.5). pacman orphans via `pacman -Qdtq` (read-only,
   real capture for the fixture); apt `apt-get -s autoremove` and dnf `dnf autoremove --assumeno` parsers
   from hand-written fixtures. Shown as the design's 6th group, "needs admin access (coming soon)".
-- [ ] **Q06 Processes: the stub Force quit button and the End dialog layout** (WBS 7.5, 3.4). Wire the
+- [/] **Q06 Processes: the stub Force quit button and the End dialog layout** (WBS 7.5, 3.4). Wire the
   Processes details card's Force quit to the End task flow (or remove it if the design allows; say which).
   For the End task confirm dialog (24.3 % in run 06): fix layout differences that are not caused by the
   missing app-specific sentence (wrapping, button position). **Do not add copy that isn't true for every

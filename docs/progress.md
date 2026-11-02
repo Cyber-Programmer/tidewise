@@ -475,3 +475,9 @@ Plan: `orphans` module (pacman from real fixtures, apt/dnf reusing the dry-run p
 Done: red d22f444 → green 89e8ba3; demo red d354be2 → b76512a; fuzz 8bd9c02; fmt, clippy, plain and TMPDIR `cargo test --all` (565 passed), deny, audit, release build exit 0; Cleaner design 4.5 %.
 Next: R7-Q06 Processes Force quit and End dialog layout.
 Blockers: apt/dnf paths need real Ubuntu/Fedora; nobody has clicked the group.
+
+## 2026-11-02 — Run 07, R7-Q06 Processes Force quit + End dialog layout — PARTIAL
+Plan: texts red-first (`force_confirm`, `closing`), then Slint button + controller `start_force`, dialog body line height from the artboard CSS; report the crop score honestly.
+Done: red 8a314d4 → green 496b858; UI 7de33fd (not test-first); fmt, clippy, plain and TMPDIR `cargo test --all` (567 passed), deny, audit, release build exit 0; Processes details 0.6 %; End confirm crop 26.1 % (target 10 % not met, cause: artboard's app-specific third sentence).
+Next: R7-Q07 History records + screen.
+Blockers: nobody has pressed Force quit/End in a real window.
