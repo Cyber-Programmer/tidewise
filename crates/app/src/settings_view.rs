@@ -1,27 +1,42 @@
 //! The Settings screen's small pieces of logic: which theme button is on and what the update-check
 //! line says. Plain data; `settings_live.rs` shows it and saves the changes.
 
+// Not drawn yet: the Slint screen that reads this arrives in the next commit.
+#![allow(dead_code)]
+
 use tidewise_core::settings::ThemeChoice;
 
 /// 0 follow the system, 1 dark, 2 light: the index of the button, and what `Theme.mode` means in Slint.
-pub fn theme_index(_theme: ThemeChoice) -> i32 {
-    -1
+pub fn theme_index(theme: ThemeChoice) -> i32 {
+    match theme {
+        ThemeChoice::System => 0,
+        ThemeChoice::Dark => 1,
+        ThemeChoice::Light => 2,
+    }
 }
 
 /// The button that was pressed; anything unknown means "follow the system".
-pub fn theme_from_index(_i: i32) -> ThemeChoice {
-    ThemeChoice::Dark
+pub fn theme_from_index(i: i32) -> ThemeChoice {
+    match i {
+        1 => ThemeChoice::Dark,
+        2 => ThemeChoice::Light,
+        _ => ThemeChoice::System,
+    }
 }
 
 /// The words under the update-check switch. Tidewise has no update check yet, and nothing is ever
 /// sent anywhere: the sentence must say so.
-pub fn update_note(_on: bool) -> String {
-    String::new()
+pub fn update_note(on: bool) -> String {
+    if on {
+        "Tidewise has no update check yet. When it has one, it will look for a new version once a day and do nothing else. Nothing is sent anywhere.".into()
+    } else {
+        "Tidewise has no update check yet. With this off it will never look for updates by itself. Nothing is sent anywhere.".into()
+    }
 }
 
 /// `Tidewise 0.1.0`
-pub fn about_title(_version: &str) -> String {
-    String::new()
+pub fn about_title(version: &str) -> String {
+    format!("Tidewise {version}")
 }
 
 #[cfg(test)]
