@@ -3,7 +3,6 @@
 //! the removing from `tidewise_adapters::uninstall` (AppImages and user Flatpaks only).
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
@@ -80,30 +79,21 @@ fn find_apps() -> Found {
         }
     }
     // Packages: only those that own a visible launcher count as apps.
-    let pacman = PacmanApps::system();
-    if let Ok(packages) = pacman.list() {
-        let files: Vec<PathBuf> = std::fs::read_dir("/usr/share/applications")
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
-            .collect();
-        let entries: HashMap<PathBuf, desktop::DesktopEntry> = files
-            .iter()
-            .filter_map(|f| {
-                let text = std::fs::read_to_string(f).ok()?;
-                Some((f.clone(), desktop::parse_desktop_file(&text)?))
-            })
-            .collect();
-        let owned = desktop::pacman_owners(&SystemRunner, &files);
-        for app in desktop::apps_from_packages(packages, &owned, &entries) {
-            if let Ok(plan) = pacman.removal_plan(&app) {
-                found.push((app, plan));
-            }
+    add_package_apps(&mut found, &PacmanApps::system(), SourceKind::Pacman);
+    found
+}
+
+/// The packages of one package manager that own a visible launcher, each with its removal plan.
+fn add_package_apps(found: &mut Found, source: &dyn AppSource, kind: SourceKind) {
+    let Ok(packages) = source.list() else {
+        return;
+    };
+    let launchers = std::path::Path::new("/usr/share/applications");
+    for app in desktop::package_apps(packages, kind, &SystemRunner, launchers) {
+        if let Ok(plan) = source.removal_plan(&app) {
+            found.push((app, plan));
         }
     }
-    found
 }
 
 /// A fresh plan for one app, from its own source, right before acting.
