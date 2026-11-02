@@ -63,7 +63,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
 - [/] **Q04 "Also delete my settings" in the uninstall panel** (WBS 7.4). Offered only where Tidewise
   knows the folder: a user Flatpak's `~/.var/app/<id>`. Never guessed for AppImages or packages. Goes to
   the Trash through `core::trash` (golden rule 4). Tests on temp dirs with `HOME` pointed there.
-- [ ] **Q05 Orphans group in Clean up** (WBS 6.6, 6.5). pacman orphans via `pacman -Qdtq` (read-only,
+- [/] **Q05 Orphans group in Clean up** (WBS 6.6, 6.5). pacman orphans via `pacman -Qdtq` (read-only,
   real capture for the fixture); apt `apt-get -s autoremove` and dnf `dnf autoremove --assumeno` parsers
   from hand-written fixtures. Shown as the design's 6th group, "needs admin access (coming soon)".
 - [ ] **Q06 Processes: the stub Force quit button and the End dialog layout** (WBS 7.5, 3.4). Wire the

@@ -469,3 +469,9 @@ Done: red b89e4c2 → green 3ff6a74; UI 17c6928 (not red-first); row-text red 94
 Next: R7-Q05 orphans group.
 Blockers: nobody has clicked the checkbox; no real user Flatpak with settings here.
 Rules bent: UI/controller commit not test-first; one mislabeled commit repaired with `reset --soft` (allowed by LOOP.md).
+
+## 2026-11-02 — Run 07, R7-Q05 orphans group — PARTIAL
+Plan: `orphans` module (pacman from real fixtures, apt/dnf reusing the dry-run parsers), `JunkKind::Orphans` items from the scan, `GroupId::Orphans` as the last group (Review, Admin, needs-admin step), live read-only inputs, demo with the artboard's 6 groups, a fuzz target.
+Done: red d22f444 → green 89e8ba3; demo red d354be2 → b76512a; fuzz 8bd9c02; fmt, clippy, plain and TMPDIR `cargo test --all` (565 passed), deny, audit, release build exit 0; Cleaner design 4.5 %.
+Next: R7-Q06 Processes Force quit and End dialog layout.
+Blockers: apt/dnf paths need real Ubuntu/Fedora; nobody has clicked the group.
