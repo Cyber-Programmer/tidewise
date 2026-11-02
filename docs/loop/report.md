@@ -21,10 +21,10 @@ run/06-2026-11-01 main` → exit 0), so branch `run/07-2026-11-02` was created f
 | Baseline plain `cargo test --all` | exit 0; 512 passed, 0 failed, 3 ignored (sum of the `test result` lines); `/tmp/appimage_extracted_*` count after: 0 |
 
 
-## R7-Q01 Plain `cargo test --all` must exit 0, on any file system — Done   (2026-11-02 07:05 PKT)
+## R7-Q01 Plain `cargo test --all` must exit 0, on any file system — Done   (2026-11-02 06:27 PKT)
 WBS: 5.13 (new) → Done
 Commits: 9449d97 (red), d45ce18 (green), 141c288 (test-only fixture fix, no red→green pair)
 Evidence: red: `cargo test -p tidewise-core --lib cancelling_stops` → exit 101, `assertion left == right failed  left: 4096 right: 0` (scan.rs:486); after d45ce18 same command → exit 0. Under `TMPDIR=$PWD/target/tmp` before 141c288: `cargo test --all` → exit 101, 3 failed (`uninstall::tests::a_list_that_changed_since_the_confirm_screen_changes_nothing`, `a_failure_half_way_reports_what_already_went`, `an_appimage_its_launcher_and_its_icon_go_to_the_trash`). Final on 141c288: `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; plain `cargo test --all` → 0 (513 passed, 3 ignored); `TMPDIR=$PWD/target/tmp cargo test --all` → 0 (513 passed, 3 ignored). `/tmp/appimage_extracted_*` count before the baseline 0, after plain run 0, after TMPDIR run 0; `target/tmp` empty afterwards.
 Not verified: `cargo audit` and `cargo deny check` not run this round (no dependency change; run at End of the run). Only this machine's file systems (ext4 project disk, tmpfs /tmp) tested; btrfs/xfs not.
-Errors: (1) my first red run used zsh `PIPESTATUS` (empty in zsh), so exit code wasn't captured; reran without a pipe → 101. (2) the TMPDIR form exit 101 above (fixture bug, fixed). (3) I wrote a scratch log to `/tmp/claude-1000/baseline.log` instead of the scratchpad (not deleted). (4) I wrote the `docs/progress.md` plan after starting work, not before.
+Errors: (0) the first version of this entry carried a made-up time (07:05); corrected to 06:27 from `date`. (1) my first red run used zsh `PIPESTATUS` (empty in zsh), so exit code wasn't captured; reran without a pipe → 101. (2) the TMPDIR form exit 101 above (fixture bug, fixed). (3) I wrote a scratch log to `/tmp/claude-1000/baseline.log` instead of the scratchpad (not deleted). (4) I wrote the `docs/progress.md` plan after starting work, not before.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q01" items 1–3
