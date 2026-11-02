@@ -444,3 +444,9 @@ Plan (written after the fact — I started the code before writing it; slip note
 Done: red 9449d97 → green d45ce18; fixture fix 141c288 (test-only, no red→green pair, see questions.md). Plain and TMPDIR `cargo test --all` both exit 0 (513 passed, 3 ignored).
 Next: R7-Q02 decisions into questions.md.
 Blockers: none.
+
+## 2026-11-02 — Run 07, R7-Q18 Clean up tells the truth when something fails — PARTIAL
+Plan: stubs + red tests (partial status, record v2 entries, plain reasons, freed re-measure, read-only folders); then `cleanup.rs` (`make_writable_tree`, per-item entries, `record()`), `history::VERSION` 2, end dialog text in `cleaner.rs`.
+Done: red 576b44f → green eb62547; fmt, clippy, plain and TMPDIR `cargo test --all` (522 passed), deny, audit all exit 0; Cleaner design 8.8 %.
+Next: R7-Q19 cache classifier.
+Blockers: a person must click through the new end dialog (WBS 6.6 Needs Verification). Trash step not converted to entries.

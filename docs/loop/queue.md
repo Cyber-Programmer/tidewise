@@ -25,7 +25,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   `docs/questions.md` under "Run 06 — decisions taken before they were listed here" with a recommended
   answer. Docs only.
 
-- [ ] **Q18 Clean up must tell the truth when something fails** (WBS 6.6, 6.5). Evidence: the human's
+- [/] **Q18 Clean up must tell the truth when something fails** (WBS 6.6, 6.5). Evidence: the human's
   real runs on 2 Nov, History records `1793580727-clean_up.json`, `1793581322-…`, `1793581699-…`,
   `1793581707-…` in `~/.local/state/tidewise/history/`. In **all four** a folder named `dotslash` could
   not be removed ("Permission denied (os error 13)"), yet each step has `"status": "done"`, the title says
