@@ -220,6 +220,24 @@ impl Ctl {
         }
         let message = storage::toast_text(moved.len(), &failed);
         let any = !moved.is_empty();
+        if any {
+            // What went to the Trash, for the History screen and its Undo. A file's size is read
+            // from the Trash (the move is a rename); a folder's size is not measured here (0).
+            let sized: Vec<(Trashed, u64)> = moved
+                .iter()
+                .map(|t| {
+                    use std::os::unix::fs::MetadataExt;
+                    let bytes = std::fs::symlink_metadata(&t.in_trash)
+                        .ok()
+                        .filter(|m| m.is_file())
+                        .map_or(0, |m| m.blocks() * 512);
+                    (t.clone(), bytes)
+                })
+                .collect();
+            let _ = crate::records::save(tidewise_core::history::Kind::Trash, |time, id| {
+                tidewise_core::history::trash_record(&sized, time, id)
+            });
+        }
         let originals: Vec<PathBuf> = moved.iter().map(|t| t.original.clone()).collect();
         self.trashed = moved;
         self.toast(ui, message, any, !failed.is_empty());

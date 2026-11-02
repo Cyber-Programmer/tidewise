@@ -22,6 +22,8 @@ const POLL: Duration = Duration::from_millis(100);
 struct Target {
     name: String,
     pids: Vec<u32>,
+    /// How many processes there were when the End button was pressed.
+    total: usize,
     freed: u64,
 }
 
@@ -39,6 +41,8 @@ pub struct Ctl {
     waited: u64,
     /// The Force quit button of the details card: confirm once, then SIGKILL (no polite request).
     force_direct: bool,
+    /// SIGKILL was sent at some point: the History record says "force quit".
+    forced: bool,
     job: Option<Receiver<Msg>>,
     toast_timer: slint::Timer,
 }
@@ -111,10 +115,12 @@ impl Ctl {
         self.target = Some(Target {
             name: row.name.clone(),
             pids: row.pids.clone(),
+            total: row.pids.len(),
             freed: row.mem_bytes,
         });
         self.waited = if force { 10 } else { 0 };
         self.force_direct = force;
+        self.forced = false;
     }
 
     fn begin(&mut self, ui: &MainWindow, signal: Option<Signal>, wait: Duration) {
@@ -122,6 +128,9 @@ impl Ctl {
             return;
         };
         let st = ui.global::<EndState>();
+        if signal == Some(Signal::Kill) {
+            self.forced = true;
+        }
         let t = endtask::closing(&target.name, signal == Some(Signal::Kill));
         st.set_title(t.title.into());
         st.set_text(t.text.into());
@@ -145,6 +154,17 @@ impl Ctl {
         let st = ui.global::<EndState>();
         if remaining.is_empty() {
             st.set_flow(0);
+            let forced = self.forced;
+            let _ = crate::records::save(tidewise_core::history::Kind::EndTask, |time, id| {
+                tidewise_core::history::end_task_record(
+                    &target.name,
+                    target.total,
+                    target.freed,
+                    forced,
+                    time,
+                    id,
+                )
+            });
             self.target = None;
             self.toast(ui, endtask::ended(&target.name, target.freed), false);
             return;
