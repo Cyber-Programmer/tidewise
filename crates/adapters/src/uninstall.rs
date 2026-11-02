@@ -12,7 +12,7 @@ use tidewise_core::trash;
 
 use crate::flatpak::{uninstall_user, UninstallError};
 use crate::runner::CommandRunner;
-use crate::source::{AppEntry, Blocked, RemovalPlan, Scope, SourceKind};
+use crate::source::{is_plain_name, AppEntry, Blocked, RemovalPlan, Scope, SourceKind};
 
 /// The folder a user Flatpak keeps its settings and data in, when Tidewise knows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,8 +24,29 @@ pub struct SettingsFolder {
 /// `~/.var/app/<id>` of a **user Flatpak**, when it is a real folder (not a link) and the id is a
 /// plain name. Nothing else is ever guessed: not for AppImages, not for packages, not for system
 /// Flatpaks.
-pub fn settings_folder(_app: &AppEntry, _home: &Path) -> Option<SettingsFolder> {
-    None
+pub fn settings_folder(app: &AppEntry, home: &Path) -> Option<SettingsFolder> {
+    if app.kind != SourceKind::Flatpak
+        || app.scope != Scope::User
+        || !is_plain_name(&app.id)
+        || app.id.starts_with('.')
+    {
+        return None;
+    }
+    let is_real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    let var = home.join(".var");
+    let apps = var.join("app");
+    let path = apps.join(&app.id);
+    if !(is_real_dir(&var) && is_real_dir(&apps) && is_real_dir(&path)) {
+        return None;
+    }
+    let bytes = tidewise_core::scan::scan(
+        &path,
+        &Default::default(),
+        &Default::default(),
+        &std::sync::atomic::AtomicBool::new(false),
+    )
+    .total_bytes;
+    Some(SettingsFolder { path, bytes })
 }
 
 pub struct Env<'a> {
@@ -68,10 +89,31 @@ pub fn run(app: &AppEntry, confirmed: &RemovalPlan, fresh: &RemovalPlan, env: &E
     match (app.kind, app.scope) {
         (SourceKind::AppImage, _) => move_to_trash(confirmed, env),
         (SourceKind::Flatpak, Scope::User) => match uninstall_user(env.runner, app) {
-            Ok(()) => Outcome::Removed {
-                items: vec![app.id.clone()],
-                freed: app.size_bytes.unwrap_or(0),
-            },
+            Ok(()) => {
+                let mut items = vec![app.id.clone()];
+                let mut freed = app.size_bytes.unwrap_or(0);
+                // Only after the app is gone, and only the folder Tidewise knows: to the Trash.
+                if env.delete_settings {
+                    if let Some(folder) = settings_folder(app, env.home) {
+                        match trash::move_to_trash(&folder.path, env.trash_dir, env.home, env.now) {
+                            Ok(_) => {
+                                items.push(folder.path.display().to_string());
+                                freed += folder.bytes;
+                            }
+                            Err(e) => {
+                                return failed(
+                                    &format!(
+                                        "{} is uninstalled, but its settings could not be moved to the Trash: {e}",
+                                        app.name
+                                    ),
+                                    items,
+                                )
+                            }
+                        }
+                    }
+                }
+                Outcome::Removed { items, freed }
+            }
             Err(UninstallError::NeedsAdmin) => Outcome::NeedsAdmin,
             Err(e) => failed(&e.to_string(), Vec::new()),
         },

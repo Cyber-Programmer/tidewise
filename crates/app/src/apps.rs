@@ -188,7 +188,7 @@ pub fn panel(app: &AppEntry, plan: &RemovalPlan) -> Panel {
 pub fn panel_with_settings(
     app: &AppEntry,
     plan: &RemovalPlan,
-    _settings: Option<SettingsChoice>,
+    settings: Option<SettingsChoice>,
 ) -> Panel {
     let known = |items: &[tidewise_adapters::source::PlanItem]| -> Option<u64> {
         let sizes: Vec<u64> = items.iter().filter_map(|i| i.bytes).collect();
@@ -210,6 +210,14 @@ pub fn panel_with_settings(
     }
     if !plan.items.is_empty() {
         rows.push(("Your settings and data".to_string(), "kept".to_string()));
+    }
+    let mut total = known(&plan.items);
+    let deleting = settings.filter(|s| s.delete);
+    if let Some(s) = deleting {
+        if let Some(row) = rows.iter_mut().find(|r| r.0 == "Your settings and data") {
+            row.1 = format!("{} to the Trash", format_bytes(s.bytes));
+        }
+        total = total.map(|t| t + s.bytes);
     }
     let button = match &plan.blocked {
         Some(Blocked::RequiredBy(who)) => Button::Disabled(format!(
@@ -234,7 +242,7 @@ pub fn panel_with_settings(
             _ => format!("from {}", source_label(app.kind)),
         },
         rows,
-        total: size_text(known(&plan.items)),
+        total: size_text(total),
         button_label: format!("Uninstall {}", app.name),
         button,
         technical: if plan.command.is_empty() {
@@ -242,8 +250,8 @@ pub fn panel_with_settings(
         } else {
             plan.command.join(" ")
         },
-        settings_offer: false,
-        delete_settings: false,
+        settings_offer: settings.is_some(),
+        delete_settings: deleting.is_some(),
     }
 }
 
@@ -261,7 +269,7 @@ pub fn done(name: &str, to_trash: bool, outcome: &Outcome) -> Done {
 }
 
 /// Like `done`, for an uninstall that also moved the settings folder to the Trash (`deleted`).
-pub fn done_with_settings(name: &str, to_trash: bool, _deleted: bool, outcome: &Outcome) -> Done {
+pub fn done_with_settings(name: &str, to_trash: bool, deleted: bool, outcome: &Outcome) -> Done {
     let say = |removed: bool, title: String, text: String| Done {
         removed,
         title,
@@ -273,6 +281,8 @@ pub fn done_with_settings(name: &str, to_trash: bool, _deleted: bool, outcome: &
             format!("{name} is uninstalled"),
             if to_trash {
                 format!("{} freed. The files are in your Trash, so you can still put them back from there.", format_bytes(*freed))
+            } else if deleted {
+                format!("{} freed. Your settings and data are in your Trash, so you can still put them back from there.", format_bytes(*freed))
             } else {
                 format!("{} freed. Your settings were kept, so reinstalling later brings everything back.", format_bytes(*freed))
             },
