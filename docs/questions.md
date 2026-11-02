@@ -238,3 +238,10 @@ Rules bent: none (docs only, no red test applies).
 3. **Results go to `docs/security/reviews/pentest-<date>.md`** (the folder does not exist yet; the helper review in ENGINEERING.md §2 uses it too).
 4. WBS row 5.10 stays **In Progress** (owner Human); never Done by me.
 Rules bent: none (docs only).
+
+## Run 07 — R7-Q16 Budgets: decisions taken without you
+1. **Shorter wait:** each page was measured 40 s after start for 60 s (script default is 60 + 60) to fit eight pages into one round. Memory settles well before 40 s; recommended: keep unless you want the full 60 s.
+2. **Not repeated:** Performance, Processes, Storage (measured in earlier runs) and the Ctrl K box (needs a key press I cannot send).
+3. **Home file index (R7-Q12 item 1):** nothing built, nothing to measure. Recommended: if wanted, build it behind a measurement that must stay under 40 MB.
+4. WBS row 3.8 keeps `Done` (its original evidence stands); the new numbers were added to L and N.
+Rules bent: none.

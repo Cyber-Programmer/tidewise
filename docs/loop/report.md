@@ -210,3 +210,11 @@ Evidence: `wc -l docs/security/pentest-checklist.md` → 86 lines; sections A (2
 Not verified: **no item was run**; the "Expected" results are my claims from the code and threat model; items A16 and A21 may expose real bugs; helper/polkit sections have nothing to run against.
 Errors: first WBS read of row 60 returned 5.9, not 5.10 (off by one); re-read row 61 before writing; nothing written to the wrong row.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q15" items 1–4.
+
+## R7-Q16 Budgets on every page built since run 05 — Done   (2026-11-02 14:22 PKT)
+WBS: 3.8 → Done (new numbers added; row was already Done)
+Commits: see `git log` (docs only: docs/budgets.md)
+Evidence: `MEASURE_WAIT=40 MEASURE_WINDOW=60 tools/measure.sh ./target/release/tidewise --page <page>` for home, clean-up, apps, history, startup, services, settings, health → exit 0 each (target/budget2/exits.txt). PSS MB / CPU %: Home 29.7 / 1.0; Clean up 29.8 / 0.3; Apps 34.2 / 0.3; History 28.8 / 0.3; Startup 30.2 / 0.3; Services 30.2 / 0.3; Settings 28.9 / 0.3; Health 28.9 / 0.3. **All within ≤ 40 MB and < 2 %.** Table in docs/budgets.md.
+Not verified: whether each page had finished its first scan/content at 40 s was not looked at (no screenshot during the run); Performance, Processes, Storage and the open Ctrl K box not measured; startup peak not measured; one machine, one renderer; the 5-minute failed-services read is inside the 100 s window only on Home's first scan.
+Errors: my first launch command (with an `rm` of the old output folder) was refused by the safety check; nothing was removed, I used a fresh folder target/budget2 instead (an empty folder target/budget remains).
+Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q16" items 1–4.

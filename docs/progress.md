@@ -542,3 +542,9 @@ Plan: docs only; checklist per threat-model boundary, today's app first, helper/
 Done: docs/security/pentest-checklist.md; WBS 5.10 In Progress (the human runs it).
 Next: R7-Q16 budgets via tools/measure.sh.
 Blockers: none.
+
+## 2026-11-02 — Run 07, R7-Q16 Budgets — DONE
+Plan: measure eight built pages with tools/measure.sh; fix or report anything over budget.
+Done: all eight within ≤ 40 MB (max 34.2, Apps) and < 2 % (max 1.0, Home); docs/budgets.md.
+Next: R7-Q17 fuzz each target 10 minutes (only what fits before 08:00 on 3 Nov).
+Blockers: none.
