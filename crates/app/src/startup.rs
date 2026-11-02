@@ -2,9 +2,6 @@
 //! Plain data; `view.rs` copies it into Slint. No "impact" numbers: Tidewise cannot measure what an
 //! app costs at login honestly yet, so none are shown.
 
-// Not drawn yet: the Slint screen that reads this arrives in the next commit.
-#![allow(dead_code)]
-
 use tidewise_adapters::autostart::{Scope, StartupEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +83,43 @@ pub fn screen(entries: &[StartupEntry]) -> Screen {
             if rows.len() == 1 { "" } else { "s" }
         ),
         rows,
+    }
+}
+
+/// Where startup files live: the system autostart folders (`$XDG_CONFIG_DIRS`, default `/etc/xdg`,
+/// each with `/autostart`), the user's, and where Tidewise keeps backups of user files it edits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    pub system: Vec<std::path::PathBuf>,
+    pub user: std::path::PathBuf,
+    pub backup: std::path::PathBuf,
+}
+
+pub fn paths_from(
+    config_dirs: Option<&str>,
+    config_home: Option<&str>,
+    state_home: Option<&str>,
+    home: &std::path::Path,
+) -> Paths {
+    let absolute = |s: Option<&str>| s.map(std::path::PathBuf::from).filter(|p| p.is_absolute());
+    let mut system: Vec<std::path::PathBuf> = config_dirs
+        .unwrap_or("")
+        .split(':')
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .map(|p| p.join("autostart"))
+        .collect();
+    if system.is_empty() {
+        system.push("/etc/xdg/autostart".into());
+    }
+    Paths {
+        system,
+        user: absolute(config_home)
+            .unwrap_or_else(|| home.join(".config"))
+            .join("autostart"),
+        backup: absolute(state_home)
+            .unwrap_or_else(|| home.join(".local/state"))
+            .join("tidewise/backup"),
     }
 }
 
@@ -199,6 +233,28 @@ mod tests {
         assert_eq!(p.chip, "Part of your desktop");
         assert!(p.locked);
         assert_eq!(p.desc, "Your desktop · Provided by your system");
+    }
+
+    #[test]
+    fn startup_folders_follow_the_xdg_variables_with_safe_defaults() {
+        let home = std::path::Path::new("/home/u");
+        let p = paths_from(None, None, None, home);
+        assert_eq!(p.system, [PathBuf::from("/etc/xdg/autostart")]);
+        assert_eq!(p.user, PathBuf::from("/home/u/.config/autostart"));
+        assert_eq!(
+            p.backup,
+            PathBuf::from("/home/u/.local/state/tidewise/backup")
+        );
+        let p = paths_from(Some("/a:/b:relative::"), Some("/cfg"), Some("/state"), home);
+        assert_eq!(
+            p.system,
+            [PathBuf::from("/a/autostart"), PathBuf::from("/b/autostart")]
+        );
+        assert_eq!(p.user, PathBuf::from("/cfg/autostart"));
+        assert_eq!(p.backup, PathBuf::from("/state/tidewise/backup"));
+        let p = paths_from(Some(""), Some("relative"), Some(""), home);
+        assert_eq!(p.system, [PathBuf::from("/etc/xdg/autostart")]);
+        assert_eq!(p.user, PathBuf::from("/home/u/.config/autostart"));
     }
 
     #[test]

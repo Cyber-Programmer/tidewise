@@ -561,6 +561,95 @@ pub fn apps() -> Vec<(
     ]
 }
 
+/// The Startup artboard's eight apps (Flameshot is off).
+pub fn startup() -> Vec<tidewise_adapters::autostart::StartupEntry> {
+    use tidewise_adapters::autostart::{Scope, StartupEntry};
+    let e = |file: &str, name: &str, comment: &str, scope: Scope, enabled: bool, home_dir: bool| {
+        StartupEntry {
+            file: file.into(),
+            name: name.into(),
+            comment: Some(comment.into()),
+            exec: "x".into(),
+            icon: None,
+            path: if home_dir {
+                format!("~/.config/autostart/{file}").into()
+            } else {
+                format!("/etc/xdg/autostart/{file}").into()
+            },
+            scope,
+            enabled,
+            protected: false,
+            has_system_copy: !home_dir,
+        }
+    };
+    vec![
+        e(
+            "discord.desktop",
+            "Discord",
+            "Chat app",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "com.valvesoftware.Steam.desktop",
+            "Steam",
+            "Game launcher",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "spotify.desktop",
+            "Spotify",
+            "Music",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "com.nextcloud.desktopclient.nextcloud.desktop",
+            "Nextcloud",
+            "File sync",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "org.flameshot.Flameshot.desktop",
+            "Flameshot",
+            "Screenshot tool",
+            Scope::User,
+            false,
+            true,
+        ),
+        e(
+            "org.kde.kdeconnect.daemon.desktop",
+            "KDE Connect",
+            "Links your phone",
+            Scope::System,
+            true,
+            false,
+        ),
+        e(
+            "org.kde.discover.notifier.desktop",
+            "Update notifier",
+            "Tells you when updates are ready",
+            Scope::System,
+            true,
+            false,
+        ),
+        e(
+            "baloo_file.desktop",
+            "File search indexer",
+            "Makes file search fast",
+            Scope::System,
+            true,
+            false,
+        ),
+    ]
+}
+
 /// "Now" for the History demo: 27 Oct 2026, 20:00 UTC (the artboard's "Today").
 pub const HISTORY_NOW: u64 = 1_793_131_200;
 

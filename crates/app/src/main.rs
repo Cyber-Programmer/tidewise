@@ -27,6 +27,7 @@ mod procs;
 mod records;
 mod screenshot;
 mod startup;
+mod startup_live;
 mod storage;
 mod storage_live;
 mod tiles;
@@ -204,6 +205,31 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "startup" => {
+            let st = ui.global::<StartupState>();
+            let screen = startup::screen(&demo::startup());
+            match state {
+                None => view::apply_startup(ui, &screen, None, ""),
+                Some("details") => {
+                    view::apply_startup(ui, &screen, None, "");
+                    st.set_details(true);
+                }
+                Some("toast") => view::apply_startup(
+                    ui,
+                    &screen,
+                    None,
+                    &startup::toast_text("Flameshot", false),
+                ),
+                Some("empty") => view::apply_startup(
+                    ui,
+                    &startup::Screen::default(),
+                    Some((2, "Nothing in your startup folders. Apps that start on their own would be listed here.")),
+                    "",
+                ),
+                Some("live") => {} // drawn by `run_screenshot` from the real folders
+                Some(other) => return Err(format!("unknown startup state '{other}'").into()),
+            }
+        }
         "history" => {
             let st = ui.global::<HistState>();
             let screen = history_view::screen(demo::history(), None, demo::HISTORY_NOW, 0);
@@ -470,6 +496,9 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    if shot.screen == "startup" && shot.state.as_deref() == Some("live") {
+        startup_live::Ctl::new().enter(&ui);
+    }
     if shot.screen == "history" && shot.state.as_deref() == Some("live") {
         history_live::Ctl::new("Arch Linux".into()).enter(&ui);
     }
@@ -706,6 +735,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let startup_ctl = Rc::new(RefCell::new(startup_live::Ctl::new()));
+    startup_live::wire(&ui, &startup_ctl);
     let history_ctl = Rc::new(RefCell::new(history_live::Ctl::new(format!(
         "{} · {}",
         shell_info().0,
@@ -730,7 +761,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl) = (
+        let (weak, live, ctl, storage, cleaner, apps_ctl, history_ctl, startup_ctl) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
@@ -738,6 +769,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cleaner.clone(),
             apps_ctl.clone(),
             history_ctl.clone(),
+            startup_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -754,6 +786,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if page == 3 {
                     storage.borrow_mut().enter(&ui);
+                }
+                if page == 6 {
+                    startup_ctl.borrow_mut().enter(&ui);
                 }
                 if page == 8 {
                     history_ctl.borrow_mut().enter(&ui);
@@ -772,6 +807,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if ui.global::<Shell>().get_page() == 2 {
         apps_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 6 {
+        startup_ctl.borrow_mut().enter(&ui);
     }
     if ui.global::<Shell>().get_page() == 8 {
         history_ctl.borrow_mut().enter(&ui);

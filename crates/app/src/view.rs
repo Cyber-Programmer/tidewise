@@ -443,6 +443,45 @@ pub fn apply_clean(
 }
 
 /// List, chips and search results of the Apps screen.
+/// The Startup apps screen. `empty`: the words to show instead of the list (phase 1 loading,
+/// 2 nothing found, 3 error); `toast` is the line with Undo, or empty.
+pub fn apply_startup(
+    ui: &MainWindow,
+    screen: &crate::startup::Screen,
+    empty: Option<(i32, &str)>,
+    toast: &str,
+) {
+    use crate::{StartRow, StartupState};
+    let st = ui.global::<StartupState>();
+    let rows: Vec<StartRow> = screen
+        .rows
+        .iter()
+        .map(|r| StartRow {
+            file: r.file.clone().into(),
+            name: r.name.clone().into(),
+            desc: r.desc.clone().into(),
+            path: r.path.clone().into(),
+            letter: r.letter.clone().into(),
+            hue: r.hue,
+            enabled: r.enabled,
+            chip: r.chip.clone().into(),
+            locked: r.locked,
+            switch_label: r.switch_label.clone().into(),
+        })
+        .collect();
+    st.set_rows(ModelRc::new(VecModel::from(rows)));
+    st.set_on_count(screen.on.clone().into());
+    st.set_of_text(screen.of.clone().into());
+    st.set_toast(toast.into());
+    match empty {
+        Some((phase, message)) => {
+            st.set_phase(phase);
+            st.set_message(message.into());
+        }
+        None => st.set_phase(0),
+    }
+}
+
 /// The History screen: the timeline (one flat list, each day's first row carries its heading) and
 /// the details of the picked entry. `empty` is the words to show when there is nothing to list.
 pub fn apply_history(
