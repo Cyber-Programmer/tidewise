@@ -523,3 +523,10 @@ Done: red 95c7137 → e8aa8cf; 1d7cbf8 → a305d6f; 88dc7b0 → 1870550; box 10c
 Next: R7-Q13 Empty / loading / error states pass.
 Blockers: keys never exercised (headless); home files not searched; dialog crop 42.4 % (Files section).
 Rules bent: Slint box, key handling, controller and demo not test-first.
+
+## 2026-11-02 — Run 07, R7-Q13 Empty / loading / error states — PARTIAL
+Plan: red-first view-model functions for the artboard states, then Slint wiring, skeleton lists, audit table.
+Done: red 41b4783 → 802e847; fmt, clippy, plain and TMPDIR `cargo test --all` (684 passed), deny, audit, release build exit 0; `docs/states-audit.md`.
+Next: R7-Q14 CHANGELOG.md and README screenshots.
+Blockers: admin, update and sensor states not buildable; keyboard and contrast pass not done; nothing clicked.
+Rules bent: Slint parts not test-first.

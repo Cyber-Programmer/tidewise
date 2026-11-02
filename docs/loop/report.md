@@ -182,3 +182,14 @@ Evidence:
 Not verified: **Ctrl K, ↑ ↓, Enter and Esc were never pressed** (headless run, no way to send keys); the `capture-key-pressed` focus design is untested, so it may not catch Ctrl K while another text field has focus; clicking a result and the navigation into Apps/Processes with a filled search field were never exercised; the first-open delay for apps (background scan) is only reasoned, not measured; contrast and keyboard order not checked. The live box was never drawn from real data (only the demo).
 Errors: (1) first red run of the index tests ran 0 tests because I had registered the module with a pattern that did not match `main.rs` (fixed). (2) the typed text sat above the middle of the input row in the first screenshot (fixed with an explicit height and vertical alignment). (3) my first version of the "free space" test had a nonsensical `.rev().rev()` expectation; rewritten before the red commit.
 Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q12" items 1–7.
+
+## R7-Q13 Empty / loading / error states pass — Partial   (2026-11-02 13:58 PKT)
+WBS: 9.7 → In Progress (see sheet)
+Commits: 41b4783 (red) → 802e847 (code, Slint, demo states)
+Evidence:
+- Red: `cargo test -p tidewise-app --bin tidewise` on the new tests failed on assertions before the code (source_notes, unsupported_system_apps, critical_drive, empty_state). On 802e847: `cargo fmt --check` → 0; `cargo clippy --all-targets -- -D warnings` → 0; plain `cargo test --all` → 0 (684 passed, 0 failed, 3 ignored); `TMPDIR=$PWD/target/tmp cargo test --all` → 0 (684 passed, 3 ignored); `cargo deny check` → 0; `cargo audit` → 0; `cargo build --release -p tidewise-app` → 0 (binary 13:51:58 already current). `ls -d /tmp/appimage_extracted_*` → none (0).
+- Built: Already tidy + Check again, source notes, unsupported manager, drive-almost-full banner, skeleton rows (Apps, Services, Startup). Audit of all screens × empty/loading/error: `docs/states-audit.md`.
+- Pictures looked at: `target/design-check/S-grid.png`, `S-loading-grid.png`. No design score was taken for these states (artboard F is a sheet of cards, not one screen).
+Not verified: **nobody clicked** "Check again" or "Free up space"; the real critical-drive and missing-Flatpak/Snap paths never ran on a real machine (only demo states and unit tests); **keyboard pass and 4.5:1 contrast check, which WBS 9.7 names, were not done**; skeleton rows were not compared to the artboard by score.
+Errors: none in this task's final run.
+Decisions taken without the human: → docs/questions.md "Run 07 — R7-Q13" items 1–6.

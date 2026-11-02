@@ -91,7 +91,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   that goes to the right screen.
 - [/] **Q12 Search, Ctrl K** (WBS 9.1, design `Search`). Index over apps, processes, actions, settings;
   home files only if it stays inside the memory budget (measure). Ranking unit tests.
-- [ ] **Q13 Empty / loading / error states pass** (WBS 9.7, design `States`) for every built screen.
+- [/] **Q13 Empty / loading / error states pass** (WBS 9.7, design `States`) for every built screen.
 
 ## D. Cheap docs
 
