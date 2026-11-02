@@ -34,5 +34,5 @@ WBS: no row named for this task (documentation only; no row added: it is not a d
 Commits: docs-only (no red/green pair: no behaviour changed), see `docs(loop): R7-Q02 report` in `git log`
 Evidence: 6 items (R6-Q07, Q08, Q10, Q13, Q14, Q15) added to `docs/questions.md` under "Run 06 — decisions taken before they were listed here", each with a recommended answer; text taken from `docs/loop/archive/run-06-report.md` lines 99–126, 142–157, 195–245. No cargo command was needed or run (no code changed); `git status` showed a clean tree before the edit.
 Not verified: the six texts were copied from the run 06 report, not re-checked against the code. R6-Q14's "R7-Q04 adds the checkbox" and R6-Q15's "move the protected check into adapters" are my recommendations, not existing work.
-Errors: none.
+Errors: the first draft of this entry carried a made-up time (06:33); corrected to 06:29 from `date` (second time in this run I wrote a time without reading the clock).
 Decisions taken without the human: no WBS row added for Q02 (queue gave none); recommended answers are mine → all in docs/questions.md.
