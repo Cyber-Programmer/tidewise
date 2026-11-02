@@ -11,6 +11,7 @@ pub mod mounts;
 pub mod procfs;
 pub mod rates;
 pub mod scan;
+pub mod search;
 pub mod settings;
 pub mod statm;
 pub mod stats;
