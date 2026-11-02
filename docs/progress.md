@@ -488,3 +488,10 @@ Done: red ace25ea → fd1ba10, d6d0793 → db3f151, 0e9c8e4 → 4e51482; wiring 
 Next: R7-Q08 Startup apps.
 Blockers: History design 32.8 % (target 10 % not met: 2 artboard entries have no record kind); nothing clicked by a person; clipboard path never run.
 Rules bent: screen, controller, clipboard and writer wiring not test-first.
+
+## 2026-11-02 — Run 07, R7-Q08 Startup apps — PARTIAL
+Plan: `autostart` adapter red-first (parse, list by desktop, protected names, disable/enable with a Hidden=true user copy, backup, Trash for our own copy), History record kind and view, view model, then Slint screen + controller + demo; fuzz target extended; impact numbers left out.
+Done: red 1525c5b → e134e2f; 9a24720 → 67ca32f; 40dede2 → a1057e7; screen 8c8e91f; fmt, clippy, plain and TMPDIR `cargo test --all` (611 passed), deny, audit, release build exit 0; fuzz desktop_files 20 s exit 0; Startup design 18.7 %.
+Next: R7-Q09 Services list, read-only.
+Blockers: nobody flipped a real switch; design target 10 % not met (omitted impact/memory/boot cards); TryExec and KDE autostart conditions not evaluated.
+Rules bent: Slint screen, controller and demo not test-first.

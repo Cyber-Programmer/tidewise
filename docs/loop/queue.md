@@ -78,7 +78,7 @@ Run 06's queue and report are in `docs/loop/archive/`.
   Clean up; make Storage Trash/Undo, uninstall and End task write them too. List by day, what changed,
   Undo where it is possible without admin (Trash restore), "Copy for a help forum". Threat model 'R' row
   updated. Records in `$XDG_STATE_HOME/tidewise/history/`.
-- [ ] **Q08 Startup apps** (WBS 8.1, design `Startup`). XDG autostart; turning off writes a user
+- [/] **Q08 Startup apps** (WBS 8.1, design `Startup`). XDG autostart; turning off writes a user
   `Hidden=true` copy with a backup; Undo toast. `.desktop` parser fixtures; extend the desktop fuzz
   target. Impact numbers only if they can be measured honestly; otherwise leave them out and say so.
 - [ ] **Q09 Services list, read-only** (WBS 8.2, design `Services`). Machine-readable `systemctl` output
