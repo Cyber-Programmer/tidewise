@@ -25,9 +25,46 @@ pub struct Parsed {
     pub tidewise_created: bool,
 }
 
-/// Read one file. `None` when it is not a `[Desktop Entry]` of type Application without an `Exec`.
-pub fn parse(_text: &str) -> Option<Parsed> {
-    None
+/// Read one file. `None` when it is not a `[Desktop Entry]` of type Application with an `Exec`.
+pub fn parse(text: &str) -> Option<Parsed> {
+    let mut in_group = false;
+    let mut found_group = false;
+    let (mut kind, mut p) = (None, Parsed::default());
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_group = line == "[Desktop Entry]";
+            found_group |= in_group;
+            continue;
+        }
+        if !in_group || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        let list = |v: &str| {
+            v.split(';')
+                .filter(|d| !d.is_empty())
+                .map(String::from)
+                .collect::<Vec<_>>()
+        };
+        match key {
+            "Type" => kind = Some(value.to_string()),
+            "Name" => p.name = value.to_string(),
+            "Comment" => p.comment = Some(value.to_string()).filter(|c| !c.is_empty()),
+            "Exec" => p.exec = value.to_string(),
+            "Icon" => p.icon = Some(value.to_string()).filter(|c| !c.is_empty()),
+            "Hidden" => p.hidden = value == "true",
+            "X-GNOME-Autostart-enabled" => p.gnome_disabled = value == "false",
+            "OnlyShowIn" => p.only_show_in = list(value),
+            "NotShowIn" => p.not_show_in = list(value),
+            "X-Tidewise-Created" => p.tidewise_created = value == "true",
+            _ => {}
+        }
+    }
+    (found_group && kind.as_deref() == Some("Application") && !p.exec.is_empty()).then_some(p)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,19 +97,118 @@ pub struct StartupEntry {
 /// Parts of the session that must keep starting (golden rule 7): the desktop shell, the
 /// authentication agent, the keyring and wallet, accessibility bus, audio, portals and the network
 /// applet. Matched on the file name, case-insensitively.
-pub fn is_protected(_file: &str) -> bool {
-    false
+pub fn is_protected(file: &str) -> bool {
+    const EXACT: [&str; 6] = [
+        "org.kde.plasmashell",
+        "kglobalacceld",
+        "at-spi-dbus-bus",
+        "pam_kwallet_init",
+        "nm-applet",
+        "pulseaudio",
+    ];
+    const PREFIX: [&str; 12] = [
+        "polkit-",
+        "gnome-keyring",
+        "xdg-desktop-portal",
+        "pipewire",
+        "wireplumber",
+        "gnome-shell",
+        "gnome-session",
+        "org.kde.plasma",
+        "plasma-",
+        "kwin",
+        "kded",
+        "ksmserver",
+    ];
+    let lower = file.to_lowercase();
+    let stem = lower.strip_suffix(".desktop").unwrap_or(&lower);
+    EXACT.contains(&stem) || PREFIX.iter().any(|p| stem.starts_with(p))
+}
+
+/// A plain file name for a startup entry: ends in `.desktop`, no separators, NUL or leading `.` or `-`.
+fn is_plain_file(name: &str) -> bool {
+    name.len() <= 255
+        && name.len() > ".desktop".len()
+        && name.ends_with(".desktop")
+        && !name.starts_with(['.', '-'])
+        && !name.contains(['/', '\\', '\0'])
+}
+
+fn read_small(path: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    (meta.is_file() && meta.len() < 256 * 1024)
+        .then(|| std::fs::read_to_string(path).ok())
+        .flatten()
+}
+
+fn applies(p: &Parsed, desktop: Option<&str>) -> bool {
+    let Some(current) = desktop else {
+        return true;
+    };
+    let current: Vec<&str> = current
+        .split([':', ';'])
+        .filter(|d| !d.is_empty())
+        .collect();
+    let any = |list: &[String]| list.iter().any(|d| current.contains(&d.as_str()));
+    (p.only_show_in.is_empty() || any(&p.only_show_in)) && !any(&p.not_show_in)
 }
 
 /// Every startup entry that applies to `desktop` (`XDG_CURRENT_DESKTOP`, e.g. `KDE` or
 /// `ubuntu:GNOME`; `None` shows all), sorted by name. A user file hides the system file of the same
 /// name; system files that are `Hidden=true` are left out.
-pub fn list(
-    _system_dirs: &[PathBuf],
-    _user_dir: &Path,
-    _desktop: Option<&str>,
-) -> Vec<StartupEntry> {
-    Vec::new()
+pub fn list(system_dirs: &[PathBuf], user_dir: &Path, desktop: Option<&str>) -> Vec<StartupEntry> {
+    use std::collections::{HashMap, HashSet};
+    let files_in = |dir: &Path| -> Vec<(String, PathBuf)> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                is_plain_file(&name).then(|| (name, e.path()))
+            })
+            .collect()
+    };
+    // Earlier system folders win over later ones; the user folder wins over all.
+    let mut chosen: HashMap<String, (PathBuf, Scope)> = HashMap::new();
+    let mut in_system: HashSet<String> = HashSet::new();
+    for dir in system_dirs {
+        for (name, path) in files_in(dir) {
+            in_system.insert(name.clone());
+            chosen.entry(name).or_insert((path, Scope::System));
+        }
+    }
+    for (name, path) in files_in(user_dir) {
+        chosen.insert(name, (path, Scope::User));
+    }
+    let mut out: Vec<StartupEntry> = chosen
+        .into_iter()
+        .filter_map(|(file, (path, scope))| {
+            let p = parse(&read_small(&path)?)?;
+            if (scope == Scope::System && p.hidden) || !applies(&p, desktop) {
+                return None;
+            }
+            let name = if p.name.is_empty() {
+                file.trim_end_matches(".desktop").to_string()
+            } else {
+                p.name.clone()
+            };
+            Some(StartupEntry {
+                protected: is_protected(&file),
+                has_system_copy: in_system.contains(&file),
+                enabled: !p.hidden && !p.gnome_disabled,
+                comment: p.comment,
+                exec: p.exec,
+                icon: p.icon,
+                file,
+                name,
+                path,
+                scope,
+            })
+        })
+        .collect();
+    out.sort_by_key(|e| (e.name.to_lowercase(), e.file.clone()));
+    out
 }
 
 /// Where things live, so tests can use temp folders.
@@ -98,14 +234,124 @@ pub enum Error {
     Io(String),
 }
 
+/// Set `key=value` inside the `[Desktop Entry]` group: replace the line, or add it right after the
+/// group header. Every other line (comments, other groups, localized names) stays as it is.
+fn set_key(text: &str, key: &str, value: &str) -> String {
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let Some(header) = lines.iter().position(|l| l.trim() == "[Desktop Entry]") else {
+        return text.to_string();
+    };
+    let end = lines[header + 1..]
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .map_or(lines.len(), |i| header + 1 + i);
+    let wanted = format!("{key}={value}");
+    match lines[header + 1..end]
+        .iter()
+        .position(|l| l.trim_start().starts_with(&format!("{key}=")))
+    {
+        Some(i) => lines[header + 1 + i] = wanted,
+        None => lines.insert(header + 1, wanted),
+    }
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+/// Write `text` to `path` through a temporary file in the same folder, then rename it.
+fn write_atomic(path: &Path, text: &str) -> Result<(), Error> {
+    let io = |e: std::io::Error| Error::Io(format!("{}: {e}", path.display()));
+    let dir = path.parent().ok_or_else(|| Error::Io("no folder".into()))?;
+    std::fs::create_dir_all(dir).map_err(io)?;
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let temp = dir.join(format!(".{name}.tmp-tidewise"));
+    let result = std::fs::write(&temp, text).and_then(|()| std::fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result.map_err(io)
+}
+
+fn check(file: &str) -> Result<(), Error> {
+    if !is_plain_file(file) {
+        return Err(Error::BadName(file.to_string()));
+    }
+    if is_protected(file) {
+        return Err(Error::Protected(file.to_string()));
+    }
+    Ok(())
+}
+
+/// The first system folder's copy of `file`.
+fn system_copy(file: &str, dirs: &Dirs) -> Option<String> {
+    dirs.system.iter().find_map(|d| read_small(&d.join(file)))
+}
+
 /// Turn an entry off: a user copy with `Hidden=true`.
-pub fn disable(_file: &str, _dirs: &Dirs) -> Result<(), Error> {
-    Err(Error::Io("not built".into()))
+pub fn disable(file: &str, dirs: &Dirs) -> Result<(), Error> {
+    check(file)?;
+    let user_file = dirs.user.join(file);
+    if let Some(text) = read_small(&user_file) {
+        if parse(&text).is_none_or(|p| p.hidden) {
+            return Ok(()); // already off (or not a startup file at all)
+        }
+        // The first time only: what the app wrote, so turning it on gives it back unchanged.
+        let backup = dirs.backup.join(file);
+        if !backup.exists() {
+            std::fs::create_dir_all(dirs.backup).map_err(|e| Error::Io(e.to_string()))?;
+            std::fs::write(&backup, &text).map_err(|e| Error::Io(e.to_string()))?;
+        }
+        return write_atomic(&user_file, &set_key(&text, "Hidden", "true"));
+    }
+    let text = system_copy(file, dirs).ok_or_else(|| Error::NotFound(file.to_string()))?;
+    let copy = set_key(
+        &set_key(&text, "Hidden", "true"),
+        "X-Tidewise-Created",
+        "true",
+    );
+    write_atomic(&user_file, &copy)
 }
 
 /// Turn an entry back on, undoing what `disable` did.
-pub fn enable(_file: &str, _dirs: &Dirs) -> Result<(), Error> {
-    Err(Error::Io("not built".into()))
+pub fn enable(file: &str, dirs: &Dirs) -> Result<(), Error> {
+    check(file)?;
+    let user_file = dirs.user.join(file);
+    if let Some(text) = read_small(&user_file) {
+        let parsed = parse(&text).ok_or_else(|| Error::NotFound(file.to_string()))?;
+        if parsed.tidewise_created {
+            // Our own copy of a system file: the Trash, never a delete; the system file runs again.
+            return tidewise_core::trash::move_to_trash(
+                &user_file, dirs.trash, dirs.home, dirs.now,
+            )
+            .map(|_| ())
+            .map_err(|e| Error::Io(e.to_string()));
+        }
+        let backup = dirs.backup.join(file);
+        if let Some(original) = read_small(&backup) {
+            write_atomic(&user_file, &original)?;
+            let _ = std::fs::remove_file(&backup); // our own backup, used up
+            return Ok(());
+        }
+        let mut text = set_key(&text, "Hidden", "false");
+        if parsed.gnome_disabled {
+            text = set_key(&text, "X-GNOME-Autostart-enabled", "true");
+        }
+        return write_atomic(&user_file, &text);
+    }
+    let text = system_copy(file, dirs).ok_or_else(|| Error::NotFound(file.to_string()))?;
+    if parse(&text).is_none_or(|p| !p.gnome_disabled) {
+        return Ok(()); // already on
+    }
+    let copy = set_key(
+        &set_key(&text, "Hidden", "false"),
+        "X-GNOME-Autostart-enabled",
+        "true",
+    );
+    write_atomic(&user_file, &set_key(&copy, "X-Tidewise-Created", "true"))
 }
 
 #[cfg(test)]
