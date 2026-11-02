@@ -2,6 +2,9 @@
 //! behind it, the checks that passed and what is not measured. Plain data from
 //! `tidewise_core::health::Report`; `view.rs` copies it into Slint.
 
+// Not drawn yet: the Slint page that reads this arrives in the next commit.
+#![allow(dead_code)]
+
 use tidewise_core::health::{Report, PAGE_SERVICES};
 
 /// 0 amber (it costs points), 1 red (a failure), 2 quiet.
@@ -44,21 +47,52 @@ pub struct Screen {
 }
 
 /// Build the page. `open` lists the issues (by position) that are expanded.
-pub fn screen(_report: &Report, _open: &[usize]) -> Screen {
+pub fn screen(report: &Report, open: &[usize]) -> Screen {
+    let tone = |page: i32| if page == PAGE_SERVICES { 1 } else { 0 };
+    let issues: Vec<Issue> = report
+        .findings
+        .iter()
+        .enumerate()
+        .map(|(i, f)| Issue {
+            points: format!("−{}", f.points),
+            tone: tone(f.page),
+            title: f.title.clone(),
+            desc: f.desc.clone(),
+            check: f.check.clone(),
+            action: f.action.clone(),
+            page: f.page,
+            open: open.contains(&i),
+        })
+        .collect();
+    let mut sum = vec![Sum {
+        text: "100".into(),
+        tone: 2,
+    }];
+    sum.extend(report.findings.iter().map(|f| Sum {
+        text: format!("− {}", f.points),
+        tone: tone(f.page),
+    }));
+    sum.push(Sum {
+        text: "=".into(),
+        tone: 2,
+    });
+    sum.push(Sum {
+        text: report.score.to_string(),
+        tone: 2,
+    });
     Screen {
-        score: 0,
-        tag: String::new(),
-        title: String::new(),
-        sum: Vec::new(),
-        issues: Vec::new(),
-        passed: Vec::new(),
-        not_checked: Vec::new(),
+        score: report.score,
+        tag: report.tag.clone(),
+        title: format!("Why your score is {}", report.score),
+        sum,
+        issues,
+        passed: report.passed.clone(),
+        not_checked: report
+            .not_checked
+            .iter()
+            .map(|n| (n.title.clone(), n.why.clone()))
+            .collect(),
     }
-}
-
-#[allow(dead_code)]
-fn unused() -> i32 {
-    PAGE_SERVICES
 }
 
 #[cfg(test)]
