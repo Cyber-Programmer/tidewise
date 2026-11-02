@@ -15,6 +15,7 @@ pub mod junk;
 pub mod orphans;
 pub mod pacman;
 pub mod runner;
+pub mod services;
 pub mod snap;
 pub mod source;
 pub mod uninstall;

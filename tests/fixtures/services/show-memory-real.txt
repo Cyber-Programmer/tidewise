@@ -1,0 +1,140 @@
+Id=accounts-daemon.service
+MemoryCurrent=1585152
+
+Id=alsa-restore.service
+MemoryCurrent=[not set]
+
+Id=bluetooth.service
+MemoryCurrent=1257472
+
+Id=containerd.service
+MemoryCurrent=83812352
+
+Id=dbus-broker.service
+MemoryCurrent=4300800
+
+Id=docker.service
+MemoryCurrent=98209792
+
+Id=kmod-static-nodes.service
+MemoryCurrent=[not set]
+
+Id=lm_sensors.service
+MemoryCurrent=[not set]
+
+Id=NetworkManager-wait-online.service
+MemoryCurrent=[not set]
+
+Id=NetworkManager.service
+MemoryCurrent=13307904
+
+Id=plymouth-quit-wait.service
+MemoryCurrent=[not set]
+
+Id=plymouth-quit.service
+MemoryCurrent=[not set]
+
+Id=plymouth-read-write.service
+MemoryCurrent=[not set]
+
+Id=plymouth-start.service
+MemoryCurrent=[not set]
+
+Id=polkit.service
+MemoryCurrent=6369280
+
+Id=power-profiles-daemon.service
+MemoryCurrent=1302528
+
+Id=sddm.service
+MemoryCurrent=31186944
+
+Id=systemd-backlight@backlight:intel_backlight.service
+MemoryCurrent=[not set]
+
+Id=systemd-boot-random-seed.service
+MemoryCurrent=[not set]
+
+Id=systemd-fsck-root.service
+MemoryCurrent=[not set]
+
+Id=systemd-fsck@dev-disk-by\x2duuid-6DC3\x2dF7F7.service
+MemoryCurrent=[not set]
+
+Id=systemd-journal-flush.service
+MemoryCurrent=[not set]
+
+Id=systemd-journald.service
+MemoryCurrent=75599872
+
+Id=systemd-logind.service
+MemoryCurrent=2711552
+
+Id=systemd-modules-load.service
+MemoryCurrent=[not set]
+
+Id=systemd-random-seed.service
+MemoryCurrent=[not set]
+
+Id=systemd-remount-fs.service
+MemoryCurrent=[not set]
+
+Id=systemd-sysctl.service
+MemoryCurrent=[not set]
+
+Id=systemd-tmpfiles-setup-dev-early.service
+MemoryCurrent=[not set]
+
+Id=systemd-tmpfiles-setup-dev.service
+MemoryCurrent=[not set]
+
+Id=systemd-tmpfiles-setup.service
+MemoryCurrent=[not set]
+
+Id=systemd-udev-load-credentials.service
+MemoryCurrent=[not set]
+
+Id=systemd-udev-trigger.service
+MemoryCurrent=[not set]
+
+Id=systemd-udevd.service
+MemoryCurrent=12730368
+
+Id=systemd-update-utmp.service
+MemoryCurrent=[not set]
+
+Id=systemd-user-sessions.service
+MemoryCurrent=[not set]
+
+Id=systemd-userdb-load-credentials.service
+MemoryCurrent=[not set]
+
+Id=systemd-userdbd.service
+MemoryCurrent=3280896
+
+Id=systemd-vconsole-setup.service
+MemoryCurrent=[not set]
+
+Id=thermald.service
+MemoryCurrent=3039232
+
+Id=udisks2.service
+MemoryCurrent=4009984
+
+Id=upower.service
+MemoryCurrent=6688768
+
+Id=user-runtime-dir@1000.service
+MemoryCurrent=[not set]
+
+Id=user@1000.service
+MemoryCurrent=7870464000
+
+Id=warp-svc.service
+MemoryCurrent=164098048
+
+Id=waydroid-container.service
+MemoryCurrent=20402176
+
+Id=wpa_supplicant.service
+MemoryCurrent=5165056
