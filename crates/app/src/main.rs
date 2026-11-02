@@ -29,6 +29,7 @@ mod procs;
 mod records;
 mod screenshot;
 mod search_index;
+mod search_view;
 mod services_live;
 mod services_view;
 mod settings_live;
