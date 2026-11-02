@@ -1,0 +1,13 @@
+[Desktop Entry]
+# Written by the app itself the first time it ran
+Type=Application
+Name=Discord
+Name[de]=Discord (Chat)
+Comment=All-in-one voice and text chat
+Exec=/usr/bin/discord --start-minimized
+Icon=discord
+X-GNOME-Autostart-enabled=true
+
+[Desktop Action Quit]
+Name=Quit
+Exec=/usr/bin/discord --quit
