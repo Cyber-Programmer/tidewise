@@ -10,7 +10,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use slint::ComponentHandle;
 use tidewise_adapters::appimage::AppImageApps;
+use tidewise_adapters::apt::AptApps;
 use tidewise_adapters::desktop;
+use tidewise_adapters::dnf::DnfApps;
 use tidewise_adapters::flatpak::FlatpakApps;
 use tidewise_adapters::pacman::PacmanApps;
 use tidewise_adapters::runner::SystemRunner;
@@ -80,6 +82,10 @@ fn find_apps() -> Found {
     }
     // Packages: only those that own a visible launcher count as apps.
     add_package_apps(&mut found, &PacmanApps::system(), SourceKind::Pacman);
+    // Debian/Ubuntu and Fedora machines: the same, through `dpkg -S` and `rpm -qf`. On Arch their
+    // tools are missing, `list()` fails and nothing is added.
+    add_package_apps(&mut found, &AptApps::system(), SourceKind::Apt);
+    add_package_apps(&mut found, &DnfApps::system(), SourceKind::Dnf);
     found
 }
 
@@ -103,7 +109,8 @@ fn fresh_plan(app: &AppEntry) -> Option<RemovalPlan> {
         SourceKind::Flatpak => Box::new(FlatpakApps::system()),
         SourceKind::Snap => Box::new(SnapApps::system()),
         SourceKind::Pacman => Box::new(PacmanApps::system()),
-        _ => return None,
+        SourceKind::Apt => Box::new(AptApps::system()),
+        SourceKind::Dnf => Box::new(DnfApps::system()),
     };
     let current = source.list().ok()?.into_iter().find(|a| a.id == app.id)?;
     source.removal_plan(&current).ok()
