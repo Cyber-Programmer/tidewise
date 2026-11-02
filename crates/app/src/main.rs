@@ -28,6 +28,7 @@ mod records;
 mod screenshot;
 mod services_live;
 mod services_view;
+mod settings_view;
 mod startup;
 mod startup_live;
 mod storage;
