@@ -1,6 +1,9 @@
 //! The History screen: what the rows, the details and the Undo button say, from the records in
 //! `$XDG_STATE_HOME/tidewise/history/`. Plain data; `view.rs` copies it into Slint.
 
+// Not shown yet: the Slint screen that reads this arrives in the next commit.
+#![allow(dead_code)]
+
 use tidewise_core::history::{self, Kind, Record, Status, Undo};
 
 /// Which icon a row gets (the artboard's colours per kind).
@@ -54,19 +57,329 @@ pub struct Screen {
     pub detail: Option<Detail>,
 }
 
-/// Build the screen. `selected` is a record id; when it is unknown the newest record is shown.
-pub fn screen(
-    _records: Vec<Record>,
-    _selected: Option<&str>,
-    _now: u64,
-    _offset_secs: i64,
-) -> Screen {
-    Screen::default()
+fn icon(kind: Kind) -> Icon {
+    match kind {
+        Kind::CleanUp => Icon::Clean,
+        Kind::Uninstall => Icon::App,
+        Kind::Trash => Icon::Trash,
+        Kind::Startup => Icon::Startup,
+        Kind::EndTask => Icon::Process,
+    }
 }
 
-#[allow(dead_code)]
-fn unused(_: Kind, _: Status, _: Undo) {
-    let _ = history::VERSION;
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+fn count(record: &Record, status: Status) -> usize {
+    record.steps.iter().filter(|s| s.status == status).count()
+}
+
+fn left_behind(record: &Record) -> usize {
+    record
+        .steps
+        .iter()
+        .flat_map(|s| &s.entries)
+        .filter(|e| e.result == history::ItemResult::Left)
+        .count()
+}
+
+fn forced(record: &Record) -> bool {
+    record.kind == Kind::EndTask
+        && record
+            .steps
+            .iter()
+            .any(|s| s.note.as_deref().is_some_and(|n| n.contains("force quit")))
+}
+
+/// One short line under the title.
+fn summary(record: &Record) -> String {
+    match record.kind {
+        Kind::CleanUp => {
+            let cleaned = count(record, Status::Done) + count(record, Status::Partial);
+            let mut text = if cleaned == 0 {
+                "nothing was removed".to_string()
+            } else {
+                format!("{} cleaned", plural(cleaned, "group", "groups"))
+            };
+            let skipped = count(record, Status::Skipped);
+            if skipped > 0 {
+                text += &format!(" · {skipped} skipped");
+            }
+            let left = left_behind(record);
+            if left > 0 {
+                text += &format!(" · {left} left");
+            }
+            text
+        }
+        Kind::Uninstall => {
+            if record.freed_bytes > 0 {
+                format!("{} freed", history::bytes_text(record.freed_bytes))
+            } else {
+                String::new()
+            }
+        }
+        Kind::Trash => {
+            let bytes: u64 = record.steps.iter().map(|s| s.bytes).sum();
+            if bytes > 0 {
+                format!("{} · from Storage", history::bytes_text(bytes))
+            } else {
+                "from Storage".into()
+            }
+        }
+        Kind::EndTask => record
+            .steps
+            .first()
+            .and_then(|s| s.note.clone())
+            .unwrap_or_default(),
+        Kind::Startup => record
+            .steps
+            .first()
+            .map(|s| s.title.clone())
+            .unwrap_or_default(),
+    }
+}
+
+fn result(record: &Record) -> &'static str {
+    if forced(record) {
+        return "Forced";
+    }
+    let (done, partial, failed, skipped) = (
+        count(record, Status::Done),
+        count(record, Status::Partial),
+        count(record, Status::Failed),
+        count(record, Status::Skipped),
+    );
+    if failed > 0 && done + partial == 0 {
+        "Failed"
+    } else if (partial + failed + skipped > 0) && (done + partial > 0) {
+        "Partly done"
+    } else if skipped > 0 {
+        "Skipped"
+    } else {
+        "Done"
+    }
+}
+
+fn word(status: Status) -> &'static str {
+    match status {
+        Status::Done => "done",
+        Status::Partial => "partly done",
+        Status::Skipped => "skipped",
+        Status::Failed => "failed",
+        Status::NotRun => "not run",
+    }
+}
+
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// What changed: label and value.
+fn lines(record: &Record) -> Vec<(String, String)> {
+    let size = |bytes: u64| {
+        if bytes > 0 {
+            history::bytes_text(bytes)
+        } else {
+            "—".to_string()
+        }
+    };
+    match record.kind {
+        Kind::Trash => record
+            .steps
+            .iter()
+            .flat_map(|s| &s.entries)
+            .map(|e| (file_name(&e.path), size(e.bytes)))
+            .collect(),
+        Kind::EndTask => {
+            let n = record
+                .steps
+                .first()
+                .and_then(|s| s.note.as_deref())
+                .and_then(|n| n.split_whitespace().next())
+                .unwrap_or("1")
+                .to_string();
+            vec![
+                ("Processes ended".into(), n),
+                (
+                    "Memory freed".into(),
+                    history::bytes_text(record.freed_bytes),
+                ),
+            ]
+        }
+        Kind::Uninstall => {
+            let mut out: Vec<(String, String)> = record
+                .steps
+                .iter()
+                .map(|s| (s.title.clone(), history::bytes_text(s.bytes)))
+                .collect();
+            let notes: Vec<&str> = record
+                .steps
+                .iter()
+                .filter_map(|s| s.note.as_deref())
+                .collect();
+            if !notes.contains(&"moved to the Trash") {
+                let value = if notes.iter().any(|n| n.contains("settings and data moved")) {
+                    "in the Trash"
+                } else {
+                    "kept"
+                };
+                out.push(("Your settings & data".into(), value.into()));
+            }
+            out
+        }
+        _ => record
+            .steps
+            .iter()
+            .map(|s| {
+                let value = if s.bytes > 0 {
+                    history::bytes_text(s.bytes)
+                } else {
+                    word(s.status).to_string()
+                };
+                (s.title.clone(), value)
+            })
+            .collect(),
+    }
+}
+
+fn note(record: &Record) -> String {
+    let notes: Vec<&str> = record
+        .steps
+        .iter()
+        .filter_map(|s| s.note.as_deref())
+        .collect();
+    match record.kind {
+        Kind::CleanUp if left_behind(record) > 0 || count(record, Status::Partial) > 0 => {
+            "Some items could not be removed, so they are still there. The technical details list each one with the reason.".into()
+        }
+        Kind::CleanUp => {
+            "Cleaning cannot be undone, but caches and logs rebuild on their own.".into()
+        }
+        Kind::Uninstall if notes.contains(&"moved to the Trash") => {
+            "The files are in your Trash, so you can still put them back from there.".into()
+        }
+        Kind::Uninstall if notes.iter().any(|n| n.contains("settings and data moved")) => {
+            "Your settings and data are in your Trash, so you can still put them back from there."
+                .into()
+        }
+        Kind::Uninstall => {
+            "Your settings were kept, so reinstalling later brings everything back.".into()
+        }
+        Kind::Trash => "The space is only freed after you empty the Trash.".into(),
+        Kind::EndTask => "Ending an app cannot be undone.".into(),
+        Kind::Startup => String::new(),
+    }
+}
+
+/// The technical details: every path with what happened to it, and where the record is saved.
+fn log(record: &Record) -> String {
+    let mut out = Vec::new();
+    for step in &record.steps {
+        for item in step
+            .items
+            .iter()
+            .filter(|i| !step.entries.iter().any(|e| &e.path == *i))
+        {
+            out.push(format!("removed {item}"));
+        }
+        for e in &step.entries {
+            out.push(match (&e.result, &e.reason) {
+                (history::ItemResult::Removed, _) => format!("removed {}", e.path),
+                (history::ItemResult::Left, Some(why)) => format!("left {}: {why}", e.path),
+                (history::ItemResult::Left, None) => format!("left {}", e.path),
+            });
+        }
+    }
+    out.push(format!(
+        "saved: ~/.local/state/tidewise/history/{}.json",
+        record.id
+    ));
+    out.join("\n")
+}
+
+fn row(record: &Record, now: u64, offset: i64, selected: bool) -> Row {
+    let hint = if history::undo_kind(record).is_some() {
+        "Restore"
+    } else if record.kind == Kind::CleanUp {
+        "No undo needed"
+    } else {
+        ""
+    };
+    Row {
+        id: record.id.clone(),
+        title: record.title.clone(),
+        subtitle: format!(
+            "{} · {}",
+            history::time_label(record.time, now, offset),
+            summary(record)
+        )
+        .trim_end_matches(" · ")
+        .to_string(),
+        icon: icon(record.kind),
+        hint: hint.into(),
+        selected,
+    }
+}
+
+fn detail(record: &Record, now: u64, offset: i64) -> Detail {
+    Detail {
+        id: record.id.clone(),
+        title: record.title.clone(),
+        result: result(record).into(),
+        when: format!(
+            "{}, {}",
+            history::day_label(record.time, now, offset),
+            history::time_label(record.time, now, offset)
+        ),
+        lines: lines(record),
+        note: note(record),
+        log: log(record),
+        undo: history::undo_kind(record).map(|u| match u {
+            Undo::RestoreFromTrash { .. } => "Restore from Trash".to_string(),
+        }),
+    }
+}
+
+/// Build the screen. `selected` is a record id; when it is unknown the newest record is shown.
+pub fn screen(records: Vec<Record>, selected: Option<&str>, now: u64, offset_secs: i64) -> Screen {
+    let groups = history::group_by_day(records, now, offset_secs);
+    let newest = groups
+        .first()
+        .and_then(|g| g.records.first())
+        .map(|r| r.id.clone());
+    let picked = selected
+        .filter(|id| groups.iter().any(|g| g.records.iter().any(|r| r.id == *id)))
+        .map(str::to_string)
+        .or(newest);
+    let days = groups
+        .iter()
+        .map(|g| Day {
+            label: g.label.clone(),
+            rows: g
+                .records
+                .iter()
+                .map(|r| {
+                    row(
+                        r,
+                        now,
+                        offset_secs,
+                        picked.as_deref() == Some(r.id.as_str()),
+                    )
+                })
+                .collect(),
+        })
+        .collect();
+    let detail = picked.as_deref().and_then(|id| {
+        groups
+            .iter()
+            .flat_map(|g| &g.records)
+            .find(|r| r.id == id)
+            .map(|r| detail(r, now, offset_secs))
+    });
+    Screen { days, detail }
 }
 
 #[cfg(test)]
