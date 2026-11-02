@@ -516,3 +516,10 @@ Done: red 358170e → 760076c; d598e0f → 97d38a1; 277496d → 6efddb0; page 8e
 Next: R7-Q12 Search, Ctrl K.
 Blockers: nobody clicked it; design 33.7 % (updates and the artboard's other checks are not measurable); the Home score now includes failed services (changes the number).
 Rules bent: Slint page, controller and demo not test-first.
+
+## 2026-11-02 — Run 07, R7-Q12 Search, Ctrl K — PARTIAL
+Plan: `core::search` ranking red-first, index + strict keys red-first, rows red-first; Slint box with a global Ctrl K handler; opens pages, apps and programs; no home-file index (not measured).
+Done: red 95c7137 → e8aa8cf; 1d7cbf8 → a305d6f; 88dc7b0 → 1870550; box 10c7c17; fuzz search 20 s exit 0; fmt, clippy, plain and TMPDIR `cargo test --all` (679 passed), deny, audit, release build exit 0.
+Next: R7-Q13 Empty / loading / error states pass.
+Blockers: keys never exercised (headless); home files not searched; dialog crop 42.4 % (Files section).
+Rules bent: Slint box, key handling, controller and demo not test-first.
