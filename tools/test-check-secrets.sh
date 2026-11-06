@@ -25,7 +25,7 @@ for name in aws gh pem; do
   out=$("$SCRIPT" "$d" 2>&1); rc=$?
   [ $rc -ne 0 ] && ok "$name key is caught (exit $rc)" || bad "$name key is caught"
   echo "$out" | grep -q "src/config.txt:1" && ok "$name: output names file and line" || bad "$name: output names file and line"
-  echo "$out" | grep -qF "$v" && bad "$name: secret value is not printed" || ok "$name: secret value is not printed"
+  echo "$out" | grep -qF -- "$v" && bad "$name: secret value is not printed" || ok "$name: secret value is not printed"
 done
 
 mkdir -p "$T/fx/tests/fixtures" && echo "$aws" > "$T/fx/tests/fixtures/sample.txt"
