@@ -644,3 +644,8 @@ Blockers: none.
 Done: docs/loop/human-checklist.md updated with this run's items (GitHub settings, README install lines, keyboard gap, Ctrl K measurement, decisions).
 Next: End of the run (Q13 and Q14 not started).
 Blockers: none.
+
+## 2026-11-06 — Run 08, End of the run
+Done: Q01, Q02, Q05, Q06, Q08, Q10, Q11, Q12, Q15; Q03, Q04, Q07, Q09 partial; Q13 and Q14 not started (time). Final checks (ci-local with fmt, clippy, tests 706 passed, release build, secret scripts, audit, deny; plain cargo test --all; AppImage 11 954 680 bytes) all exit 0 on this machine; nothing verified on GitHub.
+Next: the human merges, reads the CI result and works through docs/loop/human-checklist.md and docs/design-proposals.md; then Q13 and Q14 and the keyboard pass.
+Blockers: none. Rules bent: one stray PNG outside the repo (removed), estimated time stamps (corrected), see the report.
