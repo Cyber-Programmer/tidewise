@@ -1,0 +1,33 @@
+name: Fuzz smoke
+
+# Weekly 60-second run of every fuzz target, plus a button to start it by hand.
+# Never on push or pull request. The target list is read from fuzz/fuzz_targets by
+# tools/fuzz-smoke.sh, so a new target is picked up without editing this file.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch; pinned by commit)
+        with:
+          toolchain: nightly
+      - run: cargo install cargo-fuzz --locked
+      - name: Fuzz every target for 60 s
+        run: tools/fuzz-smoke.sh 60
+      - name: Print crash inputs (base64) so they can be rebuilt from this log
+        if: failure()
+        run: |
+          for f in $(find fuzz/artifacts -type f -name 'crash-*' -o -type f -name 'timeout-*' -o -type f -name 'oom-*' 2>/dev/null); do
+            echo "=== $f ($(wc -c < "$f") bytes)"
+            head -c 65536 "$f" | base64
+          done
