@@ -202,3 +202,19 @@ Not verified:
 - No full `cargo test --all` was needed (no Rust changed); the last full `tools/ci-local.sh` run was at 29e8c55 (exit 0, 706 tests); only docs and `tools/design_check.sh` changed since.
 Errors: my first Settings run used `--height 1100` (not the artboard's 2011) and my `tail -6` cut off the score line, so it printed no score; redone at the reference height (this is the same crop mistake run 07 made, found by repeating it).
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q10" (3 entries)
+
+## R8-Q11 History (32.8 %), Startup apps (18.7 %), Services (17.1 %) — Done (decisions only, no code)   (2026-11-06 07:41 PKT, `date` reading in this round)
+WBS: 8.4, 8.1, 8.2 → In Progress (unchanged); N updated.
+Commits: none for the app; `tools/design_check.sh` gets `history`, `startup`, `services` (commit below).
+Evidence:
+- `tools/design_check.sh history` → exit 0, `History 32.8 %`; `tools/design_check.sh startup` → exit 0, `Startup 18.7 %`; `tools/design_check.sh services` → exit 0, `Services 17.1 %`. All three references are 1360 x 960 (checked with PIL), the same as the render, so no crop problem this time. Same scores as run 07; **none meets the 10 % target.**
+- I looked at the three side-by-side pictures (`target/design-check/History-side.png`, `Startup-side.png`, `Services-side.png`, read). Every difference sorted into (a) bug / (b) not built / (c) sample data in `docs/design-proposals.md`. (b) and (c) cover almost all of it; the one (a) candidate is History's row height (about 2 px shorter per row, read off the picture, not measured).
+- `bash -n tools/design_check.sh` → exit 0.
+Not verified:
+- No score changed and no UI was changed; the targets are not met.
+- The row-height difference in History is an estimate from a scaled picture; I did not read the artboard's CSS or measure it with a tool, and did not fix it (fixing a layout without a test that can fail first would be tuning).
+- My sorting is my reading of three pictures, not checked by a person.
+- Light theme of these screens, hover and keyboard states.
+- No Rust changed this round; the last full `tools/ci-local.sh` was at 29e8c55 (exit 0, 706 tests).
+Errors: none this round.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q11" (3 entries)

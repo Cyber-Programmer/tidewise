@@ -323,3 +323,9 @@ Rules bent: none.
 2. **Health 33.7 % is content, not layout:** updates, memory pressure, temperature and start-up checks are not built and the demo values differ from the artboard. Recommended: approve the proposed difference, and decide whether Health's "Checks that passed" row is worth building (memory and temperatures are cheap to read; updates and drive health are not).
 3. **I did not tune copy, colours or demo numbers to reach a score**, and did not edit `docs/design/`. Not fixed: Health's open first row with a down chevron (small). Recommended: leave until the design decision in items 1 and 2.
 Rules bent: none.
+
+## Run 08 — R8-Q11 History, Startup apps, Services design misses: decisions taken without you
+1. **All three are content and deliberate differences, not layout bugs** (except a possible 2 px History row height). Recommended: approve the three proposed accepted differences in `docs/design-proposals.md`; they only describe what is missing, they do not hide the scores.
+2. **Not tuned:** I did not change copy, order, sample numbers or row heights to reach a number. Recommended: keep; if you want History's rows 2 px taller, say so and I will measure the artboard's CSS first and change it test-first.
+3. **Which missing pieces are v1.0 scope** is yours to say: record kinds for Docker and admin set-up (History), Impact and boot-time measurement and "Add an app" (Startup), enabled service buttons (Services, needs the helper). Each is a feature, not a layout fix.
+Rules bent: none.

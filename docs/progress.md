@@ -627,3 +627,9 @@ Plan: re-measure both at the artboard's height, sort each difference into bug / 
 Done: Settings is 70.3 % (86.3 % was a wrong crop), Health 33.7 %; causes sorted in docs/design-proposals.md; design_check.sh knows settings and health.
 Next: R8-Q11 History, Startup apps, Services.
 Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q11 History, Startup apps, Services design misses
+Plan: re-measure the three screens, look at each side-by-side, sort every difference into bug / not built / sample data, do not tune.
+Done: scores unchanged (32.8, 18.7, 17.1 %); causes in docs/design-proposals.md; design_check.sh knows the three screens; one possible 2 px History row-height difference noted, not fixed.
+Next: R8-Q12 End dialog and Search.
+Blockers: none.

@@ -55,3 +55,44 @@ Measured with `tools/design_check.sh health` → `Health 33.7 %` (same as run 07
 **Proposed accepted difference:** "Health: updates, memory pressure, temperature and start-up checks are not
 built; the artboard's sample numbers (82, 95 GB) are not reproduced by our demo. Compare layout of the rows
 that exist."
+
+## History (R8-Q11): 32.8 % unchanged
+
+Measured with `tools/design_check.sh history` → `History 32.8 %` (reference 1360 x 960, same as the render: no crop problem).
+
+- **(b) Not built:** two entries in the artboard's sample have no record kind in the app: "Stopped Docker" and
+  "Tidewise set up (admin access added)" (Docker control and the admin helper do not exist). Our sample list is
+  shorter, so everything below "Yesterday" is shifted.
+- **(c) Sample values and copy:** our demo is computed from our own record types: "900 MB" instead of "0.9 GB", "4
+  groups cleaned" instead of "4 groups · password asked once", a shorter "cleaning cannot be undone" note, "force quit"
+  instead of "it had stopped responding". Not changed to match (copy is not tuned to reach a number).
+- **(a) Candidate, not fixed:** read off the side-by-side picture (scaled 1.6), our list rows look about 2 px shorter
+  each than the artboard's (three rows of "Today": about 123 against 116 displayed px) and the right card's rows
+  about 1 px shorter. Not measured with a tool; to be checked against the artboard's CSS before touching the layout.
+- **Proposed accepted difference:** "History: record kinds for Docker and admin set-up do not exist yet; compare
+  the rows that exist."
+
+## Startup apps (R8-Q11): 18.7 % unchanged
+
+Measured with `tools/design_check.sh startup` → `Startup 18.7 %`.
+
+- **(b) Not built, deliberately:** the "Memory they use right after login" and "Last start-up took" cards (not
+  measurable honestly, see R7-Q08), the Impact column (High / Medium / Low), the "Part of your desktop" chips, the
+  "Add an app" button, and the artboard's longer "Good to know" copy. Our page shows one stat card (7 of 8 apps).
+- **(a) Nothing found** in what we build: the row pitch, switch position, avatars and the right-hand cards line up in
+  the side-by-side picture; the stat card is narrower only because the other two cards are absent.
+- **Proposed accepted difference:** "Startup apps: impact, memory, start-up time, 'Add an app' and the desktop
+  chips are not built; compare the list rows and the switches."
+
+## Services (R8-Q11): 17.1 % unchanged
+
+Measured with `tools/design_check.sh services` → `Services 17.1 %`.
+
+- **(b) Deliberate:** the list puts failed services first (the artboard puts Docker first); start, stop and enable
+  are shown as "needs admin access (coming soon)" and the buttons are disabled (the artboard shows them enabled
+  with "needs your password"), because the admin helper does not exist; rows show the memory of a service, the
+  artboard shows a descriptive sentence from a curated text we do not have for every unit.
+- **(c) Demo values:** tab counts 47 and 212 in the artboard against 6 and 8 in our sample list.
+- **(a) Nothing found** in the layout of the tabs, rows and the detail card.
+- **Proposed accepted difference:** "Services: ordering (failed first), the disabled admin buttons and the sample
+  counts differ on purpose until the helper exists."
