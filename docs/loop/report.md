@@ -14,7 +14,7 @@ Run started 2026-11-06 06:15 PKT. Branch `run/08-2026-11-06` created from `main`
 - WBS sheet read (`Overview!B1:B2`) → OK; B2 was "branch run/07-2026-11-02 @ 586a40e (2026-11-02 14:58), not merged yet."
 - Baseline plain `cargo test --all` → exit 0 (repo is on ext4, /tmp is tmpfs).
 
-## R8-Q01 Look at the pipeline — Done   (2026-11-06 06:40 PKT)
+## R8-Q01 Look at the pipeline — Done   (2026-11-06 06:29 PKT, last `date` reading in the round)
 WBS: 2.1 → In Progress (was Done; set back because the human's CI run fails). Not set to Done: CI on GitHub is not verified. See N8 in the sheet.
 Commits: aa869a2 (red), then the dependency fix and the CI changes 1b2e2a8 (`fix(deps)`), 4b84324 (`ci`), 544e683 (cancel test on both file systems; was already green, not red-first)
 Findings: the pasted `docs/ci-failure.log` shows the failing step is `cargo audit`: **RUSTSEC-2026-0433, pulldown-cmark 0.13.5** (7.5 high, via `i-slint-common`), fixed in 0.13.6. That is a different cause from the cancel test. Reproduced here: `cargo audit` → exit 1, `cargo deny check` → exit 1 (advisories), before any change. `cargo deny` also failed on a second new notice, `pin-utils` (RUSTSEC-2026-0441, unmaintained, build-time only via Slint's `spin_on`); `cargo audit` only warned about it.
@@ -33,7 +33,7 @@ Not verified:
 Errors: `cargo deny check` exit 1 after the pulldown-cmark bump (pin-utils unmaintained notice) → fixed by an `ignore` entry. `gh` and `actionlint` are not installed here (so action SHAs were not refreshed and the workflows were parsed with PyYAML only). The first Q01 `grep` of column B in the sheet showed parent IDs, not names (read-only slip; found row 2.1 by reading A:O).
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q01" (5 entries)
 
-## R8-Q02 Secret and supply-chain checks in CI — Done   (2026-11-06 06:50 PKT)
+## R8-Q02 Secret and supply-chain checks in CI — Done   (2026-11-06 06:33 PKT, last `date` reading in the round)
 WBS: 5.8 → Needs Verification (built and passing here; the CI step has not run on GitHub)
 Commits: f720288 (red), 748abd5
 Evidence:
@@ -51,7 +51,7 @@ Not verified:
 Errors: the first run of the new test failed on the PEM case: `grep: unrecognized option` followed by the PEM header pattern (quoted text removed: it made the scanner flag this file), in both the scanner and the test's own "value not printed" check (that check had passed vacuously). Fixed with `-e` and `--`; the fix is in the green commit, not the red one. My first `test-ci.sh` exit read came back empty (a pipe swallowed it); re-run plainly → exit 0.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q02" (3 entries)
 
-## R8-Q03 Weekly fuzz smoke (optional job) — Partial   (2026-11-06 07:05 PKT)
+## R8-Q03 Weekly fuzz smoke (optional job) — Partial   (2026-11-06 06:39 PKT, last `date` reading in the round)
 WBS: 5.5 → unchanged (Done); note N updated. No row for the weekly job itself (see questions).
 Commits: bed874e (red), 7ae5002
 Evidence:
@@ -67,7 +67,7 @@ Not verified:
 Errors: after the green commit `tools/ci-local.sh` → exit 1 at `tools/test-check-secrets.sh` ("this repository is clean" failed): the secret scan flagged `docs/loop/report.md:51`, my Q02 entry, which quoted a grep error including a PEM header. A true false positive in prose; I reworded the report line (no change to the scanner or its test). Re-run → exit 0.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q03" (3 entries)
 
-## R8-Q04 Update the GitHub README — Partial   (2026-11-06 06:45 PKT)
+## R8-Q04 Update the GitHub README — Partial   (2026-11-06 06:42 PKT, last `date` reading in the round)
 WBS: 9.11 → Needs Verification (unchanged; a person must read it). L, M, N updated.
 Commits: a9f7536 (red), 948618b
 Evidence:
@@ -88,7 +88,7 @@ Not verified:
 Errors: my first `tools/test-readme.sh` flag check flagged cargo's own `--release` as an unknown app flag (test bug; narrowed to lines that run the binary before the red commit, but the red commit's check would still have flagged the old README's one-line cargo + binary text). A `Bash` call combining several commands with a `git tag` listing was refused by the permission layer; I re-ran it without that command and used `git for-each-ref refs/tags` instead (nothing was changed).
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q04" (5 entries)
 
-## R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates — Done   (2026-11-06 06:50 PKT)
+## R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates — Done   (2026-11-06 06:47 PKT, last `date` reading in the round)
 WBS: 5.2 → Done (unchanged; evidence updated); new row 5.14 inserted below 5.13 → Needs Verification (templates not rendered on GitHub).
 Commits: e2b5887 (red), 07e5408
 Evidence:
@@ -105,7 +105,7 @@ Not verified:
 Errors: the first green run failed one check, "commit types missing from CONTRIBUTING: ci docs feat fix test": the test looks for each type as a bare backticked word and my list showed them as `feat(core): …`. I added a "Types in use: `feat`, `fix`, `test`, `docs`, `ci`." line instead of loosening the test. Red run stopped early (see above), so it listed only 4 FAILs.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q05" (4 entries)
 
-## R8-Q06 Pen-test A16 and A21 as tests — Done   (2026-11-06 07:08 PKT)
+## R8-Q06 Pen-test A16 and A21 as tests — Done   (2026-11-06 07:06 PKT, last `date` reading in the round)
 WBS: 5.10 → In Progress (unchanged; owner Human, never Done by me). L, M, N updated.
 Commits: d7c42d1 (red, with permissive stubs), 5b5b797 (green)
 What was really wrong: A16: `plan` already refused PID 0/1 and Tidewise itself, but kernel threads (PID 2 and its children) and another user's processes were not refused anywhere, and protected programs (desktop, audio, network) were refused only by the UI row flag, not in code (golden rule 7). A21: `--out` took any string and `--state` any text.
@@ -127,7 +127,7 @@ Errors:
 - The wiring tests in `endtask_live.rs` (`the_live_check_*`) were written together with the green code, not red first.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q06" (5 entries)
 
-## R8-Q07 Keyboard pass and contrast — Partial   (2026-11-06 07:20 PKT)
+## R8-Q07 Keyboard pass and contrast — Partial   (2026-11-06 07:16 PKT, last `date` reading in the round)
 WBS: 9.7 → In Progress (unchanged). L, M, N updated.
 Commits: 037a04f (red, amended once: see Errors), 3103e02 (green)
 Evidence:
