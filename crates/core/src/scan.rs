@@ -469,24 +469,34 @@ mod tests {
         assert_eq!((r.total_bytes, r.skipped), (0, 1));
     }
 
-    #[test]
-    fn cancelling_stops_the_scan_and_says_so() {
-        let dir = disk_tempdir();
+    fn check_cancel_on(dir: &Path) {
         for i in 0..50 {
-            write(&dir.path().join(format!("d{i}/f.bin")), 1000);
+            write(&dir.join(format!("d{i}/f.bin")), 1000);
         }
         let cancel = AtomicBool::new(true);
-        let r = scan(
-            dir.path(),
-            &ScanOptions::default(),
-            &Progress::default(),
-            &cancel,
-        );
+        let r = scan(dir, &ScanOptions::default(), &Progress::default(), &cancel);
         assert!(r.cancelled);
         // Nothing below the root was counted; only the root's own blocks, as the file system
         // reports them (0 on tmpfs, one block on ext4 and btrfs).
-        let own = fs::metadata(dir.path()).unwrap().blocks() * 512;
+        let own = fs::metadata(dir).unwrap().blocks() * 512;
         assert_eq!(r.total_bytes, own);
+    }
+
+    #[test]
+    fn cancelling_stops_the_scan_and_says_so() {
+        check_cancel_on(disk_tempdir().path());
+    }
+
+    #[test]
+    fn cancelling_stops_the_scan_and_says_so_on_tmpfs_too() {
+        // /dev/shm is tmpfs on Linux (GitHub runners included); fall back to the system temp dir.
+        let base = if Path::new("/dev/shm").is_dir() {
+            PathBuf::from("/dev/shm")
+        } else {
+            std::env::temp_dir()
+        };
+        let dir = tempfile::Builder::new().tempdir_in(base).unwrap();
+        check_cancel_on(dir.path());
     }
 
     #[test]
