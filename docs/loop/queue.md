@@ -38,7 +38,7 @@ causes) are not ruled out.
   catches a fake key in a temp dir and ignores `tests/fixtures/`). `cargo deny` licence and advisory
   settings reviewed once more (`deny.toml`). `cargo audit` result recorded. Done: the script's tests, the
   workflow step, and exit codes in the report.
-- [ ] **Q03 Weekly fuzz smoke (optional job).** `.github/workflows/fuzz.yml`, `schedule` + `workflow_dispatch`
+- [/] **Q03 Weekly fuzz smoke (optional job).** `.github/workflows/fuzz.yml`, `schedule` + `workflow_dispatch`
   only, nightly toolchain, 60 s per target from a loop over `fuzz/fuzz_targets`, uploads a crash artefact
   if any. Never on push. Done: the file parses and the target list is generated from the directory, not
   typed by hand. Not verifiable here: whether it runs on GitHub.

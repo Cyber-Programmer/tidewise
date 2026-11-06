@@ -48,5 +48,21 @@ Not verified:
 - Coverage of the scan: it is a six-pattern grep (AWS, GitHub, Slack, Google API keys, PEM headers), not a real scanner. It will miss generic passwords and other token formats, and it skips `tests/fixtures` by design.
 - Git history is not scanned, only the working tree.
 - The `deny.toml` review was a read-through, not a licence audit of each crate.
-Errors: the first run of the new test failed on the PEM case: `grep: unrecognized option '-----BEGIN RSA PRIVATE KEY-----'`, in both the scanner and the test's own "value not printed" check (that check had passed vacuously). Fixed with `-e` and `--`; the fix is in the green commit, not the red one. My first `test-ci.sh` exit read came back empty (a pipe swallowed it); re-run plainly → exit 0.
+Errors: the first run of the new test failed on the PEM case: `grep: unrecognized option` followed by the PEM header pattern (quoted text removed: it made the scanner flag this file), in both the scanner and the test's own "value not printed" check (that check had passed vacuously). Fixed with `-e` and `--`; the fix is in the green commit, not the red one. My first `test-ci.sh` exit read came back empty (a pipe swallowed it); re-run plainly → exit 0.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q02" (3 entries)
+
+## R8-Q03 Weekly fuzz smoke (optional job) — Partial   (2026-11-06 07:05 PKT)
+WBS: 5.5 → unchanged (Done); note N updated. No row for the weekly job itself (see questions).
+Commits: bed874e (red), 7ae5002
+Evidence:
+- Red: `./tools/test-fuzz-workflow.sh` → exit 1 (`FAIL tools/fuzz-smoke.sh exists and is executable`, `FAIL --list equals the files in fuzz/fuzz_targets`, `FAIL .github/workflows/fuzz.yml exists`).
+- Green: `./tools/test-fuzz-workflow.sh` → exit 0, 8 ok: triggers are only `schedule` and `workflow_dispatch`; token `contents: read`; `toolchain: nightly`; `timeout-minutes: 90`; both actions pinned to full SHAs; runs `tools/fuzz-smoke.sh 60`; none of the 15 target names appears in the workflow; crash inputs are printed `if: failure()`. The target list comes from `fuzz/fuzz_targets/*.rs` (script `--list` equals the directory, 15 targets). `./tools/test-ci.sh` → exit 0.
+- Ran the script itself: `./tools/fuzz-smoke.sh 2` → exit 0, 15 of 15 targets started and finished ("Done N runs" 15 times), no crash. Two seconds per target, not 60.
+- `./tools/ci-local.sh` → exit 0 (fmt, clippy, `cargo test --all --locked`, release build, both secret scripts, audit, deny, each exit 0).
+Partial because: the queue text says "uploads a crash artefact". I did **not** use `actions/upload-artifact`: its SHA is not among the pins and I can't look one up (no `gh`). Instead a failing run prints each crash input as base64 in the log (first 64 KiB), which can be turned back into a file with `base64 -d`.
+Not verified:
+- The workflow on GitHub: the schedule, the `cargo install cargo-fuzz --locked` step, the 90-minute timeout (15 targets x 60 s plus a cold build per target; unmeasured), and the crash-printing step (never triggered, no crash to print).
+- A full 60 s per target run of the script here (only 2 s was run).
+- That `find ... -o ...` in the crash-printing step picks the right files (read, not run on a real crash).
+Errors: after the green commit `tools/ci-local.sh` → exit 1 at `tools/test-check-secrets.sh` ("this repository is clean" failed): the secret scan flagged `docs/loop/report.md:51`, my Q02 entry, which quoted a grep error including a PEM header. A true false positive in prose; I reworded the report line (no change to the scanner or its test). Re-run → exit 0.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q03" (3 entries)

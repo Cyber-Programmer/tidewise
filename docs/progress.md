@@ -574,3 +574,10 @@ Plan: (1) red: tools/test-check-secrets.sh (fake key in a temp dir is caught, te
 Done: tools/check-secrets.sh + test, wired into ci.yml and ci-local.sh; ci-local exit 0; audit exit 0.
 Next: R8-Q03 weekly fuzz smoke workflow.
 Blockers: CI steps not run on GitHub (Not verified).
+
+## 2026-11-06 — Run 08, R8-Q03 Weekly fuzz smoke
+Plan: (1) red: tools/test-fuzz-workflow.sh checks fuzz.yml (schedule + workflow_dispatch only, nightly, no hand-typed target list, crash artefact upload, pinned SHAs, timeouts).
+(2) green: .github/workflows/fuzz.yml building the target list from fuzz/fuzz_targets; wire the check into test-ci.sh.
+Done: fuzz.yml + tools/fuzz-smoke.sh + checks; script ran on all 15 targets at 2 s (exit 0); ci-local exit 0.
+Next: R8-Q04 README.
+Blockers: crash artefact upload needs a pinned upload-artifact SHA (questions R8-Q03).

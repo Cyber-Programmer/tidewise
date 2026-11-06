@@ -265,3 +265,9 @@ Rules bent: the cancel-test commit 544e683 was green on arrival (the fix was alr
 2. **Skips `tests/fixtures/`, `target/`, `.git/`, `dist/`, corpus folders.** Fixtures are saved real command output. Recommended: keep. Risk: a real secret pasted into a fixture is not seen.
 3. **Output shows only `file:line: kind`, never the value**, so a leaked key doesn't land in public CI logs. Recommended: keep.
 Rules bent: the PEM-case fix to the test is in the green commit, not the red one.
+
+## Run 08 — R8-Q03 Fuzz smoke: decisions taken without you
+1. **Crash inputs are printed as base64 in the job log, not uploaded as an artefact**, because `actions/upload-artifact` is not pinned yet and I can't look up its SHA here. Recommended: say "yes, add upload-artifact" and give (or let a later round fetch) the SHA of the latest release; keep the log dump as a fallback. If no: nothing breaks, you just rebuild the file from the log.
+2. **The loop lives in `tools/fuzz-smoke.sh`**, the workflow only calls it with `60`. Reason: it can be run and tested here, and the list comes from the directory. Recommended: keep.
+3. **Weekly, Mondays 03:17 UTC, 90-minute limit; no WBS row for it.** The sheet has no row for the weekly job; I only edited the note of 5.5 (the old text said CI does not run fuzzing). Recommended: add a row under workstream 5 if you want it tracked.
+Rules bent: none.
