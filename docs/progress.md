@@ -567,3 +567,10 @@ Plan: (1) red: `tools/test-ci.sh` checks ci-local.sh matches ci.yml, concurrency
 Done: audit failure fixed (pulldown-cmark 0.13.6), tools/ci-local.sh and tools/test-ci.sh, ci.yml hardened, dependabot; ci-local exit 0.
 Next: R8-Q02 secret check in CI.
 Blockers: CI on GitHub cannot be seen from here (Not verified).
+
+## 2026-11-06 — Run 08, R8-Q02 Secret and supply-chain checks
+Plan: (1) red: tools/test-check-secrets.sh (fake key in a temp dir is caught, tests/fixtures ignored, secret value never printed) and a ci.yml step check in test-ci.sh.
+(2) green: tools/check-secrets.sh (grep-based, no new tool), wired into ci.yml and ci-local.sh. (3) review deny.toml, record cargo audit result.
+Done: tools/check-secrets.sh + test, wired into ci.yml and ci-local.sh; ci-local exit 0; audit exit 0.
+Next: R8-Q03 weekly fuzz smoke workflow.
+Blockers: CI steps not run on GitHub (Not verified).

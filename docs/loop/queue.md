@@ -33,7 +33,7 @@ causes) are not ruled out.
   (weekly). Done: `tools/ci-local.sh` exits 0 (show output), both workflow files parse, a test or script
   proves the cancel test passes on both file systems. **CI on GitHub: Not verified** (say so). If an
   Actions log is pasted by the human into `docs/ci-failure.log`, read it first and fix what it shows.
-- [ ] **Q02 Secret and supply-chain checks in CI.** A pinned secret scanner step only if it needs no new
+- [x] **Q02 Secret and supply-chain checks in CI.** A pinned secret scanner step only if it needs no new
   secret and can be pinned by SHA (otherwise a `grep`-based `tools/check-secrets.sh` with a test that it
   catches a fake key in a temp dir and ignores `tests/fixtures/`). `cargo deny` licence and advisory
   settings reviewed once more (`deny.toml`). `cargo audit` result recorded. Done: the script's tests, the

@@ -259,3 +259,9 @@ Rules bent: none.
 4. **`--locked` on clippy, test and build; `timeout-minutes` 30 (45 for release); `concurrency` cancel-in-progress** for every ref, including `main`. Recommended: keep; if you want every push on `main` to finish, restrict cancelling to non-default branches.
 5. **Not done:** refreshing action pins (no `gh` here) and `actionlint`. The existing SHAs are unchanged; Dependabot (new) will propose updates.
 Rules bent: the cancel-test commit 544e683 was green on arrival (the fix was already in run 07), so it is not red-first.
+
+## Run 08 — R8-Q02 Secret scan: decisions taken without you
+1. **grep-based `tools/check-secrets.sh`, not a third-party scanner.** I can't look up a commit SHA to pin (no `gh` here), and ENGINEERING.md says to ask before adding a tool. Recommended: keep it as the safety net, and approve a pinned scanner (for example gitleaks) later if you want history scanned too. If you say no scanner, nothing breaks.
+2. **Skips `tests/fixtures/`, `target/`, `.git/`, `dist/`, corpus folders.** Fixtures are saved real command output. Recommended: keep. Risk: a real secret pasted into a fixture is not seen.
+3. **Output shows only `file:line: kind`, never the value**, so a leaked key doesn't land in public CI logs. Recommended: keep.
+Rules bent: the PEM-case fix to the test is in the green commit, not the red one.

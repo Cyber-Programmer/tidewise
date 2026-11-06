@@ -32,3 +32,21 @@ Not verified:
 - `cargo audit` here read the advisory DB at today's date; GitHub fetches it fresh and a newer advisory could fail it again.
 Errors: `cargo deny check` exit 1 after the pulldown-cmark bump (pin-utils unmaintained notice) → fixed by an `ignore` entry. `gh` and `actionlint` are not installed here (so action SHAs were not refreshed and the workflows were parsed with PyYAML only). The first Q01 `grep` of column B in the sheet showed parent IDs, not names (read-only slip; found row 2.1 by reading A:O).
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q01" (5 entries)
+
+## R8-Q02 Secret and supply-chain checks in CI — Done   (2026-11-06 06:50 PKT)
+WBS: 5.8 → Needs Verification (built and passing here; the CI step has not run on GitHub)
+Commits: f720288 (red), 748abd5
+Evidence:
+- Red: `./tools/test-check-secrets.sh` → exit 1 (`FAIL script exists and is executable`); `./tools/test-ci.sh` → FAIL `ci.yml and ci-local.sh run tools/check-secrets.sh`, FAIL `ci.yml runs tools/test-check-secrets.sh`.
+- Green: `./tools/test-check-secrets.sh` → exit 0, 14 ok (fake AWS key, GitHub token and PEM header in a temp dir are each caught with exit 1 and `file:line` named; the value is not printed; `tests/fixtures`, `.git`, `target` ignored; clean tree exit 0; this repo clean). `./tools/check-secrets.sh` → exit 0 ("nothing found"). `./tools/test-ci.sh` → exit 0.
+- `./tools/ci-local.sh` → exit 0; each exit 0: fmt, clippy, `cargo test --all --locked`, release build, `tools/test-check-secrets.sh`, `tools/check-secrets.sh`, `cargo audit`, `cargo deny check`.
+- `cargo audit` → exit 0 (572 crates, no vulnerability, 7 allowed warnings: bincode, pin-utils, ttf-parser, zbus_names, zvariant, zvariant_derive unmaintained; async-executor yanked).
+- `deny.toml` re-read: five ignores, all "unmaintained" notices, none hides a vulnerability; licences all GPL-3.0-compatible; `wildcards = "deny"`, unknown registries and git denied. `cargo deny check` → exit 0 (warnings only: duplicates, unused licence allowances). Nothing changed this round.
+- Workflow: `ci.yml` runs `tools/test-check-secrets.sh` in `check` and `tools/check-secrets.sh` in `supply-chain`; parses (test-ci exit 0).
+Not verified:
+- The new steps on GitHub (the loop cannot see Actions).
+- Coverage of the scan: it is a six-pattern grep (AWS, GitHub, Slack, Google API keys, PEM headers), not a real scanner. It will miss generic passwords and other token formats, and it skips `tests/fixtures` by design.
+- Git history is not scanned, only the working tree.
+- The `deny.toml` review was a read-through, not a licence audit of each crate.
+Errors: the first run of the new test failed on the PEM case: `grep: unrecognized option '-----BEGIN RSA PRIVATE KEY-----'`, in both the scanner and the test's own "value not printed" check (that check had passed vacuously). Fixed with `-e` and `--`; the fix is in the green commit, not the red one. My first `test-ci.sh` exit read came back empty (a pipe swallowed it); re-run plainly → exit 0.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q02" (3 entries)
