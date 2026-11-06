@@ -329,3 +329,9 @@ Rules bent: none.
 2. **Not tuned:** I did not change copy, order, sample numbers or row heights to reach a number. Recommended: keep; if you want History's rows 2 px taller, say so and I will measure the artboard's CSS first and change it test-first.
 3. **Which missing pieces are v1.0 scope** is yours to say: record kinds for Docker and admin set-up (History), Impact and boot-time measurement and "Add an app" (Startup), enabled service buttons (Services, needs the helper). Each is a feature, not a layout fix.
 Rules bent: none.
+
+## Run 08 — R8-Q12 End dialog and Search design misses: decisions taken without you
+1. **Search is 50.2 % today; run 07's 42.4 % came from a stale picture** and cannot be reproduced from the committed code. Recommended: use 50.2 % and let a later round measure the artboard's heading and row spacing (the main (a) candidate) and fix it test-first.
+2. **End dialog 26.1 % stays**: the missing app-specific sentence is deliberate (the same text must work for every app) and the wrap difference is the checker. Recommended: approve the proposed accepted difference in `docs/design-proposals.md`.
+3. **Search's FILES section waits for the file-search decision** (R8-Q08). Recommended: approve the proposed difference; revisit only if you choose one of the R8-Q08 options.
+Rules bent: none.

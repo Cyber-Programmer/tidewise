@@ -218,3 +218,20 @@ Not verified:
 - No Rust changed this round; the last full `tools/ci-local.sh` was at 29e8c55 (exit 0, 706 tests).
 Errors: none this round.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q11" (3 entries)
+
+## R8-Q12 End dialog (26.1 %) and Search (42.4 %) — Done (decisions only, no code)   (2026-11-06 07:45 PKT, `date` reading in this round)
+WBS: Search row 9.1 → In Progress (unchanged), Processes/End dialog row not separately tracked; N of 9.1 updated.
+Commits: none for the app; findings in `docs/design-proposals.md` (commit below).
+Evidence:
+- End dialog: crop (430,100)–(930,360) of `./target/release/tidewise --screenshot processes --state end-confirm --out …` against the same crop of `docs/design/png/EndTask.png` (PIL crop, then `python3 tools/design_diff.py`) → **26.1 %**, exactly run 07's number (target 10 % not met).
+- Search: `--screenshot search` (exit 0) cropped (330,90)–(1030,560) against the same crop of `docs/design/png/Search.png` → **50.2 %**. Run 07's 42.4 % was measured on a stale picture (`SR-app-crop.png`, 2 Nov 12:58:08); re-scoring that old file gives 42.4 %, but `git diff 10c7c17 HEAD --stat -- crates/app/ui` does not list `search.slint`, so the committed Search box is what I rendered now. 42.4 % is not reproducible from the code; 50.2 % is.
+- Looked at the picture of design | run-07 render | fresh render (`target/design-check/SR-triple.png`, read): ours has section headings and rows lower than the artboard's, and no FILES section.
+- Causes sorted (a)/(b)/(c) in `docs/design-proposals.md` (appended). No app change.
+Not verified:
+- The 6 / 12 / 8 px spacing differences in Search are read off a scaled picture, not measured; I did not read the artboard's CSS.
+- No fix was attempted (not enough time to measure and test a layout change); the targets are not met.
+- Which state or command produced run 07's 42.4 % picture (the `--screenshot home --state search` form I tried exits 1: unknown state).
+- Light theme, keyboard use of the box.
+- No Rust changed; the last full `tools/ci-local.sh` was at 29e8c55 (exit 0, 706 tests).
+Errors: `--screenshot home --state search` → exit 1 (not a state); I used `--screenshot search` instead. My crop script printed a "No such file" for the picture that command should have written; the score for the stale file was therefore a leftover from run 07 until I rendered a fresh one: that is how the 42.4 % turned out to be stale.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q12" (3 entries)

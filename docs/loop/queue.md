@@ -99,7 +99,7 @@ layout bug or a wrong crop: find which.
 
 - [x] **Q10 Settings (86.3 %) and Health (33.7 %).** One round each if needed; report the new scores.
 - [x] **Q11 History (32.8 %), Startup apps (18.7 %), Services (17.1 %).**
-- [ ] **Q12 End dialog (26.1 %) and Search (42.4 %).** Search: the missing "FILES" group depends on Q08.
+- [x] **Q12 End dialog (26.1 %) and Search (42.4 %).** Search: the missing "FILES" group depends on Q08.
 
 ## E. Leftovers from run 07's Partial list
 

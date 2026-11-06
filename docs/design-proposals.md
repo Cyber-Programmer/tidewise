@@ -96,3 +96,36 @@ Measured with `tools/design_check.sh services` → `Services 17.1 %`.
 - **(a) Nothing found** in the layout of the tabs, rows and the detail card.
 - **Proposed accepted difference:** "Services: ordering (failed first), the disabled admin buttons and the sample
   counts differ on purpose until the helper exists."
+
+## End dialog (R8-Q12): 26.1 % reproduced
+
+Crop (430,100)–(930,360) of `--screenshot processes --state end-confirm` against the same crop of
+`docs/design/png/EndTask.png`, through `tools/design_diff.py` → `LAYOUT MISMATCH: 26.1 %`: the same number as run 07.
+
+- **(b) Deliberate:** the artboard's paragraph has a third, app-specific sentence (written for Firefox). The app uses
+  the same two-sentence text for every app, so the paragraph is one line shorter and the buttons sit about 20 px
+  higher.
+- **(c) Checker:** the artboard's first line wraps one word earlier (browser against Slint text width).
+- **(a) Nothing found** that is a layout bug beyond those two.
+- **Proposed accepted difference:** "End task dialog: app-specific sentence not built; the paragraph and buttons
+  differ by one line."
+
+## Search (R8-Q12): 50.2 % today, not 42.4 %
+
+Crop (330,90)–(1030,560) of `--screenshot search` against the same crop of `docs/design/png/Search.png` →
+`LAYOUT MISMATCH: 50.2 %` (target 10 %, **not met**).
+
+- **Correction:** run 07 recorded 42.4 %. The picture that number came from (`target/design-check/SR-app-crop.png`,
+  dated 2 Nov 12:58:08) does not match the committed code: `crates/app/ui/search.slint` has not changed since
+  commit 10c7c17 (12:58:25), and a fresh render of the committed code scores 50.2 %. The number is therefore not
+  reproducible; 50.2 % is the measured one.
+- **(b) Not built:** the artboard's third "FILES" section and its footer note "Files: searches your home folder
+  by name only". Files are not searched (R8-Q08: a resident index does not fit the memory budget).
+  The artboard's dialog is one result taller, which shifts everything below.
+- **(a) Candidate, not fixed:** in the side-by-side picture our section headings and rows sit lower than the
+  artboard's: "APPS" about 6 px lower, "PROCESSES" about 12 px lower, each row block about 8 px taller (read from a
+  picture scaled 1.6, not measured with a tool). This is likely a real spacing difference (heading margins), and the
+  main reason the number is higher than it needs to be even without the Files section.
+  A fix needs the artboard's CSS values measured first and a layout test; not done this round.
+- **Proposed accepted difference:** "Search: the FILES section and its footer note are not built (no home-file
+  index, R8-Q08); the dialog is one result shorter."

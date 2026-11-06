@@ -633,3 +633,9 @@ Plan: re-measure the three screens, look at each side-by-side, sort every differ
 Done: scores unchanged (32.8, 18.7, 17.1 %); causes in docs/design-proposals.md; design_check.sh knows the three screens; one possible 2 px History row-height difference noted, not fixed.
 Next: R8-Q12 End dialog and Search.
 Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q12 End dialog and Search design misses
+Plan: reproduce both crop scores, look at the pictures, sort every difference, do not tune.
+Done: End dialog 26.1 % reproduced; Search measured 50.2 % (run 07's 42.4 % was a stale picture); causes and proposals in docs/design-proposals.md; one spacing candidate for Search noted, not fixed.
+Next: R8-Q15 human checklist (docs only), then End of the run; Q13 and Q14 not started.
+Blockers: none.
