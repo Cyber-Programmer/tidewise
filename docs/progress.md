@@ -595,3 +595,10 @@ Plan: (1) red: tools/test-community.sh (files exist, links resolve, no email add
 Done: CONTRIBUTING.md, SECURITY.md supported versions, three issue-template files, README link; test-community exit 0; ci-local exit 0.
 Next: R8-Q06 pen-test A16 and A21 as tests.
 Blockers: GitHub rendering of issue forms not checkable here.
+
+## 2026-11-06 — Run 08, R8-Q06 Pen-test A16 and A21 as tests
+Plan: (1) red: adapters::endtask::guard tests (kernel thread, other user, protected program, PID 0/1) and cli confine_out / --state tests; permissive stubs so they fail by assertion, not compile error.
+(2) green: implement guard (called in endtask_live before plan, protected check by program name from /proc), confine_out (allowed folders: current dir, HOME, temp dir; .png only; no symlink/directory target) wired into run_screenshot, --state charset. (3) update pentest-checklist results.
+Done: end-task guard (kernel threads, other users, protected programs, PID 0/1) and --out/--state confinement, tests red then green; checklist rows A16 and A21 filled; ci-local exit 0 (704 tests).
+Next: R8-Q07 keyboard pass and contrast.
+Blockers: none. Rule bent: one stray PNG outside the repo, removed (see report).

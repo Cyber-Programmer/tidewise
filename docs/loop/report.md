@@ -104,3 +104,25 @@ Not verified:
 - The new WBS row's roll-up (column O of the 5.0 header) may not include row 5.14; I did not touch column O.
 Errors: the first green run failed one check, "commit types missing from CONTRIBUTING: ci docs feat fix test": the test looks for each type as a bare backticked word and my list showed them as `feat(core): …`. I added a "Types in use: `feat`, `fix`, `test`, `docs`, `ci`." line instead of loosening the test. Red run stopped early (see above), so it listed only 4 FAILs.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q05" (4 entries)
+
+## R8-Q06 Pen-test A16 and A21 as tests — Done   (2026-11-06 07:08 PKT)
+WBS: 5.10 → In Progress (unchanged; owner Human, never Done by me). L, M, N updated.
+Commits: d7c42d1 (red, with permissive stubs), 5b5b797 (green)
+What was really wrong: A16: `plan` already refused PID 0/1 and Tidewise itself, but kernel threads (PID 2 and its children) and another user's processes were not refused anywhere, and protected programs (desktop, audio, network) were refused only by the UI row flag, not in code (golden rule 7). A21: `--out` took any string and `--state` any text.
+Evidence:
+- Red: `cargo test -p tidewise-adapters --lib endtask` → exit 101, 6 failed (`the_guard_refuses_pid_0_and_pid_1`, `…_kernel_threads`, `…_another_users_process`, `…_protected_parts_of_the_system`, `one_bad_member_refuses_the_whole_app`, `facts_come_from_proc_and_match_this_process`); `cargo test -p tidewise-app --bin tidewise -- cli::tests procs::tests::a_protected` → failed: 6 `out_paths` tests, `state_values_are_plain_words`, `a_protected_program_is_recognised_from_its_proc_files`. All fail on assertions; the stubs (signatures that allow everything) are in the red commit because the tests would not compile without them.
+- Green: adapters `endtask` tests → 16 passed; app tests → 704 passed in total across the workspace, 0 failed (sum of `test result` lines of `./tools/ci-local.sh`); `./tools/ci-local.sh` → exit 0 (fmt, clippy -D warnings, `cargo test --all --locked`, release build, both secret scripts, audit, deny).
+- New code: `endtask::guard`, `read_facts`, `own_uid` (adapters), `procs::is_protected_pid` (reads `/proc/<pid>/cmdline` and `comm` the way the process list does), `endtask_live::check` called before `plan` on every signal; `cli::confine_out` called first thing in `run_screenshot`; `--state` accepts only `a-z 0-9 -`.
+- Hand run on the rebuilt release binary (`--screenshot home …`): `--out /etc/passwd` → exit 1 ("must name a .png file"); `--out /etc/x.png`, `--out ../../a21-escape.png`, `--out ../a21-escape.png` → exit 1 ("inside the current folder or the temp folder"); `--out ""` → exit 1; `--out target/tmp/notes.txt` → exit 1; `--out` onto a symlink to /etc/passwd → exit 1; `--state ../x` and `--state ""` → exit 1; `--out target/tmp/ok-a21.png` and `--out /tmp/ok-a21-tmp.png` → exit 0. `sha256sum /etc/passwd` identical before and after. No `a21-escape.png` exists in the parent folders.
+- `docs/security/pentest-checklist.md`: results written into rows A16 and A21, labelled automated, not a person's run.
+Not verified:
+- No person has done A16 or A21 on a VM. The end-task guard was **not** run against a real kernel thread, a real other-user process or a real protected program (and must not be, by the run's rules): kernel threads, other users and protected programs are tested with injected facts and fake `/proc` folders only. `read_facts` is checked against this process only.
+- Race conditions: a process can change owner or name between the check and the signal; a file can be swapped for a symlink between `confine_out` and the write. Not covered.
+- Case-insensitive file systems and unusual mount points for `--out`.
+- Also not checked: the other 20 checklist items.
+Errors:
+- **I wrote a file outside the repository.** My first hand run allowed the home folder as an `--out` root, so `--out ../../x.png` from the repo wrote `/home/bahauddin/Documents/Creative Chaos/x.png` (a 1360x960 PNG). `stat` showed it was born 06:59:50, a few ms before its modified time, so it was new, not an overwrite. I removed exactly that file (`rm` → exit 0, then `ls` says it is gone) and then removed the home folder from the allowed roots (test `the_default_folders_are_only_the_current_folder_and_the_temp_folder`, written first and seen failing, but committed together with the green code, not as its own red commit). LOOP.md forbids files outside the repo: this is a bent rule, listed here and in questions.
+- My first set of hand runs passed the arguments as one zsh string (no word splitting), so every "refusal" was really "unknown option": invalid evidence, thrown away; the runs above are the redo.
+- `/tmp/ok-a21-tmp.png` (about 220 KB, created by my valid-path check) is still in `/tmp`; I may not delete things in `/tmp`.
+- The wiring tests in `endtask_live.rs` (`the_live_check_*`) were written together with the green code, not red first.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q06" (5 entries)

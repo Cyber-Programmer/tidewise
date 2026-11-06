@@ -67,7 +67,7 @@ causes) are not ruled out.
 
 ## C. Real bugs the pen-test checklist and run 07 hinted at
 
-- [ ] **Q06 Pen-test A16 and A21 as tests** (WBS 5.10). A16: End task must refuse PID 1 (and other protected
+- [x] **Q06 Pen-test A16 and A21 as tests** (WBS 5.10). A16: End task must refuse PID 1 (and other protected
   processes) in code. A21: `--out` must refuse paths outside a sensible location (`/etc/passwd` and
   anything not writable by the user; decide, record in `docs/questions.md`). Write the tests first (red),
   then fix. Temp dirs and processes the test started only. Update the checklist file with the result.

@@ -286,3 +286,11 @@ Rules bent: none.
 3. **SECURITY.md supported versions** now say none released and `main` only. The old text promised the "latest release", which does not exist. The acknowledgement-within-a-week promise was already there and I left it; please confirm you can keep it.
 4. **New WBS row 5.14** inserted for CONTRIBUTING.md and the issue templates (no row existed). Recommended: keep; check the 5.0 roll-up covers it.
 Rules bent: none.
+
+## Run 08 — R8-Q06 Pen-test A16 and A21: decisions taken without you
+1. **`--out` policy:** must be a `.png` file directly inside the current folder or the temp folder (`std::env::temp_dir()`); `..` and symlinks in the folder part are resolved first; an existing symlink, folder or special file as the target is refused; an existing plain file is overwritten (design_check relies on that). Your home folder is **not** allowed (a first version allowed it and a hand test escaped the repo). Recommended: keep. If you want screenshots straight into `~/Pictures`, run from there or via the temp folder.
+2. **`--state` takes only `a-z`, `0-9` and `-`.** All state names in the code fit. Recommended: keep.
+3. **End task refuses, in code:** PID 0 and 1, kernel threads (PID 2 and any process whose parent is PID 2), any process not owned by the same user as Tidewise, and any process whose program name is in the protected list (desktop, display server, sound, network). Recommended: keep. Cost: the app's own check reads `/proc` at the moment of clicking.
+4. **Protected programs are recognised by the same program name the process list uses** (command line first, `comm` if empty), so very long names such as `gnome-session-binary` work although the kernel cuts `comm` to 15 letters. Recommended: keep.
+5. **Rule bent: I created one file outside the repository by accident** (`/home/bahauddin/Documents/Creative Chaos/x.png`) and deleted it again (details in the report, R8-Q06 Errors). Nothing else outside the repo was touched except `/tmp/ok-a21-tmp.png`, which I left. Recommended: delete that temp file whenever you like.
+Rules bent: the file outside the repo (removed); two test groups not red-first (narrowed `--out` roots, wiring tests).
