@@ -58,7 +58,7 @@ causes) are not ruled out.
   `.github/workflows/ci.yml` on `main`; licence. No claims of speed, size or distros you did not measure:
   use the numbers in `docs/budgets.md` with their conditions. Done: each command in the README was run
   (exit codes in the report), each link target exists (check with a script), `CHANGELOG.md` agrees.
-- [ ] **Q05 CONTRIBUTING.md, SECURITY.md, issue templates.** `CONTRIBUTING.md`: build, `tools/ci-local.sh`,
+- [x] **Q05 CONTRIBUTING.md, SECURITY.md, issue templates.** `CONTRIBUTING.md`: build, `tools/ci-local.sh`,
   the red-then-green rule, design rules, the conventional-commit style used in the log, what needs
   discussion first. `SECURITY.md`: private reporting (GitHub private vulnerability reporting; do not invent
   an email address), supported versions "none released yet", what is in scope. `.github/ISSUE_TEMPLATE/`

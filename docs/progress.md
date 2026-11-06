@@ -588,3 +588,10 @@ Plan: (1) red: tools/test-readme.sh (sections, status table for 12 pages, CI bad
 Done: README rewritten and checked by tools/test-readme.sh (exit 0); README commands run (exit codes in report); screenshots identical to committed; ci-local exit 0.
 Next: R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates.
 Blockers: Arch and Ubuntu install lines not run.
+
+## 2026-11-06 — Run 08, R8-Q05 CONTRIBUTING, SECURITY, issue templates
+Plan: (1) red: tools/test-community.sh (files exist, links resolve, no email address anywhere, commit types in CONTRIBUTING cover the git log, templates parse and ask for distro/version/steps, SECURITY says no release yet, README links CONTRIBUTING).
+(2) green: write CONTRIBUTING.md, adjust SECURITY.md, add .github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml, fix the README sentence.
+Done: CONTRIBUTING.md, SECURITY.md supported versions, three issue-template files, README link; test-community exit 0; ci-local exit 0.
+Next: R8-Q06 pen-test A16 and A21 as tests.
+Blockers: GitHub rendering of issue forms not checkable here.

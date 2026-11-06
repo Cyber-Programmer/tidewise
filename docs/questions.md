@@ -279,3 +279,10 @@ Rules bent: none.
 4. **Install lines for Arch and Ubuntu are from my knowledge of the package names plus what the binary links, not run.** Recommended: someone with Ubuntu 22.04 tries them; until then the README says the Ubuntu CI result is unchecked.
 5. **The CI badge points to `Cyber-Programmer/tidewise`**, taken from `git remote -v`. If the project moves to another account the badge and its link must change. Recommended: keep.
 Rules bent: none.
+
+## Run 08 — R8-Q05 Community files: decisions taken without you
+1. **The bug template asks for the version from Settings → About, not from `--version`.** The queue said `--version`, but the app has no such flag (`cli.rs` rejects unknown options); About shows "Tidewise 0.1.0" (seen in settings.png). Recommended: keep; adding `--version` is a small code change if you want it (I did not make it).
+2. **Security contact is GitHub's private advisory link, no e-mail**, as you required. It only works if "Private vulnerability reporting" is enabled in the repository settings. Recommended: enable it (Settings → Code security).
+3. **SECURITY.md supported versions** now say none released and `main` only. The old text promised the "latest release", which does not exist. The acknowledgement-within-a-week promise was already there and I left it; please confirm you can keep it.
+4. **New WBS row 5.14** inserted for CONTRIBUTING.md and the issue templates (no row existed). Recommended: keep; check the 5.0 roll-up covers it.
+Rules bent: none.

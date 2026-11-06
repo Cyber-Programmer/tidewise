@@ -87,3 +87,20 @@ Not verified:
 - The 6-second runs prove start-up only, not a rendered window, correct GPU rendering or any click.
 Errors: my first `tools/test-readme.sh` flag check flagged cargo's own `--release` as an unknown app flag (test bug; narrowed to lines that run the binary before the red commit, but the red commit's check would still have flagged the old README's one-line cargo + binary text). A `Bash` call combining several commands with a `git tag` listing was refused by the permission layer; I re-ran it without that command and used `git for-each-ref refs/tags` instead (nothing was changed).
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q04" (5 entries)
+
+## R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates — Done   (2026-11-06 06:50 PKT)
+WBS: 5.2 → Done (unchanged; evidence updated); new row 5.14 inserted below 5.13 → Needs Verification (templates not rendered on GitHub).
+Commits: e2b5887 (red), 07e5408
+Evidence:
+- Red: `./tools/test-community.sh` → exit 1 (`FAIL exists: CONTRIBUTING.md`, `FAIL exists: .github/ISSUE_TEMPLATE/bug_report.yml`, … feature_request.yml, config.yml; the script stops there because CONTRIBUTING.md is missing).
+- Green: `./tools/test-community.sh` → exit 0: the three template files and CONTRIBUTING.md exist; six CONTRIBUTING sections; `tools/ci-local.sh` named; red/green and the `(red)` commit explained; `docs/design/tokens.md` pointed to; every commit type in `git log` (`feat`, `fix`, `test`, `docs`, `ci`) is documented; links in CONTRIBUTING.md and SECURITY.md resolve; no e-mail address in CONTRIBUTING, SECURITY or templates; SECURITY says private vulnerability reporting and "no version has been released"; templates parse as YAML and the bug form has the ids distro, version, steps, expected, actual, mentions Settings → About, "Copy for a help forum" and personal data; `config.yml` turns blank issues off and its contact link has a URL; README links CONTRIBUTING.md.
+- `./tools/test-readme.sh` → exit 0 after the README sentence change; `./tools/check-secrets.sh` → exit 0; `./tools/test-ci.sh` → exit 0; `./tools/ci-local.sh` → exit 0 (fmt, clippy, test, release build, both secret scripts, audit, deny).
+- Contact details: none invented. The security link is GitHub's private advisory page of the repository from `git remote -v` (`https://github.com/Cyber-Programmer/tidewise/security/advisories/new`).
+Not verified:
+- That GitHub accepts and renders the issue forms (only parsed as YAML), that private vulnerability reporting is switched on for the repository (a setting only the owner can see), and that the advisory link works.
+- That the commands in CONTRIBUTING.md work for a newcomer (the build lines are the README's; `cargo install cargo-audit cargo-deny --locked` was run in an earlier round, on this machine, as an existing install, not from scratch).
+- The `labels` `bug` and `enhancement` exist in the repository (GitHub defaults, not checked).
+- `tools/test-community.sh` and `tools/test-readme.sh` are not run by CI (they read `git log` and tags, which a shallow checkout lacks); they are local checks.
+- The new WBS row's roll-up (column O of the 5.0 header) may not include row 5.14; I did not touch column O.
+Errors: the first green run failed one check, "commit types missing from CONTRIBUTING: ci docs feat fix test": the test looks for each type as a bare backticked word and my list showed them as `feat(core): …`. I added a "Types in use: `feat`, `fix`, `test`, `docs`, `ci`." line instead of loosening the test. Red run stopped early (see above), so it listed only 4 FAILs.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q05" (4 entries)
