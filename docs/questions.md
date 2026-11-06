@@ -294,3 +294,10 @@ Rules bent: none.
 4. **Protected programs are recognised by the same program name the process list uses** (command line first, `comm` if empty), so very long names such as `gnome-session-binary` work although the kernel cuts `comm` to 15 letters. Recommended: keep.
 5. **Rule bent: I created one file outside the repository by accident** (`/home/bahauddin/Documents/Creative Chaos/x.png`) and deleted it again (details in the report, R8-Q06 Errors). Nothing else outside the repo was touched except `/tmp/ok-a21-tmp.png`, which I left. Recommended: delete that temp file whenever you like.
 Rules bent: the file outside the repo (removed); two test groups not red-first (narrowed `--out` roots, wiring tests).
+
+## Run 08 — R8-Q07 Contrast and keyboard: decisions taken without you
+1. **Pass levels:** body and label text 4.5:1; chart colours and the warn colour on its tint 3:1 (graphics only). The token table itself has one pair that fails as small text: warn (light #9A6700) on warn tint (#FFF3D6) is 4.41:1. I did not edit `docs/design/`. Recommended: darken the light `warn` slightly in the design (so amber text passes), or keep my rule "amber on tint is for icons and borders; text on a warn tint uses `text-2`".
+2. **Existing-token fix, one new alias:** `Theme.warn-chip-text` (dark #F2B84B, light #4A5260 = `text-2`) and Clean up's accent chip now uses `accent-text`. The Review chips therefore look grey instead of amber in the light theme. Recommended: keep until the design decides (item 1).
+3. **The keyboard gap is only written down, not fixed:** the Clean up, Apps and End task dialogs ignore Esc and Enter and their buttons are not keyboard-focusable (from reading the markup). Recommended: have the human try it with Tab and Esc; then decide per flow what Esc and Enter do, because Enter on a destructive button must never be the default. A fix needs a design decision, and a real keyboard to check it.
+4. **Tests cover chips and the token table, not every Text-on-Rectangle.** Recommended: keep as the floor; extend if you want every pair in the markup checked.
+Rules bent: none (amended my own unpushed red commit, allowed on this branch).

@@ -72,7 +72,7 @@ causes) are not ruled out.
   anything not writable by the user; decide, record in `docs/questions.md`). Write the tests first (red),
   then fix. Temp dirs and processes the test started only. Update the checklist file with the result.
   Done: red commit, green commit, plain `cargo test --all` exit 0.
-- [ ] **Q07 Keyboard pass and contrast** (WBS 9.7). Contrast of every text/background colour pair in
+- [/] **Q07 Keyboard pass and contrast** (WBS 9.7). Contrast of every text/background colour pair in
   `tokens` ≥ 4.5:1 (≥ 3:1 for large text and icons) as a unit test that reads the real token values; list
   failures, fix by choosing an existing token (no new colours without a `docs/questions.md` entry). Tab
   order and Enter/Esc for dialogs: as far as the headless test can show it; what cannot be shown goes

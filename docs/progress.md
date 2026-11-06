@@ -602,3 +602,10 @@ Plan: (1) red: adapters::endtask::guard tests (kernel thread, other user, protec
 Done: end-task guard (kernel threads, other users, protected programs, PID 0/1) and --out/--state confinement, tests red then green; checklist rows A16 and A21 filled; ci-local exit 0 (704 tests).
 Next: R8-Q07 keyboard pass and contrast.
 Blockers: none. Rule bent: one stray PNG outside the repo, removed (see report).
+
+## 2026-11-06 — Run 08, R8-Q07 Contrast and keyboard pass
+Plan: (1) red: crates/app/tests/contrast.rs: (A) pairs from docs/design/tokens.md: text >= 4.5:1, graphics >= 3:1, both themes; (B) every Chip fg/bg pair used in ui/*.slint, resolved through ui/theme.slint, >= 4.5:1.
+(2) green: fix failures with an existing token only (no new colours). (3) keyboard/Tab order: state what the headless tests can and cannot show.
+Done: contrast tests (token table + chip pairs, both themes), two light-theme chip failures fixed with existing tokens; ci-local exit 0 (706 tests).
+Next: R8-Q08 Home files search: decide with numbers.
+Blockers: keyboard pass is only a written finding (dialogs have no Esc/Enter and no focusable buttons).

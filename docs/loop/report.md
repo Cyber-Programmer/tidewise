@@ -126,3 +126,27 @@ Errors:
 - `/tmp/ok-a21-tmp.png` (about 220 KB, created by my valid-path check) is still in `/tmp`; I may not delete things in `/tmp`.
 - The wiring tests in `endtask_live.rs` (`the_live_check_*`) were written together with the green code, not red first.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q06" (5 entries)
+
+## R8-Q07 Keyboard pass and contrast — Partial   (2026-11-06 07:20 PKT)
+WBS: 9.7 → In Progress (unchanged). L, M, N updated.
+Commits: 037a04f (red, amended once: see Errors), 3103e02 (green)
+Evidence:
+- Red: `cargo test -p tidewise-app --test contrast` → exit 101: `token_pairs_meet_wcag_in_both_themes` ok, `chip_labels_are_readable_on_their_backgrounds_in_both_themes` FAILED with `cleaner.slint:304: light: warn on warn-tint = 4.41:1 (needs 4.5)` and `cleaner.slint:304: light: accent on accent-tint = 2.23:1 (needs 4.5)`.
+- Green: same command → exit 0, 2 passed; `cargo test -p tidewise-app --test theme_tokens` → exit 0, 7 passed (the guard tests that no colour outside `tokens.md` appears); `./tools/ci-local.sh` → exit 0 (fmt, clippy -D warnings, `cargo test --all --locked` 706 passed 0 failed, release build, both secret scripts, audit, deny).
+- What the contrast tests read: (A) the real values in `docs/design/tokens.md`: 55 pairs, both themes where the table has both: text, text-2, text-3 on bg, sidebar, surface, surface-sunk; accent text on bg, surface and its tint; text on the accent fill; warn text on surface; danger text on surface, tint and fill; nav-text, text-soft, the four source chips (dark only); at least 4.5:1 for text. Chart colours and the warn colour on its tint need 3:1 (graphics). (B) every `Chip { fg: …; bg: … }` line in `ui/*.slint`, resolved through `ui/theme.slint`, both themes, 4.5:1. Hand calculation with a separate Python script gave the same ratios (e.g. 4.41 and 2.23).
+- Failures found, the full list: only the two above (both light theme, both Clean up "Safe"/"Review" chips). Everything in (A) passes; the closest is dark text-3 on surface at 4.89:1.
+- Fix, existing tokens only: the accent chip label now uses `Theme.accent-text` (light #0B7A5A, 4.65:1 on the tint; dark unchanged); the warn chip label uses a new alias `Theme.warn-chip-text` = dark #F2B84B (same as before), light #4A5260 (the existing `text-2` value). No new hex in the project; `theme_tokens` passes.
+- Looked at: `target/tmp/clean-up-light.png` (`TIDEWISE_SCREENSHOT_THEME=light ./target/release/tidewise --screenshot clean-up …` → exit 0): "Safe" chips dark green on mint, "Review" chips dark grey on cream, readable. Dark: `cmp` of a fresh dark clean-up picture with `docs/screenshots/clean-up.png` → identical (no change in dark).
+Keyboard (what could be shown, by reading the markup, nothing run with a real keyboard):
+- Only three places handle keys: the Ctrl K catcher in `main.slint`, the Search overlay (Esc closes, Enter activates, arrows) and the Storage folder view (`key-pressed`).
+- The three dialogs (`CleanDialog`, `AppsDialog`, `EndDialog`) have **no** Esc or Enter handling and no `FocusScope`; their buttons are `TouchArea`-based (some have `accessible-role: button`) and nothing in the markup makes them focusable. So, from the source: Esc does not cancel a confirm screen, and a confirm screen cannot be completed from the keyboard. This is a gap, not fixed: Esc means different things per flow (cancel while confirming, "close" when done, nothing while running) and Enter on a destructive button needs a deliberate design decision.
+- Tab order: not examined. Headless tests cannot press keys on the built window here.
+Why Partial: contrast is done and tested; the keyboard half is only a written finding.
+Not verified:
+- Real keyboard use of anything (Tab order, Esc, Enter, arrows, Ctrl K): not run.
+- Contrast of text that is not in a chip or in the token table: the tests do not parse every `Text { color: … }` over a `Rectangle { background: … }`. Colours in `theme.slint` that are not in `tokens.md` (warn-note, warn-banner-bg, warn-button-*, …) are not checked.
+- Large text and icon colours (3:1): only chart colours and the warn graphic are checked, not every icon.
+- Disabled and placeholder text; focus-ring contrast (no focus ring exists in the markup).
+- Light theme looked at on one screen this round.
+Errors: my sanity guard in the first test (`checked > 60`) was wrong: the real count is 55; the first red run therefore failed for the wrong reason. Fixed the guard (my first `sed` did not match because `cargo fmt` had reflowed the line; fixed with a script) and amended the unpushed red commit so the red run fails on contrast only. The first `cargo fmt` run came after writing the file, not before running it.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q07" (4 entries)
