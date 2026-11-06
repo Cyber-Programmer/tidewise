@@ -34,6 +34,15 @@ author, and nothing needing administrator access works yet (those buttons say
 - Empty, loading and error states for the screens above (`docs/states-audit.md` lists what is missing).
 - Fuzz targets for every parser of outside data.
 
+### Development
+
+- CI: the dependency advisory that made `cargo audit` fail is fixed (pulldown-cmark 0.13.6); CI runs
+  with `--locked`, cancels superseded runs, has time limits and a release-build job; Dependabot checks
+  Cargo and GitHub Actions weekly. `tools/ci-local.sh` runs the same commands on your machine.
+- A text-based secret check (`tools/check-secrets.sh`) and a weekly fuzz smoke workflow (neither has run
+  on GitHub yet).
+- README rewritten: status per page, install from source, what the app never does.
+
 ### Not built yet
 
 Admin helper and polkit policy, system-wide cleaning and uninstalling that need root, updates,
