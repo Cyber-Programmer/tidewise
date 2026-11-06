@@ -124,23 +124,49 @@ pub struct Facts {
 }
 
 /// Facts about `pid` from `<root>/<pid>/stat` and the owner of `<root>/<pid>`.
-pub fn read_facts(_root: &Path, _pid: u32) -> Option<Facts> {
-    None
+pub fn read_facts(root: &Path, pid: u32) -> Option<Facts> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = root.join(pid.to_string());
+    let uid = std::fs::metadata(&dir).ok()?.uid();
+    let text = std::fs::read_to_string(dir.join("stat")).ok()?;
+    let rest = &text[text.rfind(')')? + 1..];
+    let mut fields = rest.split_whitespace();
+    let _state = fields.next()?;
+    let ppid = fields.next()?.parse().ok()?;
+    Some(Facts { ppid, uid })
 }
 
 /// The user id Tidewise runs as, from the owner of `<root>/self`.
-pub fn own_uid(_root: &Path) -> Option<u32> {
-    None
+pub fn own_uid(root: &Path) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    Some(std::fs::metadata(root.join("self")).ok()?.uid())
 }
 
 /// Refuse, in code, to end anything that must never be ended: PID 0 and 1, kernel threads, another
 /// user's processes and protected parts of the system. `facts` returns None for a process that is gone.
 pub fn guard(
-    _members: &[u32],
-    _own_uid: u32,
-    _facts: &dyn Fn(u32) -> Option<Facts>,
-    _is_protected: &dyn Fn(u32) -> bool,
+    members: &[u32],
+    own_uid: u32,
+    facts: &dyn Fn(u32) -> Option<Facts>,
+    is_protected: &dyn Fn(u32) -> bool,
 ) -> Result<(), Refused> {
+    if members.iter().any(|&m| m <= 1) {
+        return Err(Refused::NotAllowed);
+    }
+    for &member in members {
+        let Some(f) = facts(member) else {
+            continue; // already gone
+        };
+        if member == 2 || f.ppid == 2 {
+            return Err(Refused::KernelThread);
+        }
+        if f.uid != own_uid {
+            return Err(Refused::NotYours);
+        }
+        if is_protected(member) {
+            return Err(Refused::Protected);
+        }
+    }
     Ok(())
 }
 

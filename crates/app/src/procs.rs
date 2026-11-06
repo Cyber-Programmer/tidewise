@@ -198,8 +198,23 @@ const SYSTEM_PARTS: &[(&str, &str, &[&str])] = &[
 
 /// Is this running process a protected part of the system? Looks at `<root>/<pid>/cmdline` and `comm`
 /// the same way the process list does, so the answer matches the row's `protected` flag.
-pub fn is_protected_pid(_root: &Path, _pid: u32) -> bool {
-    false
+pub fn is_protected_pid(root: &Path, pid: u32) -> bool {
+    let dir = root.join(pid.to_string());
+    let comm = std::fs::read_to_string(dir.join("comm")).unwrap_or_default();
+    let comm = comm.trim();
+    let cmdline: Vec<String> = std::fs::read(dir.join("cmdline"))
+        .map(|bytes| {
+            bytes
+                .split(|&b| b == 0)
+                .filter(|part| !part.is_empty())
+                .map(|part| String::from_utf8_lossy(part).into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if comm.is_empty() && cmdline.is_empty() {
+        return false;
+    }
+    is_protected(&app_key(&cmdline, comm))
 }
 
 fn system_part(key: &str) -> Option<(&'static str, &'static str)> {

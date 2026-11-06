@@ -54,7 +54,17 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
                 );
             }
             "--page" => out.page = Some(args.next().ok_or("--page needs a screen name")?),
-            "--state" => state = Some(args.next().ok_or("--state needs a value")?),
+            "--state" => {
+                let value = args.next().ok_or("--state needs a value")?;
+                if value.is_empty()
+                    || !value
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                {
+                    return Err("--state takes a plain word like live or all-open".into());
+                }
+                state = Some(value);
+            }
             "--out" => file = Some(args.next().ok_or("--out needs a file name")?),
             "--width" => {
                 width = args
@@ -108,19 +118,53 @@ pub fn storage_root(screenshot: bool, env: Option<&std::ffi::OsStr>) -> Option<s
 }
 
 /// A path inside the scanned folder: relative, no `..`, not empty.
-/// Where `--out` may write: the folder the program was started in, the home folder, the temp folder.
+/// Where `--out` may write: the folder the program was started in and the temp folder.
 pub fn default_out_roots() -> Vec<std::path::PathBuf> {
-    Vec::new()
+    let mut roots = Vec::new();
+    if let Ok(here) = std::env::current_dir() {
+        roots.push(here);
+    }
+    roots.push(std::env::temp_dir());
+    roots
 }
 
 /// Check a `--out` value and return the file to write. Refuses anything that is not a `.png` file
 /// directly inside one of `roots` (after `..` and symlinks in the folder part are resolved), and any
 /// existing target that is not a plain file.
-pub fn confine_out(
-    path: &str,
-    _roots: &[std::path::PathBuf],
-) -> Result<std::path::PathBuf, String> {
-    Ok(std::path::PathBuf::from(path))
+pub fn confine_out(path: &str, roots: &[std::path::PathBuf]) -> Result<std::path::PathBuf, String> {
+    use std::path::{Path, PathBuf};
+    if path.is_empty() || path.contains('\0') {
+        return Err("--out needs a file name".into());
+    }
+    let wanted = Path::new(path);
+    let name = wanted
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| n.len() > ".png".len() && n.to_ascii_lowercase().ends_with(".png"))
+        .ok_or("--out must name a .png file")?;
+    let folder = match wanted.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    // Resolve `..` and symlinks in the folder part before judging where the file would land.
+    let folder = folder
+        .canonicalize()
+        .map_err(|_| "--out: that folder does not exist".to_string())?;
+    let allowed = roots
+        .iter()
+        .filter_map(|r| r.canonicalize().ok())
+        .filter(|r| r.parent().is_some()) // never "/" itself
+        .any(|r| folder.starts_with(r));
+    if !allowed {
+        return Err("--out must be inside the current folder or the temp folder".into());
+    }
+    let target = folder.join(name);
+    match std::fs::symlink_metadata(&target) {
+        Ok(m) if m.file_type().is_file() => Ok(target),
+        Ok(_) => Err("--out: that path exists and is not a plain file".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(target),
+        Err(_) => Err("--out: cannot look at that path".into()),
+    }
 }
 
 fn relative_inside(path: &str) -> bool {
@@ -413,10 +457,22 @@ mod tests {
         }
 
         #[test]
-        fn the_default_folders_include_the_temp_folder_and_the_current_one() {
+        fn the_default_folders_are_only_the_current_folder_and_the_temp_folder() {
+            // Not the home folder: `--out ../../x.png` from a project folder must not reach it.
             let roots = super::super::default_out_roots();
-            assert!(roots.iter().any(|r| r == &std::env::temp_dir()));
-            assert!(roots.iter().any(|r| r == &std::env::current_dir().unwrap()));
+            assert_eq!(
+                roots,
+                vec![std::env::current_dir().unwrap(), std::env::temp_dir()]
+            );
+        }
+
+        #[test]
+        fn a_file_in_the_folder_above_the_allowed_one_is_refused() {
+            let d = tempfile::tempdir().unwrap();
+            let inner = d.path().join("work");
+            std::fs::create_dir(&inner).unwrap();
+            let up = d.path().join("x.png");
+            assert!(confine_out(up.to_str().unwrap(), &[inner]).is_err());
         }
     }
 }

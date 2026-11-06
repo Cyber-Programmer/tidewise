@@ -9,7 +9,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use slint::ComponentHandle;
-use tidewise_adapters::endtask::{plan, read_table, send, wait_until_gone, Signal};
+use tidewise_adapters::endtask::{
+    guard, own_uid, plan, read_facts, read_table, send, wait_until_gone, Refused, Signal,
+};
 use tidewise_adapters::runner::SystemRunner;
 
 use crate::procs::Row;
@@ -47,6 +49,18 @@ pub struct Ctl {
     toast_timer: slint::Timer,
 }
 
+/// Refuse, in code, what must never be ended (the screen already hides the button for protected rows):
+/// PID 0 and 1, kernel threads, other users' processes and protected parts of the system.
+pub(crate) fn check(pids: &[u32]) -> Result<(), Refused> {
+    let proc = Path::new("/proc");
+    let Some(uid) = own_uid(proc) else {
+        return Err(Refused::NotAllowed); // cannot tell who we are: do not signal anything
+    };
+    guard(pids, uid, &|pid| read_facts(proc, pid), &|pid| {
+        crate::procs::is_protected_pid(proc, pid)
+    })
+}
+
 /// Send `signal` to `pids` (when given) and wait up to `wait` for them to go.
 fn run(pids: Vec<u32>, signal: Option<Signal>, wait: Duration) -> Msg {
     let proc = Path::new("/proc");
@@ -55,7 +69,7 @@ fn run(pids: Vec<u32>, signal: Option<Signal>, wait: Duration) -> Msg {
         let table = read_table(proc);
         let own = std::process::id();
         let own_group = table.iter().find(|p| p.pid == own).map_or(0, |p| p.pgid);
-        match plan(&pids, &table, own, own_group) {
+        match check(&pids).and_then(|()| plan(&pids, &table, own, own_group)) {
             Ok(dests) => {
                 for dest in &dests {
                     if let Err(e) = send(&SystemRunner, signal, dest) {
@@ -281,4 +295,22 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         }
     });
     std::mem::forget(timer);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These only read /proc; nothing is ever signalled.
+    #[test]
+    fn the_live_check_refuses_pid_0_and_pid_1() {
+        assert_eq!(check(&[1]), Err(Refused::NotAllowed));
+        assert_eq!(check(&[0]), Err(Refused::NotAllowed));
+        assert_eq!(check(&[std::process::id(), 1]), Err(Refused::NotAllowed));
+    }
+
+    #[test]
+    fn the_live_check_lets_an_ordinary_process_of_ours_through() {
+        assert_eq!(check(&[std::process::id()]), Ok(()));
+    }
 }
