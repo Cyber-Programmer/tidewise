@@ -11,7 +11,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use slint::ComponentHandle;
 use tidewise_adapters::appimage::AppImageApps;
+use tidewise_adapters::apt::AptApps;
 use tidewise_adapters::desktop;
+use tidewise_adapters::dnf::DnfApps;
 use tidewise_adapters::flatpak::FlatpakApps;
 use tidewise_adapters::pacman::PacmanApps;
 use tidewise_adapters::runner::SystemRunner;
@@ -28,7 +30,12 @@ type Found = Vec<(AppEntry, RemovalPlan)>;
 struct Job {
     rx: Receiver<(Outcome, bool)>,
     name: String,
+    /// The user asked for the settings folder to go to the Trash too.
+    delete_settings: bool,
 }
+
+/// What a scan finds: the apps, and the settings folder of each user Flatpak that has one.
+type Scanned = (Found, HashMap<String, uninstall::SettingsFolder>);
 
 #[derive(Default)]
 pub struct Ctl {
@@ -36,7 +43,9 @@ pub struct Ctl {
     filter_index: i32,
     query: String,
     picked: Option<String>,
-    scan: Option<Receiver<Found>>,
+    scan: Option<Receiver<Scanned>>,
+    settings: HashMap<String, uninstall::SettingsFolder>,
+    delete_settings: bool,
     job: Option<Job>,
     started: bool,
 }
@@ -80,30 +89,25 @@ fn find_apps() -> Found {
         }
     }
     // Packages: only those that own a visible launcher count as apps.
-    let pacman = PacmanApps::system();
-    if let Ok(packages) = pacman.list() {
-        let files: Vec<PathBuf> = std::fs::read_dir("/usr/share/applications")
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
-            .collect();
-        let entries: HashMap<PathBuf, desktop::DesktopEntry> = files
-            .iter()
-            .filter_map(|f| {
-                let text = std::fs::read_to_string(f).ok()?;
-                Some((f.clone(), desktop::parse_desktop_file(&text)?))
-            })
-            .collect();
-        let owned = desktop::pacman_owners(&SystemRunner, &files);
-        for app in desktop::apps_from_packages(packages, &owned, &entries) {
-            if let Ok(plan) = pacman.removal_plan(&app) {
-                found.push((app, plan));
-            }
+    add_package_apps(&mut found, &PacmanApps::system(), SourceKind::Pacman);
+    // Debian/Ubuntu and Fedora machines: the same, through `dpkg -S` and `rpm -qf`. On Arch their
+    // tools are missing, `list()` fails and nothing is added.
+    add_package_apps(&mut found, &AptApps::system(), SourceKind::Apt);
+    add_package_apps(&mut found, &DnfApps::system(), SourceKind::Dnf);
+    found
+}
+
+/// The packages of one package manager that own a visible launcher, each with its removal plan.
+fn add_package_apps(found: &mut Found, source: &dyn AppSource, kind: SourceKind) {
+    let Ok(packages) = source.list() else {
+        return;
+    };
+    let launchers = std::path::Path::new("/usr/share/applications");
+    for app in desktop::package_apps(packages, kind, &SystemRunner, launchers) {
+        if let Ok(plan) = source.removal_plan(&app) {
+            found.push((app, plan));
         }
     }
-    found
 }
 
 /// A fresh plan for one app, from its own source, right before acting.
@@ -113,7 +117,8 @@ fn fresh_plan(app: &AppEntry) -> Option<RemovalPlan> {
         SourceKind::Flatpak => Box::new(FlatpakApps::system()),
         SourceKind::Snap => Box::new(SnapApps::system()),
         SourceKind::Pacman => Box::new(PacmanApps::system()),
-        _ => return None,
+        SourceKind::Apt => Box::new(AptApps::system()),
+        SourceKind::Dnf => Box::new(DnfApps::system()),
     };
     let current = source.list().ok()?.into_iter().find(|a| a.id == app.id)?;
     source.removal_plan(&current).ok()
@@ -130,6 +135,22 @@ impl Ctl {
         }
     }
 
+    /// The apps found so far, for the search box; starts the search for apps the first time.
+    pub fn search_infos(&mut self, ui: &MainWindow) -> Vec<crate::search_index::AppInfo> {
+        if !self.started {
+            self.start_scan(ui);
+        }
+        self.found
+            .iter()
+            .map(|(a, _)| crate::search_index::AppInfo {
+                id: a.id.clone(),
+                name: a.name.clone(),
+                source: apps::source_label(a.kind).into(),
+                size_bytes: a.size_bytes,
+            })
+            .collect()
+    }
+
     pub fn busy(&self) -> bool {
         self.scan.is_some() || self.job.is_some()
     }
@@ -143,16 +164,38 @@ impl Ctl {
         let (tx, rx) = mpsc::channel();
         self.scan = Some(rx);
         std::thread::spawn(move || {
-            let _ = tx.send(find_apps());
+            let found = find_apps();
+            let settings = home()
+                .map(|h| {
+                    found
+                        .iter()
+                        .filter_map(|(a, _)| {
+                            Some((a.id.clone(), uninstall::settings_folder(a, &h)?))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let _ = tx.send((found, settings));
         });
     }
 
     pub fn poll(&mut self, ui: &MainWindow) {
         if let Some(rx) = &self.scan {
             match rx.try_recv() {
-                Ok(found) => {
+                Ok((found, settings)) => {
                     self.scan = None;
                     self.found = found;
+                    self.settings = settings;
+                    // What this PC has: notes about missing sources, or an unsupported distro.
+                    let tools = tidewise_core::distro::detect_tools(std::path::Path::new("/"));
+                    let distro = std::fs::read_to_string("/etc/os-release")
+                        .map(|t| tidewise_core::distro::parse_os_release(&t).name)
+                        .unwrap_or_default();
+                    view::apply_apps_notes(
+                        ui,
+                        &apps::source_notes(&tools),
+                        apps::unsupported_system_apps(&tools, &distro).as_ref(),
+                    );
                     let st = ui.global::<AppsState>();
                     if self.found.is_empty() {
                         st.set_phase(2);
@@ -178,8 +221,9 @@ impl Ctl {
         if let Some(job) = &self.job {
             if let Ok((outcome, to_trash)) = job.rx.try_recv() {
                 let name = job.name.clone();
+                let job_settings = job.delete_settings;
                 self.job = None;
-                self.finish_job(ui, &name, to_trash, &outcome);
+                self.finish_job(ui, &name, to_trash, job_settings, &outcome);
             }
         }
     }
@@ -202,13 +246,29 @@ impl Ctl {
             self.found
                 .iter()
                 .find(|(a, _)| a.id == *id)
-                .map(|(a, plan)| (apps::panel(a, plan), apps::row(a)))
+                .map(|(a, plan)| {
+                    let choice = self.settings.get(&a.id).map(|f| apps::SettingsChoice {
+                        bytes: f.bytes,
+                        delete: self.delete_settings,
+                    });
+                    (apps::panel_with_settings(a, plan, choice), apps::row(a))
+                })
         });
         view::apply_apps_panel(ui, panel.as_ref().map(|(p, r)| (p, r)));
     }
 
-    fn finish_job(&mut self, ui: &MainWindow, name: &str, to_trash: bool, outcome: &Outcome) {
-        let done = apps::done(name, to_trash, outcome);
+    fn finish_job(
+        &mut self,
+        ui: &MainWindow,
+        name: &str,
+        to_trash: bool,
+        asked_for_settings: bool,
+        outcome: &Outcome,
+    ) {
+        // The settings went too only when the outcome lists their folder after the app.
+        let settings_went = asked_for_settings
+            && matches!(outcome, Outcome::Removed { items, .. } if items.len() > 1);
+        let done = apps::done_with_settings(name, to_trash, settings_went, outcome);
         let mut text = done.text.clone();
         if let Outcome::Removed { items, freed } = outcome {
             let now = SystemTime::now()
@@ -229,7 +289,14 @@ impl Ctl {
                             status: history::Status::Done,
                             bytes: *freed,
                             items: items.clone(),
-                            note: to_trash.then(|| "moved to the Trash".to_string()),
+                            entries: vec![],
+                            note: (to_trash || settings_went).then(|| {
+                                if to_trash {
+                                    "moved to the Trash".to_string()
+                                } else {
+                                    "settings and data moved to the Trash".to_string()
+                                }
+                            }),
                         }],
                     };
                     if let Err(e) = history::write(&dir, &record) {
@@ -257,6 +324,9 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             let entries = c.entries();
             let shown = apps::visible(&entries, Filter::from_index(c.filter_index), &c.query);
             if let Some(&at) = shown.get(i.max(0) as usize) {
+                if c.picked.as_deref() != Some(entries[at].id.as_str()) {
+                    c.delete_settings = false;
+                }
                 c.picked = Some(entries[at].id.clone());
                 c.refresh(&ui);
             }
@@ -290,6 +360,22 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             };
             c.query = text.to_string();
             c.refresh(&ui);
+        }
+    });
+    st.on_toggle_settings({
+        let (weak, ctl) = (ui.as_weak(), ctl.clone());
+        move || {
+            let (Some(ui), mut c) = (weak.upgrade(), ctl.borrow_mut()) else {
+                return;
+            };
+            let offered = c
+                .picked
+                .as_ref()
+                .is_some_and(|id| c.settings.contains_key(id));
+            if offered {
+                c.delete_settings = !c.delete_settings;
+                c.refresh(&ui);
+            }
         }
     });
     st.on_uninstall({
@@ -334,9 +420,11 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
             );
             st.set_flow(2);
             let (tx, rx) = mpsc::channel();
+            let delete_settings = c.delete_settings && c.settings.contains_key(&app.id);
             c.job = Some(Job {
                 rx,
                 name: app.name.clone(),
+                delete_settings,
             });
             let to_trash = plan.to_trash;
             std::thread::spawn(move || {
@@ -351,6 +439,7 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
                             home: &home,
                             now: SystemTime::now(),
                             runner: &SystemRunner,
+                            delete_settings,
                         };
                         uninstall::run(&app, &plan, &fresh, &env)
                     }

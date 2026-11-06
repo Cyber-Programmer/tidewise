@@ -18,14 +18,19 @@ use crate::{flatpak, journal};
 
 const JOURNAL_LABEL: &str = "System log (journal)";
 const RUNTIMES_LABEL: &str = "Unused Flatpak runtimes";
+const ORPHANS_LABEL: &str = "Packages nothing uses";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JunkKind {
     AppCache,
+    /// An app cache that takes a long download to come back (see `cachekind`).
+    SlowCache,
     Trash,
     PackageCache,
     Journal,
     FlatpakRuntime,
+    /// A package nothing needs any more (cleaning it needs admin access).
+    Orphans,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +96,8 @@ pub struct Sources {
     pub flatpak_runtimes: Option<String>,
     /// Output of `flatpak list --app --columns=application,runtime,installation`.
     pub flatpak_apps: Option<String>,
+    /// What the package managers say about packages nothing needs (see `orphans`).
+    pub orphans: Vec<crate::orphans::OrphanInput>,
     /// Things that could not be looked at at all (a command failed), shown with the skipped ones.
     pub unavailable: Vec<Skipped>,
 }
@@ -152,6 +159,21 @@ pub fn scan(sources: &Sources) -> JunkReport {
         }
     }
     flatpak_runtimes(sources, &mut report);
+    for input in &sources.orphans {
+        match crate::orphans::read(input) {
+            Ok(orphans) => report.items.extend(orphans.into_iter().map(|o| JunkItem {
+                kind: JunkKind::Orphans,
+                label: o.name,
+                path: None,
+                bytes: o.bytes,
+                needs_admin: true,
+            })),
+            Err(_) => report.skipped.push(Skipped {
+                label: ORPHANS_LABEL.into(),
+                reason: "Tidewise could not understand what the package manager printed".into(),
+            }),
+        }
+    }
     report.items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
     report
 }
@@ -198,8 +220,12 @@ fn app_caches(cache: &Path, running: &[String], report: &mut JunkReport) {
             meta.blocks() * 512
         };
         if bytes > 0 {
+            let kind = match crate::cachekind::classify(&label, bytes) {
+                crate::cachekind::CacheKind::Rebuilds => JunkKind::AppCache,
+                crate::cachekind::CacheKind::SlowToDownload => JunkKind::SlowCache,
+            };
             report.items.push(JunkItem {
-                kind: JunkKind::AppCache,
+                kind,
                 label,
                 path: Some(path),
                 bytes,
@@ -292,6 +318,7 @@ pub fn live_sources() -> Sources {
         running: running_names(),
         ..Sources::default()
     };
+    sources.orphans = orphan_inputs(&mut sources.unavailable);
     sources.journal_text = ask(
         "/usr/bin/journalctl",
         &["--disk-usage"],
@@ -319,6 +346,85 @@ pub fn live_sources() -> Sources {
         sources.flatpak_apps = apps;
     }
     sources
+}
+
+/// Run a read-only command by absolute path (no shell, `LC_ALL=C`) and return stdout and stderr
+/// together plus whether it succeeded. `None` when the program is missing or cannot start.
+fn capture(program: &str, args: &[&str]) -> Option<(bool, String)> {
+    if !Path::new(program).exists() {
+        return None;
+    }
+    let o = Command::new(program)
+        .args(args)
+        .env("LC_ALL", "C")
+        .output()
+        .ok()?;
+    let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
+    text += &String::from_utf8_lossy(&o.stderr);
+    Some((o.status.success(), text))
+}
+
+/// What each installed package manager says about packages nothing needs. All read-only: pacman's
+/// queries, `apt-get -s` (simulate) and `dnf --assumeno` (answers no). A manager that is not there
+/// is not asked; one that fails is reported.
+fn orphan_inputs(unavailable: &mut Vec<Skipped>) -> Vec<crate::orphans::OrphanInput> {
+    use crate::orphans::{Manager, OrphanInput};
+    let mut out = Vec::new();
+    let mut failed = || {
+        unavailable.push(Skipped {
+            label: ORPHANS_LABEL.into(),
+            reason: "The command to look it up failed".into(),
+        })
+    };
+    // pacman -Qdtq exits 1 and prints nothing when there are none, so the exit code is not used.
+    if let Some((_, list)) = capture("/usr/bin/pacman", &["-Qdtq"]) {
+        let names: Vec<&str> = list
+            .lines()
+            .map(str::trim)
+            .filter(|n| crate::source::is_plain_name(n))
+            .collect();
+        let sizes = if names.is_empty() {
+            Some(String::new())
+        } else {
+            let mut args = vec!["-Qi", "--"];
+            args.extend(names);
+            capture("/usr/bin/pacman", &args).map(|(_, text)| text)
+        };
+        match sizes {
+            Some(sizes) => out.push(OrphanInput {
+                manager: Manager::Pacman,
+                list,
+                sizes,
+            }),
+            None => failed(),
+        }
+    }
+    if let Some((ok, list)) = capture("/usr/bin/apt-get", &["-s", "autoremove"]) {
+        let sizes = capture(
+            "/usr/bin/dpkg-query",
+            &["-W", r"-f=${Package}\t${Installed-Size}\t${Status}\n"],
+        );
+        match sizes {
+            Some((true, sizes)) if ok => out.push(OrphanInput {
+                manager: Manager::Apt,
+                list,
+                sizes,
+            }),
+            _ => failed(),
+        }
+    }
+    // `--assumeno` makes dnf exit with an error even when the plan is fine; only the text counts.
+    if let Some((_, list)) = capture("/usr/bin/dnf", &["autoremove", "--assumeno"]) {
+        match capture("/usr/bin/rpm", &["-qa", "--qf", "%{NAME}\\t%{SIZE}\\n"]) {
+            Some((true, sizes)) => out.push(OrphanInput {
+                manager: Manager::Dnf,
+                list,
+                sizes,
+            }),
+            _ => failed(),
+        }
+    }
+    out
 }
 
 fn ask(
@@ -440,6 +546,75 @@ mod tests {
         assert!(report.items.iter().all(|i| i.label != "gamma"));
         // Biggest first.
         assert!(report.items.windows(2).all(|w| w[0].bytes >= w[1].bytes));
+    }
+
+    #[test]
+    fn slow_to_download_caches_are_listed_as_their_own_kind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path().join("cache");
+        write(&cache.join("huggingface/hub/model.bin"), 200_000);
+        write(&cache.join("thumbnails/a.png"), 200_000);
+        write(&cache.join("Docker Desktop/x"), 200_000);
+        write(&cache.join("whatever/x"), 200_000);
+        let report = scan(&Sources {
+            cache_dir: Some(cache),
+            ..Sources::default()
+        });
+        assert_eq!(item(&report, "huggingface").kind, JunkKind::SlowCache);
+        assert_eq!(item(&report, "Docker Desktop").kind, JunkKind::SlowCache);
+        assert_eq!(item(&report, "thumbnails").kind, JunkKind::AppCache);
+        assert_eq!(item(&report, "whatever").kind, JunkKind::AppCache);
+    }
+
+    fn any_fixture(rel: &str) -> String {
+        fs::read_to_string(format!(
+            "{}/../../tests/fixtures/{rel}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn packages_nothing_uses_are_listed_one_by_one_and_need_admin() {
+        use crate::orphans::{Manager, OrphanInput};
+        let report = scan(&Sources {
+            orphans: vec![OrphanInput {
+                manager: Manager::Pacman,
+                list: any_fixture("pacman/Qdtq-real.txt"),
+                sizes: any_fixture("pacman/Qi-orphans-real.txt"),
+            }],
+            ..Sources::default()
+        });
+        let orphans: Vec<_> = report
+            .items
+            .iter()
+            .filter(|i| i.kind == JunkKind::Orphans)
+            .collect();
+        assert_eq!(orphans.len(), 25);
+        assert!(orphans.iter().all(|i| i.needs_admin && i.path.is_none()));
+        assert!(orphans.iter().any(|i| i.label == "asar" && i.bytes > 0));
+        assert!(report.items.windows(2).all(|w| w[0].bytes >= w[1].bytes));
+        assert_eq!(
+            report.admin_bytes(),
+            orphans.iter().map(|i| i.bytes).sum::<u64>()
+        );
+    }
+
+    #[test]
+    fn orphan_text_that_cannot_be_read_is_reported_not_guessed() {
+        use crate::orphans::{Manager, OrphanInput};
+        let report = scan(&Sources {
+            orphans: vec![OrphanInput {
+                manager: Manager::Apt,
+                list: any_fixture("orphans/apt-autoremove-de-handwritten.txt"),
+                sizes: String::new(),
+            }],
+            ..Sources::default()
+        });
+        assert!(report.items.is_empty());
+        assert!(skipped(&report, "Packages nothing uses")
+            .reason
+            .contains("could not understand"));
     }
 
     #[test]

@@ -1,0 +1,7 @@
+Paketlisten werden gelesen... Fertig
+Abhängigkeitsbaum wird aufgebaut... Fertig
+Statusinformationen werden eingelesen... Fertig
+Die folgenden Pakete werden ENTFERNT:
+  vlc-bin
+0 aktualisiert, 0 neu installiert, 1 zu entfernen und 0 nicht aktualisiert.
+Remv vlc-bin [3.0.20-0ubuntu1]

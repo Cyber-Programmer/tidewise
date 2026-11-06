@@ -34,6 +34,161 @@ pub fn tag(score: u32) -> &'static str {
     }
 }
 
+/// −3 points for every failed service.
+pub const SERVICE_POINTS_EACH: u32 = 3;
+
+pub fn service_points(failed: usize) -> u32 {
+    u32::try_from(failed)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(SERVICE_POINTS_EACH)
+}
+
+/// What the score is made of: the numbers that were really measured. `None` means "not measured",
+/// which takes off nothing and is said so.
+#[derive(Debug, Clone, Default)]
+pub struct Inputs {
+    pub drive: Option<crate::drive::DriveSpace>,
+    /// Bytes of junk the last scan found.
+    pub junk: Option<u64>,
+    /// Names of the services that failed (`Some(vec![])` = looked, none failed).
+    pub failed_services: Option<Vec<String>>,
+}
+
+/// Which screen the fix button opens (the sidebar order: 1 Clean up, 3 Storage, 7 Services).
+pub const PAGE_CLEAN_UP: i32 = 1;
+pub const PAGE_STORAGE: i32 = 3;
+pub const PAGE_SERVICES: i32 = 7;
+
+/// One thing that took points off: the points, a plain title and sentence, the exact check and rule
+/// (for "what was checked"), and the fix button.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding {
+    pub points: u32,
+    pub title: String,
+    pub desc: String,
+    pub check: String,
+    pub action: String,
+    pub page: i32,
+}
+
+/// Something that was looked at and is fine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotChecked {
+    pub title: String,
+    pub why: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub score: u32,
+    pub tag: String,
+    /// Biggest loss first.
+    pub findings: Vec<Finding>,
+    /// Checks that passed, one plain sentence each.
+    pub passed: Vec<String>,
+    /// Things that are not measured (yet), and why.
+    pub not_checked: Vec<NotChecked>,
+}
+
+/// The whole picture behind the score, from what was measured.
+pub fn report(inputs: &Inputs) -> Report {
+    let gb = |b: u64| b as f64 / 1_000_000_000.0;
+    let (mut findings, mut passed, mut not_checked) = (Vec::new(), Vec::new(), Vec::new());
+    match inputs.drive {
+        Some(d) => {
+            let used = d.used_fraction();
+            let points = disk_points(used);
+            if points > 0 {
+                findings.push(Finding {
+                    points,
+                    title: format!("Main drive is {:.0}% full", used * 100.0),
+                    desc: format!(
+                        "{:.0} GB free. Below about 15% free, updates and apps can start failing.",
+                        gb(d.free)
+                    ),
+                    check: format!(
+                        "free space on your main drive: {:.1}% used\nrule: −2 points for every 5% above 60% used",
+                        used * 100.0
+                    ),
+                    action: "See what's using space".into(),
+                    page: PAGE_STORAGE,
+                });
+            } else {
+                passed.push(format!(
+                    "Your main drive has room ({:.0}% used)",
+                    used * 100.0
+                ));
+            }
+        }
+        None => not_checked.push(NotChecked {
+            title: "Main drive space".into(),
+            why: "Tidewise could not read how full your main drive is.".into(),
+        }),
+    }
+    match inputs.junk {
+        Some(bytes) => {
+            let points = junk_points(bytes);
+            if points > 0 {
+                findings.push(Finding {
+                    points,
+                    title: format!("{:.1} GB of junk files", gb(bytes)),
+                    desc: "Old package downloads, app caches and logs. Clean up shows exactly what would go before anything is removed.".into(),
+                    check: "found by the same scan as Clean up\nrule: −1 point per 2.5 GB, at most −8".into(),
+                    action: "Clean up".into(),
+                    page: PAGE_CLEAN_UP,
+                });
+            } else {
+                passed.push("Junk is under 2.5 GB".into());
+            }
+        }
+        None => not_checked.push(NotChecked {
+            title: "Junk".into(),
+            why: "The junk scan has not finished yet.".into(),
+        }),
+    }
+    match &inputs.failed_services {
+        Some(failed) if !failed.is_empty() => {
+            let n = failed.len();
+            let names = failed.join(", ");
+            findings.push(Finding {
+                points: service_points(n),
+                title: format!("{n} service{} failed", if n == 1 { "" } else { "s" }),
+                desc: format!(
+                    "{names}. A failed service is not always broken: many fail when there is no network and try again later."
+                ),
+                check: format!(
+                    "systemctl: failed → {names}\nrule: −3 points per failed service"
+                ),
+                action: "Open Services".into(),
+                page: PAGE_SERVICES,
+            });
+        }
+        Some(_) => passed.push("No service has failed".into()),
+        None => not_checked.push(NotChecked {
+            title: "Services".into(),
+            why: "Services could not be read.".into(),
+        }),
+    }
+    // These two are never part of the score today.
+    not_checked.push(NotChecked {
+        title: "Waiting updates".into(),
+        why: "Waiting updates are not checked yet, so they are not part of the score.".into(),
+    });
+    not_checked.push(NotChecked {
+        title: "Drive health".into(),
+        why: "Reading your drive's own health report needs admin access (coming soon). It doesn't change your score.".into(),
+    });
+    findings.sort_by_key(|f| std::cmp::Reverse(f.points));
+    let score = score(&findings.iter().map(|f| f.points).collect::<Vec<_>>());
+    Report {
+        score,
+        tag: tag(score).into(),
+        findings,
+        passed,
+        not_checked,
+    }
+}
+
 /// Is one app using enough memory to be worth a suggestion? From 1 GB up.
 pub fn is_big_memory(app_bytes: u64) -> bool {
     app_bytes >= 1_000_000_000
@@ -62,6 +217,154 @@ mod tests {
         assert_eq!(disk_points(f64::NAN), 0);
         assert_eq!(disk_points(-1.0), 0);
         assert_eq!(disk_points(7.0), 16, "over 100 % counts as 100 %");
+    }
+
+    fn drive(used: f64) -> crate::drive::DriveSpace {
+        let total = 1_000_000_000_000u64;
+        crate::drive::DriveSpace {
+            total,
+            free: (total as f64 * (1.0 - used)) as u64,
+        }
+    }
+
+    #[test]
+    fn a_failed_service_takes_off_three_points_each() {
+        assert_eq!(SERVICE_POINTS_EACH, 3);
+        assert_eq!(service_points(0), 0);
+        assert_eq!(service_points(1), 3);
+        assert_eq!(service_points(4), 12);
+        assert_eq!(service_points(usize::MAX), u32::MAX, "never overflows");
+    }
+
+    #[test]
+    fn the_artboards_example_adds_up_to_82() {
+        let r = report(&Inputs {
+            drive: Some(drive(0.80)),
+            junk: Some(12_600_000_000),
+            failed_services: Some(vec!["fwupd-refresh.service".into()]),
+        });
+        assert_eq!(r.score, 100 - 8 - 5 - 3);
+        assert_eq!(r.tag, "Good shape");
+        let got: Vec<_> = r.findings.iter().map(|f| (f.points, f.page)).collect();
+        assert_eq!(
+            got,
+            [(8, PAGE_STORAGE), (5, PAGE_CLEAN_UP), (3, PAGE_SERVICES)]
+        );
+        let d = &r.findings[0];
+        assert_eq!(d.title, "Main drive is 80% full");
+        assert!(d.desc.contains("200 GB free"), "{}", d.desc);
+        assert!(
+            d.check.contains("80.0% used")
+                && d.check.contains("−2 points for every 5% above 60% used"),
+            "{}",
+            d.check
+        );
+        assert_eq!(d.action, "See what's using space");
+        let j = &r.findings[1];
+        assert_eq!(j.title, "12.6 GB of junk files");
+        assert!(
+            j.check.contains("−1 point per 2.5 GB, at most −8"),
+            "{}",
+            j.check
+        );
+        assert_eq!(j.action, "Clean up");
+        let s = &r.findings[2];
+        assert_eq!(s.title, "1 service failed");
+        assert!(s.desc.contains("fwupd-refresh.service"), "{}", s.desc);
+        assert!(
+            s.check.contains("−3 points per failed service"),
+            "{}",
+            s.check
+        );
+        assert_eq!(s.action, "Open Services");
+    }
+
+    #[test]
+    fn findings_are_listed_biggest_loss_first_and_services_are_plural() {
+        let r = report(&Inputs {
+            drive: Some(drive(0.65)),
+            junk: Some(20_000_000_000),
+            failed_services: Some(vec!["a.service".into(), "b.service".into()]),
+        });
+        let points: Vec<_> = r.findings.iter().map(|f| f.points).collect();
+        assert_eq!(points, [8, 6, 2], "junk 8, services 6, drive 2");
+        assert_eq!(r.findings[1].title, "2 services failed");
+        assert!(
+            r.findings[1].desc.contains("a.service") && r.findings[1].desc.contains("b.service")
+        );
+    }
+
+    #[test]
+    fn what_is_fine_is_listed_as_passed_and_costs_nothing() {
+        let r = report(&Inputs {
+            drive: Some(drive(0.50)),
+            junk: Some(100_000_000),
+            failed_services: Some(vec![]),
+        });
+        assert_eq!(r.score, 100);
+        assert_eq!(r.tag, "Good shape");
+        assert!(r.findings.is_empty());
+        assert_eq!(
+            r.passed,
+            [
+                "Your main drive has room (50% used)",
+                "Junk is under 2.5 GB",
+                "No service has failed",
+            ]
+        );
+    }
+
+    #[test]
+    fn what_was_not_measured_is_said_and_takes_nothing_off() {
+        let r = report(&Inputs::default());
+        assert_eq!(r.score, 100);
+        assert!(r.findings.is_empty() && r.passed.is_empty());
+        let titles: Vec<_> = r.not_checked.iter().map(|n| n.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Main drive space",
+                "Junk",
+                "Services",
+                "Waiting updates",
+                "Drive health"
+            ]
+        );
+        let why = |t: &str| {
+            r.not_checked
+                .iter()
+                .find(|n| n.title == t)
+                .unwrap()
+                .why
+                .clone()
+        };
+        assert!(
+            why("Junk").contains("scan has not finished"),
+            "{}",
+            why("Junk")
+        );
+        assert!(why("Services").contains("could not be read"));
+        assert!(why("Waiting updates").contains("not checked yet"));
+        assert!(why("Drive health").contains("admin access"));
+        // Once everything is measured only the two that are never measured remain.
+        let full = report(&Inputs {
+            drive: Some(drive(0.5)),
+            junk: Some(0),
+            failed_services: Some(vec![]),
+        });
+        let rest: Vec<_> = full.not_checked.iter().map(|n| n.title.as_str()).collect();
+        assert_eq!(rest, ["Waiting updates", "Drive health"]);
+    }
+
+    #[test]
+    fn the_score_never_goes_below_zero_even_with_many_failures() {
+        let r = report(&Inputs {
+            drive: Some(drive(1.0)),
+            junk: Some(u64::MAX),
+            failed_services: Some((0..50).map(|i| format!("s{i}.service")).collect()),
+        });
+        assert_eq!(r.score, 0);
+        assert_eq!(r.tag, "Needs attention");
     }
 
     #[test]

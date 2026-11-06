@@ -205,6 +205,7 @@ pub fn home() -> HomeData {
         page,
     };
     HomeData {
+        alert: None,
         last_checked: "Last checked 2 minutes ago".into(),
         scan: Some(Scan {
             score: 82,
@@ -370,7 +371,7 @@ pub fn storage(downloads: bool) -> StorageData {
     }
 }
 
-/// The Cleaner artboard's groups (no "Packages nothing uses": the scanner does not look for them yet).
+/// The Cleaner artboard's six groups; "Packages nothing uses" is 7 packages of 30 MB.
 pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
     use tidewise_adapters::junk::{JunkItem, JunkKind, JunkReport};
     let item = |kind, label: &str, path: &str, bytes, needs_admin| JunkItem {
@@ -417,7 +418,27 @@ pub fn cleanup() -> Vec<tidewise_adapters::cleanup::Group> {
                 400_000_000,
                 false,
             ),
-        ],
+        ]
+        .into_iter()
+        .chain(
+            [
+                "cmake",
+                "meson",
+                "go",
+                "scdoc",
+                "patchelf",
+                "intltool",
+                "python-installer",
+            ]
+            .map(|name| JunkItem {
+                kind: JunkKind::Orphans,
+                label: name.into(),
+                path: None,
+                bytes: 30_000_000,
+                needs_admin: true,
+            }),
+        )
+        .collect(),
         skipped: vec![],
     })
 }
@@ -541,6 +562,206 @@ pub fn apps() -> Vec<(
     ]
 }
 
+/// The Services artboard's eight services (the artboard's own numbers).
+pub fn services() -> Vec<tidewise_adapters::services::Service> {
+    use tidewise_adapters::services::{Boot, Service, State};
+    let s = |unit: &str,
+             name: &str,
+             desc: &str,
+             state: State,
+             boot: Boot,
+             mem: Option<u64>,
+             protected: bool,
+             tip: Option<&str>| Service {
+        unit: unit.into(),
+        name: name.into(),
+        desc: desc.into(),
+        state,
+        boot,
+        memory: mem,
+        protected,
+        tip: tip.map(Into::into),
+        technical: "active/running · unit file: enabled".into(),
+    };
+    vec![
+        s("docker.service", "Docker", "Runs containers for developer tools. It uses memory all the time, even when you are not using any containers.", State::Running, Boot::Yes, Some(640_000_000), false, Some("Turn off \"Start with your PC\" and start it only when you need it.")),
+        s("fwupd-refresh.service", "Firmware update check", "Checks for firmware updates for your devices. It failed 2 hours ago because there was no internet connection. It will try again tomorrow, and nothing is broken.", State::Failed, Boot::No, None, false, Some("Try again now that you are online, or hide this warning.")),
+        s("cups.service", "Printing", "Lets you print. If you never print from this PC, it does not need to run.", State::Running, Boot::Yes, Some(24_000_000), false, Some("Turn it off if you have no printer. Turn it back on any time.")),
+        s("bluetooth.service", "Bluetooth", "Connects Bluetooth headphones, mice and keyboards.", State::Running, Boot::Yes, Some(12_000_000), false, Some("Safe to turn off only if you never use Bluetooth.")),
+        s("avahi-daemon.service", "Network device discovery", "Finds printers and shared devices on your home network automatically.", State::Running, Boot::Yes, Some(8_000_000), false, None),
+        s("sshd.service", "Remote login (SSH)", "Lets other computers log in to yours over the network. It is off, which is the safe default unless you need it.", State::Off, Boot::No, None, false, None),
+        s("NetworkManager.service", "Network", "Keeps you connected to Wi-Fi and wired networks.", State::Running, Boot::Yes, Some(22_000_000), true, None),
+        s("systemd-journald.service", "System log", "Records what your system does so problems can be traced.", State::Running, Boot::Yes, Some(30_000_000), true, None),
+    ]
+}
+
+/// The Startup artboard's eight apps (Flameshot is off).
+pub fn startup() -> Vec<tidewise_adapters::autostart::StartupEntry> {
+    use tidewise_adapters::autostart::{Scope, StartupEntry};
+    let e = |file: &str, name: &str, comment: &str, scope: Scope, enabled: bool, home_dir: bool| {
+        StartupEntry {
+            file: file.into(),
+            name: name.into(),
+            comment: Some(comment.into()),
+            exec: "x".into(),
+            icon: None,
+            path: if home_dir {
+                format!("~/.config/autostart/{file}").into()
+            } else {
+                format!("/etc/xdg/autostart/{file}").into()
+            },
+            scope,
+            enabled,
+            protected: false,
+            has_system_copy: !home_dir,
+        }
+    };
+    vec![
+        e(
+            "discord.desktop",
+            "Discord",
+            "Chat app",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "com.valvesoftware.Steam.desktop",
+            "Steam",
+            "Game launcher",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "spotify.desktop",
+            "Spotify",
+            "Music",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "com.nextcloud.desktopclient.nextcloud.desktop",
+            "Nextcloud",
+            "File sync",
+            Scope::User,
+            true,
+            true,
+        ),
+        e(
+            "org.flameshot.Flameshot.desktop",
+            "Flameshot",
+            "Screenshot tool",
+            Scope::User,
+            false,
+            true,
+        ),
+        e(
+            "org.kde.kdeconnect.daemon.desktop",
+            "KDE Connect",
+            "Links your phone",
+            Scope::System,
+            true,
+            false,
+        ),
+        e(
+            "org.kde.discover.notifier.desktop",
+            "Update notifier",
+            "Tells you when updates are ready",
+            Scope::System,
+            true,
+            false,
+        ),
+        e(
+            "baloo_file.desktop",
+            "File search indexer",
+            "Makes file search fast",
+            Scope::System,
+            true,
+            false,
+        ),
+    ]
+}
+
+/// "Now" for the History demo: 27 Oct 2026, 20:00 UTC (the artboard's "Today").
+pub const HISTORY_NOW: u64 = 1_793_131_200;
+
+/// The History artboard's entries that Tidewise can write today (no Docker or "set up" entries:
+/// there is no such record kind yet).
+pub fn history() -> Vec<tidewise_core::history::Record> {
+    use tidewise_core::history::{self, Kind, Record, Status, Step};
+    let step = |title: &str, bytes: u64| Step {
+        title: title.into(),
+        status: Status::Done,
+        bytes,
+        items: vec![],
+        entries: vec![],
+        note: None,
+    };
+    let record = |id: &str, time: u64, kind: Kind, title: &str, steps: Vec<Step>| Record {
+        version: history::VERSION,
+        id: id.into(),
+        time,
+        kind,
+        title: title.into(),
+        freed_bytes: steps.iter().map(|s| s.bytes).sum(),
+        steps,
+    };
+    vec![
+        record(
+            "h1",
+            1_793_130_060,
+            Kind::CleanUp,
+            "Cleaned 12.0 GB",
+            vec![
+                step("Old package downloads", 6_800_000_000),
+                step("App caches", 3_100_000_000),
+                step("Old system logs", 1_200_000_000),
+                step("Unused Flatpak parts", 900_000_000),
+            ],
+        ),
+        record(
+            "h2",
+            1_793_128_800,
+            Kind::Uninstall,
+            "Uninstalled GIMP",
+            vec![
+                step("GIMP app (Flatpak)", 412_000_000),
+                step("Shared parts only it used", 320_000_000),
+            ],
+        ),
+        record(
+            "h3",
+            1_793_124_300,
+            Kind::Startup,
+            "Discord won't start at login",
+            vec![step("Startup apps", 0)],
+        ),
+        {
+            let moved: Vec<(tidewise_core::trash::Trashed, u64)> = [
+                ("ubuntu-24.04-desktop-amd64.iso", 6_100_000_000),
+                ("archlinux-x86_64.iso", 1_400_000_000),
+                ("old-backup.zip", 1_600_000_000),
+            ]
+            .iter()
+            .map(|(name, bytes)| {
+                (
+                    tidewise_core::trash::Trashed {
+                        original: format!("/home/you/Downloads/{name}").into(),
+                        in_trash: format!("/home/you/.local/share/Trash/files/{name}").into(),
+                        info: format!("/home/you/.local/share/Trash/info/{name}.trashinfo").into(),
+                    },
+                    *bytes,
+                )
+            })
+            .collect();
+            history::trash_record(&moved, 1_793_047_500, "h5")
+        },
+        history::end_task_record("Firefox", 14, 2_300_000_000, true, 1_792_591_320, "h6"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +813,22 @@ mod tests {
     fn values_stay_between_1_and_98() {
         let s = series(9.0, 90.0, 30.0, &[10], 80.0);
         assert!(s.iter().all(|v| (1.0..=98.0).contains(v)));
+    }
+
+    #[test]
+    fn the_cleanup_demo_has_the_artboards_six_groups_with_the_orphans_last() {
+        use tidewise_adapters::cleanup::{default_selection, GroupId};
+        let g = cleanup();
+        assert_eq!(g.len(), 6);
+        let last = g.last().unwrap();
+        assert_eq!(
+            (last.id, last.title, last.bytes),
+            (GroupId::Orphans, "Packages nothing uses", 210_000_000)
+        );
+        assert_eq!(last.items.len(), 7, "the artboard says 7 packages");
+        assert!(last.admin);
+        assert_eq!(g.iter().map(|g| g.bytes).sum::<u64>(), 12_610_000_000);
+        assert_eq!(default_selection(&g).len(), 4, "4 of 6 are ticked");
     }
 
     #[test]

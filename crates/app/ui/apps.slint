@@ -1,5 +1,6 @@
 // The Apps screen and its uninstall dialog (docs/design/screens/Apps.dc.html, UninstallFlow.dc.html).
 import { Theme } from "theme.slint";
+import { SkeletonList } from "components.slint";
 
 export struct AppRow {
     name: string,
@@ -29,6 +30,10 @@ export global AppsState {
     in property <string> message;
     in property <string> footer;
     in property <[AppChip]> chips;
+    // Sources this PC does not have, and a package manager Tidewise cannot use: plain notes.
+    in property <[string]> notes;
+    in property <string> unsupported-title;
+    in property <string> unsupported-body;
     in property <[AppRow]> rows;
     in-out property <string> query;
     // The picked app and what uninstalling it does.
@@ -43,6 +48,9 @@ export global AppsState {
     in property <string> p-why;
     in property <bool> p-enabled: true;
     in property <string> p-technical;
+    // "Also delete my settings & data": offered only where Tidewise knows the folder.
+    in property <bool> p-settings-offer: false;
+    in property <bool> p-delete-settings: false;
     in-out property <bool> tech-open: false;
     // 0 no dialog, 1 confirm, 2 removing, 3 done, 4 message
     in property <int> flow: 0;
@@ -55,9 +63,21 @@ export global AppsState {
     callback set-filter(int);
     callback search-edited(string);
     callback uninstall();
+    callback toggle-settings();
     callback cancel();
     callback confirm();
     callback finish();
+}
+
+component Check inherits Rectangle {
+    in property <bool> on;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: root.on ? Theme.accent : transparent;
+    border-width: root.on ? 0px : 1.5px;
+    border-color: Theme.text-3;
+    if root.on: Image { source: @image-url("icons/done.svg"); width: 14px; height: 14px; x: 2px; y: 2px; colorize: Theme.on-accent; }
 }
 
 component Avatar inherits Rectangle {
@@ -178,13 +198,33 @@ export component AppsScreen inherits Rectangle {
                 }
             }
 
+            if AppsState.unsupported-title != "": Rectangle {
+                height: uns.preferred-height;
+                border-radius: Theme.radius-card;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.control-border;
+                accessible-role: text;
+                accessible-label: AppsState.unsupported-title + ". " + AppsState.unsupported-body;
+                uns := VerticalLayout {
+                    padding: 18px;
+                    spacing: 6px;
+                    Text { text: AppsState.unsupported-title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; wrap: word-wrap; }
+                    Text { text: AppsState.unsupported-body; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                }
+            }
             if AppsState.phase == 1: HorizontalLayout {
                 spacing: 10px;
                 alignment: start;
                 for chip[i] in AppsState.chips: FilterChip { label: chip.label; count: chip.count; on: chip.selected; clicked => { AppsState.set-filter(i); } }
             }
+            if AppsState.phase == 1 && AppsState.notes.length > 0: VerticalLayout {
+                spacing: 6px;
+                for note in AppsState.notes: Text { text: note; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+            }
 
-            if AppsState.phase != 1: Rectangle {
+            if AppsState.phase == 0: SkeletonList { label: "Looking for your apps"; }
+            if AppsState.phase >= 2: Rectangle {
                 height: 120px;
                 border-radius: Theme.radius-hero;
                 background: Theme.surface;
@@ -304,7 +344,22 @@ export component AppsScreen inherits Rectangle {
                                     }
                                 }
                             }
-                            Text { text: "Settings are kept by default, so reinstalling later brings everything back."; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
+                            if AppsState.p-settings-offer: Rectangle {
+                                height: 28px;
+                                accessible-role: checkbox;
+                                accessible-label: "Also delete my settings and data";
+                                accessible-checkable: true;
+                                accessible-checked: AppsState.p-delete-settings;
+                                accessible-action-default => { AppsState.toggle-settings(); }
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    alignment: start;
+                                    Rectangle { width: 18px; Check { y: (parent.height - self.height) / 2; on: AppsState.p-delete-settings; } }
+                                    Text { text: "Also delete my settings & data"; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; }
+                                }
+                                TouchArea { clicked => { AppsState.toggle-settings(); } }
+                            }
+                            Text { text: AppsState.p-delete-settings ? "Your settings and data go to the Trash too, so you can still put them back." : "Settings are kept by default, so reinstalling later brings everything back."; color: Theme.text-3; font-size: Theme.size-caption; wrap: word-wrap; }
                             Rectangle { height: 1px; background: Theme.row-divider; }
                             HorizontalLayout {
                                 Text { text: "Space you get back"; color: Theme.text-2; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; }

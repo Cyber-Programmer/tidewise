@@ -1,112 +1,116 @@
-# Run 07 queue
+# Run 08 queue
 
-Take the first `[ ]` task each round. Marks: `[ ]` open, `[~]` in progress, `[x]` done,
-`[/]` partial **by design** (the rest needs the admin helper, a person, or a real other distro: say which),
-`[!]` blocked or broken (a bug, a failing check, an error you could not fix). Each task names its WBS
-row(s), the design it must match (`docs/design/screens/` + `docs/design/png/`) and what "done" means.
-Read the matching milestone prompt in `docs/prompts/` for detail; this queue wins where they differ.
-Run 06's queue and report are in `docs/loop/archive/`.
+Take the first `[ ]` task each round. Marks: `[ ]` open, `[~]` in progress, `[x]` done, `[/]` partial,
+`[!]` blocked. Each task names its WBS rows, the design it must match (`docs/design/screens/` +
+`docs/design/png/`) and what "done" means. This queue wins over older prompts in `docs/prompts/`.
+Run 07's queue and report are in `docs/loop/archive/run-07-*.md`.
 
-## A. Make the checks honest again (first)
+## A. CI/CD first (the human saw the pipeline fail)
 
-- [ ] **Q01 Plain `cargo test --all` must exit 0, on any file system.** Run 06 could not get it green:
-  (a) `/tmp` filled up with AppImage unpackings (the tests are fixed to clean up; verify with
-  `ls -d /tmp/appimage_extracted_* | wc -l` before and after a full run, and say so; the human cleared
-  `/tmp` on 2 Nov 06:05 and plain `cargo test --all` then exited 0 with 512 passed, 3 ignored); (b)
-  `core::scan::tests::cancelling_stops_the_scan_and_says_so` expects 0 bytes for an empty folder, which
-  is only true on tmpfs. Fix (b) red-first so the expectation comes from the file system itself (the
-  folder's own blocks), **without weakening it**. Then run the plain command and also with
-  `TMPDIR=$PWD/target/tmp`; both must exit 0 and both exit codes go in the report. If `/tmp` is still
-  full when you start, say so, don't try to delete in `/tmp`, and use the `TMPDIR` form for every run.
-  Add a WBS row 5.13 under workstream 5 for this.
-- [ ] **Q02 Put every decision where the human will see it.** Run 06 left decisions only in report
-  entries (Q07 junk threshold and 5-minute rescan, Q08 `PackageSource` removed and the plain-name rule,
-  Q10 Blocked::Protected/Busy, Q13 one CommandRunner, Q14 "kept" row, Q15 group-signal rule). Add each to
-  `docs/questions.md` under "Run 06 — decisions taken before they were listed here" with a recommended
-  answer. Docs only.
+Known facts, from the human's GitHub Actions page on 2 Nov 2026 (CI workflow, 8 runs: #1, #2, #5 passed;
+#3, #4, #6, #7, #8 failed; #8 is "Merge run 06"). Run 07 is not pushed yet, so GitHub still runs run 06's
+code. Reproduced by the assistant on `main` @ a5bfc49 in an Ubuntu container: `cargo test --all` fails with
+exactly one test, `scan::tests::cancelling_stops_the_scan_and_says_so` (`left: 4096, right: 0`, scan.rs
+~line 486). Cause: on a real disk (ext4) the scanned root directory itself counts 4096 bytes; on tmpfs it
+counts 0. The test hard-coded 0. Run 07 R7-Q01 changed this on `run/07-2026-11-02`. fmt, clippy and the
+other 600+ tests passed in that container. The Actions logs themselves could not be read, so other
+failures on GitHub (for example in the `supply-chain` job, or on #3/#4/#6/#7, which may have had other
+causes) are not ruled out.
 
-- [ ] **Q18 Clean up must tell the truth when something fails** (WBS 6.6, 6.5). Evidence: the human's
-  real runs on 2 Nov, History records `1793580727-clean_up.json`, `1793581322-…`, `1793581699-…`,
-  `1793581707-…` in `~/.local/state/tidewise/history/`. In **all four** a folder named `dotslash` could
-  not be removed ("Permission denied (os error 13)"), yet each step has `"status": "done"`, the title says
-  "Cleaned 19.5 GB", the note shows only the folder's bare name, the record doesn't list what failed, and
-  `freed_bytes` is the sum of scan-time sizes. Red-first, tests on temp dirs only:
-  (1) any failure inside a step makes it `partial`, not `done`; the end dialog and the record title say
-  what is left ("Cleaned 19.5 GB · 1 folder left");
-  (2) record `version` 2: per item `{path, bytes, result, reason}`; v1 records still read;
-  (3) the reason is plain and names the full path ("read-only folder: ~/.cache/dotslash");
-  (4) freed bytes = what actually disappeared (re-measure a failed item after the attempt);
-  (5) read-only folders inside a cache the user owns (some tools create 0555 folders): make them
-  writable before removing, only for folders owned by the user, inside `~/.cache`, never following
-  symlinks, refused otherwise. Put this decision in `docs/questions.md` with the alternative (leave them
-  and say why). Rows: 6.6 stays `Needs Verification` until a person has seen the new end dialog.
-- [ ] **Q19 Split quick-to-rebuild caches from caches that take a long download** (WBS 6.5, 6.6).
-  Evidence: the same first record removed 17.9 GB of "App caches", all ticked by default, including
-  `~/.cache/huggingface` (ML models), `ms-playwright*` (browsers), `uv`, `pip`, `paru`, `yay`,
-  `Docker Desktop`, `codex-runtimes`, `chrome-devtools-mcp`, `eas-cli`, `maestro`, `spotify`. They are
-  caches, but several cost minutes and gigabytes of bandwidth to rebuild, and the screen gave no hint.
-  Red-first: a table-driven classifier (name → `Rebuilds itself` | `Takes a while to download again`);
-  thumbnails, shader and font caches, browser caches, KDE/GNOME caches, appstream, crash metadata are the
-  first kind; ML-model, browser-binary, language-package, build-tool, container, game-launcher and
-  streaming caches are the second; **any unknown cache over 2 GB is the second kind** (cautious default).
-  The second kind is its own group in Clean up: **not ticked by default**, each item listed with its size
-  and "will be downloaded again". This adds a group to the design (7 instead of 6): record it in
-  `docs/questions.md`, keep demo mode as the artboard shows it, design check Cleaner ≤ 10 %.
-  Keep skipping caches of running apps.
+- [ ] **Q01 Look at the pipeline before anything else.** (WBS 2.x CI row: find it by searching column B for
+  "CI".) Steps: (1) check the cancel test on the branch: it must not depend on the file system. Run the
+  plain `cargo test --all` **and** the same with `TMPDIR` on a different file system than the repo (tmpfs
+  vs real disk; say which is which, `df -T`). (2) Write `tools/ci-local.sh`: the exact commands of
+  `ci.yml` in order (`cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test --all --locked`, `cargo audit`, `cargo deny check`), stops at the first failure, prints each
+  command's exit code. (3) Read both workflows line by line against what the repo needs now: system
+  libraries Slint needs on ubuntu-22.04, `--locked` everywhere, caches, `permissions`, the AppImage steps
+  in `release.yml`. Fix what is wrong; every change gets a reason in `docs/questions.md`. (4) Add to
+  `ci.yml`: `concurrency` (cancel superseded runs on the same ref), `timeout-minutes` on every job, and a
+  `release-build` job (`cargo build --release -p tidewise-app --locked`). Do **not** add any job that
+  needs a secret, root on the runner for anything but installing packages, or the network beyond cargo
+  and the pinned action downloads. (5) Add `.github/dependabot.yml` for `cargo` and `github-actions`
+  (weekly). Done: `tools/ci-local.sh` exits 0 (show output), both workflow files parse, a test or script
+  proves the cancel test passes on both file systems. **CI on GitHub: Not verified** (say so). If an
+  Actions log is pasted by the human into `docs/ci-failure.log`, read it first and fix what it shows.
+- [ ] **Q02 Secret and supply-chain checks in CI.** A pinned secret scanner step only if it needs no new
+  secret and can be pinned by SHA (otherwise a `grep`-based `tools/check-secrets.sh` with a test that it
+  catches a fake key in a temp dir and ignores `tests/fixtures/`). `cargo deny` licence and advisory
+  settings reviewed once more (`deny.toml`). `cargo audit` result recorded. Done: the script's tests, the
+  workflow step, and exit codes in the report.
+- [ ] **Q03 Weekly fuzz smoke (optional job).** `.github/workflows/fuzz.yml`, `schedule` + `workflow_dispatch`
+  only, nightly toolchain, 60 s per target from a loop over `fuzz/fuzz_targets`, uploads a crash artefact
+  if any. Never on push. Done: the file parses and the target list is generated from the directory, not
+  typed by hand. Not verifiable here: whether it runs on GitHub.
 
-## B. Finish the partials that don't need the helper
+## B. README and project pages
 
-- [ ] **Q03 dpkg / rpm owner lookups** (WBS 7.1.8, 7.1.3, 7.1.4). `dpkg -S` and `rpm -qf` runners through
-  `CommandRunner`, so apt and dnf packages appear in the Apps list as apps (visible launchers only).
-  Hand-written fixtures are fine where the tool is missing; say so in the fixture README and the WBS note.
-  Rows stay `Needs Verification` unless a real capture exists.
-- [ ] **Q04 "Also delete my settings" in the uninstall panel** (WBS 7.4). Offered only where Tidewise
-  knows the folder: a user Flatpak's `~/.var/app/<id>`. Never guessed for AppImages or packages. Goes to
-  the Trash through `core::trash` (golden rule 4). Tests on temp dirs with `HOME` pointed there.
-- [ ] **Q05 Orphans group in Clean up** (WBS 6.6, 6.5). pacman orphans via `pacman -Qdtq` (read-only,
-  real capture for the fixture); apt `apt-get -s autoremove` and dnf `dnf autoremove --assumeno` parsers
-  from hand-written fixtures. Shown as the design's 6th group, "needs admin access (coming soon)".
-- [ ] **Q06 Processes: the stub Force quit button and the End dialog layout** (WBS 7.5, 3.4). Wire the
-  Processes details card's Force quit to the End task flow (or remove it if the design allows; say which).
-  For the End task confirm dialog (24.3 % in run 06): fix layout differences that are not caused by the
-  missing app-specific sentence (wrapping, button position). **Do not add copy that isn't true for every
-  app, and do not tune text to reach the number.** Report the final score and the exact remaining cause.
+- [ ] **Q04 Update the GitHub README** (WBS 9.11). Today it is 24 lines and partly stale. It must be true
+  of the code on this branch, and every claim checked against the source or a command you ran. Contents:
+  what Tidewise is and who it is for; a **status table** (page → Built / Partial / Not built, one line
+  each, taken from run 07's Summary, not from hopes); features with the screenshots already in
+  `docs/screenshots/` (re-take them with `--screenshot` if the UI changed since; look at them); install:
+  build from source (Rust version from `Cargo.toml` `rust-version` or CI, system libraries needed, on
+  Ubuntu 22.04 and Arch) and **AppImage: "no release yet"** unless a tag exists; run flags (`--demo`,
+  `--screenshot`, `TIDEWISE_RENDERER=gpu`); what needs admin access (not built yet) and what the app
+  never does (no network code, no telemetry, nothing deleted without a confirm screen, Trash first);
+  security (link `docs/security/`, how to report: `SECURITY.md`); contributing (link); a CI badge for
+  `.github/workflows/ci.yml` on `main`; licence. No claims of speed, size or distros you did not measure:
+  use the numbers in `docs/budgets.md` with their conditions. Done: each command in the README was run
+  (exit codes in the report), each link target exists (check with a script), `CHANGELOG.md` agrees.
+- [ ] **Q05 CONTRIBUTING.md, SECURITY.md, issue templates.** `CONTRIBUTING.md`: build, `tools/ci-local.sh`,
+  the red-then-green rule, design rules, the conventional-commit style used in the log, what needs
+  discussion first. `SECURITY.md`: private reporting (GitHub private vulnerability reporting; do not invent
+  an email address), supported versions "none released yet", what is in scope. `.github/ISSUE_TEMPLATE/`
+  bug report (distro, version from `--version`, what you clicked, History JSON if relevant, no personal
+  paths) and feature request. Done: files exist, links resolve, no invented contact details.
 
-## C. Remaining screens (user side; admin parts show "needs admin access (coming soon)")
+## C. Real bugs the pen-test checklist and run 07 hinted at
 
-- [ ] **Q07 History records + History screen** (WBS 8.4, design `History`). Records already exist for
-  Clean up; make Storage Trash/Undo, uninstall and End task write them too. List by day, what changed,
-  Undo where it is possible without admin (Trash restore), "Copy for a help forum". Threat model 'R' row
-  updated. Records in `$XDG_STATE_HOME/tidewise/history/`.
-- [ ] **Q08 Startup apps** (WBS 8.1, design `Startup`). XDG autostart; turning off writes a user
-  `Hidden=true` copy with a backup; Undo toast. `.desktop` parser fixtures; extend the desktop fuzz
-  target. Impact numbers only if they can be measured honestly; otherwise leave them out and say so.
-- [ ] **Q09 Services list, read-only** (WBS 8.2, design `Services`). Machine-readable `systemctl` output
-  (fixtures from read-only commands such as `systemctl list-units --output=json`), failed units, curated
-  "worth a look" list, protected units refused in code. Start/stop/enable show needs-admin.
-- [ ] **Q10 Settings screen** (WBS 9.5, 9.4, design `Settings`). Stored in `$XDG_CONFIG_HOME/tidewise/`.
-  Dark/light switch; "Follow system" only if it needs no new dependency (else `docs/questions.md`).
-  Update-check toggle is stored but there is no network code (WBS 9.6 has an open conflict).
-- [ ] **Q11 Health page** (WBS 9.2, design `Health`). Each rule, its points, the check, and a fix button
-  that goes to the right screen.
-- [ ] **Q12 Search, Ctrl K** (WBS 9.1, design `Search`). Index over apps, processes, actions, settings;
-  home files only if it stays inside the memory budget (measure). Ranking unit tests.
-- [ ] **Q13 Empty / loading / error states pass** (WBS 9.7, design `States`) for every built screen.
+- [ ] **Q06 Pen-test A16 and A21 as tests** (WBS 5.10). A16: End task must refuse PID 1 (and other protected
+  processes) in code. A21: `--out` must refuse paths outside a sensible location (`/etc/passwd` and
+  anything not writable by the user; decide, record in `docs/questions.md`). Write the tests first (red),
+  then fix. Temp dirs and processes the test started only. Update the checklist file with the result.
+  Done: red commit, green commit, plain `cargo test --all` exit 0.
+- [ ] **Q07 Keyboard pass and contrast** (WBS 9.7). Contrast of every text/background colour pair in
+  `tokens` ≥ 4.5:1 (≥ 3:1 for large text and icons) as a unit test that reads the real token values; list
+  failures, fix by choosing an existing token (no new colours without a `docs/questions.md` entry). Tab
+  order and Enter/Esc for dialogs: as far as the headless test can show it; what cannot be shown goes
+  under Not verified. Done: the test, its output, the list.
+- [ ] **Q08 Home files search: decide with numbers** (WBS 9.1). Measure a filename index of `$HOME` in a temp
+  tree of 200 000 files (PSS and build time). If within the 40 MB budget, build it with tests; if not,
+  write the numbers into `docs/questions.md` and keep "Files are not searched yet". Never index outside
+  `$HOME`; follow `.gitignore`-like hidden-dir skipping rules you document.
+- [ ] **Q09 Budgets for the pages run 07 did not measure** (WBS 3.8): Performance, Processes, Storage, the
+  open Ctrl K box, and the start-up peak. `tools/measure.sh`, 60 s window, look at the page before
+  measuring. Fix anything over (≤ 40 MB PSS, < 2 % idle CPU).
 
-## D. Cheap docs
+## D. Design misses (decide, don't tune)
 
-- [ ] **Q14 CHANGELOG.md and README screenshots** (WBS 9.11). Keep a Changelog style, an `Unreleased`
-  section listing what exists today (and nothing that doesn't). README screenshots from `--screenshot`
-  of the built screens, stored under `docs/screenshots/`.
-- [ ] **Q15 Pen-test checklist** (WBS 5.10). `docs/security/pentest-checklist.md`: what a human tester
-  does on a VM against the AppImage, the helper (when it exists) and the polkit policy. The human runs
-  it; mark the WBS row `In Progress` (document written, test not run), never `Done`.
+Run 07 scores above the 10 % target: End dialog 26.1 %, History 32.8 %, Startup apps 18.7 %, Services
+17.1 %, Settings 86.3 %, Health 33.7 %, Search 42.4 %. For each: open the diff image and the artboard side
+by side and sort every difference into (a) a real bug in our layout/copy: fix it test-first; (b) the
+artboard shows something we deliberately don't build (for example the Search "FILES" group): add it to
+`docs/design/DESIGN-CHECK.md` as an accepted difference **proposed** by the loop and listed in
+`docs/questions.md` for the human to approve (you may not edit `docs/design/`: put the proposal in
+`docs/design-proposals.md`); (c) a limit of the checker (backdrop, font rasteriser): say so with the
+evidence. Never reach a number by tuning copy or colours. Settings 86.3 % is almost certainly a real
+layout bug or a wrong crop: find which.
 
-## E. Last (time-boxed)
+- [ ] **Q10 Settings (86.3 %) and Health (33.7 %).** One round each if needed; report the new scores.
+- [ ] **Q11 History (32.8 %), Startup apps (18.7 %), Services (17.1 %).**
+- [ ] **Q12 End dialog (26.1 %) and Search (42.4 %).** Search: the missing "FILES" group depends on Q08.
 
-- [ ] **Q16 Budgets on every page built since run 05** (WBS 3.8 note): `tools/measure.sh` on Clean up,
-  Apps (with the list loaded), Home with the junk rescan, History, Startup, Services, Settings (≤ 40 MB
-  PSS, < 2 % idle CPU). Over budget → fix it, or report it as a bug with the numbers.
-- [ ] **Q17 Fuzz every target 10 minutes** (WBS 5.5). Targets in `fuzz/`; `-max_total_time=600` each.
-  Results in `docs/security/fuzzing.md`; a crash becomes a fixture + regression test + fix. Don't start a
-  target that cannot finish before the stop time.
+## E. Leftovers from run 07's Partial list
+
+- [ ] **Q13 Wire what was only half-wired.** Read run 07's Summary and each Partial entry in
+  `docs/loop/archive/run-07-report.md`; list in `docs/progress.md` what is stub, what is wired, what is
+  untested. Fix test-first whatever can be done without root: the "needs admin" states that are missing
+  (Settings offline, update check), the Performance "sensor not available" state, the storage.png footer
+  that is cut off, "Follow system" theme where it can be tested.
+- [ ] **Q14 Questions triage.** `docs/questions.md` is long. Add a table at the top: ID, one-line question,
+  recommended answer, what breaks if the human says no, status. Sorted by how much work depends on the
+  answer. Do not answer anything on the human's behalf and do not delete entries.
+- [ ] **Q15 Human checklist.** `docs/loop/human-checklist.md` already exists (written before the run).
+  Update it with anything new from this run: what to click, what to run, what to compare. Keep it to one
+  screen per page.

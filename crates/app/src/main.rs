@@ -13,15 +13,30 @@ mod chart;
 mod cleaner;
 mod cleaner_live;
 mod cli;
+mod clipboard;
 mod demo;
 mod endtask;
 mod endtask_live;
+mod health_live;
+mod health_view;
+mod history_live;
+mod history_view;
 mod home;
 mod live;
 mod nav;
 mod perf;
 mod procs;
+mod records;
 mod screenshot;
+mod search_index;
+mod search_live;
+mod search_view;
+mod services_live;
+mod services_view;
+mod settings_live;
+mod settings_view;
+mod startup;
+mod startup_live;
 mod storage;
 mod storage_live;
 mod tiles;
@@ -82,6 +97,8 @@ fn page_of(screen: &str) -> Result<i32, String> {
         "services" => Ok(7),
         "history" => Ok(8),
         "settings" => Ok(9),
+        "health" => Ok(10),
+        "search" => Ok(0),
         "performance" => Ok(4),
         "processes" => Ok(5),
         other => Err(format!("unknown screen '{other}'")),
@@ -199,11 +216,190 @@ fn show_demo(
         }
         "clean-up" => show_demo_clean(ui, state)?,
         "apps" => show_demo_apps(ui, state)?,
+        "search" => {
+            let query = match state {
+                None => "fire",
+                Some("empty") => "xyzzy",
+                Some("suggestions") => "",
+                Some(other) => return Err(format!("unknown search state '{other}'").into()),
+            };
+            let app = |id: &str, name: &str, source: &str, size: u64| search_index::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                source: source.into(),
+                size_bytes: Some(size),
+            };
+            let items = search_index::items(
+                &[
+                    app("firefox", "Firefox", "System", 248_000_000),
+                    app("steam", "Steam", "Flatpak", 1_400_000_000),
+                    app("libreoffice", "LibreOffice", "System", 580_000_000),
+                    app("spotify", "Spotify", "Snap", 290_000_000),
+                ],
+                &[
+                    search_index::ProcInfo {
+                        name: "Firefox".into(),
+                        count: 14,
+                        mem_bytes: 2_100_000_000,
+                    },
+                    search_index::ProcInfo {
+                        name: "Steam".into(),
+                        count: 6,
+                        mem_bytes: 900_000_000,
+                    },
+                ],
+            );
+            search_live::Ctl::new().open_with(ui, items, query);
+        }
+        "health" => {
+            use tidewise_core::health::{report, Inputs};
+            let drive = tidewise_core::drive::DriveSpace {
+                total: 1_000_000_000_000,
+                free: 200_000_000_000,
+            };
+            let (inputs, open): (Inputs, Vec<usize>) = match state {
+                None => (
+                    Inputs {
+                        drive: Some(drive),
+                        junk: Some(12_600_000_000),
+                        failed_services: Some(vec!["fwupd-refresh.service".into()]),
+                    },
+                    vec![0],
+                ),
+                Some("all-open") => (
+                    Inputs {
+                        drive: Some(drive),
+                        junk: Some(12_600_000_000),
+                        failed_services: Some(vec!["fwupd-refresh.service".into()]),
+                    },
+                    vec![0, 1, 2],
+                ),
+                Some("healthy") => (
+                    Inputs {
+                        drive: Some(tidewise_core::drive::DriveSpace {
+                            total: 100,
+                            free: 60,
+                        }),
+                        junk: Some(0),
+                        failed_services: Some(vec![]),
+                    },
+                    vec![],
+                ),
+                Some("unmeasured") => (Inputs::default(), vec![]),
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from the real system
+                Some(other) => return Err(format!("unknown health state '{other}'").into()),
+            };
+            view::apply_health(ui, &health_view::screen(&report(&inputs), &open));
+        }
+        "settings" => {
+            // The demo never reads the user's file: the artboard's defaults.
+            let st = ui.global::<SettingsState>();
+            st.set_about_title(settings_view::about_title(env!("CARGO_PKG_VERSION")).into());
+            st.set_about_text("A PC manager for Linux: it cleans junk, shows what uses space, removes apps and watches performance. Free software under the GPL-3.0-or-later. It never runs as root.".into());
+            let (theme, update, problem) = match state {
+                None => (0, true, ""),
+                Some("light") => (2, true, ""),
+                Some("off") => (1, false, ""),
+                Some("problem") => (0, true, "Your settings file could not be read, so Tidewise is using the defaults. The old file was kept as ~/.config/tidewise/settings.json.broken."),
+                Some(other) => return Err(format!("unknown settings state '{other}'").into()),
+            };
+            ui.global::<Theme>()
+                .set_mode(if theme == 2 { 2 } else { 1 });
+            st.set_theme(theme);
+            st.set_update_check(update);
+            st.set_update_note(settings_view::update_note(update).into());
+            st.set_problem(problem.into());
+        }
+        "services" => {
+            let st = ui.global::<ServicesState>();
+            let list = demo::services();
+            let (tab, picked) = match state {
+                None | Some("details") => (0, Some("docker.service")),
+                Some("running") => (1, Some("docker.service")),
+                Some("all") => (2, Some("docker.service")),
+                Some("protected") => (2, Some("NetworkManager.service")),
+                Some("failed") => (0, Some("fwupd-refresh.service")),
+                Some("empty") => (0, None),
+                Some("loading") => (0, None),
+                Some("live") => return Ok(()), // drawn by `run_screenshot` from the real system
+                Some(other) => return Err(format!("unknown services state '{other}'").into()),
+            };
+            let screen = services_view::screen(&list, services_view::Tab::from_index(tab), picked);
+            if state == Some("loading") {
+                view::apply_services(
+                    ui,
+                    &services_view::Screen::default(),
+                    Some((1, "This only reads what is running; nothing is changed.")),
+                );
+            } else if state == Some("empty") {
+                view::apply_services(ui, &services_view::Screen::default(), Some((2, "Tidewise could not ask systemd: systemctl could not be run. Nothing was changed.")));
+            } else {
+                view::apply_services(ui, &screen, None);
+            }
+            st.set_details(state == Some("details"));
+        }
+        "startup" => {
+            let st = ui.global::<StartupState>();
+            let screen = startup::screen(&demo::startup());
+            match state {
+                None => view::apply_startup(ui, &screen, None, ""),
+                Some("details") => {
+                    view::apply_startup(ui, &screen, None, "");
+                    st.set_details(true);
+                }
+                Some("toast") => view::apply_startup(
+                    ui,
+                    &screen,
+                    None,
+                    &startup::toast_text("Flameshot", false),
+                ),
+                Some("loading") => view::apply_startup(
+                    ui,
+                    &startup::Screen::default(),
+                    Some((1, "This only reads your startup folders; nothing is changed.")),
+                    "",
+                ),
+                Some("empty") => view::apply_startup(
+                    ui,
+                    &startup::Screen::default(),
+                    Some((2, "Nothing in your startup folders. Apps that start on their own would be listed here.")),
+                    "",
+                ),
+                Some("live") => {} // drawn by `run_screenshot` from the real folders
+                Some(other) => return Err(format!("unknown startup state '{other}'").into()),
+            }
+        }
+        "history" => {
+            let st = ui.global::<HistState>();
+            let screen = history_view::screen(demo::history(), None, demo::HISTORY_NOW, 0);
+            view::apply_history(ui, &screen, None);
+            match state {
+                None => {}
+                Some("details") => st.set_details(true),
+                Some("live") => {} // drawn by `run_screenshot` from the real records
+                Some("empty") => view::apply_history(
+                    ui,
+                    &history_view::Screen::default(),
+                    Some((1, "Cleaning up, uninstalling, moving files to the Trash and ending apps will be listed here.")),
+                ),
+                Some(other) => return Err(format!("unknown history state '{other}'").into()),
+            }
+        }
         "home" => {
-            if let Some(other) = state {
+            if let Some(other) = state.filter(|s| *s != "critical") {
                 return Err(format!("unknown home state '{other}'").into());
             }
-            view::apply_home(ui, &demo::home());
+            let mut data = demo::home();
+            if state == Some("critical") {
+                data.alert = home::critical_drive(
+                    Some(tidewise_core::drive::DriveSpace {
+                        total: 100_000_000_000,
+                        free: 2_100_000_000,
+                    }),
+                    Some(12_600_000_000),
+                );
+            }
+            view::apply_home(ui, &data);
         }
         _ => {
             let view = perf::View::from_state(state)?;
@@ -257,14 +453,18 @@ fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn s
             st.set_message("This only reads your files; nothing is removed.".into());
         }
         Some("empty") => {
+            let empty = cleaner::empty_state();
             st.set_phase(2);
             st.set_subtitle("Scan finished.".into());
-            st.set_message("Nothing worth cleaning was found right now.".into());
+            st.set_empty_title(empty.title.into());
+            st.set_message(empty.text.into());
+            st.set_empty_action(empty.action.into());
         }
         Some("error") => {
             st.set_phase(3);
             st.set_subtitle("The scan did not finish.".into());
-            st.set_message("Something stopped the scan. Try again from the sidebar.".into());
+            st.set_message("Something stopped the scan, and nothing was changed.".into());
+            st.set_empty_action("Try again".into());
         }
         Some(other) => return Err(format!("unknown clean-up state '{other}'").into()),
     }
@@ -281,7 +481,7 @@ fn show_demo_clean(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn s
 }
 
 /// The Apps artboard and the steps of the uninstall flow
-/// (`--state details|search|confirm|removing|done|admin|blocked|busy|failed|scanning|empty|error`).
+/// (`--state details|search|confirm|removing|done|admin|blocked|busy|failed|scanning|empty|error|settings|settings-on`).
 fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     use tidewise_adapters::source::Blocked;
     use tidewise_adapters::uninstall::Outcome;
@@ -290,11 +490,43 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
     let st = ui.global::<AppsState>();
     let mut picked = "org.gimp.GIMP";
     let mut query = "";
+    // Demo-only: a Flatpak with a known settings folder (180 MB), unticked or ticked.
+    let mut settings: Option<apps::SettingsChoice> = None;
     // The dialog's words are set after the panel, which also fills the confirm texts.
     let mut ending: Option<(&str, Outcome)> = None;
     match state {
         None => {}
         Some("details") => st.set_tech_open(true),
+        Some("notes") => {
+            let tools = tidewise_core::distro::Tools {
+                pacman: true,
+                apt: false,
+                dnf: false,
+                flatpak: true,
+                snap: false,
+            };
+            view::apply_apps_notes(ui, &apps::source_notes(&tools), None);
+        }
+        Some("unsupported") => {
+            let tools = tidewise_core::distro::Tools {
+                pacman: false,
+                apt: false,
+                dnf: false,
+                flatpak: true,
+                snap: false,
+            };
+            view::apply_apps_notes(
+                ui,
+                &apps::source_notes(&tools),
+                apps::unsupported_system_apps(&tools, "Void Linux").as_ref(),
+            );
+        }
+        Some(s @ ("settings" | "settings-on")) => {
+            settings = Some(apps::SettingsChoice {
+                bytes: 180_000_000,
+                delete: s == "settings-on",
+            });
+        }
         Some("search") => query = "vlc",
         Some("confirm") => st.set_flow(1),
         Some("removing") => {
@@ -363,7 +595,7 @@ fn show_demo_apps(ui: &MainWindow, state: Option<&str>) -> Result<(), Box<dyn st
         found
             .iter()
             .find(|(a, _)| a.id == *id)
-            .map(|(a, plan)| (apps::panel(a, plan), apps::row(a)))
+            .map(|(a, plan)| (apps::panel_with_settings(a, plan, settings), apps::row(a)))
     });
     view::apply_apps_panel(ui, panel.as_ref().map(|(p, r)| (p, r)));
     if let Some((name, outcome)) = ending {
@@ -430,6 +662,10 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
     ui.global::<Shell>()
         .set_distro_detail("KDE Plasma 6 · pacman + Flatpak".into());
     show_demo(&ui, &shot.screen, shot.state.as_deref())?;
+    // `TIDEWISE_SCREENSHOT_THEME=light` draws any screen in the light theme (screenshots only).
+    if std::env::var("TIDEWISE_SCREENSHOT_THEME").as_deref() == Ok("light") {
+        ui.global::<Theme>().set_mode(2);
+    }
     if shot.screen == "storage" && shot.state.as_deref() == Some("live") {
         live_storage_screenshot(&ui, shot)?;
     }
@@ -440,6 +676,36 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
             ctl.poll(&ui);
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+    if shot.screen == "health" && shot.state.as_deref() == Some("live") {
+        // The same inputs Home uses: the real drive, a real junk scan and the failed services.
+        let mut sampler = live::Sampler::new();
+        let report = tidewise_adapters::junk::scan(&tidewise_adapters::junk::live_sources());
+        sampler.junk = Some(report.user_bytes() + report.admin_bytes());
+        sampler.failed_services =
+            tidewise_adapters::services::read(&tidewise_adapters::runner::SystemRunner)
+                .ok()
+                .map(|all| {
+                    all.into_iter()
+                        .filter(|s| s.state == tidewise_adapters::services::State::Failed)
+                        .map(|s| s.unit)
+                        .collect()
+                });
+        health_live::Ctl::new().enter(&ui, sampler.health_report());
+    }
+    if shot.screen == "services" && shot.state.as_deref() == Some("live") {
+        let mut ctl = services_live::Ctl::new();
+        ctl.enter(&ui);
+        while ctl.busy() {
+            ctl.poll(&ui);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    if shot.screen == "startup" && shot.state.as_deref() == Some("live") {
+        startup_live::Ctl::new().enter(&ui);
+    }
+    if shot.screen == "history" && shot.state.as_deref() == Some("live") {
+        history_live::Ctl::new("Arch Linux".into()).enter(&ui);
     }
     if shot.screen == "clean-up" && shot.state.as_deref() == Some("live") {
         let mut ctl = cleaner_live::Ctl::new();
@@ -658,12 +924,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    ui.global::<ProcState>().on_force_quit({
+        let (weak, ctl, end_ctl) = (ui.as_weak(), ctl.clone(), end_ctl.clone());
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let c = ctl.borrow();
+            if let Some(row) = c.data.rows.iter().find(|r| r.id == c.selected) {
+                end_ctl.borrow_mut().start_force(&ui, row);
+            }
+        }
+    });
     let storage = Rc::new(RefCell::new(storage_live::Ctl::new()));
     storage_live::wire(&ui, &storage);
     let cleaner = Rc::new(RefCell::new(cleaner_live::Ctl::new()));
     cleaner_live::wire(&ui, &cleaner);
     let apps_ctl = Rc::new(RefCell::new(apps_live::Ctl::new()));
     apps_live::wire(&ui, &apps_ctl);
+    let search_ctl = Rc::new(RefCell::new(search_live::Ctl::new()));
+    search_live::wire(&ui, &search_ctl, {
+        let (apps_ctl, live) = (apps_ctl.clone(), live.clone());
+        move |ui| {
+            let apps = apps_ctl.borrow_mut().search_infos(ui);
+            let procs: Vec<search_index::ProcInfo> = {
+                let l = &mut *live.borrow_mut();
+                l.sampler
+                    .processes(&l.desktop)
+                    .rows
+                    .iter()
+                    .map(|r| search_index::ProcInfo {
+                        name: r.name.clone(),
+                        count: r.pids.len(),
+                        mem_bytes: r.mem_bytes,
+                    })
+                    .collect()
+            };
+            search_index::items(&apps, &procs)
+        }
+    });
+    let health_ctl = Rc::new(RefCell::new(health_live::Ctl::new()));
+    health_live::wire(&ui, &health_ctl);
+    let settings_ctl = Rc::new(RefCell::new(settings_live::Ctl::load()));
+    settings_ctl.borrow().apply(&ui);
+    settings_live::wire(&ui, &settings_ctl);
+    let services_ctl = Rc::new(RefCell::new(services_live::Ctl::new()));
+    services_live::wire(&ui, &services_ctl);
+    let startup_ctl = Rc::new(RefCell::new(startup_live::Ctl::new()));
+    startup_live::wire(&ui, &startup_ctl);
+    let history_ctl = Rc::new(RefCell::new(history_live::Ctl::new(format!(
+        "{} · {}",
+        shell_info().0,
+        shell_info().1
+    ))));
+    history_live::wire(&ui, &history_ctl);
     let junk_watch = Rc::new(RefCell::new(live::JunkWatch::default()));
     junk_watch
         .borrow_mut()
@@ -682,13 +994,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     sample();
     ui.global::<Shell>().on_navigate({
-        let (weak, live, ctl, storage, cleaner, apps_ctl) = (
+        let (
+            weak,
+            live,
+            ctl,
+            storage,
+            cleaner,
+            apps_ctl,
+            history_ctl,
+            startup_ctl,
+            services_ctl,
+            health_ctl,
+        ) = (
             ui.as_weak(),
             live.clone(),
             ctl.clone(),
             storage.clone(),
             cleaner.clone(),
             apps_ctl.clone(),
+            history_ctl.clone(),
+            startup_ctl.clone(),
+            services_ctl.clone(),
+            health_ctl.clone(),
         );
         move |page| {
             if let Some(ui) = weak.upgrade() {
@@ -706,6 +1033,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if page == 3 {
                     storage.borrow_mut().enter(&ui);
                 }
+                if page == 6 {
+                    startup_ctl.borrow_mut().enter(&ui);
+                }
+                if page == 7 {
+                    services_ctl.borrow_mut().enter(&ui);
+                }
+                if page == 10 {
+                    let report = live.borrow_mut().sampler.health_report();
+                    health_ctl.borrow_mut().enter(&ui, report);
+                }
+                if page == 8 {
+                    history_ctl.borrow_mut().enter(&ui);
+                }
                 show_page(
                     &ui,
                     &mut live.borrow_mut(),
@@ -720,6 +1060,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if ui.global::<Shell>().get_page() == 2 {
         apps_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 6 {
+        startup_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 7 {
+        services_ctl.borrow_mut().enter(&ui);
+    }
+    if ui.global::<Shell>().get_page() == 10 {
+        let report = live.borrow_mut().sampler.health_report();
+        health_ctl.borrow_mut().enter(&ui, report);
+    }
+    if ui.global::<Shell>().get_page() == 8 {
+        history_ctl.borrow_mut().enter(&ui);
     }
     if ui.global::<Shell>().get_page() == 3 {
         storage.borrow_mut().enter(&ui);

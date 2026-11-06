@@ -22,6 +22,8 @@ const POLL: Duration = Duration::from_millis(100);
 struct Target {
     name: String,
     pids: Vec<u32>,
+    /// How many processes there were when the End button was pressed.
+    total: usize,
     freed: u64,
 }
 
@@ -37,6 +39,10 @@ enum Msg {
 pub struct Ctl {
     target: Option<Target>,
     waited: u64,
+    /// The Force quit button of the details card: confirm once, then SIGKILL (no polite request).
+    force_direct: bool,
+    /// SIGKILL was sent at some point: the History record says "force quit".
+    forced: bool,
     job: Option<Receiver<Msg>>,
     toast_timer: slint::Timer,
 }
@@ -75,6 +81,15 @@ impl Ctl {
 
     /// The End button on the Processes screen.
     pub fn start(&mut self, ui: &MainWindow, row: &Row) {
+        self.open(ui, row, false);
+    }
+
+    /// The Force quit button in the details card: the same dialog, but the answer is SIGKILL.
+    pub fn start_force(&mut self, ui: &MainWindow, row: &Row) {
+        self.open(ui, row, true);
+    }
+
+    fn open(&mut self, ui: &MainWindow, row: &Row, force: bool) {
         let st = ui.global::<EndState>();
         if row.protected {
             let t = endtask::protected(&row.id, &row.name);
@@ -87,7 +102,11 @@ impl Ctl {
         if row.pids.is_empty() {
             return; // sample data: nothing real to end
         }
-        let t = endtask::confirm(&row.name, row.pids.len());
+        let t = if force {
+            endtask::force_confirm(&row.name, row.pids.len())
+        } else {
+            endtask::confirm(&row.name, row.pids.len())
+        };
         st.set_title(t.title.into());
         st.set_text(t.text.into());
         st.set_confirm(t.confirm.into());
@@ -96,9 +115,12 @@ impl Ctl {
         self.target = Some(Target {
             name: row.name.clone(),
             pids: row.pids.clone(),
+            total: row.pids.len(),
             freed: row.mem_bytes,
         });
-        self.waited = 0;
+        self.waited = if force { 10 } else { 0 };
+        self.force_direct = force;
+        self.forced = false;
     }
 
     fn begin(&mut self, ui: &MainWindow, signal: Option<Signal>, wait: Duration) {
@@ -106,8 +128,12 @@ impl Ctl {
             return;
         };
         let st = ui.global::<EndState>();
-        st.set_title(format!("Closing {}…", target.name).into());
-        st.set_text("Waiting up to 5 seconds for it to close on its own.".into());
+        if signal == Some(Signal::Kill) {
+            self.forced = true;
+        }
+        let t = endtask::closing(&target.name, signal == Some(Signal::Kill));
+        st.set_title(t.title.into());
+        st.set_text(t.text.into());
         st.set_flow(2);
         let (tx, rx) = mpsc::channel();
         self.job = Some(rx);
@@ -128,6 +154,17 @@ impl Ctl {
         let st = ui.global::<EndState>();
         if remaining.is_empty() {
             st.set_flow(0);
+            let forced = self.forced;
+            let _ = crate::records::save(tidewise_core::history::Kind::EndTask, |time, id| {
+                tidewise_core::history::end_task_record(
+                    &target.name,
+                    target.total,
+                    target.freed,
+                    forced,
+                    time,
+                    id,
+                )
+            });
             self.target = None;
             self.toast(ui, endtask::ended(&target.name, target.freed), false);
             return;
@@ -203,7 +240,13 @@ pub fn wire(ui: &MainWindow, ctl: &Rc<RefCell<Ctl>>) {
         let (weak, ctl) = (ui.as_weak(), ctl.clone());
         move || {
             if let Some(ui) = weak.upgrade() {
-                ctl.borrow_mut().begin(&ui, Some(Signal::Term), WAIT);
+                let mut c = ctl.borrow_mut();
+                if c.force_direct {
+                    c.force_direct = false;
+                    c.begin(&ui, Some(Signal::Kill), Duration::from_secs(3));
+                } else {
+                    c.begin(&ui, Some(Signal::Term), WAIT);
+                }
             }
         }
     });

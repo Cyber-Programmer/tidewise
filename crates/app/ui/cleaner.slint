@@ -24,6 +24,9 @@ export global CleanState {
     in property <int> phase: 1;
     in property <string> subtitle: "Scan finished. Nothing is removed until you press Clean.";
     in property <string> message;
+    // The one thing to do next on the "nothing found" and error cards; empty hides the button.
+    in property <string> empty-title;
+    in property <string> empty-action;
     in property <[CleanRow]> rows;
     in property <string> total;
     in property <string> found;
@@ -170,7 +173,7 @@ export component CleanScreen inherits Rectangle {
             }
 
             if CleanState.phase != 1: Rectangle {
-                height: 120px;
+                height: CleanState.phase >= 2 && CleanState.empty-action != "" ? 170px : 120px;
                 border-radius: Theme.radius-hero;
                 background: Theme.surface;
                 border-width: 1px;
@@ -180,10 +183,26 @@ export component CleanScreen inherits Rectangle {
                     padding: 24px;
                     spacing: 6px;
                     Text {
-                        text: CleanState.phase == 0 ? "Looking for things to clean…" : (CleanState.phase == 2 ? "Nothing to clean up" : "Could not look for things to clean");
+                        text: CleanState.phase == 0 ? "Looking for things to clean…" : (CleanState.phase == 2 ? CleanState.empty-title : "Could not look for things to clean");
                         color: Theme.text; font-size: Theme.size-row-title; font-weight: 600;
                     }
                     Text { text: CleanState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                    if CleanState.phase >= 2 && CleanState.empty-action != "": HorizontalLayout {
+                        alignment: start;
+                        Rectangle {
+                            height: 40px;
+                            width: again.preferred-width + 32px;
+                            border-radius: Theme.radius-button;
+                            background: Theme.control-bg;
+                            border-width: 1px;
+                            border-color: Theme.control-border;
+                            accessible-role: button;
+                            accessible-label: CleanState.empty-action;
+                            accessible-action-default => { CleanState.rescan(); }
+                            again := Text { text: CleanState.empty-action; color: Theme.text; font-size: Theme.size-body; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { CleanState.rescan(); } }
+                        }
+                    }
                 }
             }
 

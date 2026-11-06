@@ -8,8 +8,14 @@ import { StorageScreen, StorageState } from "storage.slint";
 import { CleanScreen, CleanDialog, CleanState } from "cleaner.slint";
 import { AppsScreen, AppsDialog, AppsState } from "apps.slint";
 import { EndDialog, EndState } from "endtask.slint";
+import { HistoryScreen, HistState } from "history.slint";
+import { StartupScreen, StartupState } from "startup.slint";
+import { ServicesScreen, ServicesState } from "services.slint";
+import { SettingsScreen, SettingsState } from "settings.slint";
+import { HealthScreen, HealthState } from "health.slint";
+import { SearchOverlay, SearchState } from "search.slint";
 
-export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState, EndState }
+export { Shell, ToastState, PerfState, ProcState, HomeState, StorageState, CleanState, AppsState, EndState, HistState, StartupState, ServicesState, SettingsState, HealthState, SearchState, Theme }
 
 component ComingLater inherits Rectangle {
     in property <string> title;
@@ -34,7 +40,22 @@ export component MainWindow inherits Window {
     default-font-family: Theme.sans;
     default-font-size: Theme.size-body;
 
+    // Holds the keyboard focus at the start so Ctrl K works on every page, also while a text field
+    // has the focus (the capture phase reaches this element first).
+    FocusScope {
+        width: parent.width;
+        height: parent.height;
+        init => { self.focus(); }
+        capture-key-pressed(e) => {
+            if (e.modifiers.control && (e.text == "k" || e.text == "\u{b}")) {
+                SearchState.open-requested();
+                return accept;
+            }
+            reject
+        }
     HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
         Sidebar { }
         if Shell.page == 0: HomeScreen { }
         if Shell.page == 1: CleanScreen { }
@@ -42,13 +63,20 @@ export component MainWindow inherits Window {
         if Shell.page == 3: StorageScreen { }
         if Shell.page == 4: PerformanceScreen { }
         if Shell.page == 5: ProcessesScreen { }
-        if Shell.page != 0 && Shell.page != 1 && Shell.page != 2 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5: ComingLater {
+        if Shell.page == 6: StartupScreen { }
+        if Shell.page == 7: ServicesScreen { }
+        if Shell.page == 8: HistoryScreen { }
+        if Shell.page == 9: SettingsScreen { }
+        if Shell.page == 10: HealthScreen { }
+        if Shell.page != 0 && Shell.page != 1 && Shell.page != 2 && Shell.page != 3 && Shell.page != 4 && Shell.page != 5 && Shell.page != 6 && Shell.page != 7 && Shell.page != 8 && Shell.page != 9 && Shell.page != 10: ComingLater {
             title: ["Home", "Clean up", "Apps", "Storage", "Performance", "Processes", "Startup apps", "Services", "History", "Settings"][Shell.page];
         }
+    }
     }
     CleanDialog { width: parent.width; height: parent.height; }
     AppsDialog { width: parent.width; height: parent.height; }
     EndDialog { width: parent.width; height: parent.height; }
+    SearchOverlay { width: parent.width; height: parent.height; }
     Toast {
         x: Theme.sidebar-width + (parent.width - Theme.sidebar-width - self.width) / 2;
         y: parent.height - self.height - 28px;

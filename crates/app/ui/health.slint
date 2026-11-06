@@ -1,0 +1,209 @@
+// The "Why your score is N" page (docs/design/screens/Health.dc.html). Opened from Home's "Why N?".
+import { Theme } from "theme.slint";
+import { Shell } from "components.slint";
+
+// `tone`: 0 amber, 1 red, 2 quiet.
+export struct HealthSum { text: string, tone: int }
+export struct HealthIssue { points: string, tone: int, title: string, desc: string, check: string, action: string, page: int, open: bool }
+export struct HealthNote { title: string, why: string }
+
+export global HealthState {
+    in property <int> score: 0;
+    in property <string> tag;
+    in property <string> title;
+    in property <string> ring;
+    in property <[HealthSum]> sum;
+    in property <[HealthIssue]> issues;
+    in property <[string]> passed;
+    in property <[HealthNote]> not-checked;
+    callback toggle(int);
+}
+
+export component HealthScreen inherits Rectangle {
+    background: Theme.bg;
+    horizontal-stretch: 1;
+    Flickable {
+        content-width: self.width;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            width: root.width;
+            padding-top: 28px;
+            padding-bottom: 48px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: 20px;
+            alignment: start;
+            Rectangle {
+                height: 36px;
+                accessible-role: button;
+                accessible-label: "Back to Home";
+                accessible-action-default => { Shell.navigate(0); }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    Image { source: @image-url("icons/chevron.svg"); width: 16px; height: 16px; y: (parent.height - self.height) / 2; colorize: Theme.text-2; transform-rotation: 180deg; }
+                    Text { text: "Home"; color: Theme.text-2; font-size: Theme.size-body; vertical-alignment: center; }
+                }
+                TouchArea { clicked => { Shell.navigate(0); } }
+            }
+            Rectangle {
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                height: 184px;
+                HorizontalLayout {
+                    padding: 26px;
+                    padding-left: 28px;
+                    spacing: 28px;
+                    Rectangle {
+                        width: 132px;
+                        height: 132px;
+                        Path {
+                            width: 132px;
+                            height: 132px;
+                            viewbox-width: 132;
+                            viewbox-height: 132;
+                            commands: "M 66 10 A 56 56 0 1 1 65.99 10";
+                            stroke: Theme.border;
+                            stroke-width: 12px;
+                        }
+                        Path {
+                            width: 132px;
+                            height: 132px;
+                            viewbox-width: 132;
+                            viewbox-height: 132;
+                            commands: HealthState.ring;
+                            stroke: Theme.accent;
+                            stroke-width: 12px;
+                            stroke-line-cap: round;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text { text: HealthState.score; color: Theme.text; font-family: Theme.mono; font-size: Theme.size-display; font-weight: 500; horizontal-alignment: center; }
+                            Text { text: "of 100"; color: Theme.text-2; font-size: Theme.size-caption; horizontal-alignment: center; }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 8px;
+                        Text { text: HealthState.title; color: Theme.text; font-size: 24px; font-weight: 600; letter-spacing: -0.48px; }
+                        Text { text: "Every PC starts at 100. Each problem below takes off a fixed number of points, and nothing else affects the score. Open any item to see exactly what was checked."; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.3; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            for part in HealthState.sum: Text { text: part.text; color: part.tone == 0 ? Theme.warn : (part.tone == 1 ? Theme.danger : Theme.text-soft); font-family: Theme.mono; font-size: Theme.size-body; }
+                        }
+                    }
+                }
+            }
+            if HealthState.issues.length > 0: VerticalLayout {
+                spacing: 10px;
+                Text { text: "What lowered it"; color: Theme.text-2; font-size: Theme.size-row-title; font-weight: 600; }
+                for issue[i] in HealthState.issues: Rectangle {
+                    height: card.preferred-height;
+                    border-radius: 14px;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    card := VerticalLayout {
+                        Rectangle {
+                            height: 70px;
+                            accessible-role: button;
+                            accessible-label: issue.points + " " + issue.title;
+                            accessible-expanded: issue.open;
+                            accessible-action-default => { HealthState.toggle(i); }
+                            HorizontalLayout {
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 14px;
+                                Text { width: 36px; text: issue.points; color: issue.tone == 0 ? Theme.warn : Theme.danger; font-family: Theme.mono; font-size: Theme.size-row-title; vertical-alignment: center; }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 3px;
+                                    Text { text: issue.title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; overflow: elide; }
+                                    Text { text: issue.desc; color: Theme.text-2; font-size: Theme.size-small; overflow: elide; }
+                                }
+                                VerticalLayout { alignment: center; Image { source: @image-url("icons/chevron.svg"); width: 18px; height: 18px; colorize: Theme.text-3; transform-rotation: issue.open ? 90deg : 0deg; } }
+                            }
+                            TouchArea { clicked => { HealthState.toggle(i); } }
+                        }
+                        if issue.open: VerticalLayout {
+                            padding-left: 68px;
+                            padding-right: 18px;
+                            padding-bottom: 18px;
+                            spacing: 12px;
+                            Rectangle {
+                                height: chk.preferred-height + 20px;
+                                border-radius: 8px;
+                                background: Theme.drive-track;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                chk := Text { x: 12px; y: 10px; width: parent.width - 24px; text: issue.check; color: Theme.mono-dim; font-family: Theme.mono; font-size: 12px; wrap: word-wrap; line-height-factor: 1.5; }
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                Rectangle {
+                                    height: 40px;
+                                    width: act.preferred-width + 32px;
+                                    border-radius: Theme.radius-button;
+                                    background: Theme.accent;
+                                    accessible-role: button;
+                                    accessible-label: issue.action;
+                                    accessible-action-default => { Shell.navigate(issue.page); }
+                                    act := Text { text: issue.action; color: Theme.on-accent; font-size: Theme.size-body; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                    TouchArea { clicked => { Shell.navigate(issue.page); } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if HealthState.passed.length > 0: VerticalLayout {
+                spacing: 10px;
+                Text { text: "Checks that passed"; color: Theme.text-2; font-size: Theme.size-row-title; font-weight: 600; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    for text in HealthState.passed: Rectangle {
+                        horizontal-stretch: 1;
+                        height: 50px;
+                        border-radius: 12px;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            VerticalLayout { alignment: center; Image { source: @image-url("icons/done.svg"); width: 18px; height: 18px; colorize: Theme.accent; } }
+                            Text { text: text; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; overflow: elide; }
+                        }
+                    }
+                }
+            }
+            if HealthState.not-checked.length > 0: VerticalLayout {
+                spacing: 10px;
+                Text { text: "Not measured"; color: Theme.text-2; font-size: Theme.size-row-title; font-weight: 600; }
+                for note in HealthState.not-checked: Rectangle {
+                    height: nt.preferred-height;
+                    border-radius: 14px;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.control-border;
+                    nt := VerticalLayout {
+                        padding: 16px;
+                        padding-left: 18px;
+                        padding-right: 18px;
+                        spacing: 4px;
+                        Text { text: "Not checked: " + note.title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                        Text { text: note.why; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                    }
+                }
+            }
+        }
+    }
+}

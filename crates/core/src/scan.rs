@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn cancelling_stops_the_scan_and_says_so() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = disk_tempdir();
         for i in 0..50 {
             write(&dir.path().join(format!("d{i}/f.bin")), 1000);
         }
@@ -483,7 +483,10 @@ mod tests {
             &cancel,
         );
         assert!(r.cancelled);
-        assert_eq!(r.total_bytes, 0);
+        // Nothing below the root was counted; only the root's own blocks, as the file system
+        // reports them (0 on tmpfs, one block on ext4 and btrfs).
+        let own = fs::metadata(dir.path()).unwrap().blocks() * 512;
+        assert_eq!(r.total_bytes, own);
     }
 
     #[test]

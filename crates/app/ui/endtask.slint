@@ -52,7 +52,7 @@ export component EndDialog inherits Rectangle {
                 }
             }
             Text { width: dlg.width - 56px; text: EndState.title; color: Theme.text; font-size: Theme.size-h2; font-weight: 600; wrap: word-wrap; letter-spacing: -0.33px; }
-            Text { width: dlg.width - 56px; text: EndState.text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.1; }
+            Text { width: dlg.width - 56px; text: EndState.text; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.19; }
             if EndState.flow == 3 && EndState.details-open: Rectangle {
                 height: det.preferred-height + 20px;
                 border-radius: 8px;

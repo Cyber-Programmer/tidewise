@@ -99,3 +99,25 @@ path = "fuzz_targets/desktop_files.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "orphans"
+path = "fuzz_targets/orphans.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "services"
+path = "fuzz_targets/services.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search"
+path = "fuzz_targets/search.rs"
+test = false
+doc = false
+bench = false
+

@@ -89,6 +89,14 @@ pub fn apply_view(ui: &MainWindow, view: &View) {
 }
 
 pub fn apply_home(ui: &MainWindow, d: &HomeData) {
+    {
+        let st = ui.global::<HomeState>();
+        let a = d.alert.as_ref();
+        st.set_alert_title(a.map_or("", |a| a.title.as_str()).into());
+        st.set_alert_body(a.map_or("", |a| a.body.as_str()).into());
+        st.set_alert_action(a.map_or("", |a| a.action.as_str()).into());
+        st.set_alert_page(a.map_or(1, |a| a.page));
+    }
     let width =
         home::spark_width(ui.window().size().width as f32 / ui.window().scale_factor()) as f64;
     let tiles: Vec<HomeTile> = d
@@ -443,6 +451,235 @@ pub fn apply_clean(
 }
 
 /// List, chips and search results of the Apps screen.
+/// The "Why your score is N" page.
+pub fn apply_health(ui: &MainWindow, screen: &crate::health_view::Screen) {
+    use crate::{HealthIssue, HealthNote, HealthState, HealthSum};
+    let st = ui.global::<HealthState>();
+    st.set_score(screen.score as i32);
+    st.set_tag(screen.tag.clone().into());
+    st.set_title(screen.title.clone().into());
+    st.set_ring(crate::home::ring_path(screen.score).into());
+    let sum: Vec<HealthSum> = screen
+        .sum
+        .iter()
+        .map(|p| HealthSum {
+            text: p.text.clone().into(),
+            tone: p.tone,
+        })
+        .collect();
+    st.set_sum(ModelRc::new(VecModel::from(sum)));
+    let issues: Vec<HealthIssue> = screen
+        .issues
+        .iter()
+        .map(|i| HealthIssue {
+            points: i.points.clone().into(),
+            tone: i.tone,
+            title: i.title.clone().into(),
+            desc: i.desc.clone().into(),
+            check: i.check.clone().into(),
+            action: i.action.clone().into(),
+            page: i.page,
+            open: i.open,
+        })
+        .collect();
+    st.set_issues(ModelRc::new(VecModel::from(issues)));
+    let passed: Vec<slint::SharedString> = screen.passed.iter().map(|p| p.clone().into()).collect();
+    st.set_passed(ModelRc::new(VecModel::from(passed)));
+    let notes: Vec<HealthNote> = screen
+        .not_checked
+        .iter()
+        .map(|(t, w)| HealthNote {
+            title: t.clone().into(),
+            why: w.clone().into(),
+        })
+        .collect();
+    st.set_not_checked(ModelRc::new(VecModel::from(notes)));
+}
+
+/// The Services screen. `empty`: the words to show instead of the list (phase 1 loading, 2 error).
+pub fn apply_services(
+    ui: &MainWindow,
+    screen: &crate::services_view::Screen,
+    empty: Option<(i32, &str)>,
+) {
+    use crate::{ServicesState, SvcRow, SvcTab};
+    let st = ui.global::<ServicesState>();
+    let tabs: Vec<SvcTab> = screen
+        .tabs
+        .iter()
+        .map(|t| SvcTab {
+            label: t.label.clone().into(),
+            count: t.count as i32,
+            on: t.on,
+        })
+        .collect();
+    st.set_tabs(ModelRc::new(VecModel::from(tabs)));
+    let rows: Vec<SvcRow> = screen
+        .rows
+        .iter()
+        .map(|r| SvcRow {
+            unit: r.unit.clone().into(),
+            name: r.name.clone().into(),
+            line: r.line.clone().into(),
+            state: r.state.clone().into(),
+            kind: r.kind,
+            protected: r.protected,
+            selected: r.selected,
+        })
+        .collect();
+    st.set_rows(ModelRc::new(VecModel::from(rows)));
+    match empty {
+        Some((phase, message)) => {
+            st.set_phase(phase);
+            st.set_message(message.into());
+        }
+        None => st.set_phase(0),
+    }
+    match &screen.detail {
+        Some(d) => {
+            st.set_has_detail(true);
+            st.set_d_name(d.name.clone().into());
+            st.set_d_state(d.state.clone().into());
+            st.set_d_kind(d.kind);
+            st.set_d_desc(d.desc.clone().into());
+            st.set_d_tip(d.tip.clone().into());
+            st.set_d_boot(d.boot.clone().into());
+            st.set_d_memory(d.memory.clone().into());
+            st.set_d_protected(d.protected);
+            st.set_d_primary(d.primary.clone().into());
+            st.set_d_secondary(d.secondary.clone().into());
+            st.set_d_unit(d.unit.clone().into());
+            st.set_d_technical(d.technical.clone().into());
+        }
+        None => st.set_has_detail(false),
+    }
+}
+
+/// The Startup apps screen. `empty`: the words to show instead of the list (phase 1 loading,
+/// 2 nothing found, 3 error); `toast` is the line with Undo, or empty.
+pub fn apply_startup(
+    ui: &MainWindow,
+    screen: &crate::startup::Screen,
+    empty: Option<(i32, &str)>,
+    toast: &str,
+) {
+    use crate::{StartRow, StartupState};
+    let st = ui.global::<StartupState>();
+    let rows: Vec<StartRow> = screen
+        .rows
+        .iter()
+        .map(|r| StartRow {
+            file: r.file.clone().into(),
+            name: r.name.clone().into(),
+            desc: r.desc.clone().into(),
+            path: r.path.clone().into(),
+            letter: r.letter.clone().into(),
+            hue: r.hue,
+            enabled: r.enabled,
+            chip: r.chip.clone().into(),
+            locked: r.locked,
+            switch_label: r.switch_label.clone().into(),
+        })
+        .collect();
+    st.set_rows(ModelRc::new(VecModel::from(rows)));
+    st.set_on_count(screen.on.clone().into());
+    st.set_of_text(screen.of.clone().into());
+    st.set_toast(toast.into());
+    match empty {
+        Some((phase, message)) => {
+            st.set_phase(phase);
+            st.set_message(message.into());
+        }
+        None => st.set_phase(0),
+    }
+}
+
+/// The History screen: the timeline (one flat list, each day's first row carries its heading) and
+/// the details of the picked entry. `empty` is the words to show when there is nothing to list.
+pub fn apply_history(
+    ui: &MainWindow,
+    screen: &crate::history_view::Screen,
+    empty: Option<(i32, &str)>,
+) {
+    use crate::history_view::Icon;
+    use crate::{HistDay, HistLine, HistRow, HistState};
+    let st = ui.global::<HistState>();
+    let days: Vec<HistDay> = screen
+        .days
+        .iter()
+        .map(|day| {
+            let rows: Vec<HistRow> = day
+                .rows
+                .iter()
+                .map(|r| HistRow {
+                    id: r.id.clone().into(),
+                    title: r.title.clone().into(),
+                    subtitle: r.subtitle.clone().into(),
+                    icon: match r.icon {
+                        Icon::Clean => 0,
+                        Icon::App => 1,
+                        Icon::Startup => 2,
+                        Icon::Trash => 3,
+                        Icon::Process => 4,
+                    },
+                    hint: r.hint.clone().into(),
+                    hint_undo: r.hint == "Restore",
+                    selected: r.selected,
+                })
+                .collect();
+            HistDay {
+                // The artboard sets the day headings in capitals.
+                label: day.label.to_uppercase().into(),
+                rows: ModelRc::new(VecModel::from(rows)),
+            }
+        })
+        .collect();
+    st.set_days(ModelRc::new(VecModel::from(days)));
+    match empty {
+        Some((phase, message)) => {
+            st.set_phase(phase);
+            st.set_message(message.into());
+        }
+        None => st.set_phase(0),
+    }
+    match &screen.detail {
+        Some(d) => {
+            st.set_has_detail(true);
+            st.set_d_title(d.title.clone().into());
+            st.set_d_result(d.result.clone().into());
+            st.set_d_result_kind(match d.result.as_str() {
+                "Done" => 0,
+                "Partly done" | "Forced" => 1,
+                _ => 2,
+            });
+            st.set_d_when(d.when.clone().into());
+            let lines: Vec<HistLine> = d
+                .lines
+                .iter()
+                .map(|(l, v)| HistLine {
+                    label: l.clone().into(),
+                    value: v.clone().into(),
+                })
+                .collect();
+            st.set_d_lines(ModelRc::new(VecModel::from(lines)));
+            st.set_d_note(d.note.clone().into());
+            st.set_d_log(d.log.clone().into());
+            st.set_d_undo(d.undo.clone().unwrap_or_default().into());
+        }
+        None => st.set_has_detail(false),
+    }
+}
+
+/// The notes under the filter chips: sources this PC does not have, and an unsupported package
+/// manager (title and body, or `None`).
+pub fn apply_apps_notes(ui: &MainWindow, notes: &[String], unsupported: Option<&(String, String)>) {
+    let st = ui.global::<AppsState>();
+    let notes: Vec<slint::SharedString> = notes.iter().map(|n| n.as_str().into()).collect();
+    st.set_notes(ModelRc::new(VecModel::from(notes)));
+    st.set_unsupported_title(unsupported.map_or("", |u| u.0.as_str()).into());
+    st.set_unsupported_body(unsupported.map_or("", |u| u.1.as_str()).into());
+}
+
 pub fn apply_apps(ui: &MainWindow, screen: &crate::apps::Screen) {
     let st = ui.global::<AppsState>();
     st.set_subtitle(screen.subtitle.clone().into());
@@ -498,6 +735,8 @@ pub fn apply_apps_panel(ui: &MainWindow, panel: Option<(&crate::apps::Panel, &cr
     st.set_p_total(p.total.clone().into());
     st.set_p_button(p.button_label.clone().into());
     st.set_p_technical(p.technical.clone().into());
+    st.set_p_settings_offer(p.settings_offer);
+    st.set_p_delete_settings(p.delete_settings);
     match &p.button {
         Button::Enabled => {
             st.set_p_enabled(true);
@@ -510,7 +749,14 @@ pub fn apply_apps_panel(ui: &MainWindow, panel: Option<(&crate::apps::Panel, &cr
     }
     st.set_d_title(format!("Uninstall {}?", p.name).into());
     st.set_d_confirm(format!("Uninstall · free {}", p.total).into());
-    st.set_d_text("Your settings are kept, so reinstalling later brings everything back.".into());
+    st.set_d_text(
+        if p.delete_settings {
+            "Your settings and data go to the Trash too, so you can still put them back."
+        } else {
+            "Your settings are kept, so reinstalling later brings everything back."
+        }
+        .into(),
+    );
 }
 
 #[cfg(test)]

@@ -28,6 +28,40 @@ pub fn confirm(name: &str, count: usize) -> Texts {
     }
 }
 
+/// `Force quit Firefox?`: the Force quit button of the Processes details card goes straight to
+/// this, without asking the app to close first.
+pub fn force_confirm(name: &str, count: usize) -> Texts {
+    let who = match count {
+        0 | 1 => format!("{name} will stop immediately."),
+        2 => format!("Both {name} processes will stop immediately."),
+        n => format!("All {n} {name} processes will stop immediately."),
+    };
+    Texts {
+        title: format!("Force quit {name}?"),
+        text: format!(
+            "{who} Anything you haven't saved will be lost, and it gets no chance to clean up."
+        ),
+        confirm: "Force quit".into(),
+    }
+}
+
+/// The dialog while the signal is sent and Tidewise waits (`kill`: SIGKILL, else the polite request).
+pub fn closing(name: &str, kill: bool) -> Texts {
+    let (title, text) = if kill {
+        (format!("Force quitting {name}…"), "Stopping it right away.")
+    } else {
+        (
+            format!("Closing {name}…"),
+            "Waiting up to 5 seconds for it to close on its own.",
+        )
+    };
+    Texts {
+        title,
+        text: text.into(),
+        confirm: String::new(),
+    }
+}
+
 /// The app did not close after the polite request.
 pub fn frozen(name: &str, waited_secs: u64, remaining: usize) -> Texts {
     Texts {
@@ -87,6 +121,41 @@ mod tests {
         assert_eq!(t.confirm, "End Firefox");
         assert_eq!(confirm("Kdenlive", 1).text, "Kdenlive will close. Anything you haven't saved, like a half-written form, may be lost.");
         assert_eq!(confirm("Kdenlive", 2).text, "Both Kdenlive processes will close. Anything you haven't saved, like a half-written form, may be lost.");
+    }
+
+    #[test]
+    fn force_quit_from_the_details_card_asks_once_and_says_nothing_is_saved() {
+        let t = force_confirm("Firefox", 14);
+        assert_eq!(t.title, "Force quit Firefox?");
+        assert_eq!(
+            t.text,
+            "All 14 Firefox processes will stop immediately. Anything you haven't saved will be lost, and it gets no chance to clean up."
+        );
+        assert_eq!(t.confirm, "Force quit");
+        assert!(force_confirm("Kdenlive", 1)
+            .text
+            .starts_with("Kdenlive will stop immediately."));
+        assert!(force_confirm("Kdenlive", 2)
+            .text
+            .starts_with("Both Kdenlive processes will stop immediately."));
+        assert!(
+            !t.text.contains("close on its own"),
+            "no polite request here"
+        );
+    }
+
+    #[test]
+    fn the_waiting_dialog_says_what_is_really_happening() {
+        let polite = closing("Firefox", false);
+        assert_eq!(polite.title, "Closing Firefox…");
+        assert_eq!(
+            polite.text,
+            "Waiting up to 5 seconds for it to close on its own."
+        );
+        let kill = closing("Firefox", true);
+        assert_eq!(kill.title, "Force quitting Firefox…");
+        assert_eq!(kill.text, "Stopping it right away.");
+        assert_eq!(kill.confirm, "");
     }
 
     #[test]

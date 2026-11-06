@@ -1,6 +1,8 @@
 // Every colour, size and font of docs/design/tokens.md. Nothing else may be used in the UI.
-// `dark` picks the column: dark is the default; the light column is complete but not switchable
-// from the UI yet (Settings arrives in a later milestone).
+// `dark` picks the column. `mode` comes from the user's settings: 0 follow the desktop's light or
+// dark mode (Slint's own colour-scheme report, unknown counts as dark), 1 dark (the default here, so
+// screenshots stay the same), 2 light.
+import { Palette } from "std-widgets.slint";
 import "../../../assets/fonts/Geist-Regular.ttf";
 import "../../../assets/fonts/Geist-Medium.ttf";
 import "../../../assets/fonts/Geist-SemiBold.ttf";
@@ -9,7 +11,8 @@ import "../../../assets/fonts/GeistMono-Regular.ttf";
 import "../../../assets/fonts/GeistMono-Medium.ttf";
 
 export global Theme {
-    in-out property <bool> dark: true;
+    in property <int> mode: 1;
+    out property <bool> dark: root.mode == 1 || (root.mode == 0 && Palette.color-scheme != ColorScheme.light);
 
     // Surfaces and text
     out property <color> bg: dark ? #0D0F13 : #F5F6F8;
@@ -33,7 +36,7 @@ export global Theme {
     out property <color> danger: dark ? #FF8A80 : #C73A2E;
     out property <color> on-danger: dark ? #3A0B07 : #FFFFFF;
     // tokens.md has no light danger tint yet; the dark one is reused until it does.
-    out property <color> danger-tint: dark ? #3A1714 : #3A1714;
+    out property <color> danger-tint: dark ? #3A1714 : #E1E4EA;
 
     // Data colours
     out property <color> data-cpu: dark ? #7AA7FF : #2F5FD0;
@@ -42,54 +45,54 @@ export global Theme {
     out property <color> data-network: dark ? #5DDCB0 : #0B7A5A;
 
     // Source chips (text on background); tokens.md gives dark values only
-    out property <color> chip-system: #7AA7FF;
-    out property <color> chip-system-bg: #1B2A45;
-    out property <color> chip-flatpak: #C3A2FF;
-    out property <color> chip-flatpak-bg: #2C2342;
-    out property <color> chip-appimage: #F2B84B;
-    out property <color> chip-appimage-bg: #3A2E14;
-    out property <color> chip-snap: #C9CED6;
-    out property <color> chip-snap-bg: #2A303B;
+    out property <color> chip-system: dark ? #7AA7FF : #2F5FD0;
+    out property <color> chip-system-bg: dark ? #1B2A45 : #E1E4EA;
+    out property <color> chip-flatpak: dark ? #C3A2FF : #7048C8;
+    out property <color> chip-flatpak-bg: dark ? #2C2342 : #E1E4EA;
+    out property <color> chip-appimage: dark ? #F2B84B : #9A6700;
+    out property <color> chip-appimage-bg: dark ? #3A2E14 : #FFF3D6;
+    out property <color> chip-snap: dark ? #C9CED6 : #4A5260;
+    out property <color> chip-snap-bg: dark ? #2A303B : #E1E4EA;
 
     // Extra shades: the first nine are listed in tokens.md under "Extra shades used by the
     // artboards" and use its names; the rest are not listed there yet (see docs/questions.md, M1-T3).
-    out property <color> nav-text: #B4BAC5;
-    out property <color> nav-active-bg: #1E232C;
-    out property <color> nav-active-text: #F2F4F7;
-    out property <color> tab-selected-bg: #1C222B;
-    out property <color> sidebar-border: #1F242D;
-    out property <color> text-soft: #C9CED6;
-    out property <color> border-subtle: #222832;
-    out property <color> row-divider: #1E232B;
-    out property <color> control-border: #2A303B;
-    out property <color> control-bg: #1A1F27;
-    out property <color> row-selected: #1C2A26;
-    out property <color> panel-bg: #1A2028;
-    out property <color> panel-border: #2A313C;
-    out property <color> search-border: #252B35;
-    out property <color> segment-on: #262D38;
-    out property <color> mono-dim: #B9C0CB;
-    out property <color> badge-bg: #232933;
+    out property <color> nav-text: dark ? #B4BAC5 : #4A5260;
+    out property <color> nav-active-bg: dark ? #1E232C : #FFFFFF;
+    out property <color> nav-active-text: dark ? #F2F4F7 : #14171C;
+    out property <color> tab-selected-bg: dark ? #1C222B : #E1E4EA;
+    out property <color> sidebar-border: dark ? #1F242D : #E1E4EA;
+    out property <color> text-soft: dark ? #C9CED6 : #4A5260;
+    out property <color> border-subtle: dark ? #222832 : #E1E4EA;
+    out property <color> row-divider: dark ? #1E232B : #E1E4EA;
+    out property <color> control-border: dark ? #2A303B : #E1E4EA;
+    out property <color> control-bg: dark ? #1A1F27 : #FFFFFF;
+    out property <color> row-selected: dark ? #1C2A26 : #DDF5EC;
+    out property <color> panel-bg: dark ? #1A2028 : #FFFFFF;
+    out property <color> panel-border: dark ? #2A313C : #E1E4EA;
+    out property <color> search-border: dark ? #252B35 : #E1E4EA;
+    out property <color> segment-on: dark ? #262D38 : #FFFFFF;
+    out property <color> mono-dim: dark ? #B9C0CB : #4A5260;
+    out property <color> badge-bg: dark ? #232933 : #E1E4EA;
 
     // Shades of the Storage artboard that tokens.md does not list (docs/questions.md, R4-T3).
-    out property <color> drive-track: #0F1217;
-    out property <color> warn-note: #E6CF9E;
-    out property <color> warn-banner-bg: #1E1A10;
-    out property <color> warn-button-bg: #2A2312;
-    out property <color> warn-button-border: #4A3B1A;
-    out property <color> warn-button-text: #F5D898;
+    out property <color> drive-track: dark ? #0F1217 : #F0F2F5;
+    out property <color> warn-note: dark ? #E6CF9E : #9A6700;
+    out property <color> warn-banner-bg: dark ? #1E1A10 : #FFF3D6;
+    out property <color> warn-button-bg: dark ? #2A2312 : #FFF3D6;
+    out property <color> warn-button-border: dark ? #4A3B1A : #9A6700;
+    out property <color> warn-button-text: dark ? #F5D898 : #9A6700;
 
     // Shades of the Cleaner and Clean flow artboards that tokens.md does not list (docs/questions.md, R6-Q06).
-    out property <color> note-card-bg: #13221D;
-    out property <color> note-card-border: #1F3A31;
-    out property <color> note-card-title: #8BEACB;
-    out property <color> note-card-text: #B9D9CC;
+    out property <color> note-card-bg: dark ? #13221D : #DDF5EC;
+    out property <color> note-card-border: dark ? #1F3A31 : #12B886;
+    out property <color> note-card-title: dark ? #8BEACB : #0B7A5A;
+    out property <color> note-card-text: dark ? #B9D9CC : #4A5260;
     out property <color> scrim: #06070A99;
-    out property <color> dialog-border: #2E3541;
+    out property <color> dialog-border: dark ? #2E3541 : #E1E4EA;
 
     // Toast (artboard F)
-    out property <color> toast-bg: #1E2A27;
-    out property <color> toast-border: #3E7D69;
+    out property <color> toast-bg: dark ? #1E2A27 : #DDF5EC;
+    out property <color> toast-border: dark ? #3E7D69 : #12B886;
 
     // Folder-map block colours by number: background, and the colour of the small note on it.
     public pure function tile-bg(i: int) -> color {

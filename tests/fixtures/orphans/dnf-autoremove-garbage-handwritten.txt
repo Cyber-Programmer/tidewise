@@ -1,0 +1,4 @@
+Dependencies resolved.
+Transaction Summary
+Installing:
+ --force x86_64 1 @x 1 M

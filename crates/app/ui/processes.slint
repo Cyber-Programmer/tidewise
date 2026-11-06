@@ -33,6 +33,7 @@ export global ProcState {
     callback set-filter(int);
     callback search-edited(string);
     callback end-task();
+    callback force-quit();
 }
 
 component Avatar inherits Rectangle {
@@ -292,7 +293,9 @@ export component ProcessesScreen inherits Rectangle {
                             border-color: Theme.control-border;
                             accessible-role: button;
                             accessible-label: "Force quit " + ProcState.sel.name;
+                            accessible-action-default => { ProcState.force-quit(); }
                             Text { text: "Force quit"; color: Theme.text; font-size: Theme.size-body; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { ProcState.force-quit(); } }
                         }
                     }
                     VerticalLayout {
@@ -312,7 +315,6 @@ export component ProcessesScreen inherits Rectangle {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
-                            // End task itself arrives in M4; the button does nothing yet.
                             TouchArea { clicked => { ProcState.end-task(); } }
                         }
                     }

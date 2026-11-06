@@ -61,26 +61,104 @@ pub struct HomeData {
     pub scan: Option<Scan>,
     pub tiles: Vec<Tile>,
     pub apps: Option<Apps>,
+    /// The warning for a nearly full main drive (live mode).
+    pub alert: Option<Alert>,
+}
+
+/// A drive that is this full (95 % or more) gets a warning of its own, not just a suggestion.
+pub const CRITICAL_DRIVE_USED: f64 = 0.95;
+
+/// The warning for a nearly full main drive (the artboard's "drive critically full").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Alert {
+    pub title: String,
+    pub body: String,
+    pub action: String,
+    /// The sidebar page the button opens.
+    pub page: i32,
+}
+
+pub fn critical_drive(
+    drive: Option<tidewise_core::drive::DriveSpace>,
+    junk: Option<u64>,
+) -> Option<Alert> {
+    let d = drive.filter(|d| d.used_fraction() >= CRITICAL_DRIVE_USED)?;
+    let mut body = "Updates and apps can fail when a drive is this full.".to_string();
+    if let Some(bytes) = junk.filter(|b| *b >= JUNK_SUGGESTION_BYTES) {
+        body += &format!(
+            " Clearing junk alone would free {:.1} GB.",
+            bytes as f64 / 1_000_000_000.0
+        );
+    }
+    Some(Alert {
+        title: format!(
+            "Main drive almost full: {} left",
+            tidewise_core::history::bytes_text(d.free)
+        ),
+        body,
+        action: "Free up space".into(),
+        page: 1,
+    })
 }
 
 /// Junk is only worth a suggestion from 1 GB up.
 const JUNK_SUGGESTION_BYTES: u64 = 1_000_000_000;
 
+/// ` Junk, services and updates are not part of this score yet.`: what the report says is still
+/// not measured, in the words the Home note uses (the two that are never measured, drive health, is
+/// not named here).
+fn not_in_score(report: &tidewise_core::health::Report) -> String {
+    let words: Vec<&str> = report
+        .not_checked
+        .iter()
+        .filter_map(|n| match n.title.as_str() {
+            "Junk" => Some("junk"),
+            "Services" => Some("services"),
+            "Waiting updates" => Some("updates"),
+            _ => None,
+        })
+        .collect();
+    let mut list = match words.as_slice() {
+        [] => return String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    if let Some(first) = list.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    format!(" {list} are not part of this score yet.")
+}
+
 /// The health score and the suggestions from what is really measured: drive fullness, junk and the
 /// app using the most memory. `junk` is the size the junk scan found, `None` while no scan has
 /// finished (then nothing is claimed about junk).
+#[cfg(test)]
 pub fn health_scan(
     drive: Option<tidewise_core::drive::DriveSpace>,
     biggest_app: Option<(String, u64)>,
     junk: Option<u64>,
 ) -> Scan {
+    health_scan_with(drive, biggest_app, junk, None)
+}
+
+/// Like the plain scan, and failed services (`Some(names)`, empty = none failed) take off points too.
+/// The score is the same one the Health page explains: both come from `health::report`.
+pub fn health_scan_with(
+    drive: Option<tidewise_core::drive::DriveSpace>,
+    biggest_app: Option<(String, u64)>,
+    junk: Option<u64>,
+    failed_services: Option<Vec<String>>,
+) -> Scan {
     use tidewise_core::health;
     let gb = |b: u64| b as f64 / 1_000_000_000.0;
+    let report = health::report(&health::Inputs {
+        drive,
+        junk,
+        failed_services,
+    });
     let mut suggestions = Vec::new();
-    let mut points = Vec::new();
     let mut real = 0;
     if let Some(bytes) = junk {
-        points.push(health::junk_points(bytes));
         if bytes >= JUNK_SUGGESTION_BYTES {
             real += 1;
             suggestions.push(Suggestion {
@@ -95,9 +173,7 @@ pub fn health_scan(
     }
     if let Some(d) = drive {
         let used = d.used_fraction();
-        let p = health::disk_points(used);
-        points.push(p);
-        if p > 0 {
+        if health::disk_points(used) > 0 {
             real += 1;
             suggestions.push(Suggestion {
                 icon: Icon::Warning,
@@ -121,7 +197,7 @@ pub fn health_scan(
             page: 5,
         });
     }
-    let score = health::score(&points);
+    let score = report.score;
     let opening = if score >= 80 {
         "Your PC is running well."
     } else {
@@ -137,12 +213,8 @@ pub fn health_scan(
         tag: health::tag(score).into(),
         headline,
         sub: format!(
-            "Nothing changes until you review it. Every fix shows exactly what it will touch first. {} are not part of this score yet.",
-            if junk.is_some() {
-                "Services and updates"
-            } else {
-                "Junk, services and updates"
-            }
+            "Nothing changes until you review it. Every fix shows exactly what it will touch first.{}",
+            not_in_score(&report)
         ),
         suggestions,
     }
@@ -442,6 +514,117 @@ mod tests {
             "memory takes no points: the artboard lists it as a passed check"
         );
         assert!(s.headline.contains("1 thing could"));
+    }
+
+    #[test]
+    fn failed_services_take_three_points_each_off_the_home_score() {
+        let one = health_scan_with(None, None, Some(0), Some(vec!["a.service".into()]));
+        assert_eq!(one.score, 97);
+        let two = health_scan_with(
+            None,
+            None,
+            Some(0),
+            Some(vec!["a.service".into(), "b.service".into()]),
+        );
+        assert_eq!(two.score, 94);
+        assert_eq!(
+            health_scan_with(None, None, Some(0), Some(vec![])).score,
+            100
+        );
+        assert_eq!(
+            health_scan_with(None, None, Some(0), None).score,
+            100,
+            "not read: nothing claimed"
+        );
+    }
+
+    #[test]
+    fn the_note_names_only_what_is_still_not_part_of_the_score() {
+        let all_known = health_scan_with(Some(drive(0.5)), None, Some(0), Some(vec![]));
+        assert!(
+            all_known
+                .sub
+                .contains("Updates are not part of this score yet."),
+            "{}",
+            all_known.sub
+        );
+        assert!(!all_known.sub.contains("Services"), "{}", all_known.sub);
+        let no_services = health_scan_with(Some(drive(0.5)), None, Some(0), None);
+        assert!(
+            no_services
+                .sub
+                .contains("Services and updates are not part of this score yet."),
+            "{}",
+            no_services.sub
+        );
+        let nothing = health_scan_with(None, None, None, None);
+        assert!(
+            nothing
+                .sub
+                .contains("Junk, services and updates are not part of this score yet."),
+            "{}",
+            nothing.sub
+        );
+    }
+
+    #[test]
+    fn home_and_the_health_page_always_show_the_same_score() {
+        use tidewise_core::health::{report, Inputs};
+        for d in [None, Some(drive(0.5)), Some(drive(0.8)), Some(drive(1.0))] {
+            for junk in [None, Some(0), Some(7_000_000_000), Some(90_000_000_000)] {
+                for failed in [
+                    None,
+                    Some(vec![]),
+                    Some(vec!["x.service".to_string()]),
+                    Some((0..40).map(|i| format!("s{i}")).collect()),
+                ] {
+                    let home = health_scan_with(d, None, junk, failed.clone()).score;
+                    let page = report(&Inputs {
+                        drive: d,
+                        junk,
+                        failed_services: failed.clone(),
+                    })
+                    .score;
+                    assert_eq!(home, page, "{d:?} {junk:?} {failed:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_nearly_full_drive_gets_its_own_warning_with_the_junk_it_could_free() {
+        let d = tidewise_core::drive::DriveSpace {
+            total: 100_000_000_000,
+            free: 2_100_000_000,
+        };
+        let a = critical_drive(Some(d), Some(12_600_000_000)).unwrap();
+        assert_eq!(a.title, "Main drive almost full: 2.1 GB left");
+        assert_eq!(
+            a.body,
+            "Updates and apps can fail when a drive is this full. Clearing junk alone would free 12.6 GB."
+        );
+        assert_eq!((a.action.as_str(), a.page), ("Free up space", 1));
+    }
+
+    #[test]
+    fn the_warning_starts_at_95_percent_and_only_mentions_junk_worth_mentioning() {
+        let used = |u: f64| drive(u);
+        assert!(critical_drive(Some(used(0.949)), None).is_none());
+        assert!(critical_drive(Some(used(0.95)), None).is_some());
+        assert!(
+            critical_drive(None, Some(50_000_000_000)).is_none(),
+            "no drive, no claim"
+        );
+        let plain = critical_drive(Some(used(0.97)), None).unwrap();
+        assert_eq!(
+            plain.body,
+            "Updates and apps can fail when a drive is this full."
+        );
+        let small = critical_drive(Some(used(0.97)), Some(900_000_000)).unwrap();
+        assert_eq!(
+            small.body, plain.body,
+            "under 1 GB of junk is not worth a sentence"
+        );
     }
 
     #[test]

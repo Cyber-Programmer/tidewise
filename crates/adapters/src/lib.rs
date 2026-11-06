@@ -3,6 +3,8 @@
 
 pub mod appimage;
 pub mod apt;
+pub mod autostart;
+pub mod cachekind;
 pub mod cleanup;
 pub mod desktop;
 pub mod dnf;
@@ -10,8 +12,10 @@ pub mod endtask;
 pub mod flatpak;
 pub mod journal;
 pub mod junk;
+pub mod orphans;
 pub mod pacman;
 pub mod runner;
+pub mod services;
 pub mod snap;
 pub mod source;
 pub mod uninstall;

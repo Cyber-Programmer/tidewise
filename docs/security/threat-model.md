@@ -54,7 +54,7 @@ file write, a parser of outside data or a network call (ENGINEERING.md §2). Met
 | --- | --- | --- | --- |
 | T | A misclick removes something wanted | Dry-run list on the confirm screen; action re-checks the list; user files only go to Trash with Undo | R4-T4 Trash round-trip tests; TODO M3 for the re-check |
 | E | User is nudged into removing a protected item | Protected items get no destructive button, refused in code | TODO M3 (protected list in the helper and adapters) |
-| R | "I did not remove that" | Local History screen (what was done, when) | TODO M4 |
+| R | "I did not remove that" | Local History screen (what was done, when): one JSON record per action in `$XDG_STATE_HOME/tidewise/history/` for Clean up, Uninstall, Storage Trash and End task (never overwritten: `hard_link`, fresh id); each item has its full path, result and reason (record v2). Undo only puts back what the Trash still holds, refuses any name that is not a plain file name and never overwrites; "Copy for a help forum" writes `/home/<name>` as `~` and never includes file contents | `core::history` tests: `a_record_survives_write_and_list`, `ids_that_could_leave_the_folder_are_refused`, `undo_puts_the_files_back_once_and_never_overwrites`, `undo_refuses_names_that_could_leave_the_trash`, `the_forum_report_names_the_system_and_what_ran_and_hides_the_home_folder`. Open: records are plain files the user can edit or delete (no tamper evidence); startup and service changes are not recorded yet (R7-Q08, Q09) |
 
 ### B2 App ↔ helper (M3)
 

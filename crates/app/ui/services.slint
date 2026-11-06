@@ -1,0 +1,254 @@
+// The Services screen (docs/design/screens/Services.dc.html), read-only: Tidewise lists what runs
+// and points out the few worth a look, but starting, stopping and enabling need admin access and
+// are not built yet, so their buttons are drawn as unavailable.
+import { Theme } from "theme.slint";
+import { DetailsSwitch, SkeletonList } from "components.slint";
+
+export struct SvcTab { label: string, count: int, on: bool }
+// `kind`: 0 running, 1 failed, 2 quiet.
+export struct SvcRow { unit: string, name: string, line: string, state: string, kind: int, protected: bool, selected: bool }
+
+export global ServicesState {
+    // 0 ready, 1 loading, 2 error
+    in property <int> phase: 1;
+    in property <string> message;
+    in property <[SvcTab]> tabs;
+    in property <[SvcRow]> rows;
+    in property <bool> has-detail: false;
+    in property <string> d-name;
+    in property <string> d-state;
+    in property <int> d-kind: 0;
+    in property <string> d-desc;
+    in property <string> d-tip;
+    in property <string> d-boot;
+    in property <string> d-memory;
+    in property <bool> d-protected: false;
+    in property <string> d-primary;
+    in property <string> d-secondary;
+    in property <string> d-unit;
+    in property <string> d-technical;
+    in-out property <bool> details: false;
+    callback set-tab(int);
+    callback pick(string);
+}
+
+component StateChip inherits Rectangle {
+    in property <string> label;
+    in property <int> kind;
+    height: 22px;
+    width: txt.preferred-width + 16px;
+    border-radius: 6px;
+    background: root.kind == 0 ? Theme.accent-tint : (root.kind == 1 ? Theme.danger-tint : Theme.badge-bg);
+    txt := Text { text: root.label; color: root.kind == 0 ? Theme.accent : (root.kind == 1 ? Theme.danger : Theme.text-2); font-size: Theme.size-caption; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component FakeButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: false;
+    height: 44px;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius-button;
+    opacity: 0.45;
+    background: root.primary ? Theme.accent : Theme.control-bg;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Theme.control-border;
+    accessible-role: button;
+    accessible-label: root.label + ", needs admin access";
+    accessible-enabled: false;
+    Text { text: root.label; color: root.primary ? Theme.on-accent : Theme.text; font-size: Theme.size-body; font-weight: root.primary ? 600 : 500; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component InfoCard inherits Rectangle {
+    in property <string> title;
+    in property <string> value;
+    in property <bool> mono: false;
+    horizontal-stretch: 1;
+    height: 62px;
+    border-radius: 10px;
+    background: Theme.surface-sunk;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+        Text { text: root.title; color: Theme.text-3; font-size: Theme.size-caption; }
+        Text { text: root.value; color: Theme.text; font-size: Theme.size-body; font-family: root.mono ? Theme.mono : Theme.sans; overflow: elide; }
+    }
+}
+
+export component ServicesScreen inherits Rectangle {
+    background: Theme.bg;
+    horizontal-stretch: 1;
+    Flickable {
+        content-width: self.width;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            width: root.width;
+            padding-top: 28px;
+            padding-bottom: 40px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: 18px;
+            alignment: start;
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    spacing: 6px;
+                    Text { text: "Services"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                    Text { text: "Programs your system runs in the background. Most should be left alone; we point out the few worth a look."; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout { alignment: end; DetailsSwitch { on <=> ServicesState.details; } }
+            }
+            if ServicesState.phase == 1: SkeletonList { label: "Looking at your services"; }
+            if ServicesState.phase >= 2: Rectangle {
+                height: 120px;
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    padding: 24px;
+                    spacing: 6px;
+                    Text { text: ServicesState.phase == 1 ? "Looking at your services…" : "Could not read your services"; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                    Text { text: ServicesState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+            }
+            if ServicesState.phase == 0: HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                for tab[i] in ServicesState.tabs: Rectangle {
+                    height: 38px;
+                    width: tl.preferred-width + 28px;
+                    border-radius: 10px;
+                    background: tab.on ? Theme.toast-bg : Theme.surface;
+                    border-width: 1px;
+                    border-color: tab.on ? Theme.toast-border : Theme.search-border;
+                    accessible-role: button;
+                    accessible-label: tab.label + ", " + tab.count;
+                    accessible-action-default => { ServicesState.set-tab(i); }
+                    tl := HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        spacing: 8px;
+                        Text { text: tab.label; color: tab.on ? Theme.text : Theme.nav-text; font-size: Theme.size-small; font-weight: 500; vertical-alignment: center; }
+                        Text { text: tab.count; color: tab.on ? Theme.accent : Theme.text-3; font-family: Theme.mono; font-size: Theme.size-small; vertical-alignment: center; }
+                    }
+                    TouchArea { clicked => { ServicesState.set-tab(i); } }
+                }
+            }
+            if ServicesState.phase == 0: HorizontalLayout {
+                spacing: 20px;
+                alignment: stretch;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: max(ServicesState.rows.length, 1) * 63px;
+                    border-radius: Theme.radius-card;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    if ServicesState.rows.length == 0: Text { text: "Nothing here."; color: Theme.text-2; font-size: Theme.size-body; horizontal-alignment: center; vertical-alignment: center; }
+                    VerticalLayout {
+                        for row[i] in ServicesState.rows: Rectangle {
+                            height: 63px;
+                            background: row.selected ? Theme.row-selected : transparent;
+                            accessible-role: button;
+                            accessible-label: row.name + ", " + row.state;
+                            accessible-action-default => { ServicesState.pick(row.unit); }
+                            if i < ServicesState.rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 14px;
+                                VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: Theme.radius-pill; background: row.kind == 0 ? Theme.accent : (row.kind == 1 ? Theme.danger : Theme.text-3); } }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: row.name; color: Theme.text; font-size: Theme.size-body; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                        if row.protected: Image { source: @image-url("icons/protected.svg"); width: 13px; height: 13px; y: 3px; colorize: Theme.text-2; }
+                                    }
+                                    Text { text: row.line; color: Theme.text-2; font-size: Theme.size-caption; overflow: elide; }
+                                }
+                                VerticalLayout { alignment: center; StateChip { label: row.state; kind: row.kind; } }
+                            }
+                            TouchArea { clicked => { ServicesState.pick(row.unit); } }
+                        }
+                    }
+                }
+                if ServicesState.has-detail: Rectangle {
+                    width: 360px;
+                    height: card.preferred-height;
+                    border-radius: Theme.radius-hero;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    card := VerticalLayout {
+                        padding: 22px;
+                        spacing: 16px;
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: start;
+                                Text { text: ServicesState.d-name; color: Theme.text; font-size: 19px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                VerticalLayout { alignment: center; StateChip { label: ServicesState.d-state; kind: ServicesState.d-kind; } }
+                            }
+                            Text { text: ServicesState.d-desc; color: Theme.text-soft; font-size: Theme.size-body; wrap: word-wrap; line-height-factor: 1.19; }
+                        }
+                        if ServicesState.d-tip != "": Rectangle {
+                            height: tip.preferred-height + 24px;
+                            border-radius: 12px;
+                            background: Theme.note-card-bg;
+                            border-width: 1px;
+                            border-color: Theme.note-card-border;
+                            tip := Text { x: 14px; y: 12px; width: parent.width - 28px; text: "Suggestion: " + ServicesState.d-tip; color: Theme.note-card-text; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            InfoCard { title: "Starts with your PC"; value: ServicesState.d-boot; }
+                            InfoCard { title: "Memory"; value: ServicesState.d-memory; mono: true; }
+                        }
+                        if ServicesState.d-protected: Rectangle {
+                            height: prot.preferred-height + 24px;
+                            border-radius: 12px;
+                            background: Theme.badge-bg;
+                            HorizontalLayout {
+                                padding: 12px;
+                                spacing: 8px;
+                                Image { source: @image-url("icons/protected.svg"); width: 16px; height: 16px; y: 2px; colorize: Theme.text-soft; }
+                                prot := Text { text: "Your system needs this to work, so Tidewise won't stop it."; color: Theme.text-soft; font-size: Theme.size-small; wrap: word-wrap; horizontal-stretch: 1; }
+                            }
+                        }
+                        if !ServicesState.d-protected && (ServicesState.d-primary != "" || ServicesState.d-secondary != ""): VerticalLayout {
+                            spacing: 10px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                if ServicesState.d-primary != "": FakeButton { primary: true; label: ServicesState.d-primary; }
+                                if ServicesState.d-secondary != "": FakeButton { label: ServicesState.d-secondary; }
+                            }
+                            Text { text: "Needs admin access (coming soon)"; color: Theme.text-2; font-size: Theme.size-caption; }
+                        }
+                        if ServicesState.details: VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                height: tech.preferred-height + 20px;
+                                border-radius: 8px;
+                                background: Theme.drive-track;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                tech := Text { x: 12px; y: 10px; width: parent.width - 24px; text: "unit: " + ServicesState.d-unit + "\n" + ServicesState.d-technical; color: Theme.mono-dim; font-family: Theme.mono; font-size: 12px; wrap: word-wrap; line-height-factor: 1.5; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

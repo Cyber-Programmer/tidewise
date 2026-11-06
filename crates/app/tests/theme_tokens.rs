@@ -144,9 +144,56 @@ fn extra_shades_use_the_names_and_hex_of_tokens_md() {
     let shades = extra_shades(&read("docs/design/tokens.md"));
     assert_eq!(shades.len(), 9, "{shades:?}");
     for (name, dark) in &shades {
-        let line = format!("property <color> {name}: {dark};");
-        assert!(theme.contains(&line), "theme.slint should contain `{line}`");
+        // The dark hex must be exactly the one in tokens.md; the light value follows it.
+        let line = format!("property <color> {name}: dark ? {dark} : #");
+        assert!(
+            theme.contains(&line),
+            "theme.slint should contain `{line}…`"
+        );
     }
+}
+
+/// Every `#RRGGBB` in the Light column of the main colour table of tokens.md.
+fn light_column_hexes(tokens: &str) -> std::collections::HashSet<String> {
+    tokens
+        .lines()
+        .skip_while(|l| !l.starts_with("## Colour"))
+        .skip(1)
+        .take_while(|l| !l.starts_with('#'))
+        .filter(|l| l.starts_with('|'))
+        .filter_map(|l| l.trim_matches('|').split('|').nth(2).map(str::to_string))
+        .flat_map(|cell| {
+            cell.split('#')
+                .skip(1)
+                .map(|h| format!("#{}", h.chars().take(6).collect::<String>().to_uppercase()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The light theme may only use colours that tokens.md already defines for it: the "extra shades"
+/// have no light values of their own, so they are aliases of defined light tokens (no new hex).
+#[test]
+fn every_light_value_is_a_colour_that_tokens_md_defines_for_the_light_theme() {
+    let theme = read("crates/app/ui/theme.slint");
+    let allowed = light_column_hexes(&read("docs/design/tokens.md"));
+    assert!(allowed.len() >= 15, "{allowed:?}");
+    let mut checked = 0;
+    for line in theme.lines().filter(|l| l.contains("out property <color>")) {
+        let Some((_, rest)) = line.split_once(": dark ? ") else {
+            continue;
+        };
+        let Some((_, light)) = rest.split_once(" : ") else {
+            continue;
+        };
+        let light = light.trim_end_matches(';').to_uppercase();
+        assert!(
+            allowed.contains(&light),
+            "light value {light} is not in tokens.md: {line}"
+        );
+        checked += 1;
+    }
+    assert!(checked >= 50, "only {checked} tokens checked");
 }
 
 #[test]

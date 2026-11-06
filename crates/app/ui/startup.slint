@@ -1,0 +1,239 @@
+// The Startup apps screen (docs/design/screens/Startup.dc.html). No "impact" chips and no memory or
+// boot-time cards: Tidewise cannot measure them honestly yet.
+import { Theme } from "theme.slint";
+import { DetailsSwitch, SkeletonList } from "components.slint";
+
+export struct StartRow { file: string, name: string, desc: string, path: string, letter: string, hue: int, enabled: bool, chip: string, locked: bool, switch-label: string }
+
+export global StartupState {
+    // 0 ready, 1 loading, 2 nothing found, 3 error
+    in property <int> phase: 1;
+    in property <string> message;
+    in property <string> on-count: "0";
+    in property <string> of-text: "of 0 apps";
+    in property <[StartRow]> rows;
+    in-out property <bool> details: false;
+    // The line under the list after a switch was flipped; empty hides the card.
+    in property <string> toast;
+    callback toggle(string);
+    callback undo();
+}
+
+component Avatar inherits Rectangle {
+    in property <string> letter;
+    in property <int> hue;
+    in property <bool> dim: false;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    opacity: root.dim ? 0.45 : 1.0;
+    background: root.hue == 0 ? Theme.data-cpu : (root.hue == 1 ? Theme.data-disk : (root.hue == 2 ? Theme.data-network : (root.hue == 3 ? Theme.data-memory : (root.hue == 4 ? Theme.danger : Theme.chip-flatpak))));
+    Text { text: root.letter; color: Theme.bg; font-size: 16px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+component Switch inherits Rectangle {
+    in property <bool> on;
+    in property <bool> locked: false;
+    in property <string> label;
+    callback toggled();
+    width: 46px;
+    height: 28px;
+    border-radius: Theme.radius-pill;
+    opacity: root.locked ? 0.4 : 1.0;
+    background: root.on ? Theme.accent : Theme.control-border;
+    accessible-role: switch;
+    accessible-label: root.label;
+    accessible-checked: root.on;
+    accessible-enabled: !root.locked;
+    accessible-action-default => { if (!root.locked) { root.toggled(); } }
+    Rectangle {
+        x: root.on ? 22px : 4px;
+        y: 4px;
+        width: 20px;
+        height: 20px;
+        border-radius: Theme.radius-pill;
+        background: Theme.text;
+    }
+    TouchArea { enabled: !root.locked; clicked => { root.toggled(); } }
+}
+
+export component StartupScreen inherits Rectangle {
+    background: Theme.bg;
+    horizontal-stretch: 1;
+    Flickable {
+        content-width: self.width;
+        content-height: max(self.height, body.preferred-height);
+        body := VerticalLayout {
+            width: root.width;
+            padding-top: 28px;
+            padding-bottom: 40px;
+            padding-left: 36px;
+            padding-right: 36px;
+            spacing: 20px;
+            alignment: start;
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    spacing: 6px;
+                    Text { text: "Startup apps"; color: Theme.text; font-size: Theme.size-h1; font-weight: 600; letter-spacing: -0.52px; }
+                    Text { text: "These open on their own when you log in. Fewer means a faster, calmer start."; color: Theme.text-2; font-size: Theme.size-body; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout { alignment: end; DetailsSwitch { on <=> StartupState.details; } }
+            }
+            // The card sits in its own row: a fixed width directly in the page's column would
+            // cap the width of the whole page.
+            if StartupState.phase == 0: HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    height: 94px;
+                    width: 300px;
+                    border-radius: Theme.radius-card;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    VerticalLayout {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        alignment: center;
+                        spacing: 4px;
+                        Text { text: "Starting with your PC"; color: Theme.text-2; font-size: Theme.size-small; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Text { text: StartupState.on-count; color: Theme.text; font-family: Theme.mono; font-size: 30px; vertical-alignment: bottom; }
+                            Text { text: StartupState.of-text; color: Theme.text-2; font-size: 15px; vertical-alignment: bottom; }
+                        }
+                    }
+                }
+            }
+            if StartupState.phase == 1: SkeletonList { label: "Looking at what starts with your PC"; }
+            if StartupState.phase >= 2: Rectangle {
+                height: 120px;
+                border-radius: Theme.radius-hero;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                VerticalLayout {
+                    alignment: center;
+                    padding: 24px;
+                    spacing: 6px;
+                    Text { text: StartupState.phase == 1 ? "Looking at what starts with your PC…" : (StartupState.phase == 2 ? "Nothing starts on its own" : "Could not read your startup apps"); color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; }
+                    Text { text: StartupState.message; color: Theme.text-2; font-size: Theme.size-body; wrap: word-wrap; }
+                }
+            }
+            if StartupState.phase == 0: HorizontalLayout {
+                spacing: 20px;
+                alignment: stretch;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 42px + StartupState.rows.length * 63px;
+                    border-radius: Theme.radius-card;
+                    background: Theme.surface;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    clip: true;
+                    VerticalLayout {
+                        Rectangle {
+                            height: 42px;
+                            HorizontalLayout {
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                Text { text: "App"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: "Starts at login"; color: Theme.text-2; font-size: Theme.size-caption; vertical-alignment: center; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                        }
+                        for row[i] in StartupState.rows: Rectangle {
+                            height: 63px;
+                            if i < StartupState.rows.length - 1: Rectangle { y: parent.height - 1px; height: 1px; background: Theme.row-divider; }
+                            HorizontalLayout {
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 14px;
+                                VerticalLayout { alignment: center; Avatar { letter: row.letter; hue: row.hue; dim: !row.enabled; } }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text { text: row.name; color: row.enabled ? Theme.text : Theme.text-2; font-size: Theme.size-body; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                        if row.chip != "": Rectangle {
+                                            height: 20px;
+                                            width: chip.preferred-width + 14px;
+                                            y: 0px;
+                                            border-radius: 6px;
+                                            background: Theme.badge-bg;
+                                            chip := Text { text: row.chip; color: Theme.text-soft; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                        }
+                                    }
+                                    Text { text: row.desc; color: Theme.text-2; font-size: Theme.size-caption; overflow: elide; }
+                                    if StartupState.details: Text { text: row.path; color: Theme.mono-dim; font-family: Theme.mono; font-size: 11px; overflow: elide; }
+                                }
+                                VerticalLayout { alignment: center; Switch { on: row.enabled; locked: row.locked; label: row.switch-label; toggled => { StartupState.toggle(row.file); } } }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    width: 300px;
+                    alignment: start;
+                    spacing: 14px;
+                    if StartupState.toast != "": Rectangle {
+                        height: 58px;
+                        border-radius: 14px;
+                        background: Theme.toast-bg;
+                        border-width: 1px;
+                        border-color: Theme.toast-border;
+                        accessible-role: text;
+                        accessible-label: StartupState.toast;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 6px;
+                            spacing: 12px;
+                            Image { source: @image-url("icons/done.svg"); width: 18px; height: 18px; y: (parent.height - self.height) / 2; colorize: Theme.accent; }
+                            Text { text: StartupState.toast; color: Theme.text; font-size: Theme.size-small; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                            Rectangle {
+                                width: 56px;
+                                accessible-role: button;
+                                accessible-label: "Undo";
+                                accessible-action-default => { StartupState.undo(); }
+                                Text { text: "Undo"; color: Theme.accent; font-size: Theme.size-small; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { StartupState.undo(); } }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: good.preferred-height + 40px;
+                        border-radius: Theme.radius-card;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        good := VerticalLayout {
+                            padding: 20px;
+                            spacing: 10px;
+                            Text { text: "Good to know"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                            Text { text: "•  Turning an app off here doesn't uninstall it. You can still open it any time.\n•  Items marked \"Part of your desktop\" keep things like your panel, passwords and sign-in prompts working, so Tidewise doesn't offer a switch for them."; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.3; }
+                        }
+                    }
+                    Rectangle {
+                        height: bg.preferred-height + 32px;
+                        border-radius: Theme.radius-card;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        bg := VerticalLayout {
+                            padding: 16px;
+                            padding-left: 20px;
+                            padding-right: 20px;
+                            Text { text: "Looking for background programs like Docker or printing? Those are Services."; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.2; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
