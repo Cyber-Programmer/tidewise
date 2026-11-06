@@ -559,3 +559,11 @@ Blockers: none.
 Done: Q01, Q02, Q14, Q15, Q16, Q17; Q03–Q13, Q18, Q19 partial. Final checks (fmt, clippy, plain and TMPDIR tests 684 passed, audit, deny, release build, AppImage) all exit 0.
 Next: the human clicks through the new screens, runs the pen-test checklist, decides the items in docs/questions.md.
 Blockers: admin helper not built; design scores above 10 % on seven screens.
+
+## 2026-11-06 — Run 08, R8-Q01 Look at the pipeline
+Plan: (1) red: `tools/test-ci.sh` checks ci-local.sh matches ci.yml, concurrency/timeouts/release-build/dependabot exist, and `cargo audit` is clean.
+(2) green: bump pulldown-cmark to 0.13.6 (lockfile only), add tools/ci-local.sh, harden ci.yml, add dependabot.yml.
+(3) cancel test runs on tmpfs and on disk. (4) all checks, report, WBS 2.1.
+Done: audit failure fixed (pulldown-cmark 0.13.6), tools/ci-local.sh and tools/test-ci.sh, ci.yml hardened, dependabot; ci-local exit 0.
+Next: R8-Q02 secret check in CI.
+Blockers: CI on GitHub cannot be seen from here (Not verified).

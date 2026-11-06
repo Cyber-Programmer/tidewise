@@ -251,3 +251,11 @@ Rules bent: none.
 2. Corpora stay uncommitted (`fuzz/.gitignore`), as before.
 3. WBS 5.5 set to Done for the 15 existing targets; the helper-request target is part of the helper work (not built).
 Rules bent: none.
+
+## Run 08 — R8-Q01 CI/CD: decisions taken without you
+1. **Real cause of the red CI run:** `cargo audit` fails on RUSTSEC-2026-0433 (pulldown-cmark 0.13.5, via Slint). I bumped it to 0.13.6 in `Cargo.lock` only (`cargo update -p pulldown-cmark --precise 0.13.6`; no new dependency, no `Cargo.toml` change). Recommended: keep; Dependabot will now propose such bumps weekly.
+2. **Ignored RUSTSEC-2026-0441 (pin-utils unmaintained)** in `deny.toml`, same reason as the four earlier Slint-related notices: a notice, not a vulnerability, build-time only. Recommended: keep until Slint drops `spin_on`. If you say no, `cargo deny check` fails until Slint moves.
+3. **`libfontconfig1-dev` apt step** added to `check`, `release-build` and `release.yml` (uses `sudo apt-get install` on the runner, which LOOP.md allows for packages). Not tested on ubuntu-22.04; runs #1, #2, #5 passed without it. Recommended: keep; remove if the runner image already has it and you want fewer steps.
+4. **`--locked` on clippy, test and build; `timeout-minutes` 30 (45 for release); `concurrency` cancel-in-progress** for every ref, including `main`. Recommended: keep; if you want every push on `main` to finish, restrict cancelling to non-default branches.
+5. **Not done:** refreshing action pins (no `gh` here) and `actionlint`. The existing SHAs are unchanged; Dependabot (new) will propose updates.
+Rules bent: the cancel-test commit 544e683 was green on arrival (the fix was already in run 07), so it is not red-first.

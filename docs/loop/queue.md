@@ -17,7 +17,7 @@ other 600+ tests passed in that container. The Actions logs themselves could not
 failures on GitHub (for example in the `supply-chain` job, or on #3/#4/#6/#7, which may have had other
 causes) are not ruled out.
 
-- [ ] **Q01 Look at the pipeline before anything else.** (WBS 2.x CI row: find it by searching column B for
+- [x] **Q01 Look at the pipeline before anything else.** (WBS 2.x CI row: find it by searching column B for
   "CI".) Steps: (1) check the cancel test on the branch: it must not depend on the file system. Run the
   plain `cargo test --all` **and** the same with `TMPDIR` on a different file system than the repo (tmpfs
   vs real disk; say which is which, `df -T`). (2) Write `tools/ci-local.sh`: the exact commands of
