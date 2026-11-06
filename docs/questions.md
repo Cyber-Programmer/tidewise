@@ -335,3 +335,7 @@ Rules bent: none.
 2. **End dialog 26.1 % stays**: the missing app-specific sentence is deliberate (the same text must work for every app) and the wrap difference is the checker. Recommended: approve the proposed accepted difference in `docs/design-proposals.md`.
 3. **Search's FILES section waits for the file-search decision** (R8-Q08). Recommended: approve the proposed difference; revisit only if you choose one of the R8-Q08 options.
 Rules bent: none.
+
+## Run 08 — R8-Q15 Human checklist: decision taken without you
+1. **I rewrote `docs/loop/human-checklist.md` instead of appending**, dropping the "before run 08 starts" section because it is done or obsolete, and kept every click-through item from run 07. Recommended: keep; `git log -p` shows the old text if you want it back.
+Rules bent: none.

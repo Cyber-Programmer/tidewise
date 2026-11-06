@@ -639,3 +639,8 @@ Plan: reproduce both crop scores, look at the pictures, sort every difference, d
 Done: End dialog 26.1 % reproduced; Search measured 50.2 % (run 07's 42.4 % was a stale picture); causes and proposals in docs/design-proposals.md; one spacing candidate for Search noted, not fixed.
 Next: R8-Q15 human checklist (docs only), then End of the run; Q13 and Q14 not started.
 Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q15 Human checklist
+Done: docs/loop/human-checklist.md updated with this run's items (GitHub settings, README install lines, keyboard gap, Ctrl K measurement, decisions).
+Next: End of the run (Q13 and Q14 not started).
+Blockers: none.

@@ -235,3 +235,15 @@ Not verified:
 - No Rust changed; the last full `tools/ci-local.sh` was at 29e8c55 (exit 0, 706 tests).
 Errors: `--screenshot home --state search` → exit 1 (not a state); I used `--screenshot search` instead. My crop script printed a "No such file" for the picture that command should have written; the score for the stale file was therefore a leftover from run 07 until I rendered a fresh one: that is how the 42.4 % turned out to be stale.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q12" (3 entries)
+
+## R8-Q15 Human checklist — Done (documents only)   (2026-11-06 07:46 PKT, `date` reading in this round)
+WBS: no row (documents only; nothing to update).
+Commits: the checklist rewrite (commit below).
+Evidence:
+- `docs/loop/human-checklist.md` rewritten (about 40 lines): the obsolete "before run 08 starts" steps replaced by "first, on GitHub" (merge and push, read the CI result, switch on private vulnerability reporting, check the issue forms and README, run the Ubuntu and Arch install lines, run the fuzz workflow once, approve `docs/questions.md` and `docs/design-proposals.md`); the click-through list keeps run 07's items and adds light-theme chips, protected rows in Processes, the keyboard gap in the three dialogs and About's version; "run by hand" adds `tools/ci-local.sh`, the Ctrl K memory measurement and says A16 and A21 now have tests but still need a person; a short "decide" list.
+- `./tools/check-secrets.sh` → exit 0 and `./tools/test-readme.sh` → exit 0 after the edit.
+Not verified:
+- That the list is complete (it follows what this run found, not an independent review) and that it fits one screen on every terminal (it is about 40 lines, longer than the 29-line original).
+- The commands in it (`docs/loop/RESUME.md` exists but I did not re-read it this round).
+Errors: none.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q15" (1 entry)

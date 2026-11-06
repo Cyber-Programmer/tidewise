@@ -111,6 +111,6 @@ layout bug or a wrong crop: find which.
 - [ ] **Q14 Questions triage.** `docs/questions.md` is long. Add a table at the top: ID, one-line question,
   recommended answer, what breaks if the human says no, status. Sorted by how much work depends on the
   answer. Do not answer anything on the human's behalf and do not delete entries.
-- [ ] **Q15 Human checklist.** `docs/loop/human-checklist.md` already exists (written before the run).
+- [x] **Q15 Human checklist.** `docs/loop/human-checklist.md` already exists (written before the run).
   Update it with anything new from this run: what to click, what to run, what to compare. Keep it to one
   screen per page.
