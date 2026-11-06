@@ -81,7 +81,7 @@ causes) are not ruled out.
   tree of 200 000 files (PSS and build time). If within the 40 MB budget, build it with tests; if not,
   write the numbers into `docs/questions.md` and keep "Files are not searched yet". Never index outside
   `$HOME`; follow `.gitignore`-like hidden-dir skipping rules you document.
-- [ ] **Q09 Budgets for the pages run 07 did not measure** (WBS 3.8): Performance, Processes, Storage, the
+- [/] **Q09 Budgets for the pages run 07 did not measure** (WBS 3.8): Performance, Processes, Storage, the
   open Ctrl K box, and the start-up peak. `tools/measure.sh`, 60 s window, look at the page before
   measuring. Fix anything over (≤ 40 MB PSS, < 2 % idle CPU).
 

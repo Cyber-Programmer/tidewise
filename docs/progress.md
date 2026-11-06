@@ -615,3 +615,9 @@ Plan: probe a filename index on a synthetic 200 000-file tree (PSS, build time),
 Done: measured (compact +6.3 MB, plain strings +22-23 MB, 1 000 000 files +31.2 MB); does not fit on the Apps page, so not built; numbers in docs/budgets.md and docs/questions.md; ci-local exit 0.
 Next: R8-Q09 budgets for the pages run 07 did not measure.
 Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q09 Budgets for unmeasured pages
+Plan: measure Performance, Processes, Storage (40 s + 60 s) and the start-up peak of Home and Apps; fix anything over budget.
+Done: all within budget (29.8, 31.6, 31.6 MB; 0.9, 1.4, 0.1 %); start-up PSS peak about 29.2 / 34.8 MB; numbers in docs/budgets.md; Ctrl K box not measured.
+Next: R8-Q10 Settings and Health design misses.
+Blockers: Ctrl K needs a key press.

@@ -311,3 +311,9 @@ Seven report headings (R8-Q01 to R8-Q07) first carried times I estimated instead
 3. **The measurement is a synthetic tree, warm cache**, see the report's Not verified list. Recommended: a person runs the probe against a copy-shaped real home (`PROBE_DIR` only changes where the synthetic tree goes, so that needs a small change) before choosing.
 4. **The probe example stays in the repo** (`crates/core/examples/index_probe.rs`) so the numbers can be reproduced; it is not part of the app or the AppImage. Recommended: keep; delete it if you do not want it.
 Rules bent: none.
+
+## Run 08 — R8-Q09 Budgets: decisions taken without you
+1. **Unit:** MB = kB / 1000, because run 07's table did (34196 kB is "34.2 MB"). ENGINEERING.md says "MB PSS" without saying which; the binary-megabyte (MiB) figures are 2.4 % lower. Recommended: keep decimal, and write the convention into ENGINEERING.md §5.
+2. **The Ctrl K box was not measured**, and I did not inject key presses into your desktop. Recommended: you open it once and run `tools/measure.sh` against the PID, or accept a later round that adds a hidden `--open-search` test flag (a code change, not made).
+3. **Start-up peak by sampling PSS** every 0.2 s for 20 s (one run per page, Home and Apps) rather than a new tool. The resident peak (VmHWM) is 45.8 / 51.5 MB because shared libraries count in it. Recommended: keep the budget on PSS (as ENGINEERING.md §5 says) and say so next to any resident figure.
+Rules bent: none.

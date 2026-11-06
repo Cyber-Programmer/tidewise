@@ -168,3 +168,20 @@ Not verified:
 - Other layouts (a prefix-compressed or on-disk index, or building only while Ctrl K is open and freeing it after) were not measured.
 Errors: the first probe version dropped the index at the end of its `match` arm before reading PSS, so it printed "+0.4 MB" for 10 MB of data; I caught it because the number was impossible, moved the read inside the arm and threw the first numbers away. One compile error and one `sed`-style replace that missed (cargo fmt had reflowed the line) while fixing it: the second run used the old binary until I noticed the build had failed; those outputs were discarded as well.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q08" (4 entries)
+
+## R8-Q09 Budgets for the pages run 07 did not measure — Partial   (2026-11-06 07:33 PKT, `date` reading in this round)
+WBS: 3.8 → unchanged (Done); L and N updated.
+Commits: none for code (nothing was over budget, so nothing to fix); the numbers are in `docs/budgets.md`.
+Evidence:
+- `MEASURE_WAIT=40 MEASURE_WINDOW=60 tools/measure.sh ./target/release/tidewise --page <page>` → exit 0 each (output in the scratchpad `q09.out`): Performance 29 762 kB = 29.8 MB, 0.9 %; Processes 31 569 kB = 31.6 MB, 1.4 %; Storage 31 634 kB = 31.6 MB, 0.1 %; one process each; binary 26 736 280 bytes. **All within ≤ 40 MB and < 2 %.**
+- Start-up peak: `bash peak.sh home` and `bash peak.sh apps` (PSS every 0.2 s for 20 s) → exit 0: Home 28.5 MiB (about 29.2 MB), Apps 34.0 MiB (about 34.8 MB), the maximum at the last sample in both, so no spike above the settled value was seen; peak resident VmHWM 44.7 MiB / 50.3 MiB (about 45.8 / 51.5 MB): this counts shared library pages, it is not the budgeted PSS, but it is above 40.
+- Looked at the pages before measuring: `target/tmp/shots/q09-performance.png` and `q09-processes.png` (read), storage earlier this run; these are `--screenshot` renders of the sample data, not the live window (grabbing the live window would have captured your whole desktop).
+Why Partial: the queue also asks for the open Ctrl K box, which was not measured (needs a key press), and the start-up peak was one run per page at 0.2 s sampling.
+Not verified:
+- The Ctrl K box open: not measured. `wtype` and `grim` exist on this machine; I did not use them (`wtype` types into whatever window has the focus, `grim` photographs the whole screen).
+- 40 s wait, not 60 s (same as run 07, to compare); one run per page, no repeat to see the spread.
+- Whether the Storage page's scan was running when measured: CPU 0.1 % suggests not, so the figure may not include a scan.
+- Short spikes between the 0.2 s samples of the start-up peak.
+- The pages as the live window shows them (only the sample-data renders were looked at).
+Errors: `peak.sh` was written without the execute bit (`permission denied`, exit 126 twice); re-run with `bash peak.sh` → exit 0. The first background launch's "completed" notice was only the launcher returning, not the measurement; I waited for the real "== done" line (07:30:45) with a monitor. **Unit slip:** my Q08 probe and `peak.sh` divided kB by 1024 (MiB) while `docs/budgets.md` uses kB/1000; found by comparing run 07's raw CSV (34196 kB shown as 34.2 MB). Converted here and noted in budgets.md; the Q08 decision stands (6.3 MiB is 6.6 MB). **Commit slip:** my first docs script for this round failed with a Python syntax error (stray parenthesis) and wrote nothing, yet I committed right after it with a message claiming the budgets were in it; I undid that commit with `git reset --soft` (allowed on this unpushed branch), re-ran the script from a file, and committed once, correctly.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q09" (3 entries)
