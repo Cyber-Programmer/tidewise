@@ -317,3 +317,9 @@ Rules bent: none.
 2. **The Ctrl K box was not measured**, and I did not inject key presses into your desktop. Recommended: you open it once and run `tools/measure.sh` against the PID, or accept a later round that adds a hidden `--open-search` test flag (a code change, not made).
 3. **Start-up peak by sampling PSS** every 0.2 s for 20 s (one run per page, Home and Apps) rather than a new tool. The resident peak (VmHWM) is 45.8 / 51.5 MB because shared libraries count in it. Recommended: keep the budget on PSS (as ENGINEERING.md §5 says) and say so next to any resident figure.
 Rules bent: none.
+
+## Run 08 — R8-Q10 Settings and Health design misses: decisions taken without you
+1. **Settings 86.3 % was a wrong crop; the real score is 70.3 %** at the artboard's height (2011 px). The rest is features we do not build. Recommended: approve the proposed accepted difference in `docs/design-proposals.md` ("six sections are v1.0 scope, not built yet") and decide which of the missing Settings groups are in v1.0: each needs a feature (accent, text size, units, notifications, autostart, folders to skip, admin helper, update check).
+2. **Health 33.7 % is content, not layout:** updates, memory pressure, temperature and start-up checks are not built and the demo values differ from the artboard. Recommended: approve the proposed difference, and decide whether Health's "Checks that passed" row is worth building (memory and temperatures are cheap to read; updates and drive health are not).
+3. **I did not tune copy, colours or demo numbers to reach a score**, and did not edit `docs/design/`. Not fixed: Health's open first row with a down chevron (small). Recommended: leave until the design decision in items 1 and 2.
+Rules bent: none.

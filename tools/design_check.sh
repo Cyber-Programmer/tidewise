@@ -1,6 +1,8 @@
 #!/bin/bash
 # Render every reference image of a screen in demo mode and print its LAYOUT MISMATCH.
-#   tools/design_check.sh performance|processes|home|storage
+#   tools/design_check.sh performance|processes|home|storage|settings|health
+# The picture is rendered at the reference image's own height (Settings is 2011 px tall: the default
+# 960 px crop scored 86.3 % in run 07, the same page at 2011 px scores 70.3 %).
 set -eu
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 case "${1:-}" in
@@ -8,7 +10,9 @@ case "${1:-}" in
   processes) images="Processes: Processes--details:details Processes--apps:apps Processes--protected-selected:protected-selected" ; screen=processes ;;
   home) images="Main:" ; screen=home ;;
   storage) images="Storage: Storage--downloads:downloads" ; screen=storage ;;
-  *) echo "usage: $0 performance|processes|home|storage" >&2; exit 2 ;;
+  settings) images="Settings:" ; screen=settings ;;
+  health) images="Health:" ; screen=health ;;
+  *) echo "usage: $0 performance|processes|home|storage|settings|health" >&2; exit 2 ;;
 esac
 out=target/design-check
 mkdir -p "$out"

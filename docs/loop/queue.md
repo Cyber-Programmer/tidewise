@@ -97,7 +97,7 @@ artboard shows something we deliberately don't build (for example the Search "FI
 evidence. Never reach a number by tuning copy or colours. Settings 86.3 % is almost certainly a real
 layout bug or a wrong crop: find which.
 
-- [ ] **Q10 Settings (86.3 %) and Health (33.7 %).** One round each if needed; report the new scores.
+- [x] **Q10 Settings (86.3 %) and Health (33.7 %).** One round each if needed; report the new scores.
 - [ ] **Q11 History (32.8 %), Startup apps (18.7 %), Services (17.1 %).**
 - [ ] **Q12 End dialog (26.1 %) and Search (42.4 %).** Search: the missing "FILES" group depends on Q08.
 

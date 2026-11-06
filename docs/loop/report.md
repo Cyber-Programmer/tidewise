@@ -185,3 +185,20 @@ Not verified:
 - The pages as the live window shows them (only the sample-data renders were looked at).
 Errors: `peak.sh` was written without the execute bit (`permission denied`, exit 126 twice); re-run with `bash peak.sh` → exit 0. The first background launch's "completed" notice was only the launcher returning, not the measurement; I waited for the real "== done" line (07:30:45) with a monitor. **Unit slip:** my Q08 probe and `peak.sh` divided kB by 1024 (MiB) while `docs/budgets.md` uses kB/1000; found by comparing run 07's raw CSV (34196 kB shown as 34.2 MB). Converted here and noted in budgets.md; the Q08 decision stands (6.3 MiB is 6.6 MB). **Commit slip:** my first docs script for this round failed with a Python syntax error (stray parenthesis) and wrote nothing, yet I committed right after it with a message claiming the budgets were in it; I undid that commit with `git reset --soft` (allowed on this unpushed branch), re-ran the script from a file, and committed once, correctly.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q09" (3 entries)
+
+## R8-Q10 Settings (86.3 %) and Health (33.7 %) — Done (decisions only, no code)   (2026-11-06 07:37 PKT, `date` reading in this round)
+WBS: 9.5 and 9.2 → In Progress (unchanged); L and N updated.
+Commits: none for the app; `tools/design_check.sh` gets `settings` and `health` (commit below).
+Evidence:
+- Settings: `target/release/tidewise --screenshot settings --out … --height <h>` then `python3 tools/design_diff.py docs/design/png/Settings.png …` → height 960: **86.3 %** (run 07's number), 1100: 80.4 %, 2011 (the artboard's height, `PIL` size 1360 x 2011): **70.3 %**. `tools/design_check.sh settings` → exit 0, `Settings 70.3 %`. So run 07's 86.3 % was a wrong crop (the artboard is 2011 px tall, the picture was 960 px); the real score is 70.3 %. Not met (target 10 %).
+- Health: `tools/design_check.sh health` → exit 0, `Health 33.7 %`: unchanged from run 07, not met.
+- I looked at both side-by-side pictures (`target/design-check/Settings-side.png`, `Health-side.png`, read). Settings: our page has Appearance (theme only), Privacy & updates and About; the artboard also has a section index, Accent colour, Text size, Behaviour, Cleaning, Admin access and an update-status box. Health: layout of the rows that exist lines up; differences are in content (score 84 vs 82, 200 GB vs 95 GB free, "Not measured" cards vs "Checks that passed" and the updates row) and a sidebar block 22 px higher in the artboard.
+- Sorting (a)/(b)/(c) per difference: `docs/design-proposals.md` (new; `docs/design/` untouched). No difference was a layout bug I could fix test-first without inventing features; one small real difference (first row open chevron on Health) is listed and not fixed.
+- `bash -n tools/design_check.sh` → exit 0; `./tools/test-ci.sh` → exit 0.
+Not verified:
+- Neither screen meets the 10 % target; nothing was changed in the app, so no new score exists other than the re-measured ones above.
+- The (a)/(b)/(c) sorting is my reading of two pictures, not checked by a person; the 22 px sidebar offset was read off the picture (scaled 1.6), not measured with a tool.
+- The light theme of these two screens.
+- No full `cargo test --all` was needed (no Rust changed); the last full `tools/ci-local.sh` run was at 29e8c55 (exit 0, 706 tests); only docs and `tools/design_check.sh` changed since.
+Errors: my first Settings run used `--height 1100` (not the artboard's 2011) and my `tail -6` cut off the score line, so it printed no score; redone at the reference height (this is the same crop mistake run 07 made, found by repeating it).
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q10" (3 entries)

@@ -621,3 +621,9 @@ Plan: measure Performance, Processes, Storage (40 s + 60 s) and the start-up pea
 Done: all within budget (29.8, 31.6, 31.6 MB; 0.9, 1.4, 0.1 %); start-up PSS peak about 29.2 / 34.8 MB; numbers in docs/budgets.md; Ctrl K box not measured.
 Next: R8-Q10 Settings and Health design misses.
 Blockers: Ctrl K needs a key press.
+
+## 2026-11-06 — Run 08, R8-Q10 Settings and Health design misses
+Plan: re-measure both at the artboard's height, sort each difference into bug / not built / checker limit, write proposals, do not tune.
+Done: Settings is 70.3 % (86.3 % was a wrong crop), Health 33.7 %; causes sorted in docs/design-proposals.md; design_check.sh knows settings and health.
+Next: R8-Q11 History, Startup apps, Services.
+Blockers: none.
