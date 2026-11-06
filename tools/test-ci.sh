@@ -42,6 +42,7 @@ grep -q 'run: tools/check-secrets.sh' .github/workflows/ci.yml && grep -q '^run 
 DESC="ci.yml runs tools/test-check-secrets.sh"
 grep -q 'run: tools/test-check-secrets.sh' .github/workflows/ci.yml && echo "ok   $DESC" || { echo "FAIL $DESC"; fail=1; }
 
+DESC="fuzz workflow checks pass (tools/test-fuzz-workflow.sh)"; check tools/test-fuzz-workflow.sh
 DESC="release.yml parses"; check python3 -I -c 'import yaml;yaml.safe_load(open(".github/workflows/release.yml"))'
 DESC="dependabot covers cargo and github-actions weekly"
 python3 -I - >/dev/null 2>&1 <<'PY' && echo "ok   $DESC" || { echo "FAIL $DESC"; fail=1; }
