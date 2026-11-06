@@ -1,4 +1,4 @@
-# Run 07 — unattended loop: finish the non-root work
+# Run 08 — unattended loop: CI/CD first, README, then the leftovers
 
 This file is the instruction for **every round** of a self-paced `/loop`. Each round does **one task**
 from `docs/loop/queue.md`, end to end, then schedules the next round. Nobody can answer questions until
@@ -20,6 +20,15 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
 - **Fixing your own red-first slips is allowed** on this run's branch before anything is pushed: go back
   with `git reset --soft <commit before the task>` (keeps every file), then re-commit in the right order
   (test-only red commit, then code). Never `--hard`, never on `main`, never after a push.
+- **Pre-approved for this run:** editing `.github/**` (workflows, Dependabot config, issue templates),
+  `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, and adding `tools/ci-local.sh`. Every
+  third-party GitHub Action is pinned to a full commit SHA (as in `ci.yml` today); look up the SHA of the
+  latest release with `gh api` only if `gh` is logged in, otherwise keep the existing pins and put the
+  wanted new action in `docs/questions.md`.
+- **The loop cannot see GitHub.** It cannot read Actions logs or push. "CI passes" is therefore always
+  **Not verified** in the report; what it can show is that `tools/ci-local.sh` (same commands as the
+  workflow, in the same order) exits 0, and that each workflow file parses (`python3 -c 'import yaml'`
+  or `actionlint` if installed; say which).
 - When stuck on a decision only the human can make: question + recommended answer in
   `docs/questions.md`, take the safest reversible option, keep going.
 
@@ -55,9 +64,9 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
 
 ## Start of the run (first round only)
 
-1. `date '+%F %H:%M %Z'`; use that date everywhere. Run 06 lives on branch `run/06-2026-11-01`. If `main`
-   already contains it (`git merge-base --is-ancestor run/06-2026-11-01 main` exits 0), create
-   `run/07-<YYYY-MM-DD>` from `main`; if not, create it from the tip of `run/06-2026-11-01` and say so in
+1. `date '+%F %H:%M %Z'`; use that date everywhere. Run 07 lives on branch `run/07-2026-11-02`. If `main`
+   already contains it (`git merge-base --is-ancestor run/07-2026-11-02 main` exits 0), create
+   `run/08-<YYYY-MM-DD>` from `main`; if not, create it from the tip of `run/07-2026-11-02` and say so in
    the report.
 2. **Stop time:** the first 08:00 local time after the run started (unless the `/loop` prompt names
    another). Write it as a full date and time in the report.
@@ -73,7 +82,7 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
 1. Read `docs/loop/queue.md`; take the first task marked `[ ]`. Mark it `[~]` (in progress) and set its
    WBS row(s) to **In Progress** with today's start date if empty.
 2. Plan (3–5 lines in `docs/progress.md`), then red → green → refactor with **separate commits**
-   (`test(scope): R7-<id> … (red)`, then `feat|fix|refactor(scope): R7-<id> …`). Run the failing test and
+   (`test(scope): R8-<id> … (red)`, then `feat|fix|refactor(scope): R8-<id> …`). Run the failing test and
    paste the failure line into the report before writing code.
 3. Task checks: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all`.
    A screen task also runs its design check (≤ 10 % per reference image) and you **look** at the
@@ -83,7 +92,7 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
    the number: report the score and the real cause of any remaining difference.
 4. Update `docs/loop/queue.md` (`[x]` done, `[!]` blocked, `[/]` partial), append the round to
    `docs/loop/report.md` (template below), update the WBS sheet (rules below), commit
-   (`docs(loop): R7-<id> report`).
+   (`docs(loop): R8-<id> report`).
 5. **Time:** at the start of every round run `date '+%F %H:%M'`. At or after the stop time don't start a
    new task: go to "End of the run".
 6. **Stop conditions** — stop the loop (no further round) and go to "End of the run" if: the queue has no
@@ -91,13 +100,13 @@ file, `docs/loop/queue.md` and the end of `docs/loop/report.md` and carry on fro
    couldn't fix). A task that ends `[/]` because the rest needs the admin helper, a person or a real other
    distro does **not** count toward the 3, as long as everything that can be done here is done and
    reported. Also stop if the build or test suite is broken and two attempts didn't fix it (don't commit
-   broken code: `git stash push -m "R7-<id> broken"` so HEAD stays the last green commit, and report the
+   broken code: `git stash push -m "R8-<id> broken"` so HEAD stays the last green commit, and report the
    stash name). Otherwise schedule the next round in about 1 minute.
 
 ### Report entry template (`docs/loop/report.md`)
 
 ```
-## R7-<id> <title> — Done | Partial | Blocked   (<date time>)
+## R8-<id> <title> — Done | Partial | Blocked   (<date time>)
 WBS: <ids> → <new status>
 Commits: <red sha> (red), <green sha>
 Evidence: <command> → exit <n>; <test names>; design check <score>; pictures <paths>
@@ -123,7 +132,7 @@ Sheet: https://docs.google.com/spreadsheets/d/1gRI9jVQAm3w0y9UL2aFld0kT-kqiUSD9o
   free number under the parent, Level `Task`, Workstream text copied exactly from the parent.
 - **Never touch column O (Roll-up), the Overview tab's formulas, or the Sources & Verification tab.** At
   the end of the run update only `Overview!B2` to
-  `Evidence snapshot: branch run/07-<date> @ <sha> (<date time>), not merged yet.`
+  `Evidence snapshot: branch run/08-<date> @ <sha> (<date time>), not merged yet.`
 - Never mark a human-owned row (J says Human) as Done.
 
 ## End of the run
