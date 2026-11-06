@@ -29,6 +29,12 @@ pub enum Refused {
     Empty,
     #[error("Tidewise never ends itself or the first process of the system")]
     NotAllowed,
+    #[error("Tidewise never ends kernel threads")]
+    KernelThread,
+    #[error("that process belongs to another user")]
+    NotYours,
+    #[error("that is a protected part of the system")]
+    Protected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +114,34 @@ pub fn plan(
         dests.push(Dest::Pids(single));
     }
     Ok(dests)
+}
+
+/// What the guard needs to know about one process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Facts {
+    pub ppid: u32,
+    pub uid: u32,
+}
+
+/// Facts about `pid` from `<root>/<pid>/stat` and the owner of `<root>/<pid>`.
+pub fn read_facts(_root: &Path, _pid: u32) -> Option<Facts> {
+    None
+}
+
+/// The user id Tidewise runs as, from the owner of `<root>/self`.
+pub fn own_uid(_root: &Path) -> Option<u32> {
+    None
+}
+
+/// Refuse, in code, to end anything that must never be ended: PID 0 and 1, kernel threads, another
+/// user's processes and protected parts of the system. `facts` returns None for a process that is gone.
+pub fn guard(
+    _members: &[u32],
+    _own_uid: u32,
+    _facts: &dyn Fn(u32) -> Option<Facts>,
+    _is_protected: &dyn Fn(u32) -> bool,
+) -> Result<(), Refused> {
+    Ok(())
 }
 
 /// Send one signal to one destination.
@@ -431,5 +465,105 @@ mod tests {
                 ]
             )
         );
+    }
+
+    fn facts_of(ppid: u32, uid: u32) -> impl Fn(u32) -> Option<Facts> {
+        move |_| Some(Facts { ppid, uid })
+    }
+
+    #[test]
+    fn the_guard_refuses_pid_0_and_pid_1() {
+        let f = facts_of(0, 1000);
+        assert_eq!(guard(&[1], 1000, &f, &|_| false), Err(Refused::NotAllowed));
+        assert_eq!(guard(&[0], 1000, &f, &|_| false), Err(Refused::NotAllowed));
+        assert_eq!(
+            guard(&[500, 1], 1000, &f, &|_| false),
+            Err(Refused::NotAllowed)
+        );
+    }
+
+    #[test]
+    fn the_guard_refuses_kernel_threads() {
+        // kthreadd itself (pid 2, owned by root) and anything its parent is kthreadd.
+        let root_thread = facts_of(0, 0);
+        assert_eq!(
+            guard(&[2], 1000, &root_thread, &|_| false),
+            Err(Refused::KernelThread)
+        );
+        let child = facts_of(2, 0);
+        assert_eq!(
+            guard(&[300], 1000, &child, &|_| false),
+            Err(Refused::KernelThread)
+        );
+        // Even if it were somehow ours.
+        let ours = facts_of(2, 1000);
+        assert_eq!(
+            guard(&[300], 1000, &ours, &|_| false),
+            Err(Refused::KernelThread)
+        );
+    }
+
+    #[test]
+    fn the_guard_refuses_another_users_process() {
+        let other = facts_of(1, 0);
+        assert_eq!(
+            guard(&[500], 1000, &other, &|_| false),
+            Err(Refused::NotYours)
+        );
+        let some_user = facts_of(1, 1001);
+        assert_eq!(
+            guard(&[500], 1000, &some_user, &|_| false),
+            Err(Refused::NotYours)
+        );
+    }
+
+    #[test]
+    fn the_guard_refuses_protected_parts_of_the_system() {
+        let mine = facts_of(1, 1000);
+        assert_eq!(
+            guard(&[500, 501], 1000, &mine, &|pid| pid == 501),
+            Err(Refused::Protected)
+        );
+    }
+
+    #[test]
+    fn one_bad_member_refuses_the_whole_app() {
+        let f = |pid: u32| {
+            Some(Facts {
+                ppid: 1,
+                uid: if pid == 502 { 0 } else { 1000 },
+            })
+        };
+        assert_eq!(
+            guard(&[500, 501, 502], 1000, &f, &|_| false),
+            Err(Refused::NotYours)
+        );
+    }
+
+    #[test]
+    fn the_guard_lets_an_ordinary_app_of_the_user_through() {
+        let mine = facts_of(1, 1000);
+        assert_eq!(guard(&[500, 501], 1000, &mine, &|_| false), Ok(()));
+        // A process that is already gone is not a reason to refuse.
+        assert_eq!(guard(&[500], 1000, &|_| None, &|_| false), Ok(()));
+    }
+
+    #[test]
+    fn facts_come_from_proc_and_match_this_process() {
+        let me = std::process::id();
+        let f = read_facts(proc(), me).expect("this process has facts");
+        assert_eq!(Some(f.uid), own_uid(proc()));
+        let parent: u32 = std::fs::read_to_string("/proc/self/stat")
+            .unwrap()
+            .rsplit_once(')')
+            .unwrap()
+            .1
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(f.ppid, parent);
+        assert_eq!(read_facts(proc(), u32::MAX), None);
     }
 }

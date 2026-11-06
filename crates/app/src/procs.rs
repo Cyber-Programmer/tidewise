@@ -196,6 +196,12 @@ const SYSTEM_PARTS: &[(&str, &str, &[&str])] = &[
     ),
 ];
 
+/// Is this running process a protected part of the system? Looks at `<root>/<pid>/cmdline` and `comm`
+/// the same way the process list does, so the answer matches the row's `protected` flag.
+pub fn is_protected_pid(_root: &Path, _pid: u32) -> bool {
+    false
+}
+
 fn system_part(key: &str) -> Option<(&'static str, &'static str)> {
     SYSTEM_PARTS
         .iter()
@@ -744,5 +750,38 @@ mod tests {
         let firefox = groups.iter().find(|g| g.key == "firefox").unwrap();
         assert_eq!(firefox.pids, [10, 11]);
         assert_eq!(groups.iter().find(|g| g.key == "other").unwrap().pids, [20]);
+    }
+
+    #[test]
+    fn a_protected_program_is_recognised_from_its_proc_files() {
+        let root = tempfile::tempdir().unwrap();
+        let fake = |pid: &str, cmdline: &str, comm: &str| {
+            let d = root.path().join(pid);
+            std::fs::create_dir(&d).unwrap();
+            std::fs::write(d.join("cmdline"), cmdline).unwrap();
+            std::fs::write(d.join("comm"), format!("{comm}\n")).unwrap();
+        };
+        fake("10", "/usr/bin/pipewire\0", "pipewire");
+        fake(
+            "11",
+            "/usr/bin/gnome-session-binary\0--session=ubuntu\0",
+            "gnome-session-b",
+        );
+        fake("12", "/usr/bin/firefox\0--new-window\0", "firefox");
+        fake("13", "", "kwin_wayland");
+        assert!(is_protected_pid(root.path(), 10));
+        assert!(
+            is_protected_pid(root.path(), 11),
+            "long names use the command line"
+        );
+        assert!(!is_protected_pid(root.path(), 12));
+        assert!(
+            is_protected_pid(root.path(), 13),
+            "no command line: comm is used"
+        );
+        assert!(
+            !is_protected_pid(root.path(), 99),
+            "unknown pid is not protected"
+        );
     }
 }

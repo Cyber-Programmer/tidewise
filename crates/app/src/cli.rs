@@ -108,6 +108,21 @@ pub fn storage_root(screenshot: bool, env: Option<&std::ffi::OsStr>) -> Option<s
 }
 
 /// A path inside the scanned folder: relative, no `..`, not empty.
+/// Where `--out` may write: the folder the program was started in, the home folder, the temp folder.
+pub fn default_out_roots() -> Vec<std::path::PathBuf> {
+    Vec::new()
+}
+
+/// Check a `--out` value and return the file to write. Refuses anything that is not a `.png` file
+/// directly inside one of `roots` (after `..` and symlinks in the folder part are resolved), and any
+/// existing target that is not a plain file.
+pub fn confine_out(
+    path: &str,
+    _roots: &[std::path::PathBuf],
+) -> Result<std::path::PathBuf, String> {
+    Ok(std::path::PathBuf::from(path))
+}
+
 fn relative_inside(path: &str) -> bool {
     let p = std::path::Path::new(path);
     !path.is_empty()
@@ -294,6 +309,114 @@ mod tests {
         assert_eq!(shot(&[]).unwrap().screenshot.unwrap().width, 1360);
         for bad in ["abc", "0", "300", "99999"] {
             assert!(shot(&["--width", bad]).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn state_values_are_plain_words() {
+        assert!(args(&["--screenshot", "home", "--out", "a.png", "--state", "live"]).is_ok());
+        assert!(args(&[
+            "--screenshot",
+            "home",
+            "--out",
+            "a.png",
+            "--state",
+            "all-open"
+        ])
+        .is_ok());
+        for bad in [
+            "../x",
+            "",
+            "a/b",
+            "/etc/passwd",
+            "x y",
+            "a\u{0}b",
+            "Home;ls",
+        ] {
+            assert!(
+                args(&["--screenshot", "home", "--out", "a.png", "--state", bad]).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+    }
+
+    mod out_paths {
+        use super::super::confine_out;
+        use std::path::PathBuf;
+
+        fn roots(dir: &tempfile::TempDir) -> Vec<PathBuf> {
+            vec![dir.path().to_path_buf()]
+        }
+
+        #[test]
+        fn a_png_inside_an_allowed_folder_is_fine() {
+            let d = tempfile::tempdir().unwrap();
+            let want = d.path().join("shot.png");
+            let got = confine_out(want.to_str().unwrap(), &roots(&d)).unwrap();
+            assert_eq!(got.file_name().unwrap(), "shot.png");
+            assert!(got.starts_with(d.path().canonicalize().unwrap()));
+        }
+
+        #[test]
+        fn system_files_and_folders_are_refused() {
+            let d = tempfile::tempdir().unwrap();
+            for bad in [
+                "/etc/passwd",
+                "/etc/shot.png",
+                "/usr/bin/shot.png",
+                "/proc/self/x.png",
+            ] {
+                assert!(
+                    confine_out(bad, &roots(&d)).is_err(),
+                    "{bad} must be refused"
+                );
+            }
+        }
+
+        #[test]
+        fn dot_dot_cannot_climb_out() {
+            let d = tempfile::tempdir().unwrap();
+            std::fs::create_dir(d.path().join("sub")).unwrap();
+            let sneaky = format!("{}/sub/../../x.png", d.path().display());
+            assert!(confine_out(&sneaky, &roots(&d)).is_err());
+        }
+
+        #[test]
+        fn only_png_files_are_written() {
+            let d = tempfile::tempdir().unwrap();
+            for name in ["notes.txt", "shot", "shot.png.sh", ".png"] {
+                let p = d.path().join(name);
+                assert!(
+                    confine_out(p.to_str().unwrap(), &roots(&d)).is_err(),
+                    "{name}"
+                );
+            }
+        }
+
+        #[test]
+        fn empty_and_missing_folders_are_refused() {
+            let d = tempfile::tempdir().unwrap();
+            assert!(confine_out("", &roots(&d)).is_err());
+            let p = d.path().join("nope/shot.png");
+            assert!(confine_out(p.to_str().unwrap(), &roots(&d)).is_err());
+        }
+
+        #[test]
+        fn a_symlink_or_a_folder_as_the_target_is_refused() {
+            let d = tempfile::tempdir().unwrap();
+            let link = d.path().join("link.png");
+            std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+            assert!(confine_out(link.to_str().unwrap(), &roots(&d)).is_err());
+            let dir = d.path().join("folder.png");
+            std::fs::create_dir(&dir).unwrap();
+            assert!(confine_out(dir.to_str().unwrap(), &roots(&d)).is_err());
+        }
+
+        #[test]
+        fn the_default_folders_include_the_temp_folder_and_the_current_one() {
+            let roots = super::super::default_out_roots();
+            assert!(roots.iter().any(|r| r == &std::env::temp_dir()));
+            assert!(roots.iter().any(|r| r == &std::env::current_dir().unwrap()));
         }
     }
 }
