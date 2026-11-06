@@ -45,7 +45,7 @@ causes) are not ruled out.
 
 ## B. README and project pages
 
-- [ ] **Q04 Update the GitHub README** (WBS 9.11). Today it is 24 lines and partly stale. It must be true
+- [/] **Q04 Update the GitHub README** (WBS 9.11). Today it is 24 lines and partly stale. It must be true
   of the code on this branch, and every claim checked against the source or a command you ran. Contents:
   what Tidewise is and who it is for; a **status table** (page → Built / Partial / Not built, one line
   each, taken from run 07's Summary, not from hopes); features with the screenshots already in

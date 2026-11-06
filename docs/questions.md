@@ -271,3 +271,11 @@ Rules bent: the PEM-case fix to the test is in the green commit, not the red one
 2. **The loop lives in `tools/fuzz-smoke.sh`**, the workflow only calls it with `60`. Reason: it can be run and tested here, and the list comes from the directory. Recommended: keep.
 3. **Weekly, Mondays 03:17 UTC, 90-minute limit; no WBS row for it.** The sheet has no row for the weekly job; I only edited the note of 5.5 (the old text said CI does not run fuzzing). Recommended: add a row under workstream 5 if you want it tracked.
 Rules bent: none.
+
+## Run 08 — R8-Q04 README: decisions taken without you
+1. **No CONTRIBUTING.md link yet.** The README says "A short CONTRIBUTING.md is still to come" and links ENGINEERING.md, because linking a missing file would be a broken link. R8-Q05 should replace that sentence with a link. Recommended: keep.
+2. **Status words are only Built and Partial, and "Built" does not mean used.** The table defines Built as: in the app, wired to real data, covered by automated tests. No page is "Not built". Recommended: keep; relabel a page "Partial" if you find a gap I missed.
+3. **Rust version:** `Cargo.toml` has no `rust-version`, CI uses current stable. I wrote "built with cargo 1.98.0; CI uses the current stable" rather than invent a minimum. Recommended: pick a minimum and add `rust-version` (then I can test it).
+4. **Install lines for Arch and Ubuntu are from my knowledge of the package names plus what the binary links, not run.** Recommended: someone with Ubuntu 22.04 tries them; until then the README says the Ubuntu CI result is unchecked.
+5. **The CI badge points to `Cyber-Programmer/tidewise`**, taken from `git remote -v`. If the project moves to another account the badge and its link must change. Recommended: keep.
+Rules bent: none.

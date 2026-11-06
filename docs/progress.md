@@ -581,3 +581,10 @@ Plan: (1) red: tools/test-fuzz-workflow.sh checks fuzz.yml (schedule + workflow_
 Done: fuzz.yml + tools/fuzz-smoke.sh + checks; script ran on all 15 targets at 2 s (exit 0); ci-local exit 0.
 Next: R8-Q04 README.
 Blockers: crash artefact upload needs a pinned upload-artifact SHA (questions R8-Q03).
+
+## 2026-11-06 — Run 08, R8-Q04 README
+Plan: (1) red: tools/test-readme.sh (sections, status table for 12 pages, CI badge, every link/image target exists, every number matches docs/budgets.md, every flag exists in the CLI source, "no release yet" while no tag exists).
+(2) green: rewrite README.md from CHANGELOG, run 07 Summary, budgets.md and commands I ran; screenshots re-taken to a temp dir and compared with the committed ones.
+Done: README rewritten and checked by tools/test-readme.sh (exit 0); README commands run (exit codes in report); screenshots identical to committed; ci-local exit 0.
+Next: R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates.
+Blockers: Arch and Ubuntu install lines not run.

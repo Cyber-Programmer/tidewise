@@ -66,3 +66,24 @@ Not verified:
 - That `find ... -o ...` in the crash-printing step picks the right files (read, not run on a real crash).
 Errors: after the green commit `tools/ci-local.sh` → exit 1 at `tools/test-check-secrets.sh` ("this repository is clean" failed): the secret scan flagged `docs/loop/report.md:51`, my Q02 entry, which quoted a grep error including a PEM header. A true false positive in prose; I reworded the report line (no change to the scanner or its test). Re-run → exit 0.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q03" (3 entries)
+
+## R8-Q04 Update the GitHub README — Partial   (2026-11-06 06:45 PKT)
+WBS: 9.11 → Needs Verification (unchanged; a person must read it). L, M, N updated.
+Commits: a9f7536 (red), 948618b
+Evidence:
+- Red: `./tools/test-readme.sh` → exit 1 (9 missing sections, no badge, 12 missing status rows, no "no release yet", missing links to budgets, security, ci-local).
+- Green: `./tools/test-readme.sh` → exit 0: 9 sections, CI badge for `ci.yml` on `main` (repo from `git remote -v`), 12 status rows (Built / Partial only), every relative link and image target exists, all 11 screenshots shown, "no release yet" present and no tag exists (`git for-each-ref refs/tags` → 0), every MB and % number found in `docs/budgets.md`, every `--flag` on a line that runs the binary exists in `cli.rs`.
+- Commands from the README, run here: `cargo build --release -p tidewise-app` → exit 0; `./target/release/tidewise --demo`, `./target/release/tidewise`, `TIDEWISE_RENDERER=gpu ./target/release/tidewise` → each exit 124 (still running when `timeout 6` stopped it, so it starts and stays up; no clicking); `./target/release/tidewise --screenshot home --out target/tmp/home.png` → exit 0; `./packaging/appimage/build.sh` → exit 0 (dist/Tidewise-0.1.0-x86_64.AppImage, 11 MB; no /tmp/appimage_extracted_* left); `tools/ci-local.sh` → exit 0 (fmt, clippy, test, release build, both secret scripts, audit, deny).
+- Screenshots: all 11 re-taken with `--screenshot <screen> --out target/tmp/shots/<screen>.png` → exit 0 each, `cmp` says byte-identical to `docs/screenshots/` (so the UI did not change since they were taken). I looked at storage.png and settings.png (Read). storage.png's footer line under "Biggest files" is cut off ("…always go to Trash first, never"); the README says so. settings.png shows the About section with "Tidewise 0.1.0", so SECURITY.md's "Settings → About" is true.
+- Claims checked by command: no shell in non-test code (`grep -rnE '"(sh|bash)"|sh -c|"-c"' crates/*/src` → only package names in test data and one `/usr/bin/sh -c` inside `mod tests` of endtask.rs); no network calls in our code (`grep -rnE 'std::net|TcpStream|UdpSocket|reqwest|ureq|hyper|curl' crates/*/src crates/*/Cargo.toml Cargo.toml` → no output); no `sudo`/`pkexec` in `crates/*/src` (no output). Link-time libraries: `ldd target/release/tidewise` lists libfontconfig and libfreetype; `pacman -Qo /usr/lib/libfontconfig.so` → fontconfig 2:2.18.3-2.
+- Status table is taken from CHANGELOG, run 07's Summary and the progress log; budgets from `docs/budgets.md` (measured at commit 802e847, before this run's lockfile bump).
+- CHANGELOG got a "Development" block (CI, secret check, fuzz workflow, README); `tools/check-secrets.sh` → exit 0 on the final tree.
+Why Partial: the install lines (`pacman -S --needed base-devel rust fontconfig pkgconf`, `sudo apt install build-essential pkg-config libfontconfig1-dev`, rustup) were **not run**, and the acceptance asks that each command in the README was run.
+Not verified:
+- The Arch and Ubuntu install commands, and that those are the complete build dependencies (only checked: this machine builds, fontconfig and freetype are what the binary links). Whether the app builds on Ubuntu 22.04 at all.
+- Whether the CI badge shows green (it shows GitHub's result for `ci.yml` on `main`; `main` does not contain this run's fixes yet).
+- The "Built / Partial" labels beyond what CHANGELOG and run 07 say; no person has used any page. Nine of the 11 screenshots were not looked at one by one this round (they are byte-identical to the ones taken in run 07, 2 of which were looked at then).
+- "Many have tests": the golden rules are not each proven by a named test; I did not map them.
+- The 6-second runs prove start-up only, not a rendered window, correct GPU rendering or any click.
+Errors: my first `tools/test-readme.sh` flag check flagged cargo's own `--release` as an unknown app flag (test bug; narrowed to lines that run the binary before the red commit, but the red commit's check would still have flagged the old README's one-line cargo + binary text). A `Bash` call combining several commands with a `git tag` listing was refused by the permission layer; I re-ran it without that command and used `git for-each-ref refs/tags` instead (nothing was changed).
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q04" (5 entries)
