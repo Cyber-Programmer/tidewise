@@ -13,12 +13,13 @@ anything that lets a non-root process gain root, or deletes user files, comes fi
 
 ## Supported versions
 
-Tidewise is pre-1.0. Only the latest release (and `main`) receives security fixes.
+No version has been released yet. Until the first release, only `main` receives security fixes. After
+that, only the latest release and `main` will.
 
 | Version | Supported |
 | --- | --- |
-| latest release / `main` | yes |
-| older | no |
+| `main` | yes |
+| any release | none exists yet |
 
 ## What is in scope
 

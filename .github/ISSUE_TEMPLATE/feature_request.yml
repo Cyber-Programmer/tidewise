@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something Tidewise should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Version 1.0 is the set of screens in the design (see docs/PLAN.md). Ideas outside that list are
+        welcome but wait until it ships.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the problem in plain words, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Tidewise to do?
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and package manager
+      description: For example "Fedora 41, dnf + Flatpak". Optional.
+    validations:
+      required: false

@@ -138,7 +138,7 @@ How the project is built and tested (tests first, small commits, security review
 tools/ci-local.sh
 ```
 
-A short `CONTRIBUTING.md` is still to come.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
 
 ## Licence
 
