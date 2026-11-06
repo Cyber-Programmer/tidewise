@@ -37,6 +37,11 @@ for name, job in wf["jobs"].items():
             assert "--locked" in r, r
 PY
 
+DESC="ci.yml and ci-local.sh run tools/check-secrets.sh"
+grep -q 'run: tools/check-secrets.sh' .github/workflows/ci.yml && grep -q '^run "tools/check-secrets.sh"' tools/ci-local.sh && echo "ok   $DESC" || { echo "FAIL $DESC"; fail=1; }
+DESC="ci.yml runs tools/test-check-secrets.sh"
+grep -q 'run: tools/test-check-secrets.sh' .github/workflows/ci.yml && echo "ok   $DESC" || { echo "FAIL $DESC"; fail=1; }
+
 DESC="release.yml parses"; check python3 -I -c 'import yaml;yaml.safe_load(open(".github/workflows/release.yml"))'
 DESC="dependabot covers cargo and github-actions weekly"
 python3 -I - >/dev/null 2>&1 <<'PY' && echo "ok   $DESC" || { echo "FAIL $DESC"; fail=1; }
