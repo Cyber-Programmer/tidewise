@@ -304,3 +304,10 @@ Rules bent: none (amended my own unpushed red commit, allowed on this branch).
 
 ## Run 08 — report time stamps
 Seven report headings (R8-Q01 to R8-Q07) first carried times I estimated instead of reading from `date`: the same mistake run 07 listed under Errors. I replaced each with the last `date` reading I took in that round (so the real end of a round can be a few minutes earlier). From now on every heading uses a `date` reading from the same command. Rules bent: the honesty rule on invented times.
+
+## Run 08 — R8-Q08 Home files search: decisions taken without you
+1. **Not built.** A resident filename index of 200 000 files costs 6.3 MB PSS in its smallest layout I tried (+22 MB for plain strings), 31.2 MB at 1 000 000 files; the Apps page has 5.8 MB of headroom under the 40 MB budget. The queue's rule says not to build when over, so "Files are not searched yet" stays. Recommended: keep it that way for v1.0 unless you accept one of the options below.
+2. **Options if you want file search** (none built, none measured): (a) build the index only while Ctrl K is open and free it on close (no idle cost, but a first-keystroke delay of at least the build time, 60 ms warm, unknown cold, and a peak of about 8 MB while open); (b) raise the idle budget for the Apps page; (c) search live with a bounded directory walk on each query (no memory, slower); (d) cap the index (for example at 200 000 entries, newest first). Recommended: (a), then measure it cold.
+3. **The measurement is a synthetic tree, warm cache**, see the report's Not verified list. Recommended: a person runs the probe against a copy-shaped real home (`PROBE_DIR` only changes where the synthetic tree goes, so that needs a small change) before choosing.
+4. **The probe example stays in the repo** (`crates/core/examples/index_probe.rs`) so the numbers can be reproduced; it is not part of the app or the AppImage. Recommended: keep; delete it if you do not want it.
+Rules bent: none.

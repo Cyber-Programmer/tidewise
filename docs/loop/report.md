@@ -150,3 +150,21 @@ Not verified:
 - Light theme looked at on one screen this round.
 Errors: my sanity guard in the first test (`checked > 60`) was wrong: the real count is 55; the first red run therefore failed for the wrong reason. Fixed the guard (my first `sed` did not match because `cargo fmt` had reflowed the line; fixed with a script) and amended the unpushed red commit so the red run fails on contrast only. The first `cargo fmt` run came after writing the file, not before running it.
 Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q07" (4 entries)
+
+## R8-Q08 Home files search: decide with numbers — Done (decision: not built)   (2026-11-06 07:23 PKT, `date` reading in this round)
+WBS: 9.1 → In Progress (unchanged). L, M, N updated.
+Commits: 29e8c55 (probe example; no red/green pair: a measurement, nothing to build)
+Evidence:
+- `cargo build --release -p tidewise-core --example index_probe` → built; `./target/release/examples/index_probe naive|compact 200000` run twice each, one process per run, tree under `target/tmp` (removed by the program: `ls target/tmp | grep -c index-probe` → 0 after every run).
+- 200 000 files (2 000 folders, three levels, about 17-character names, empty files): **compact index** (one name buffer + 12 bytes per entry) +6.3 MB PSS both runs (0.4 → 6.7 MB), peak resident 8.3-8.5 MB, build 57 and 59 ms, a substring search 5.0 ms; **naive index** (one `String` of the whole relative path per file) +22.0 and +23.2 MB PSS, peak 23.9-25.3 MB, build 75-76 ms, search 5.6 ms. Both found the same 34 000 matches for "report".
+- 1 000 000 files, compact: +31.2 MB PSS, peak 33.4 MB, build 309 ms, search 27 ms.
+- Budget comparison from `docs/budgets.md` (idle PSS, ≤ 40 MB): Home 29.7, Apps 34.2, History 28.8 (the other pages 28.8-30.2). Headroom is 5.8 MB on Apps and about 10 MB elsewhere, so compact at 200 000 files gives 40.5 MB on Apps (over), about 36 MB elsewhere; at 1 000 000 files every page is over; the naive layout is over everywhere.
+- Decision, by the queue's rule: not within the budget on every page, so **not built**; "Files are not searched yet" stays (Settings/README/CHANGELOG unchanged). `docs/budgets.md` now says so with the number.
+- `./tools/ci-local.sh` → exit 0 (fmt, clippy -D warnings with the new example, `cargo test --all --locked` 706 passed, release build, both secret scripts, audit, deny).
+Not verified:
+- Real home folders: the tree is synthetic and flat-ish (names of similar length, no symlinks, no hidden folders, one file system); real names and counts differ. Build time is for a warm page cache (the tree had just been written); a cold disk would be much slower and was not measured.
+- That the memory adds up inside the real app (I assumed the index's PSS is added to the page's PSS; allocator behaviour in the app may differ).
+- The skipping rules (hidden folders, `node_modules`, `target`, other file systems, never outside `$HOME`) are not implemented anywhere: only `.`-folders are skipped in the probe. Nothing was indexed outside the temp tree.
+- Other layouts (a prefix-compressed or on-disk index, or building only while Ctrl K is open and freeing it after) were not measured.
+Errors: the first probe version dropped the index at the end of its `match` arm before reading PSS, so it printed "+0.4 MB" for 10 MB of data; I caught it because the number was impossible, moved the read inside the arm and threw the first numbers away. One compile error and one `sed`-style replace that missed (cargo fmt had reflowed the line) while fixing it: the second run used the old binary until I noticed the build had failed; those outputs were discarded as well.
+Decisions taken without the human: → docs/questions.md "Run 08 — R8-Q08" (4 entries)

@@ -77,7 +77,7 @@ causes) are not ruled out.
   failures, fix by choosing an existing token (no new colours without a `docs/questions.md` entry). Tab
   order and Enter/Esc for dialogs: as far as the headless test can show it; what cannot be shown goes
   under Not verified. Done: the test, its output, the list.
-- [ ] **Q08 Home files search: decide with numbers** (WBS 9.1). Measure a filename index of `$HOME` in a temp
+- [x] **Q08 Home files search: decide with numbers** (WBS 9.1). Measure a filename index of `$HOME` in a temp
   tree of 200 000 files (PSS and build time). If within the 40 MB budget, build it with tests; if not,
   write the numbers into `docs/questions.md` and keep "Files are not searched yet". Never index outside
   `$HOME`; follow `.gitignore`-like hidden-dir skipping rules you document.

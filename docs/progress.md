@@ -609,3 +609,9 @@ Plan: (1) red: crates/app/tests/contrast.rs: (A) pairs from docs/design/tokens.m
 Done: contrast tests (token table + chip pairs, both themes), two light-theme chip failures fixed with existing tokens; ci-local exit 0 (706 tests).
 Next: R8-Q08 Home files search: decide with numbers.
 Blockers: keyboard pass is only a written finding (dialogs have no Esc/Enter and no focusable buttons).
+
+## 2026-11-06 — Run 08, R8-Q08 Home files search: decide with numbers
+Plan: probe a filename index on a synthetic 200 000-file tree (PSS, build time), compare with the budget headroom, build only if it fits.
+Done: measured (compact +6.3 MB, plain strings +22-23 MB, 1 000 000 files +31.2 MB); does not fit on the Apps page, so not built; numbers in docs/budgets.md and docs/questions.md; ci-local exit 0.
+Next: R8-Q09 budgets for the pages run 07 did not measure.
+Blockers: none.

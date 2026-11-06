@@ -18,5 +18,5 @@ Binary size 26 726 168 bytes. One process each.
 
 Not measured: Performance, Processes and Storage (measured in earlier runs, not repeated), the Ctrl K
 box while open, the demo/GPU renderer, a machine other than this one. Measuring at 40 s means the first
-scans were over; the first seconds after start use more. A home-file search index was not built, so it
-has no number.
+scans were over; the first seconds after start use more. A home-file search index was not built; its probe (R8-Q08, `crates/core/examples/index_probe.rs`,
+200 000 files, compact layout) added 6.3 MB PSS, which does not fit on the Apps page (see docs/questions.md R8-Q08).
