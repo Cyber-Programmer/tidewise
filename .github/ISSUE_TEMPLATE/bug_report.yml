@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Tidewise does not work or looks wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. **Do not paste personal paths, usernames, file names you would not post in public, or
+        anything secret.** If a vulnerability is involved, stop and use the private link on the issue
+        chooser instead.
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distribution and desktop
+      description: For example "Arch Linux, KDE Plasma 6" or "Ubuntu 22.04, GNOME". The sidebar of the app shows it too.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tidewise version
+      description: Shown in Settings, under About (for example 0.1.0). If you built it yourself, add the commit from `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you clicked
+      description: Which page, which buttons, in order. Say whether you used `--demo`.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: A screenshot helps. Check it does not show personal information.
+    validations:
+      required: true
+  - type: textarea
+    id: history
+    attributes:
+      label: History export (optional)
+      description: If the bug is about something Tidewise changed, open History and use "Copy for a help forum". It hides your home folder name. Paste the result here.
+      render: text
+    validations:
+      required: false

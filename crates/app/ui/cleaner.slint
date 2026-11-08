@@ -301,7 +301,7 @@ export component CleanScreen inherits Rectangle {
                                     spacing: 8px;
                                     alignment: start;
                                     Text { text: row.title; color: Theme.text; font-size: Theme.size-row-title; font-weight: 600; vertical-alignment: center; }
-                                    Chip { label: row.safe; fg: row.review ? Theme.warn : Theme.accent; bg: row.review ? Theme.warn-tint : Theme.accent-tint; y: 0px; }
+                                    Chip { label: row.safe; fg: row.review ? Theme.warn-chip-text : Theme.accent-text; bg: row.review ? Theme.warn-tint : Theme.accent-tint; y: 0px; }
                                     if row.admin: AdminChip { }
                                 }
                                 Text { text: row.desc; color: Theme.text-2; font-size: Theme.size-small; wrap: word-wrap; line-height-factor: 1.15; }

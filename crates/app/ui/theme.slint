@@ -33,6 +33,9 @@ export global Theme {
     // Warning and danger
     out property <color> warn: dark ? #F2B84B : #9A6700;
     out property <color> warn-tint: dark ? #3A2E14 : #FFF3D6;
+    // Small text on warn-tint: amber on its own tint is only 4.41:1 in the light theme, so the light
+    // theme uses text-2 (#4A5260, an existing token). Dark is the same amber as `warn`.
+    out property <color> warn-chip-text: dark ? #F2B84B : #4A5260;
     out property <color> danger: dark ? #FF8A80 : #C73A2E;
     out property <color> on-danger: dark ? #3A0B07 : #FFFFFF;
     // tokens.md has no light danger tint yet; the dark one is reused until it does.

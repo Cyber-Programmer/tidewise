@@ -559,3 +559,93 @@ Blockers: none.
 Done: Q01, Q02, Q14, Q15, Q16, Q17; Q03–Q13, Q18, Q19 partial. Final checks (fmt, clippy, plain and TMPDIR tests 684 passed, audit, deny, release build, AppImage) all exit 0.
 Next: the human clicks through the new screens, runs the pen-test checklist, decides the items in docs/questions.md.
 Blockers: admin helper not built; design scores above 10 % on seven screens.
+
+## 2026-11-06 — Run 08, R8-Q01 Look at the pipeline
+Plan: (1) red: `tools/test-ci.sh` checks ci-local.sh matches ci.yml, concurrency/timeouts/release-build/dependabot exist, and `cargo audit` is clean.
+(2) green: bump pulldown-cmark to 0.13.6 (lockfile only), add tools/ci-local.sh, harden ci.yml, add dependabot.yml.
+(3) cancel test runs on tmpfs and on disk. (4) all checks, report, WBS 2.1.
+Done: audit failure fixed (pulldown-cmark 0.13.6), tools/ci-local.sh and tools/test-ci.sh, ci.yml hardened, dependabot; ci-local exit 0.
+Next: R8-Q02 secret check in CI.
+Blockers: CI on GitHub cannot be seen from here (Not verified).
+
+## 2026-11-06 — Run 08, R8-Q02 Secret and supply-chain checks
+Plan: (1) red: tools/test-check-secrets.sh (fake key in a temp dir is caught, tests/fixtures ignored, secret value never printed) and a ci.yml step check in test-ci.sh.
+(2) green: tools/check-secrets.sh (grep-based, no new tool), wired into ci.yml and ci-local.sh. (3) review deny.toml, record cargo audit result.
+Done: tools/check-secrets.sh + test, wired into ci.yml and ci-local.sh; ci-local exit 0; audit exit 0.
+Next: R8-Q03 weekly fuzz smoke workflow.
+Blockers: CI steps not run on GitHub (Not verified).
+
+## 2026-11-06 — Run 08, R8-Q03 Weekly fuzz smoke
+Plan: (1) red: tools/test-fuzz-workflow.sh checks fuzz.yml (schedule + workflow_dispatch only, nightly, no hand-typed target list, crash artefact upload, pinned SHAs, timeouts).
+(2) green: .github/workflows/fuzz.yml building the target list from fuzz/fuzz_targets; wire the check into test-ci.sh.
+Done: fuzz.yml + tools/fuzz-smoke.sh + checks; script ran on all 15 targets at 2 s (exit 0); ci-local exit 0.
+Next: R8-Q04 README.
+Blockers: crash artefact upload needs a pinned upload-artifact SHA (questions R8-Q03).
+
+## 2026-11-06 — Run 08, R8-Q04 README
+Plan: (1) red: tools/test-readme.sh (sections, status table for 12 pages, CI badge, every link/image target exists, every number matches docs/budgets.md, every flag exists in the CLI source, "no release yet" while no tag exists).
+(2) green: rewrite README.md from CHANGELOG, run 07 Summary, budgets.md and commands I ran; screenshots re-taken to a temp dir and compared with the committed ones.
+Done: README rewritten and checked by tools/test-readme.sh (exit 0); README commands run (exit codes in report); screenshots identical to committed; ci-local exit 0.
+Next: R8-Q05 CONTRIBUTING.md, SECURITY.md, issue templates.
+Blockers: Arch and Ubuntu install lines not run.
+
+## 2026-11-06 — Run 08, R8-Q05 CONTRIBUTING, SECURITY, issue templates
+Plan: (1) red: tools/test-community.sh (files exist, links resolve, no email address anywhere, commit types in CONTRIBUTING cover the git log, templates parse and ask for distro/version/steps, SECURITY says no release yet, README links CONTRIBUTING).
+(2) green: write CONTRIBUTING.md, adjust SECURITY.md, add .github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml, fix the README sentence.
+Done: CONTRIBUTING.md, SECURITY.md supported versions, three issue-template files, README link; test-community exit 0; ci-local exit 0.
+Next: R8-Q06 pen-test A16 and A21 as tests.
+Blockers: GitHub rendering of issue forms not checkable here.
+
+## 2026-11-06 — Run 08, R8-Q06 Pen-test A16 and A21 as tests
+Plan: (1) red: adapters::endtask::guard tests (kernel thread, other user, protected program, PID 0/1) and cli confine_out / --state tests; permissive stubs so they fail by assertion, not compile error.
+(2) green: implement guard (called in endtask_live before plan, protected check by program name from /proc), confine_out (allowed folders: current dir, HOME, temp dir; .png only; no symlink/directory target) wired into run_screenshot, --state charset. (3) update pentest-checklist results.
+Done: end-task guard (kernel threads, other users, protected programs, PID 0/1) and --out/--state confinement, tests red then green; checklist rows A16 and A21 filled; ci-local exit 0 (704 tests).
+Next: R8-Q07 keyboard pass and contrast.
+Blockers: none. Rule bent: one stray PNG outside the repo, removed (see report).
+
+## 2026-11-06 — Run 08, R8-Q07 Contrast and keyboard pass
+Plan: (1) red: crates/app/tests/contrast.rs: (A) pairs from docs/design/tokens.md: text >= 4.5:1, graphics >= 3:1, both themes; (B) every Chip fg/bg pair used in ui/*.slint, resolved through ui/theme.slint, >= 4.5:1.
+(2) green: fix failures with an existing token only (no new colours). (3) keyboard/Tab order: state what the headless tests can and cannot show.
+Done: contrast tests (token table + chip pairs, both themes), two light-theme chip failures fixed with existing tokens; ci-local exit 0 (706 tests).
+Next: R8-Q08 Home files search: decide with numbers.
+Blockers: keyboard pass is only a written finding (dialogs have no Esc/Enter and no focusable buttons).
+
+## 2026-11-06 — Run 08, R8-Q08 Home files search: decide with numbers
+Plan: probe a filename index on a synthetic 200 000-file tree (PSS, build time), compare with the budget headroom, build only if it fits.
+Done: measured (compact +6.3 MB, plain strings +22-23 MB, 1 000 000 files +31.2 MB); does not fit on the Apps page, so not built; numbers in docs/budgets.md and docs/questions.md; ci-local exit 0.
+Next: R8-Q09 budgets for the pages run 07 did not measure.
+Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q09 Budgets for unmeasured pages
+Plan: measure Performance, Processes, Storage (40 s + 60 s) and the start-up peak of Home and Apps; fix anything over budget.
+Done: all within budget (29.8, 31.6, 31.6 MB; 0.9, 1.4, 0.1 %); start-up PSS peak about 29.2 / 34.8 MB; numbers in docs/budgets.md; Ctrl K box not measured.
+Next: R8-Q10 Settings and Health design misses.
+Blockers: Ctrl K needs a key press.
+
+## 2026-11-06 — Run 08, R8-Q10 Settings and Health design misses
+Plan: re-measure both at the artboard's height, sort each difference into bug / not built / checker limit, write proposals, do not tune.
+Done: Settings is 70.3 % (86.3 % was a wrong crop), Health 33.7 %; causes sorted in docs/design-proposals.md; design_check.sh knows settings and health.
+Next: R8-Q11 History, Startup apps, Services.
+Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q11 History, Startup apps, Services design misses
+Plan: re-measure the three screens, look at each side-by-side, sort every difference into bug / not built / sample data, do not tune.
+Done: scores unchanged (32.8, 18.7, 17.1 %); causes in docs/design-proposals.md; design_check.sh knows the three screens; one possible 2 px History row-height difference noted, not fixed.
+Next: R8-Q12 End dialog and Search.
+Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q12 End dialog and Search design misses
+Plan: reproduce both crop scores, look at the pictures, sort every difference, do not tune.
+Done: End dialog 26.1 % reproduced; Search measured 50.2 % (run 07's 42.4 % was a stale picture); causes and proposals in docs/design-proposals.md; one spacing candidate for Search noted, not fixed.
+Next: R8-Q15 human checklist (docs only), then End of the run; Q13 and Q14 not started.
+Blockers: none.
+
+## 2026-11-06 — Run 08, R8-Q15 Human checklist
+Done: docs/loop/human-checklist.md updated with this run's items (GitHub settings, README install lines, keyboard gap, Ctrl K measurement, decisions).
+Next: End of the run (Q13 and Q14 not started).
+Blockers: none.
+
+## 2026-11-06 — Run 08, End of the run
+Done: Q01, Q02, Q05, Q06, Q08, Q10, Q11, Q12, Q15; Q03, Q04, Q07, Q09 partial; Q13 and Q14 not started (time). Final checks (ci-local with fmt, clippy, tests 706 passed, release build, secret scripts, audit, deny; plain cargo test --all; AppImage 11 954 680 bytes) all exit 0 on this machine; nothing verified on GitHub.
+Next: the human merges, reads the CI result and works through docs/loop/human-checklist.md and docs/design-proposals.md; then Q13 and Q14 and the keyboard pass.
+Blockers: none. Rules bent: one stray PNG outside the repo (removed), estimated time stamps (corrected), see the report.

@@ -653,6 +653,8 @@ fn show_demo_end(ui: &MainWindow, state: &str) -> Result<(), Box<dyn std::error:
 }
 
 fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Error>> {
+    // Decide where the file may go before anything is drawn (pen-test A21).
+    let out = cli::confine_out(&shot.out, &cli::default_out_roots())?;
     let page = page_of(&shot.screen)?;
     let window = screenshot::install(shot.width, shot.height)?;
     let ui = MainWindow::new()?;
@@ -716,12 +718,7 @@ fn run_screenshot(shot: &cli::Screenshot) -> Result<(), Box<dyn std::error::Erro
         }
     }
     ui.show()?;
-    screenshot::save(
-        &window,
-        shot.width,
-        shot.height,
-        std::path::Path::new(&shot.out),
-    )
+    screenshot::save(&window, shot.width, shot.height, &out)
 }
 
 /// `--screenshot storage --state live`: scan `TIDEWISE_STORAGE_ROOT` for real (the variable only

@@ -1,0 +1,75 @@
+Run cargo audit
+  cargo audit
+  shell: /usr/bin/bash -e {0}
+  env:
+    CARGO_HOME: /home/runner/.cargo
+    CARGO_INCREMENTAL: 0
+    CARGO_TERM_COLOR: always
+    Fetching advisory database from `https://github.com/RustSec/advisory-db.git`
+      Loaded 1409 security advisories (from /home/runner/.cargo/advisory-db)
+    Updating crates.io index
+    Scanning Cargo.lock for vulnerabilities (572 crate dependencies)
+Crate:     pulldown-cmark
+Version:   0.13.5
+Title:     Quadratic parsing of nested image wikilinks with `ENABLE_WIKILINKS`
+Date:      2026-10-28
+ID:        RUSTSEC-2026-0433
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0433
+Severity:  7.5 (high)
+Solution:  Upgrade to >=0.13.6
+
+Crate:     bincode
+Version:   2.0.1
+Warning:   unmaintained
+Title:     Bincode is unmaintained
+Date:      2025-12-16
+ID:        RUSTSEC-2025-0141
+URL:       https://rustsec.org/advisories/RUSTSEC-2025-0141
+
+Crate:     pin-utils
+Version:   0.1.1
+Warning:   unmaintained
+Title:     `pin-utils` is unmaintained
+Date:      2026-10-01
+ID:        RUSTSEC-2026-0441
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0441
+
+Crate:     ttf-parser
+Version:   0.25.1
+Warning:   unmaintained
+Title:     `ttf-parser` is unmaintained
+Date:      2026-06-28
+ID:        RUSTSEC-2026-0192
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0192
+
+Crate:     zbus_names
+Version:   4.3.5
+Warning:   unmaintained
+Title:     `zbus_names` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0371
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0371
+
+Crate:     zvariant
+Version:   5.15.1
+Warning:   unmaintained
+Title:     `zvariant` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0370
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0370
+
+Crate:     zvariant_derive
+Version:   5.15.1
+Warning:   unmaintained
+Title:     `zvariant_derive` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0372
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0372
+
+Crate:     async-executor
+Version:   1.14.0
+Warning:   yanked
+
+error: 1 vulnerability found!
+warning: 7 allowed warnings found
+Error: Process completed with exit code 1.

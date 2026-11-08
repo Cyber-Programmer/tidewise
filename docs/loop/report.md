@@ -1,6 +1,6 @@
-# Run 08 report
+# Run 09 report
 
-Written by the loop, one entry per round (template in `LOOP.md`). Run 07's report: `archive/run-07-report.md`.
+Written by the loop, one entry per round (template in `LOOP.md`). Run 08's report: `archive/run-08-report.md`.
 
 ## Preflight
 (filled in on the first round)
