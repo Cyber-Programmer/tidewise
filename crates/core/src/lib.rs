@@ -2,7 +2,7 @@
 
 /// The app's name as shown to users.
 pub fn app_name() -> &'static str {
-    ""
+    "Tidewise"
 }
 
 #[cfg(test)]
