@@ -11,3 +11,8 @@ name = "tidewise"
 path = "src/main.rs"
 
 [dependencies]
+slint = { version = "1.18.1", default-features = false, features = ["compat-1-18", "std", "accessibility", "backend-winit", "renderer-femtovg", "renderer-software"] }
+tidewise-core = { version = "0.1.0", path = "../core" }
+
+[build-dependencies]
+slint-build = "1.18.1"
