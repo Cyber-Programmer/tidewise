@@ -46,3 +46,16 @@ the repo from the claude.ai project copies, plus "Known traps". D10: repo docs a
 Next: 2.4 CI on GitHub Actions, learned through a pull request.
 Blockers: none.
 Rules bent: none (docs only, no behaviour change).
+
+## 2026-11-09 — 2.4 CI on GitHub Actions
+Done: `.github/workflows/ci.yml` (Ubuntu 26.04; job "check": fmt, clippy -D warnings, test, all `--locked`;
+job "deps": cargo-deny) and `deny.toml`. Actions pinned to commit SHAs; token is read-only. Licence allow-list
+generated from Cargo.lock (428 Linux crates, 8 licences). Decision: cargo-deny only (covers the RustSec database
+that cargo-audit uses). First PR: both jobs green; merged with "Rebase and merge" as 3c6085f.
+Reviewed advisories: 5 "unmaintained" (none vulnerable), all via Slint 1.18.1 — RUSTSEC-2026-0370/0371/0372
+(zbus split crates, accessibility), 0192 (ttf-parser, Wayland title bar), 0441 (pin-utils, build-time). Ignored with
+reasons in deny.toml; remove each when cargo-deny reports it unused.
+Lessons: merge on GitHub before deleting branches / pulling; squash-merge would erase red/green commits.
+Next: optional branch protection (required checks), then 2.6 licence/README/SECURITY.md.
+Blockers: none.
+Rules bent: none.
