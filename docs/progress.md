@@ -59,3 +59,12 @@ Lessons: merge on GitHub before deleting branches / pulling; squash-merge would 
 Next: optional branch protection (required checks), then 2.6 licence/README/SECURITY.md.
 Blockers: none.
 Rules bent: none.
+
+## 2026-11-09 — 2.6 Licence, README, SECURITY.md
+Done: `LICENSE` (official GPL-3.0 text, added by the human from an official copy), `README.md` (what it is, honest
+status, build steps, how the project works, GPL-3.0-or-later notice, Slint credit), `SECURITY.md` (GitHub private
+vulnerability reporting, 7/14-day response times, scope). Ruleset "protect main" created (required checks,
+no force pushes); SOP added to CLAUDE.md: every change via branch + PR, Rebase and merge.
+Next: 2.7 design tokens (light-first theme) — last task of M0.
+Blockers: none.
+Rules bent: none (docs only).
