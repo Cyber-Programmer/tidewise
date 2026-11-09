@@ -1,5 +1,8 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+//! Shared logic for Tidewise: no UI, no root.
+
+/// The app's name as shown to users.
+pub fn app_name() -> &'static str {
+    ""
 }
 
 #[cfg(test)]
@@ -7,8 +10,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn app_name_is_tidewise() {
+        assert_eq!(app_name(), "Tidewise");
     }
 }
