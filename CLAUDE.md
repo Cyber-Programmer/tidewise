@@ -48,6 +48,10 @@ The rebuild exists so the human understands every part. For each task:
 - CI (`.github/workflows/ci.yml`) runs the same commands on every PR; merge only when it shows ✔.
 - Small commits, Conventional Commits, never mix refactor with behaviour change.
 - The human commits and pushes unless they say otherwise. Never force-push.
+- **Every change reaches `main` through a branch + pull request**, even docs. `main` is protected by the
+  ruleset "protect main" (required checks: `fmt, clippy, test` and `cargo-deny`; force pushes blocked).
+  Branch names: `feat/…`, `fix/…`, `docs/…`, `ci/…`, `chore/…`. Merge with **Rebase and merge** (never
+  squash: it would erase the red/green commits), delete the branch on GitHub, then `git pull` + `git fetch --prune`.
 - Unsure how pacman behaves? Say so and propose a fixture or container test. Don't guess.
 - End each task by appending to `docs/progress.md`: `## YYYY-MM-DD — <WBS id> <task>` then `Done:`, `Next:`,
   `Blockers:`, `Rules bent:`.
