@@ -1,0 +1,64 @@
+// Tidewise design tokens: Hybrid, light. Source of truth for values: docs/design/tokens.md.
+// Use these names in every .slint file; never write a raw colour, size or font name in a screen.
+//
+// FORMAT MATTERS: crates/app/tests/theme_contrast.rs reads this file. Keep one colour per line,
+// exactly as `out property <color> name: #RRGGBB;`.
+
+export global Theme {
+    // Colours (light). Dark values are in tokens.md and arrive with dark mode (M9).
+    out property <color> bg: #F6F6F3;
+    out property <color> surface: #FFFFFF;
+    out property <color> surface-2: #F2F1EC;
+    out property <color> chip: #EFEEE9;
+    out property <color> border: #E2E1DC;
+    out property <color> rule: #ECEBE6;
+    out property <color> control-border: #DAD9D3;
+    out property <color> text: #18191C;
+    out property <color> text-2: #3D4047;
+    out property <color> text-3: #5E636B;
+    out property <color> accent: #0E6A6D;
+    out property <color> accent-hover: #0A5759;
+    out property <color> on-accent: #FFFFFF;
+    out property <color> tide-fill: #D3E6E5;
+    out property <color> warning: #8A4F00;
+    out property <color> warning-bg: #F6EBDA;
+    out property <color> danger: #B3261E;
+    out property <color> danger-text: #B3261E;
+    out property <color> on-danger: #FFFFFF;
+    out property <color> switch-off: #8C8B85;
+    out property <color> nav-active: #E6E5DF;
+
+    // Fonts (embedded, see ui/fonts/).
+    out property <string> font-sans: "IBM Plex Sans";
+    out property <string> font-mono: "IBM Plex Mono";
+
+    // Type: sizes and weights per role.
+    out property <length> size-page-title: 28px;
+    out property <length> size-hero: 28px;
+    out property <length> size-dialog-title: 22px;
+    out property <length> size-row-title: 15px;
+    out property <length> size-body: 14px;
+    out property <length> size-label: 13px;
+    out property <length> size-big-number: 32px;
+    out property <int> weight-regular: 400;
+    out property <int> weight-medium: 500;
+    out property <int> weight-semibold: 600;
+
+    // Shape.
+    out property <length> radius-panel: 12px;
+    out property <length> radius-control: 8px;
+    out property <length> radius-chip: 4px;
+    out property <length> radius-switch: 99px;
+
+    // Space scale: 4 · 8 · 12 · 16 · 24 · 32.
+    out property <length> space-xs: 4px;
+    out property <length> space-s: 8px;
+    out property <length> space-m: 12px;
+    out property <length> space-l: 16px;
+    out property <length> space-xl: 24px;
+    out property <length> space-xxl: 32px;
+    out property <length> page-padding-y: 32px;
+    out property <length> page-padding-x: 40px;
+    out property <length> section-gap: 24px;
+    out property <length> min-target: 44px;
+}
