@@ -44,7 +44,8 @@ The rebuild exists so the human understands every part. For each task:
 - **One task per session.** Plan first, wait for approval, finish with tests, stop.
 - Tests first: commit the failing test alone (`test(scope): … (red)`), then the code (`feat|fix(scope): …`).
 - Ask before any new dependency (why it's needed, size, maintenance) and before touching `crates/helper*`,
-  `packaging/polkit` or `packaging/aur`. Add dependencies with `cargo add`, not by hand.
+  `packaging/polkit`, `packaging/aur`, `deny.toml` or `.github/workflows/`. Add dependencies with `cargo add`.
+- CI (`.github/workflows/ci.yml`) runs the same commands on every PR; merge only when it shows ✔.
 - Small commits, Conventional Commits, never mix refactor with behaviour change.
 - The human commits and pushes unless they say otherwise. Never force-push.
 - Unsure how pacman behaves? Say so and propose a fixture or container test. Don't guess.
@@ -89,7 +90,7 @@ including a broken case.
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all
-cargo audit && cargo deny check        # from 2.4 (CI) onwards
+cargo deny check                       # advisories (RustSec), licences, bans, sources — config in deny.toml
 cargo build --release -p tidewise-app
 ```
 

@@ -1,0 +1,49 @@
+# cargo-deny configuration. Run locally with: cargo deny check
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Only check what we actually build: Linux x86_64. Windows/macOS-only crates are ignored.
+targets = ["x86_64-unknown-linux-gnu"]
+
+[advisories]
+# Defaults: RustSec Advisory DB (same database as `cargo audit`).
+# Vulnerable and unmaintained crates fail the check; yanked crates only warn.
+# Each ignore below was reviewed by the human on 2026-11-09 (task 2.4). All are "unmaintained", none is a
+# vulnerability, and all come in through Slint 1.18.1, so only a Slint update can remove them.
+# When Slint drops one, cargo-deny warns "unused-ignored-advisory": then delete that entry.
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; via Slint -> winit -> accessibility (AT-SPI)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6; via Slint -> winit -> accessibility (AT-SPI)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; via Slint -> winit -> accessibility (AT-SPI)" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; via Slint -> winit -> sctk-adwaita (Wayland title bar)" },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils archived; build-time only via slint-build/slint-macros -> spin_on" },
+]
+
+[licenses]
+# Generated on 2026-11-09 from Cargo.lock (428 crates used on Linux).
+# Every dependency's licence must match one of these. Adding a licence needs the human's OK.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",     # Unicode data used by ICU (text handling)
+    "GPL-3.0-only",    # Slint, used under its GPLv3 option (docs/decisions/0001)
+]
+confidence-threshold = 0.9
+
+# Our own crates are publish = false; their licence is GPL-3.0-or-later (root Cargo.toml).
+[licenses.private]
+ignore = true
+
+[bans]
+# Slint's dependencies pull in several versions of some crates (e.g. hashbrown). Show them, don't fail.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# Crates may only come from crates.io: no unknown registries, no git dependencies.
+unknown-registry = "deny"
+unknown-git = "deny"

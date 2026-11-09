@@ -31,7 +31,8 @@ Based on Microsoft's SDL: threat modelling, static analysis, fuzzing, independen
 
 - **Threat model** `docs/security/threat-model.md` (STRIDE), updated whenever a milestone adds a privileged
   action, a file write, a parser of outside data or a network call. Each threat: defence + the test proving it.
-- **Static analysis every CI run:** clippy `-D warnings`, `cargo audit`, `cargo deny`.
+- **Static analysis every CI run:** clippy `-D warnings` and `cargo deny check` (RustSec advisories — the same
+  database `cargo audit` uses — plus licences, bans and sources; config in `deny.toml`).
   `#![forbid(unsafe_code)]` in `crates/helper*`.
 - **Fuzzing:** `cargo fuzz` targets for the helper's JSON request and every pacman / `/proc` parser.
   ≥ 10 minutes each before a milestone closes; crashes become regression tests (needs nightly).
