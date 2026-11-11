@@ -119,7 +119,9 @@ impl AppsModel {
         }
     }
 
-    pub fn set_tab(&mut self, _tab: Tab) {}
+    pub fn set_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+    }
 
     pub fn state(&self) -> &ListState {
         &self.state
