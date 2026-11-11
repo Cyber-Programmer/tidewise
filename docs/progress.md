@@ -164,3 +164,55 @@ Rules bent: red commits use stubs that compile. Tests that passed on the stub (t
 red commit messages; the 3.4 cycle-8 `needed_by` test had a setup bug (dependency-only packages are hidden on the
 default tab) fixed in the green commit with the same assertions; the fixture test passed on first run and is
 committed as a pin. WBS sheet not updated (asked to skip).
+
+## 2026-11-11 — 3.5 Apps screen in Slint (M1, read-only)
+Done: the window now shows the approved Apps design, fed by `installed_packages()`. Three layers: `AppsModel` (state,
+UI thread only) -> `apps_view.rs` (new, lib, no Slint types: decides every string and flag, 26 tests) ->
+`apps_window.rs` (glue: copies the view into the `AppsBridge` Slint global, wires callbacks, no wording or state
+decisions). `main.rs` is 5 lines. Model additions (tested): `begin_reload()` (refuses a second load while one runs, but a
+brand-new model, which is `Loading` with nothing running, may start its first; tested), `mark_slow()`/`is_slow()`,
+`totals()` (ignores the search, for the subtitle and "Showing N of M"), `sort()`. Threading: worker thread runs pacman,
+leaves the answer in an `mpsc` channel, then `invoke_from_event_loop` (weak handle) fires `load-done` on the UI thread,
+which reads the channel. One single-shot 10 s `Timer`, restarted per load, adds "This is taking longer than usual."
+(pacman is not killed). Slint: widgets (button, segmented, search field, chip, letter tile, logo as two `Path`s from the
+design's SVG data) and Apps panels (sidebar, virtualised `ListView`, 8 static skeleton rows, empty states, details
+with a Technical details toggle, amber error panel). Tokens only. Window 1200x800, minimum 1100x640. No new
+dependencies, pacman crate untouched. 69 app tests; fmt, clippy, test, deny, release build and the ignored
+real-pacman test all exit 0.
+Next: remove/clean screens need the helper (M3). Small follow-ups: Up/Down arrows on the list if Tab does not scroll
+a focused row into view (check item 12); a fixed-height details area is not needed yet (the panel scrolls).
+Blockers: none.
+Rules bent: (1) UI-only work has no red test; instead a manual checklist, below. Commits are widgets -> panels ->
+fix -> wiring. (2) Two intermediate commits (red) have stubs; pin tests passing on a stub are named in their commit
+messages. The first green commit of apps_view had an unused-function warning until its error cases landed.
+(3) I could not drive the window: the desktop session was locked, so KWin sent no frame callbacks after the first
+frame. I checked real screenshots of the first frame in these states (by a temporary local harness, since removed,
+that set the state before the first paint): loading, list + details, Dependencies tab, "No match ... Show
+Dependencies" empty state, and the amber error panel. That caught 3 layout bugs (fixed). NOT seen by eye: clicking,
+typing, keyboard, focus rings, the Technical details toggle, "Nothing matches" + Clear search, the 10 s note,
+live updates after the first frame, and the minimum size.
+
+Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop):
+1. The window opens about 1200x800. Grey skeleton rows show for under a second, subtitle "Asking pacman for the list
+   of installed packages…", tab counts "–". Then the list appears, subtitle "<N> packages on this system · <M>
+   installed by you" with the numbers in the monospace font.
+2. "Installed by you" is selected, the first row is highlighted and the details panel shows it.
+3. Click "Dependencies", then "All": the list, counts and footer ("Showing N of M") change. Click "Name": A-Z order;
+   "Size": largest first.
+4. Click another row: it highlights and the details change; the list does not jump back to the top.
+5. Type "firefox" in the search box: counts shrink, the subtitle numbers do not. Click × (or Tab to it, press
+   Enter): the box clears and the full list returns.
+6. Type "libx" on "Installed by you": "No match in Installed by you for “libx”", "It is installed, just not in this
+   tab: N matches in Dependencies.", and a "Show Dependencies" button. Press it: the Dependencies tab opens.
+7. Type "zzqq": "No installed package matches “zzqq”" and "Clear search". Press it: the box clears too.
+8. Select a package with needed-by names: up to five chips, "and N more" if more; one nothing needs: "Nothing else
+   on this system needs it."
+9. "Technical details" opens "source: pacman -Qi <name>" and "<bytes> bytes"; pressing it again hides them.
+10. Keyboard only: Tab walks search, clear (when there is text), tabs, sort, rows, buttons, each with a visible ring;
+   Enter and Space activate them.
+11. Make the window as small as it allows (about 1100x640): nothing overlaps; the details panel scrolls.
+12. Tab into the list and press Tab several times: is the focused row scrolled into view? If not, I add Up/Down.
+13. Error panel (look only): temporarily change `installed_packages()` in `apps_window.rs` to return
+    `Err(PacmanError::Failed { code: Some(1), stderr: "x".into() })`, run, check the amber panel, "Try again",
+    "Technical details" and the report line, then `git checkout` the file. 10 s note: same trick with a
+    `std::thread::sleep(12 s)` in the worker.
