@@ -1,0 +1,47 @@
+import { Theme } from "../theme.slint";
+
+// A grey placeholder row shown while pacman is answering. Static on purpose: no animation.
+export component SkeletonRow inherits Rectangle {
+    height: 64px;
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.rule;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        spacing: Theme.space-m;
+        alignment: start;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                background: Theme.chip;
+                border-radius: Theme.radius-control;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.space-s;
+            Rectangle {
+                width: 160px;
+                height: 12px;
+                background: Theme.chip;
+                border-radius: Theme.radius-chip;
+            }
+
+            Rectangle {
+                width: 280px;
+                height: 10px;
+                background: Theme.chip;
+                border-radius: Theme.radius-chip;
+            }
+        }
+    }
+}
