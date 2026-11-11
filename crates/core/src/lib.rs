@@ -1,5 +1,7 @@
 //! Shared logic for Tidewise: no UI, no root.
 
+pub mod contrast;
+
 /// The app's name as shown to users.
 pub fn app_name() -> &'static str {
     "Tidewise"
