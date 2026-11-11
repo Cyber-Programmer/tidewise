@@ -150,6 +150,8 @@ impl AppsModel {
 
     /// Hands the model what pacman answered.
     pub fn set_result(&mut self, result: Result<Vec<InstalledPackage>, PacmanError>) {
+        self.load_running = false;
+        self.slow = false;
         match result {
             Ok(packages) => {
                 self.packages = packages;
@@ -167,20 +169,37 @@ impl AppsModel {
     /// Asks to start a load. `true` means "start the worker thread now"; `false` means one is already running.
     /// A brand-new model is `Loading` but has no load running, so the first call returns `true`.
     pub fn begin_reload(&mut self) -> bool {
-        false // stub
+        if self.load_running {
+            return false;
+        }
+        self.load_running = true;
+        self.slow = false;
+        self.state = ListState::Loading;
+        self.packages.clear();
+        self.selected = None;
+        true
     }
 
     /// Called when a load has run for too long. Ignored unless a load is running.
-    pub fn mark_slow(&mut self) {}
+    pub fn mark_slow(&mut self) {
+        if self.load_running {
+            self.slow = true;
+        }
+    }
 
     /// Has the running load been marked slow?
     pub fn is_slow(&self) -> bool {
-        false // stub
+        self.slow
     }
 
     /// Package counts ignoring the search: what is on this system, whatever is typed.
     pub fn totals(&self) -> TabCounts {
-        TabCounts::default() // stub
+        let count = |tab| self.packages.iter().filter(|p| tab_shows(tab, p)).count();
+        TabCounts {
+            explicit: count(Tab::Explicit),
+            dependencies: count(Tab::Dependencies),
+            all: count(Tab::All),
+        }
     }
 
     pub fn set_tab(&mut self, tab: Tab) {
