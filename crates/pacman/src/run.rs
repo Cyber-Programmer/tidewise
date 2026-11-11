@@ -29,8 +29,8 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
 ///
 /// Read-only, no root, no shell. Blocks until pacman finishes (no timeout yet).
 pub fn installed_packages() -> Result<Vec<InstalledPackage>, PacmanError> {
-    // STUB (red)
-    Ok(Vec::new())
+    let output = run(Path::new(PACMAN), &["-Qi"])?;
+    packages_from_output(&output)
 }
 
 /// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.

@@ -1,6 +1,7 @@
 //! Reads pacman data (installed packages, search, details, dry-runs). No UI, no root.
 //!
 //! The parsers are pure functions on `&str`: they never run pacman and never touch the file system.
+//! The `run` module is the only place that starts a process (read-only, no root, no shell).
 //! Library code must not panic, so clippy forbids `unwrap`, `expect`, indexing and `panic!` here
 //! (tests may still use them).
 #![cfg_attr(
