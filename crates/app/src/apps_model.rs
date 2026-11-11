@@ -2,8 +2,36 @@
 //! Plain Rust. It never runs pacman; it is handed the result of `tidewise_pacman::installed_packages()`.
 
 /// Sizes the way people read them: SI units (1 kB = 1 000 bytes), so "1000 kB" never appears.
-pub fn format_size(_bytes: u64) -> String {
-    String::new()
+///
+/// Integer maths only. Each unit is rounded first; if that gives 1000 of the unit, the next unit is used.
+pub fn format_size(bytes: u64) -> String {
+    if bytes < 1_000 {
+        return format!("{bytes} B");
+    }
+    let kilobytes = divide_rounded(bytes, 1_000);
+    if kilobytes < 1_000 {
+        return format!("{kilobytes} kB");
+    }
+    let tenths_of_mb = divide_rounded(bytes, 100_000);
+    if tenths_of_mb < 10_000 {
+        return format!("{}.{} MB", tenths_of_mb / 10, tenths_of_mb % 10);
+    }
+    let hundredths_of_gb = divide_rounded(bytes, 10_000_000);
+    format!(
+        "{}.{:02} GB",
+        hundredths_of_gb / 100,
+        hundredths_of_gb % 100
+    )
+}
+
+/// `number / unit`, rounded to the nearest whole number (halves go up). `unit` is never 0 here.
+fn divide_rounded(number: u64, unit: u64) -> u64 {
+    let whole = number / unit;
+    if number % unit >= unit / 2 {
+        whole + 1
+    } else {
+        whole
+    }
 }
 
 #[cfg(test)]
