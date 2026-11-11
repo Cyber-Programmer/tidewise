@@ -109,7 +109,15 @@ impl AppsModel {
     }
 
     /// Hands the model what pacman answered.
-    pub fn set_result(&mut self, _result: Result<Vec<InstalledPackage>, PacmanError>) {}
+    pub fn set_result(&mut self, result: Result<Vec<InstalledPackage>, PacmanError>) {
+        match result {
+            Ok(packages) => {
+                self.packages = packages;
+                self.state = ListState::Loaded;
+            }
+            Err(_error) => {}
+        }
+    }
 
     pub fn state(&self) -> &ListState {
         &self.state
@@ -121,11 +129,35 @@ impl AppsModel {
 
     /// The rows to show: the current tab's packages.
     pub fn rows(&self) -> Vec<Row> {
-        Vec::new()
+        self.packages
+            .iter()
+            .filter(|package| tab_shows(self.tab, package))
+            .map(|package| Row {
+                name: package.name.clone(),
+                version: package.version.clone(),
+                description: package.description.clone(),
+                size_text: format_size(package.installed_size),
+                selected: false,
+            })
+            .collect()
     }
 
     pub fn tab_counts(&self) -> TabCounts {
-        TabCounts::default()
+        let count = |tab| self.packages.iter().filter(|p| tab_shows(tab, p)).count();
+        TabCounts {
+            explicit: count(Tab::Explicit),
+            dependencies: count(Tab::Dependencies),
+            all: count(Tab::All),
+        }
+    }
+}
+
+/// Does this tab list this package?
+fn tab_shows(tab: Tab, package: &InstalledPackage) -> bool {
+    match tab {
+        Tab::Explicit => package.reason == InstallReason::Explicit,
+        Tab::Dependencies => package.reason == InstallReason::Dependency,
+        Tab::All => true,
     }
 }
 
