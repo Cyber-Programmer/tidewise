@@ -47,7 +47,11 @@ The rebuild exists so the human understands every part. For each task:
   `packaging/polkit`, `packaging/aur`, `deny.toml` or `.github/workflows/`. Add dependencies with `cargo add`.
 - CI (`.github/workflows/ci.yml`) runs the same commands on every PR; merge only when it shows ✔.
 - Small commits, Conventional Commits, never mix refactor with behaviour change.
-- The human commits and pushes unless they say otherwise. Never force-push.
+- **Claude Code commits on the task branch; the human pushes.** Never push, never force-push, never amend or
+  rebase a pushed commit. `.claude/settings.json` enforces the common cases (deny `git push`, `sudo`, `rm -rf`…);
+  those rules match command text and are not a security boundary, so follow the intent, not the letter.
+- Start each task on a new branch from an up-to-date `main` (`git switch main`, then `git switch -c <prefix>/<task>`;
+  the human runs `git pull` first).
 - **Every change reaches `main` through a branch + pull request**, even docs. `main` is protected by the
   ruleset "protect main" (required checks: `fmt, clippy, test` and `cargo-deny`; force pushes blocked).
   Branch names: `feat/…`, `fix/…`, `docs/…`, `ci/…`, `chore/…`. Merge with **Rebase and merge** (never
