@@ -1,10 +1,23 @@
 //! Parser for `pacman -Qq`: one package name per line.
 
 use crate::ParseError;
+use crate::name::is_valid_package_name;
 
 /// Parses the output of `LC_ALL=C pacman -Qq` into package names, in the order given.
+///
+/// Every line must be a valid package name; the first bad line (counted from 1) is an error.
 pub fn parse_qq(text: &str) -> Result<Vec<String>, ParseError> {
-    Ok(text.lines().map(str::to_string).collect())
+    let mut names = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if !is_valid_package_name(line) {
+            return Err(ParseError::BadName {
+                line_number: index + 1,
+                name: line.to_string(),
+            });
+        }
+        names.push(line.to_string());
+    }
+    Ok(names)
 }
 
 #[cfg(test)]
