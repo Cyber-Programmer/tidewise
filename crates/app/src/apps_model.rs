@@ -145,6 +145,9 @@ impl AppsModel {
         self.search = search.trim().to_lowercase();
     }
 
+    /// Selects a package by name. Ignored unless that package is in the visible list.
+    pub fn select(&mut self, _name: &str) {}
+
     pub fn state(&self) -> &ListState {
         &self.state
     }
@@ -293,6 +296,16 @@ mod tests {
 
     fn names(model: &AppsModel) -> Vec<String> {
         model.rows().into_iter().map(|row| row.name).collect()
+    }
+
+    /// Names of the rows marked as selected.
+    fn selected(model: &AppsModel) -> Vec<String> {
+        model
+            .rows()
+            .into_iter()
+            .filter(|row| row.selected)
+            .map(|row| row.name)
+            .collect()
     }
 
     #[test]
@@ -473,5 +486,53 @@ mod tests {
     fn there_is_no_empty_message_when_there_are_rows_or_while_loading() {
         assert_eq!(AppsModel::new().empty_state(), EmptyState::NotEmpty);
         assert_eq!(loaded(sample()).empty_state(), EmptyState::NotEmpty);
+    }
+
+    #[test]
+    fn after_loading_exactly_one_visible_row_is_selected_the_first() {
+        let model = loaded(sample());
+        assert_eq!(selected(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn the_selection_stays_while_the_package_is_still_visible() {
+        let mut model = loaded(sample());
+        model.select("vim");
+        assert_eq!(selected(&model), ["vim"]);
+        model.set_sort(SortOrder::NameAToZ);
+        assert_eq!(selected(&model), ["vim"]);
+        model.set_search("e"); // firefox, vim, ... still contain an "e" somewhere
+        assert_eq!(selected(&model), ["vim"]);
+        model.set_search("");
+        assert_eq!(selected(&model), ["vim"]);
+    }
+
+    #[test]
+    fn the_selection_moves_to_the_first_row_when_its_package_is_hidden() {
+        let mut model = loaded(sample());
+        model.select("vim");
+        model.set_search("firefox");
+        assert_eq!(selected(&model), ["firefox"]);
+
+        let mut model = loaded(sample());
+        model.select("vim");
+        model.set_tab(Tab::Dependencies); // largest first: glibc
+        assert_eq!(selected(&model), ["glibc"]);
+    }
+
+    #[test]
+    fn nothing_is_selected_when_the_list_is_empty() {
+        let mut model = loaded(sample());
+        model.set_search("no such app");
+        assert!(selected(&model).is_empty());
+        assert!(selected(&AppsModel::new()).is_empty());
+    }
+
+    #[test]
+    fn selecting_a_package_that_is_not_visible_is_ignored() {
+        let mut model = loaded(sample());
+        model.select("glibc"); // a dependency; the Explicit tab does not show it
+        model.select("no-such-package");
+        assert_eq!(selected(&model), ["firefox"]);
     }
 }
