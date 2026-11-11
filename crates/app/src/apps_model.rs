@@ -101,6 +101,8 @@ pub struct AppsModel {
     packages: Vec<InstalledPackage>,
     tab: Tab,
     sort: SortOrder,
+    /// Already trimmed and lower-cased; empty means no search.
+    search: String,
 }
 
 impl AppsModel {
@@ -128,7 +130,9 @@ impl AppsModel {
         self.sort = sort;
     }
 
-    pub fn set_search(&mut self, _search: &str) {}
+    pub fn set_search(&mut self, search: &str) {
+        self.search = search.trim().to_lowercase();
+    }
 
     pub fn state(&self) -> &ListState {
         &self.state
@@ -152,12 +156,19 @@ impl AppsModel {
             .collect()
     }
 
+    /// With no search everything matches; otherwise the name or the description must contain the text.
+    fn matches_search(&self, package: &InstalledPackage) -> bool {
+        self.search.is_empty()
+            || package.name.to_lowercase().contains(&self.search)
+            || package.description.to_lowercase().contains(&self.search)
+    }
+
     /// The packages the current tab lists, in the current order.
     fn visible(&self) -> Vec<&InstalledPackage> {
         let mut visible: Vec<&InstalledPackage> = self
             .packages
             .iter()
-            .filter(|package| tab_shows(self.tab, package))
+            .filter(|package| tab_shows(self.tab, package) && self.matches_search(package))
             .collect();
         match self.sort {
             SortOrder::SizeLargestFirst => visible.sort_by(|a, b| {
@@ -171,7 +182,12 @@ impl AppsModel {
     }
 
     pub fn tab_counts(&self) -> TabCounts {
-        let count = |tab| self.packages.iter().filter(|p| tab_shows(tab, p)).count();
+        let count = |tab| {
+            self.packages
+                .iter()
+                .filter(|p| tab_shows(tab, p) && self.matches_search(p))
+                .count()
+        };
         TabCounts {
             explicit: count(Tab::Explicit),
             dependencies: count(Tab::Dependencies),
