@@ -413,4 +413,120 @@ mod tests {
         model.set_tab(Tab::All);
         assert_eq!(apps_view(&model, "vim").footer, "Showing 1 of 5");
     }
+
+    #[test]
+    fn an_empty_tab_with_matches_elsewhere_points_to_that_tab() {
+        let mut model = loaded();
+        model.set_search("library"); // only dependencies match; the tab is "Installed by you"
+        let view = apps_view(&model, "library");
+        assert_eq!(
+            view.body,
+            Body::Empty(EmptyView {
+                title: "No match in Installed by you for “library”".to_string(),
+                body: "It is installed, just not in this tab: 2 matches in Dependencies."
+                    .to_string(),
+                button: "Show Dependencies".to_string(),
+                action: EmptyAction::ShowTab(Tab::Dependencies),
+            })
+        );
+        assert!(view.rows.is_empty());
+    }
+
+    #[test]
+    fn one_match_elsewhere_is_singular_and_the_other_direction_works() {
+        let mut model = loaded();
+        model.set_tab(Tab::Dependencies);
+        model.set_search("firefox");
+        let view = apps_view(&model, "firefox");
+        assert_eq!(
+            view.body,
+            Body::Empty(EmptyView {
+                title: "No match in Dependencies for “firefox”".to_string(),
+                body: "It is installed, just not in this tab: 1 match in Installed by you."
+                    .to_string(),
+                button: "Show Installed by you".to_string(),
+                action: EmptyAction::ShowTab(Tab::Explicit),
+            })
+        );
+    }
+
+    #[test]
+    fn the_message_quotes_the_search_trimmed_with_its_own_case() {
+        let mut model = loaded();
+        model.set_search("  Library ");
+        let view = apps_view(&model, "  Library ");
+        let Body::Empty(empty) = view.body else {
+            panic!("expected an empty state");
+        };
+        assert_eq!(empty.title, "No match in Installed by you for “Library”");
+    }
+
+    #[test]
+    fn when_nothing_matches_anywhere_the_screen_offers_clear_search() {
+        let mut model = loaded();
+        model.set_search("no such app");
+        let view = apps_view(&model, "no such app");
+        assert_eq!(
+            view.body,
+            Body::Empty(EmptyView {
+                title: "No installed package matches “no such app”".to_string(),
+                body: String::new(),
+                button: "Clear search".to_string(),
+                action: EmptyAction::ClearSearch,
+            })
+        );
+        assert_eq!(view.footer, "Showing 0 of 3");
+    }
+
+    #[test]
+    fn an_empty_tab_without_a_search_does_not_quote_an_empty_search() {
+        use InstallReason::Dependency;
+        let mut model = AppsModel::new();
+        model.set_result(Ok(vec![pkg("glibc", "The C library", 1, Dependency, &[])]));
+        let view = apps_view(&model, "");
+        assert_eq!(
+            view.body,
+            Body::Empty(EmptyView {
+                title: "Nothing in Installed by you".to_string(),
+                body: "It is installed, just not in this tab: 1 package in Dependencies."
+                    .to_string(),
+                button: "Show Dependencies".to_string(),
+                action: EmptyAction::ShowTab(Tab::Dependencies),
+            })
+        );
+    }
+
+    #[test]
+    fn a_system_with_no_packages_at_all_has_no_button() {
+        let mut model = AppsModel::new();
+        model.set_result(Ok(Vec::new()));
+        let view = apps_view(&model, "");
+        assert_eq!(
+            view.body,
+            Body::Empty(EmptyView {
+                title: "No installed packages found".to_string(),
+                body: String::new(),
+                button: String::new(),
+                action: EmptyAction::None,
+            })
+        );
+    }
+
+    #[test]
+    fn an_error_shows_the_error_text_and_the_reassurance() {
+        let view = apps_view(&failed(), "");
+        assert_eq!(
+            view.body,
+            Body::Error(ErrorView {
+                title: "pacman couldn't list your packages".to_string(),
+                body: "pacman stopped with an error before it finished. \
+                       This is usually temporary; trying again often works."
+                    .to_string(),
+                technical: "exit code 1: error: unable to lock database".to_string(),
+                unchanged: "Nothing on your system was changed.".to_string(),
+                report: "Report problems at github.com/Cyber-Programmer/tidewise/issues"
+                    .to_string(),
+            })
+        );
+    }
 }
