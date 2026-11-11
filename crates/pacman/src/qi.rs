@@ -158,4 +158,46 @@ mod tests {
             }]
         );
     }
+
+    #[test]
+    fn qi_description_keeps_colons() {
+        let text = include_str!("../../../tests/fixtures/pacman/qi-qt6-imageformats.txt");
+        let packages = parse_qi(text).unwrap();
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "qt6-imageformats");
+        assert_eq!(
+            packages[0].description,
+            "Plugins for additional image formats: TIFF, MNG, TGA, WBMP"
+        );
+        // 269.37 KiB = 275_834.88 bytes
+        assert_eq!(packages[0].installed_size, 275_835);
+        assert_eq!(packages[0].reason, InstallReason::Dependency);
+    }
+
+    #[test]
+    fn records_join_continuation_lines() {
+        let records = split_records(ZSH).unwrap();
+        assert_eq!(records.len(), 1);
+        let optional = records[0].get("Optional Deps").unwrap();
+        let lines: Vec<&str> = optional.lines().collect();
+        assert_eq!(lines.len(), 8);
+        assert_eq!(lines[0], "grml-zsh-config: grml's zsh setup");
+        assert_eq!(lines[7], "zshdb: A debugger for zsh scripts");
+        // The continuation lines must not turn into fields of their own.
+        assert_eq!(records[0].get("zsh-doc"), None);
+        assert_eq!(records[0].get("Required By"), Some("zsh-completions"));
+    }
+
+    #[test]
+    fn continuation_before_any_field_is_malformed() {
+        let err = split_records("  stray line\nName : zsh\n").err().unwrap();
+        assert_eq!(
+            err,
+            ParseError::MalformedLine {
+                package: None,
+                line_number: 1,
+                line: "  stray line".to_string(),
+            }
+        );
+    }
 }
