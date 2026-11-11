@@ -4,8 +4,12 @@
 ///
 /// Allow-list from `man PKGBUILD`, section `pkgname`: only ASCII letters and digits and the
 /// characters `@ . _ + -`, and it must not start with `-` or `.`.
-pub(crate) fn is_valid_package_name(_name: &str) -> bool {
-    false
+pub(crate) fn is_valid_package_name(name: &str) -> bool {
+    if name.is_empty() || name.starts_with(['-', '.']) {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '.' | '_' | '+' | '-'))
 }
 
 #[cfg(test)]
