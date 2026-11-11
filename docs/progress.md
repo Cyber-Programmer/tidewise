@@ -68,3 +68,16 @@ no force pushes); SOP added to CLAUDE.md: every change via branch + PR, Rebase a
 Next: 2.7 design tokens (light-first theme) — last task of M0.
 Blockers: none.
 Rules bent: none (docs only).
+
+## 2026-11-11 — 2.7 Design tokens (light-first)
+Done: approved Hybrid token board transcribed to `docs/design/tokens.md` (21 colours light + dark, rules, type,
+shape, 16 contrast pairs) and `crates/app/ui/theme.slint` (`Theme` global, light). IBM Plex Sans 400/500/600 +
+Mono 400 embedded from IBM's official releases with `OFL.txt` (both licence files compared identical; `fc-scan`
+shows family "IBM Plex Sans"/"IBM Plex Mono"). Main window uses tokens, Plex, forced light (human checked: light
+background, dark text). `tidewise_core::contrast` (WCAG ratio, strict hex parsing incl. multi-byte and "+" inputs)
+and `crates/app/tests/theme_contrast.rs` (reads theme.slint, all 16 pairs >= 4.5:1, exactly 21 colours).
+Decision record 0003.
+Next: close M0, then M1 (Apps list, read-only).
+Blockers: none.
+Rules bent: cycle 1 (contrast) red was run and shown but not committed separately; the `#+F0000` test was added
+in the green step after finding that `from_str_radix` accepts a leading "+".
