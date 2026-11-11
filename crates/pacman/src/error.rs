@@ -1,6 +1,8 @@
 //! The one error type for every parser in this crate.
 
 use std::fmt;
+use std::io;
+use std::path::PathBuf;
 
 /// Why some pacman text could not be parsed. Parsing is all-or-nothing: the first problem is returned.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,3 +80,22 @@ fn who(package: &Option<String>) -> String {
 }
 
 impl std::error::Error for ParseError {}
+
+/// Why running pacman, or reading its answer, failed.
+#[derive(Debug)]
+pub enum PacmanError {
+    /// The program is not there (spawn failed with "not found").
+    NotFound { program: PathBuf },
+    /// The program exists but could not be started (for example permission denied).
+    Spawn { program: PathBuf, source: io::Error },
+    /// pacman ran and exited with an error. `code` is `None` if a signal ended it.
+    Failed { code: Option<i32>, stderr: String },
+    /// pacman succeeded but its text could not be parsed (the 3.3 error, wrapped).
+    Parse(ParseError),
+}
+
+impl From<ParseError> for PacmanError {
+    fn from(error: ParseError) -> Self {
+        Self::Parse(error)
+    }
+}

@@ -20,6 +20,6 @@ mod qq;
 mod run;
 mod size;
 
-pub use error::ParseError;
+pub use error::{PacmanError, ParseError};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
