@@ -268,25 +268,65 @@ fn error_view(text: &ErrorText) -> ErrorView {
     }
 }
 
-fn details_view(_details: &Details) -> DetailsView {
+fn details_view(details: &Details) -> DetailsView {
+    let nobody = details.needed_by.is_empty();
     DetailsView {
-        name: String::new(),
-        description: String::new(),
-        size: String::new(),
-        version: String::new(),
-        why_here: String::new(),
-        needed_by: Vec::new(),
-        more: String::new(),
-        nothing_needs_it: String::new(),
-        note: String::new(),
-        technical_source: String::new(),
-        technical_bytes: String::new(),
-    } // stub
+        name: details.name.clone(),
+        description: details.description.clone(),
+        size: details.size_text.clone(),
+        version: details.version.clone(),
+        why_here: details.why_here.clone(),
+        needed_by: details.needed_by.clone(),
+        more: if details.needed_by_more > 0 {
+            format!("and {} more", details.needed_by_more)
+        } else {
+            String::new()
+        },
+        nothing_needs_it: if nobody {
+            "Nothing else on this system needs it.".to_string()
+        } else {
+            String::new()
+        },
+        note: "Looking only. Removing packages comes in a later version of Tidewise.".to_string(),
+        technical_source: format!("source: pacman -Qi {}", details.name),
+        technical_bytes: exact_bytes(details.size_bytes),
+    }
+}
+
+/// "7 340 032 bytes": digits grouped in thousands with spaces.
+fn exact_bytes(bytes: u64) -> String {
+    if bytes == 1 {
+        return "1 byte".to_string();
+    }
+    let digits = bytes.to_string();
+    let mut grouped = String::new();
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(' ');
+        }
+        grouped.push(digit);
+    }
+    format!("{grouped} bytes")
 }
 
 /// Compares the rows on screen with the rows that should be on screen.
-pub fn row_update(_old: &[RowView], _new: &[RowView]) -> RowUpdate {
-    RowUpdate::Replace // stub
+pub fn row_update(old: &[RowView], new: &[RowView]) -> RowUpdate {
+    let same_rows = old.len() == new.len()
+        && old
+            .iter()
+            .zip(new)
+            .all(|(before, after)| before.name == after.name);
+    if !same_rows {
+        return RowUpdate::Replace;
+    }
+    let changed = old
+        .iter()
+        .zip(new)
+        .enumerate()
+        .filter(|(_, (before, after))| before != after)
+        .map(|(index, _)| index)
+        .collect();
+    RowUpdate::Patch(changed)
 }
 
 #[cfg(test)]
