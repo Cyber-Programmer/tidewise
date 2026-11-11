@@ -24,8 +24,20 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// A non-zero exit (or a signal) is an error that keeps pacman's own words.
+fn check_exit(output: &Output) -> Result<(), PacmanError> {
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(PacmanError::Failed {
+        code: output.status.code(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    })
+}
+
 /// Turns what pacman printed into packages. Pure: takes an `Output`, runs nothing.
 fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, PacmanError> {
+    check_exit(output)?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(parse_qi(&text)?)
 }
