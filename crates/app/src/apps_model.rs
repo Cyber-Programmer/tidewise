@@ -119,6 +119,8 @@ impl AppsModel {
         }
     }
 
+    pub fn set_tab(&mut self, _tab: Tab) {}
+
     pub fn state(&self) -> &ListState {
         &self.state
     }
@@ -272,5 +274,22 @@ mod tests {
                 all: 5
             }
         );
+    }
+
+    #[test]
+    fn the_dependencies_tab_shows_only_dependencies() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::Dependencies);
+        assert_eq!(model.tab(), Tab::Dependencies);
+        let mut shown = names(&model);
+        shown.sort();
+        assert_eq!(shown, ["glibc", "zlib"]);
+    }
+
+    #[test]
+    fn the_all_tab_shows_everything() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        assert_eq!(names(&model).len(), 5);
     }
 }
