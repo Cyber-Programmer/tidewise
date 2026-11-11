@@ -6,7 +6,7 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -14,9 +14,13 @@ const PACMAN: &str = "/usr/bin/pacman";
 /// Builds the command: absolute program, arguments as a list (no shell), empty environment
 /// except `LC_ALL=C`, and no stdin so pacman can never wait for a prompt.
 fn pacman_command(program: &Path, args: &[&str]) -> Command {
-    // STUB (red): does nothing useful yet.
-    let _ = (PACMAN, args);
-    Command::new(OsStr::new(program))
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null());
+    command
 }
 
 #[cfg(test)]
