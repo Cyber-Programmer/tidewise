@@ -45,6 +45,7 @@ fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, Pacman
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParseError;
     use std::ffi::OsStr;
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
@@ -96,7 +97,11 @@ mod tests {
                 if stderr == "error: package 'x' was not found"),
             "got {error:?}"
         );
-        assert!(error.to_string().contains("error: package 'x' was not found"));
+        assert!(
+            error
+                .to_string()
+                .contains("error: package 'x' was not found")
+        );
         assert!(error.to_string().contains("1"));
     }
 
@@ -114,5 +119,55 @@ mod tests {
             "got {error:?}"
         );
         assert!(error.to_string().contains("signal"));
+    }
+
+    #[test]
+    fn unparseable_text_is_wrapped_parse_error() {
+        let broken = include_str!("../../../tests/fixtures/pacman/qi-broken-truncated.txt");
+        let error = expect_error(&fake_output(0, broken.as_bytes(), b""));
+        let expected = parse_qi(broken).unwrap_err();
+        assert!(
+            matches!(&error, PacmanError::Parse(inner) if *inner == expected),
+            "got {error:?}"
+        );
+        assert!(error.to_string().contains("zsh"));
+        assert!(error.to_string().contains("Installed Size"));
+        let source = std::error::Error::source(&error).map(ToString::to_string);
+        assert_eq!(source, Some(expected.to_string()));
+    }
+
+    #[test]
+    fn invalid_utf8_becomes_replacement_char() {
+        let zsh = include_str!("../../../tests/fixtures/pacman/qi-zsh.txt");
+        let mut bytes = zsh.as_bytes().to_vec();
+        // Put a byte that is never valid UTF-8 into the description.
+        let at = zsh.find("programmable").unwrap();
+        bytes[at] = 0xFF;
+        let packages = packages_from_output(&fake_output(0, &bytes, b"")).unwrap();
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "zsh");
+        assert!(
+            packages[0].description.contains('\u{FFFD}'),
+            "{:?}",
+            packages[0].description
+        );
+        assert!(!packages[0].description.contains("programmable"));
+    }
+
+    #[test]
+    fn invalid_utf8_in_a_name_is_still_rejected() {
+        let zsh = include_str!("../../../tests/fixtures/pacman/qi-zsh.txt");
+        let mut bytes = zsh.as_bytes().to_vec();
+        let at = zsh.find("zsh").unwrap(); // the Name value
+        bytes[at] = 0xFF;
+        let error = expect_error(&fake_output(0, &bytes, b""));
+        // The name becomes "\u{FFFD}sh", which is not an allowed package name.
+        assert!(
+            matches!(
+                &error,
+                PacmanError::Parse(ParseError::BadValue { field: "Name", .. })
+            ),
+            "got {error:?}"
+        );
     }
 }
