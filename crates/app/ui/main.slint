@@ -1,17 +1,25 @@
 import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
+import { AppsBridge, BodyKind, DetailsData, PackageRow } from "apps/bridge.slint";
+
 import "./fonts/IBMPlexSans-Regular.ttf";
 import "./fonts/IBMPlexSans-Medium.ttf";
 import "./fonts/IBMPlexSans-SemiBold.ttf";
 import "./fonts/IBMPlexMono-Regular.ttf";
 
+// Rust reaches these through the generated code, so they are re-exported here.
+export { AppsBridge, BodyKind, DetailsData, PackageRow }
+
 export component MainWindow inherits Window {
     in property <string> app-name;
 
     title: root.app-name;
-    preferred-width: 480px;
-    preferred-height: 320px;
+    preferred-width: 1200px;
+    preferred-height: 800px;
+    // Narrower than this the list, details and header would start to overlap.
+    min-width: 1100px;
+    min-height: 640px;
     background: Theme.bg;
     default-font-family: Theme.font-sans;
 
@@ -19,12 +27,5 @@ export component MainWindow inherits Window {
         Palette.color-scheme = ColorScheme.light;
     }
 
-    Text {
-        text: root.app-name;
-        font-size: Theme.size-page-title;
-        font-weight: Theme.weight-semibold;
-        color: Theme.text;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
+    AppsScreen { }
 }
