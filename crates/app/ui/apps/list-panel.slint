@@ -73,12 +73,15 @@ export component ListPanel inherits Rectangle {
             height: 40px;
             background: Theme.surface;
             Rectangle {
+                y: 0px;
                 height: 1px;
                 background: Theme.rule;
             }
 
             Text {
                 x: Theme.space-l;
+                y: 0px;
+                height: parent.height;
                 text: AppsBridge.footer;
                 color: Theme.text-3;
                 font-family: Theme.font-mono;

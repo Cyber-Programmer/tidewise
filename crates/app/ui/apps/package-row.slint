@@ -58,13 +58,13 @@ export component PackageRowItem inherits Rectangle {
 
             HorizontalLayout {
                 spacing: Theme.space-s;
+                alignment: start;
                 Text {
                     text: root.package.name;
                     color: Theme.text;
                     font-size: Theme.size-row-title;
                     font-weight: Theme.weight-semibold;
                     overflow: elide;
-                    horizontal-stretch: 0;
                 }
 
                 Text {
