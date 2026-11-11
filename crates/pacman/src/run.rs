@@ -4,9 +4,10 @@
 //! without pacman: "run the process" (`run`) and "turn its `Output` into the result"
 //! (`packages_from_output`).
 
-use std::ffi::OsStr;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
+
+use crate::{InstalledPackage, PacmanError};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -23,9 +24,39 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// Turns what pacman printed into packages. Pure: takes an `Output`, runs nothing.
+fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, PacmanError> {
+    // STUB (red)
+    let _ = output;
+    Ok(Vec::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse_qi;
+    use std::ffi::OsStr;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const MULTI: &str = include_str!("../../../tests/fixtures/pacman/qi-multi.txt");
+
+    /// A fake pacman result. `code` is the exit code (0 = success).
+    fn fake_output(code: i32, stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    #[test]
+    fn success_output_parses_like_parse_qi() {
+        let output = fake_output(0, MULTI.as_bytes(), b"");
+        let packages = packages_from_output(&output).unwrap();
+        assert_eq!(packages, parse_qi(MULTI).unwrap());
+        assert!(!packages.is_empty());
+    }
 
     #[test]
     fn command_is_absolute_pacman_with_arg_list_and_c_locale() {
