@@ -213,4 +213,44 @@ mod tests {
             }
         );
     }
+
+    const MULTI: &str = include_str!("../../../tests/fixtures/pacman/qi-multi.txt");
+
+    #[test]
+    fn qi_multi_three_records_in_order() {
+        let packages = parse_qi(MULTI).unwrap();
+        let summary: Vec<(&str, u64, InstallReason)> = packages
+            .iter()
+            .map(|p| (p.name.as_str(), p.installed_size, p.reason))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("base", 0, InstallReason::Explicit),
+                ("tzdata", 1_742_572, InstallReason::Dependency),
+                ("linux-api-headers", 7_340_032, InstallReason::Dependency),
+            ]
+        );
+    }
+
+    #[test]
+    fn qi_without_trailing_blank_line() {
+        let with_blank = parse_qi(ZSH).unwrap();
+        let one_newline = ZSH.trim_end_matches('\n').to_string() + "\n";
+        let no_newline = ZSH.trim_end_matches('\n');
+        assert_eq!(parse_qi(&one_newline).unwrap(), with_blank);
+        assert_eq!(parse_qi(no_newline).unwrap(), with_blank);
+    }
+
+    #[test]
+    fn qi_extra_blank_lines_between_records_are_fine() {
+        let spaced = MULTI.replace("\n\n", "\n\n\n\n");
+        assert_eq!(parse_qi(&spaced).unwrap(), parse_qi(MULTI).unwrap());
+    }
+
+    #[test]
+    fn qi_empty_input_is_no_packages() {
+        assert_eq!(parse_qi("").unwrap(), []);
+        assert_eq!(parse_qi("\n\n\n").unwrap(), []);
+    }
 }
