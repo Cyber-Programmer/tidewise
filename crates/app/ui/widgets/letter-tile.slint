@@ -1,0 +1,20 @@
+import { Theme } from "../theme.slint";
+
+// The square with the first letter of a package name.
+export component LetterTile inherits Rectangle {
+    in property <string> letter;
+
+    width: 32px;
+    height: 32px;
+    background: Theme.chip;
+    border-radius: Theme.radius-control;
+
+    Text {
+        text: root.letter;
+        color: Theme.text-2;
+        font-size: Theme.size-body;
+        font-weight: Theme.weight-semibold;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

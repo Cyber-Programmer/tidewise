@@ -1,0 +1,61 @@
+import { Theme } from "../theme.slint";
+
+// A real button: Tab reaches it, Enter or Space presses it, a ring shows the focus.
+// `primary` = teal (a reversible action); otherwise a neutral outlined button.
+export component TwButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    callback clicked();
+
+    min-height: Theme.min-target;
+    min-width: Theme.min-target;
+    horizontal-stretch: 0;
+    border-radius: Theme.radius-control;
+    border-width: 1px;
+    background: root.primary
+        ? (touch.has-hover ? Theme.accent-hover : Theme.accent)
+        : (touch.has-hover ? Theme.surface-2 : Theme.surface);
+    border-color: root.primary ? self.background : Theme.control-border;
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: root.primary ? Theme.on-accent : Theme.text;
+            font-size: Theme.size-body;
+            font-weight: Theme.weight-medium;
+            vertical-alignment: center;
+        }
+    }
+
+    // Focus ring, drawn over the button.
+    Rectangle {
+        border-radius: Theme.radius-control;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: root.primary ? Theme.text : Theme.accent;
+    }
+}
