@@ -193,7 +193,26 @@ impl AppsModel {
     }
 
     pub fn empty_state(&self) -> EmptyState {
-        EmptyState::NotEmpty
+        if self.state != ListState::Loaded {
+            return EmptyState::NotEmpty;
+        }
+        let counts = self.tab_counts();
+        match self.tab {
+            Tab::Explicit if counts.explicit == 0 && counts.dependencies > 0 => {
+                EmptyState::OtherTabHas {
+                    tab: Tab::Dependencies,
+                    count: counts.dependencies,
+                }
+            }
+            Tab::Dependencies if counts.dependencies == 0 && counts.explicit > 0 => {
+                EmptyState::OtherTabHas {
+                    tab: Tab::Explicit,
+                    count: counts.explicit,
+                }
+            }
+            _ if counts.all == 0 => EmptyState::NothingMatches,
+            _ => EmptyState::NotEmpty,
+        }
     }
 
     pub fn tab_counts(&self) -> TabCounts {
