@@ -390,4 +390,76 @@ mod tests {
             "line 3: \"--force\" is not a valid package name"
         );
     }
+
+    #[test]
+    fn qi_all_real_fixtures_parse() {
+        let files = [
+            (
+                "qi-base.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-base.txt"),
+                1,
+            ),
+            ("qi-zsh.txt", ZSH, 1),
+            (
+                "qi-linux-api-headers.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-linux-api-headers.txt"),
+                1,
+            ),
+            (
+                "qi-tzdata.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-tzdata.txt"),
+                1,
+            ),
+            (
+                "qi-bc.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-bc.txt"),
+                1,
+            ),
+            (
+                "qi-baobab.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-baobab.txt"),
+                1,
+            ),
+            (
+                "qi-qt6-imageformats.txt",
+                include_str!("../../../tests/fixtures/pacman/qi-qt6-imageformats.txt"),
+                1,
+            ),
+            ("qi-multi.txt", MULTI, 3),
+        ];
+        for (file, text, count) in files {
+            let packages = parse_qi(text).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(packages.len(), count, "{file}");
+        }
+    }
+
+    #[test]
+    fn qi_odd_inputs_never_panic() {
+        let many_blank = "\n".repeat(10_000);
+        let many_fields = "Name : a\n".repeat(10_000);
+        let long_line = format!("Name : {}", "a".repeat(1_000_000));
+        let inputs = [
+            "",
+            "\n\n\n",
+            ":",
+            " : ",
+            "Name",
+            "Name :",
+            "Name : zsh",
+            "\t",
+            "é : ü",
+            "  continuation first",
+            "Name : zsh\r\nVersion : 1\r\n",
+            "Name : zsh\0\nVersion : 1\n",
+            "Installed Size : 99999999999999999999.00 GiB",
+            "\u{feff}Name : zsh",
+            many_blank.as_str(),
+            many_fields.as_str(),
+            long_line.as_str(),
+        ];
+        for input in inputs {
+            // Ok or Err are both fine; the test only proves that it returns.
+            let _ = parse_qi(input);
+        }
+    }
 }
