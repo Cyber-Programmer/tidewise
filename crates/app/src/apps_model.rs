@@ -136,6 +136,10 @@ pub struct AppsModel {
     search: String,
     /// Name of the selected package. Always one of the visible rows, or `None` when there are none.
     selected: Option<String>,
+    /// True from `begin_reload` until `set_result`: a worker thread is running.
+    load_running: bool,
+    /// True once a running load has taken too long (the screen adds a "taking longer" note).
+    slow: bool,
 }
 
 impl AppsModel {
@@ -158,6 +162,25 @@ impl AppsModel {
                 self.state = ListState::Error(error_text(&error));
             }
         }
+    }
+
+    /// Asks to start a load. `true` means "start the worker thread now"; `false` means one is already running.
+    /// A brand-new model is `Loading` but has no load running, so the first call returns `true`.
+    pub fn begin_reload(&mut self) -> bool {
+        false // stub
+    }
+
+    /// Called when a load has run for too long. Ignored unless a load is running.
+    pub fn mark_slow(&mut self) {}
+
+    /// Has the running load been marked slow?
+    pub fn is_slow(&self) -> bool {
+        false // stub
+    }
+
+    /// Package counts ignoring the search: what is on this system, whatever is typed.
+    pub fn totals(&self) -> TabCounts {
+        TabCounts::default() // stub
     }
 
     pub fn set_tab(&mut self, tab: Tab) {
@@ -836,5 +859,94 @@ mod tests {
         assert_eq!(details.name, "linux-api-headers");
         assert_eq!(details.needed_by, ["glibc", "libbpf", "libxdp"]);
         assert_eq!(details.size_bytes, 7 * 1024 * 1024);
+    }
+    #[test]
+    fn the_first_load_may_start_on_a_new_model() {
+        let mut model = AppsModel::new();
+        assert!(model.begin_reload());
+    }
+
+    #[test]
+    fn a_second_load_is_refused_while_one_is_running() {
+        let mut model = AppsModel::new();
+        assert!(model.begin_reload());
+        assert!(!model.begin_reload());
+        assert_eq!(model.state(), &ListState::Loading);
+    }
+
+    #[test]
+    fn a_new_load_may_start_after_the_answer_arrived() {
+        let mut model = AppsModel::new();
+        assert!(model.begin_reload());
+        model.set_result(Err(PacmanError::Failed {
+            code: Some(1),
+            stderr: String::new(),
+        }));
+        assert!(model.begin_reload());
+        model.set_result(Ok(sample()));
+        assert!(model.begin_reload());
+    }
+
+    #[test]
+    fn starting_a_reload_clears_the_list_and_goes_back_to_loading() {
+        let mut model = loaded(sample());
+        assert!(model.begin_reload());
+        assert_eq!(model.state(), &ListState::Loading);
+        assert!(model.rows().is_empty());
+        assert_eq!(model.totals(), TabCounts::default());
+        assert_eq!(model.details(), None);
+    }
+
+    #[test]
+    fn a_reload_keeps_the_tab_and_the_sort_but_not_the_old_selection() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model.set_sort(SortOrder::NameAToZ);
+        model.select("zlib");
+        assert!(model.begin_reload());
+        model.set_result(Ok(sample()));
+        assert_eq!(model.tab(), Tab::All);
+        assert_eq!(names(&model), ["firefox", "git", "glibc", "vim", "zlib"]);
+        assert_eq!(selected(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn a_load_is_slow_only_after_it_is_marked_and_only_while_running() {
+        let mut model = AppsModel::new();
+        model.mark_slow(); // no load running yet: ignored
+        assert!(!model.is_slow());
+        assert!(model.begin_reload());
+        assert!(!model.is_slow());
+        model.mark_slow();
+        assert!(model.is_slow());
+        model.set_result(Ok(sample()));
+        assert!(!model.is_slow());
+        model.mark_slow(); // a late timer after the answer: ignored
+        assert!(!model.is_slow());
+    }
+
+    #[test]
+    fn a_new_load_forgets_that_the_last_one_was_slow() {
+        let mut model = AppsModel::new();
+        assert!(model.begin_reload());
+        model.mark_slow();
+        model.set_result(Ok(sample()));
+        assert!(model.begin_reload());
+        assert!(!model.is_slow());
+    }
+
+    #[test]
+    fn totals_ignore_the_search() {
+        let mut model = loaded(sample());
+        model.set_search("library");
+        assert_eq!(model.tab_counts().all, 2);
+        assert_eq!(
+            model.totals(),
+            TabCounts {
+                explicit: 3,
+                dependencies: 2,
+                all: 5
+            }
+        );
     }
 }
