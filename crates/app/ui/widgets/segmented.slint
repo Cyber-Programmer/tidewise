@@ -1,0 +1,79 @@
+import { Theme } from "../theme.slint";
+
+// A row of choices where exactly one is selected. `counts` is optional (leave it empty for none);
+// counts are numbers, so they are drawn in Plex Mono.
+export component Segmented inherits Rectangle {
+    in property <[string]> labels;
+    in property <[string]> counts;
+    in property <int> current;
+    callback chosen(int);
+
+    min-height: Theme.min-target;
+    horizontal-stretch: 0;
+    border-radius: Theme.radius-control;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    background: Theme.chip;
+
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        for label[index] in root.labels: Rectangle {
+            border-radius: Theme.radius-chip + 2px;
+            background: index == root.current ? Theme.surface : transparent;
+            min-width: Theme.min-target;
+
+            accessible-role: tab;
+            accessible-label: root.counts.length > index ? label + ", " + root.counts[index] : label;
+            accessible-checkable: true;
+            accessible-checked: index == root.current;
+            accessible-action-default => {
+                root.chosen(index);
+            }
+
+            focus := FocusScope {
+                key-pressed(event) => {
+                    if (event.text == Key.Return || event.text == " ") {
+                        root.chosen(index);
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+
+            TouchArea {
+                clicked => {
+                    root.chosen(index);
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: Theme.space-m;
+                padding-right: Theme.space-m;
+                spacing: Theme.space-s;
+                alignment: center;
+                Text {
+                    text: label;
+                    color: index == root.current ? Theme.text : Theme.text-2;
+                    font-size: Theme.size-body;
+                    font-weight: index == root.current ? Theme.weight-semibold : Theme.weight-regular;
+                    vertical-alignment: center;
+                }
+
+                if root.counts.length > index: Text {
+                    text: root.counts[index];
+                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                border-radius: Theme.radius-chip + 2px;
+                border-width: focus.has-focus ? 2px : 0px;
+                border-color: Theme.accent;
+            }
+        }
+    }
+}

@@ -1,0 +1,23 @@
+import { Theme } from "../theme.slint";
+
+// A small neutral tag, used for the names in "Needed by".
+export component Chip inherits Rectangle {
+    in property <string> text;
+
+    background: Theme.chip;
+    border-radius: Theme.radius-chip;
+    horizontal-stretch: 0;
+
+    HorizontalLayout {
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-s;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+        Text {
+            text: root.text;
+            color: Theme.text-2;
+            font-family: Theme.font-mono;
+            font-size: Theme.size-label;
+        }
+    }
+}

@@ -1,0 +1,33 @@
+import { Theme } from "../theme.slint";
+
+// The Tidewise mark: two waves, teal above ink. Drawn from the design's 32×32 SVG data.
+export component Logo inherits Rectangle {
+    width: 32px;
+    height: 32px;
+    accessible-role: image;
+    accessible-label: "Tidewise logo";
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M4 13c4 0 4-4 8-4s4 4 8 4 4-4 8-4";
+        stroke: Theme.accent;
+        stroke-width: 2.4px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M4 22c4 0 4-4 8-4s4 4 8 4 4-4 8-4";
+        stroke: Theme.text;
+        stroke-width: 2.4px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+}

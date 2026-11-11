@@ -1,0 +1,91 @@
+import { Theme } from "../theme.slint";
+
+// A one-line search box with a placeholder and a clear button (shown only when there is text).
+export component SearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    // Fired for every change the user makes, including pressing the clear button.
+    callback edited(string);
+
+    min-height: Theme.min-target;
+    border-radius: Theme.radius-control;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.control-border;
+    background: Theme.surface;
+
+    HorizontalLayout {
+        padding-left: Theme.space-m;
+        padding-right: Theme.space-xs;
+        spacing: Theme.space-s;
+
+        Rectangle {
+            input := TextInput {
+                text <=> root.text;
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                color: Theme.text;
+                font-size: Theme.size-body;
+                single-line: true;
+                accessible-label: root.placeholder;
+                edited => {
+                    root.edited(self.text);
+                }
+            }
+
+            if root.text == "": Text {
+                text: root.placeholder;
+                color: Theme.text-3;
+                font-size: Theme.size-body;
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+
+        if root.text != "": Rectangle {
+            width: Theme.min-target - Theme.space-s;
+            border-radius: Theme.radius-control;
+            background: clear-touch.has-hover ? Theme.surface-2 : transparent;
+
+            accessible-role: button;
+            accessible-label: "Clear search";
+            accessible-action-default => {
+                root.text = "";
+                root.edited("");
+            }
+
+            clear-focus := FocusScope {
+                key-pressed(event) => {
+                    if (event.text == Key.Return || event.text == " ") {
+                        root.text = "";
+                        root.edited("");
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+
+            clear-touch := TouchArea {
+                clicked => {
+                    root.text = "";
+                    root.edited("");
+                    input.focus();
+                }
+            }
+
+            Text {
+                text: "×";
+                color: Theme.text-2;
+                font-size: Theme.size-dialog-title;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                border-radius: Theme.radius-control;
+                border-width: clear-focus.has-focus ? 2px : 0px;
+                border-color: Theme.accent;
+            }
+        }
+    }
+}
