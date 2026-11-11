@@ -24,6 +24,17 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.
+fn run(program: &Path, args: &[&str]) -> Result<Output, PacmanError> {
+    // STUB (red)
+    let _ = pacman_command(program, args);
+    Ok(Output {
+        status: std::process::ExitStatus::default(),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    })
+}
+
 /// A non-zero exit (or a signal) is an error that keeps pacman's own words.
 fn check_exit(output: &Output) -> Result<(), PacmanError> {
     if output.status.success() {
@@ -169,5 +180,33 @@ mod tests {
             ),
             "got {error:?}"
         );
+    }
+
+    #[test]
+    fn missing_program_is_not_found() {
+        let error = run(Path::new("/nonexistent/pacman"), &["-Qi"]).unwrap_err();
+        assert!(
+            matches!(&error, PacmanError::NotFound { program } if program == Path::new("/nonexistent/pacman")),
+            "got {error:?}"
+        );
+        assert!(error.to_string().contains("/nonexistent/pacman"));
+    }
+
+    #[test]
+    fn unstartable_program_is_spawn_error() {
+        // A directory exists but cannot be executed.
+        let error = run(Path::new("/"), &[]).unwrap_err();
+        assert!(matches!(&error, PacmanError::Spawn { .. }), "got {error:?}");
+        assert!(std::error::Error::source(&error).is_some());
+    }
+
+    #[test]
+    fn run_returns_the_process_output() {
+        // /usr/bin/true exists on every Linux (including CI); this only checks that
+        // `run` hands back a finished process, not anything about pacman.
+        let output = run(Path::new("/usr/bin/true"), &[]).unwrap();
+        assert!(output.status.success());
+        let output = run(Path::new("/usr/bin/false"), &[]).unwrap();
+        assert_eq!(output.status.code(), Some(1));
     }
 }
