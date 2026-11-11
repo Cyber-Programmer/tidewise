@@ -63,7 +63,7 @@ fn split_records(text: &str) -> Result<Vec<Record>, ParseError> {
         if line.starts_with(char::is_whitespace) {
             let Some((_, value)) = fields.last_mut() else {
                 return Err(ParseError::MalformedLine {
-                    package: None,
+                    package: name_so_far(&fields),
                     line_number: index + 1,
                     line: line.to_string(),
                 });
@@ -75,18 +75,33 @@ fn split_records(text: &str) -> Result<Vec<Record>, ParseError> {
         // Split at the FIRST colon only: values may contain colons too.
         let Some((key, value)) = line.split_once(':') else {
             return Err(ParseError::MalformedLine {
-                package: None,
+                package: name_so_far(&fields),
                 line_number: index + 1,
                 line: line.to_string(),
             });
         };
-        fields.push((key.trim().to_string(), value.trim().to_string()));
+        let key = key.trim();
+        if fields.iter().any(|(existing, _)| existing == key) {
+            return Err(ParseError::DuplicateField {
+                package: name_so_far(&fields),
+                field: key.to_string(),
+            });
+        }
+        fields.push((key.to_string(), value.trim().to_string()));
     }
     // The last record may have no blank line after it; that is not an error.
     if !fields.is_empty() {
         records.push(Record { fields });
     }
     Ok(records)
+}
+
+/// The `Name` of the record being read, if its `Name` line has been seen yet (for error messages).
+fn name_so_far(fields: &[(String, String)]) -> Option<String> {
+    fields
+        .iter()
+        .find(|(key, _)| key == "Name")
+        .map(|(_, value)| value.clone())
 }
 
 /// Reads the five fields we need out of one record, or says which one is wrong.
