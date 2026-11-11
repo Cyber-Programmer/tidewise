@@ -48,9 +48,22 @@ impl Record {
 
 /// Cuts the text into records. (First version: treats all lines as one record.)
 fn split_records(text: &str) -> Result<Vec<Record>, ParseError> {
-    let mut fields = Vec::new();
+    let mut fields: Vec<(String, String)> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
+            continue;
+        }
+        // An indented line continues the previous field's value (one value line per line).
+        if line.starts_with(char::is_whitespace) {
+            let Some((_, value)) = fields.last_mut() else {
+                return Err(ParseError::MalformedLine {
+                    package: None,
+                    line_number: index + 1,
+                    line: line.to_string(),
+                });
+            };
+            value.push('\n');
+            value.push_str(line.trim());
             continue;
         }
         // Split at the FIRST colon only: values may contain colons too.
