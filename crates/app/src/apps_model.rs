@@ -122,6 +122,9 @@ pub enum EmptyState {
     NothingMatches,
 }
 
+/// How many "needed by" names the details panel lists before "and N more".
+const NEEDED_BY_SHOWN: usize = 5;
+
 /// The Apps screen's state. Set the inputs with `set_*`, read what to show with the other methods.
 #[derive(Debug, Default)]
 pub struct AppsModel {
@@ -236,7 +239,27 @@ impl AppsModel {
 
     /// Details of the selected package, or `None` when nothing is selected.
     pub fn details(&self) -> Option<Details> {
-        None
+        let name = self.selected.as_ref()?;
+        let package = self.packages.iter().find(|p| &p.name == name)?;
+        let why_here = match package.reason {
+            InstallReason::Explicit => "You installed it",
+            InstallReason::Dependency => "Another package needs it",
+        };
+        Some(Details {
+            name: package.name.clone(),
+            description: package.description.clone(),
+            version: package.version.clone(),
+            size_text: format_size(package.installed_size),
+            why_here: why_here.to_string(),
+            needed_by: package
+                .required_by
+                .iter()
+                .take(NEEDED_BY_SHOWN)
+                .cloned()
+                .collect(),
+            needed_by_more: package.required_by.len().saturating_sub(NEEDED_BY_SHOWN),
+            size_bytes: package.installed_size,
+        })
     }
 
     pub fn empty_state(&self) -> EmptyState {
@@ -608,15 +631,15 @@ mod tests {
 
     #[test]
     fn needed_by_shows_five_names_and_counts_the_rest() {
-        use InstallReason::Dependency;
+        use InstallReason::Explicit;
         let five = ["a", "b", "c", "d", "e"];
         let seven = ["a", "b", "c", "d", "e", "f", "g"];
-        let model = loaded(vec![pkg("five", "", 1, Dependency, &five)]);
+        let model = loaded(vec![pkg("five", "", 1, Explicit, &five)]);
         let details = model.details().unwrap();
         assert_eq!(details.needed_by, five);
         assert_eq!(details.needed_by_more, 0);
 
-        let model = loaded(vec![pkg("seven", "", 1, Dependency, &seven)]);
+        let model = loaded(vec![pkg("seven", "", 1, Explicit, &seven)]);
         let details = model.details().unwrap();
         assert_eq!(details.needed_by, ["a", "b", "c", "d", "e"]);
         assert_eq!(details.needed_by_more, 2);
