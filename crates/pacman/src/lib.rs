@@ -15,8 +15,10 @@
 
 mod error;
 mod name;
+mod qi;
 mod qq;
 mod size;
 
 pub use error::ParseError;
+pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
