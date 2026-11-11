@@ -202,25 +202,70 @@ fn footer(model: &AppsModel) -> String {
     format!("Showing {} of {}", model.rows().len(), of_this_tab)
 }
 
-fn body(model: &AppsModel, _typed_search: &str) -> Body {
+fn body(model: &AppsModel, typed_search: &str) -> Body {
     match model.state() {
         ListState::Loading => Body::Loading,
-        ListState::Error(_) => Body::Loading, // stub
-        ListState::Loaded => {
-            let _ = EmptyState::NotEmpty; // stub
-            Body::List
-        }
+        ListState::Error(text) => Body::Error(error_view(text)),
+        ListState::Loaded => match model.empty_state() {
+            EmptyState::NotEmpty => Body::List,
+            EmptyState::OtherTabHas { tab, count } => {
+                Body::Empty(other_tab_view(model.tab(), tab, count, typed_search.trim()))
+            }
+            EmptyState::NothingMatches => Body::Empty(nothing_matches_view(typed_search.trim())),
+        },
     }
 }
 
-fn error_view(_text: &ErrorText) -> ErrorView {
-    ErrorView {
-        title: String::new(),
+/// This tab is empty, but `other` has `count` packages that fit.
+fn other_tab_view(this: Tab, other: Tab, count: usize, search: &str) -> EmptyView {
+    let title = if search.is_empty() {
+        format!("Nothing in {}", tab_name(this))
+    } else {
+        format!("No match in {} for “{search}”", tab_name(this))
+    };
+    let noun = match (search.is_empty(), count == 1) {
+        (true, true) => "package",
+        (true, false) => "packages",
+        (false, true) => "match",
+        (false, false) => "matches",
+    };
+    EmptyView {
+        title,
+        body: format!(
+            "It is installed, just not in this tab: {count} {noun} in {}.",
+            tab_name(other)
+        ),
+        button: format!("Show {}", tab_name(other)),
+        action: EmptyAction::ShowTab(other),
+    }
+}
+
+/// No tab has a match (or, with no search, there are no packages at all).
+fn nothing_matches_view(search: &str) -> EmptyView {
+    if search.is_empty() {
+        return EmptyView {
+            title: "No installed packages found".to_string(),
+            body: String::new(),
+            button: String::new(),
+            action: EmptyAction::None,
+        };
+    }
+    EmptyView {
+        title: format!("No installed package matches “{search}”"),
         body: String::new(),
-        technical: String::new(),
-        unchanged: String::new(),
-        report: String::new(),
-    } // stub
+        button: "Clear search".to_string(),
+        action: EmptyAction::ClearSearch,
+    }
+}
+
+fn error_view(text: &ErrorText) -> ErrorView {
+    ErrorView {
+        title: text.title.clone(),
+        body: text.body.clone(),
+        technical: text.technical.clone(),
+        unchanged: "Nothing on your system was changed.".to_string(),
+        report: "Report problems at github.com/Cyber-Programmer/tidewise/issues".to_string(),
+    }
 }
 
 fn details_view(_details: &Details) -> DetailsView {
