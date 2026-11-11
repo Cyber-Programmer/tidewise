@@ -100,6 +100,7 @@ pub struct AppsModel {
     state: ListState,
     packages: Vec<InstalledPackage>,
     tab: Tab,
+    sort: SortOrder,
 }
 
 impl AppsModel {
@@ -123,7 +124,9 @@ impl AppsModel {
         self.tab = tab;
     }
 
-    pub fn set_sort(&mut self, _sort: SortOrder) {}
+    pub fn set_sort(&mut self, sort: SortOrder) {
+        self.sort = sort;
+    }
 
     pub fn state(&self) -> &ListState {
         &self.state
@@ -135,9 +138,8 @@ impl AppsModel {
 
     /// The rows to show: the current tab's packages.
     pub fn rows(&self) -> Vec<Row> {
-        self.packages
-            .iter()
-            .filter(|package| tab_shows(self.tab, package))
+        self.visible()
+            .into_iter()
             .map(|package| Row {
                 name: package.name.clone(),
                 version: package.version.clone(),
@@ -148,6 +150,24 @@ impl AppsModel {
             .collect()
     }
 
+    /// The packages the current tab lists, in the current order.
+    fn visible(&self) -> Vec<&InstalledPackage> {
+        let mut visible: Vec<&InstalledPackage> = self
+            .packages
+            .iter()
+            .filter(|package| tab_shows(self.tab, package))
+            .collect();
+        match self.sort {
+            SortOrder::SizeLargestFirst => visible.sort_by(|a, b| {
+                b.installed_size
+                    .cmp(&a.installed_size)
+                    .then_with(|| compare_names(&a.name, &b.name))
+            }),
+            SortOrder::NameAToZ => visible.sort_by(|a, b| compare_names(&a.name, &b.name)),
+        }
+        visible
+    }
+
     pub fn tab_counts(&self) -> TabCounts {
         let count = |tab| self.packages.iter().filter(|p| tab_shows(tab, p)).count();
         TabCounts {
@@ -156,6 +176,13 @@ impl AppsModel {
             all: count(Tab::All),
         }
     }
+}
+
+/// Names compare ignoring case; if only the case differs, the exact text decides, so the order never wobbles.
+fn compare_names(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
 }
 
 /// Does this tab list this package?
