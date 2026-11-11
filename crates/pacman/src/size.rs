@@ -59,8 +59,20 @@ mod tests {
     #[test]
     fn size_rejects_garbage() {
         for text in [
-            "", "lots", "1.5 TB", "-1.00 KiB", "+1.00 KiB", "1.5 KiB", "1.00", "1.00 TiB",
-            ".50 KiB", "1.00  KiB", "1.00 kib", " 1.00 KiB", "1.00 KiB ", "é.00 B",
+            "",
+            "lots",
+            "1.5 TB",
+            "-1.00 KiB",
+            "+1.00 KiB",
+            "1.5 KiB",
+            "1.00",
+            "1.00 TiB",
+            ".50 KiB",
+            "1.00  KiB",
+            "1.00 kib",
+            " 1.00 KiB",
+            "1.00 KiB ",
+            "é.00 B",
         ] {
             assert_eq!(parse_size(text), None, "should reject {text:?}");
         }
