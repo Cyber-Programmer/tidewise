@@ -22,8 +22,10 @@ export component SearchField inherits Rectangle {
             input := TextInput {
                 text <=> root.text;
                 x: 0px;
-                y: (parent.height - self.height) / 2;
+                y: 0px;
                 width: parent.width;
+                height: parent.height;
+                vertical-alignment: center;
                 color: Theme.text;
                 font-size: Theme.size-body;
                 single-line: true;
