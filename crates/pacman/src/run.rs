@@ -48,6 +48,14 @@ mod tests {
         }
     }
 
+    /// Runs `packages_from_output` and returns its error, with a clear message if it succeeded.
+    fn expect_error(output: &Output) -> PacmanError {
+        match packages_from_output(output) {
+            Err(error) => error,
+            Ok(packages) => panic!("expected an error, got {} packages", packages.len()),
+        }
+    }
+
     #[test]
     fn success_output_parses_like_parse_qi() {
         let output = fake_output(0, MULTI.as_bytes(), b"");
@@ -64,5 +72,35 @@ mod tests {
         assert_eq!(args, ["-Qi"]);
         let envs: Vec<_> = cmd.get_envs().collect();
         assert_eq!(envs, [(OsStr::new("LC_ALL"), Some(OsStr::new("C")))]);
+    }
+
+    #[test]
+    fn non_zero_exit_keeps_stderr() {
+        let text = "error: package 'x' was not found\n";
+        let output = fake_output(1, b"", text.as_bytes());
+        let error = expect_error(&output);
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), stderr }
+                if stderr == "error: package 'x' was not found"),
+            "got {error:?}"
+        );
+        assert!(error.to_string().contains("error: package 'x' was not found"));
+        assert!(error.to_string().contains("1"));
+    }
+
+    #[test]
+    fn exit_by_signal_has_no_code() {
+        // Raw wait status 9 = "killed by signal 9".
+        let output = Output {
+            status: ExitStatus::from_raw(9),
+            stdout: Vec::new(),
+            stderr: b"partial".to_vec(),
+        };
+        let error = expect_error(&output);
+        assert!(
+            matches!(&error, PacmanError::Failed { code: None, stderr } if stderr == "partial"),
+            "got {error:?}"
+        );
+        assert!(error.to_string().contains("signal"));
     }
 }

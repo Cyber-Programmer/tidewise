@@ -99,3 +99,12 @@ impl From<ParseError> for PacmanError {
         Self::Parse(error)
     }
 }
+
+impl fmt::Display for PacmanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // STUB (red)
+        write!(f, "pacman error")
+    }
+}
+
+impl std::error::Error for PacmanError {}
