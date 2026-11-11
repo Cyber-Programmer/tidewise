@@ -143,3 +143,24 @@ Blockers: none.
 Rules bent: red commit used a stub; `none_is_empty` and `missing_required_by_is_empty` passed on the stub (they
 pin behaviour) and are named in the red commit message. A package literally named `None` would be read as "no
 one" (pacman has the same ambiguity; none exists in the repos).
+
+## 2026-11-11 — 3.4 Apps list view model
+Done: `crates/app/src/apps_model.rs` (plain Rust, no Slint, no threads, never runs pacman). `AppsModel` takes
+`Result<Vec<InstalledPackage>, PacmanError>` through `set_result` and answers: `rows()` (name, version, description,
+SI size text, `selected`), `tab_counts()`, `empty_state()` (`NotEmpty` / `OtherTabHas {tab, count}` / `NothingMatches`),
+`details()` and `state()` (`Loading` / `Loaded` / `Error(ErrorText)`). Tabs Installed by you (default) / Dependencies / All;
+search is trimmed, case-insensitive, name or description, and the counts follow it; sort is size (ties by name,
+default) or name (case-insensitive, then exact text, so it never wobbles); the selection is kept while visible, else
+the first row, else none (after load exactly one visible row is selected, tested). `format_size` uses integer maths
+and moves to the next unit when rounding would give 1000 ("999.5 kB" is "1.0 MB", never "1000 kB"). Error bodies use
+the approved wording; technical lines are pacman's Display text, `exit code N: <stderr>`, or the parse error text.
+Setup (approved): `tidewise-app` now has a lib target (`src/lib.rs`, same no-panic clippy lints as `tidewise-pacman`)
+and a path dependency on `tidewise-pacman`; nothing new from crates.io. 35 app tests; all standard commands exit 0.
+Next: 3.5 (the Apps screen in Slint using this model). Needs: a worker thread to call `installed_packages()` (it has
+no timeout yet, see 3.7), and wiring `set_result`. Unhandled on purpose: a loaded list with zero packages in total
+reports `NothingMatches` (not a real case on Arch).
+Blockers: none.
+Rules bent: red commits use stubs that compile. Tests that passed on the stub (they pin behaviour) are named in their
+red commit messages; the 3.4 cycle-8 `needed_by` test had a setup bug (dependency-only packages are hidden on the
+default tab) fixed in the green commit with the same assertions; the fixture test passed on first run and is
+committed as a pin. WBS sheet not updated (asked to skip).
