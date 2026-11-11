@@ -23,3 +23,4 @@ mod size;
 pub use error::{PacmanError, ParseError};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
+pub use run::installed_packages;
