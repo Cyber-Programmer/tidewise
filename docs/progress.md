@@ -109,3 +109,23 @@ some new tests passed on first run (they pin behaviour or are a safety net); the
 messages, not hidden. One green commit (continuation lines) was committed with a compile error because the
 test run was not gating the commit; I fixed and amended it locally before anything was pushed.
 Not parsed yet (not needed for 3.3): `Depends On`, `Optional Deps`, `Required By`, other fields.
+
+## 2026-11-11 — 3.7 Run `pacman -Qi` safely
+Done: new `crates/pacman/src/run.rs` with one public entry point, `installed_packages() -> Result<Vec<InstalledPackage>,
+PacmanError>`. It runs `/usr/bin/pacman -Qi` (no names = every package; 1490 records here, equal to the `-Qq`
+count) with `Command` by absolute path, args as a list, `env_clear()` then `LC_ALL=C`, stdin null. Checked first
+that an empty environment gives identical output (`env -i`). The work is split: `run` (start the process;
+missing program -> `NotFound`, other start failure -> `Spawn`) and `packages_from_output(&Output)` (exit check,
+`from_utf8_lossy`, `parse_qi`), unit-tested with fake `Output` values. `PacmanError` = `NotFound`, `Spawn`,
+`Failed {code, stderr}` (stderr kept; `code: None` if killed by a signal), `Parse(ParseError)` (wrapped); hand-written
+Display/source, no new dependencies. Invalid UTF-8 becomes U+FFFD but a bad `Name` is still rejected (both tested;
+checked the tests fail if decoding is made strict). One `#[ignore]` test runs the real pacman
+(`cargo test -p tidewise-pacman -- --ignored`) and cross-checks the count against `-Qq`.
+Next: Apps list view model (3.8?) using `installed_packages()`. Follow-up: **no timeout** on the pacman process
+yet (a stuck pacman blocks the caller; also the call must not run on the UI thread); `/usr/bin/pacman` is
+hard-coded, fine for Arch. `-Qq` has no runner yet (not needed).
+Blockers: none.
+Rules bent: cycles 4 and 5 tests (parse wrap, UTF-8) passed on first run because earlier code already did it;
+committed as "pin" tests and mutation-checked. Red commits use a stub that compiles; some red failures are
+"expected an error, got Ok" panics from a test helper. WBS sheet not updated (asked to skip). Intermediate green
+commit 2 has a dead-code warning until `installed_packages` landed; the final commit is warning-free.
