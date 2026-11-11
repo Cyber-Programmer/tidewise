@@ -114,6 +114,8 @@ pub struct AppsModel {
     sort: SortOrder,
     /// Already trimmed and lower-cased; empty means no search.
     search: String,
+    /// Name of the selected package. Always one of the visible rows, or `None` when there are none.
+    selected: Option<String>,
 }
 
 impl AppsModel {
@@ -128,6 +130,7 @@ impl AppsModel {
             Ok(packages) => {
                 self.packages = packages;
                 self.state = ListState::Loaded;
+                self.fix_selection();
             }
             Err(_error) => {}
         }
@@ -135,18 +138,37 @@ impl AppsModel {
 
     pub fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
+        self.fix_selection();
     }
 
     pub fn set_sort(&mut self, sort: SortOrder) {
         self.sort = sort;
+        self.fix_selection();
     }
 
     pub fn set_search(&mut self, search: &str) {
         self.search = search.trim().to_lowercase();
+        self.fix_selection();
     }
 
     /// Selects a package by name. Ignored unless that package is in the visible list.
-    pub fn select(&mut self, _name: &str) {}
+    pub fn select(&mut self, name: &str) {
+        if self.visible().iter().any(|package| package.name == name) {
+            self.selected = Some(name.to_string());
+        }
+    }
+
+    /// Keeps the selected package if it is still visible; otherwise selects the first visible row, or nothing.
+    fn fix_selection(&mut self) {
+        let visible = self.visible();
+        let still_visible = self
+            .selected
+            .as_ref()
+            .is_some_and(|name| visible.iter().any(|package| &package.name == name));
+        if !still_visible {
+            self.selected = visible.first().map(|package| package.name.clone());
+        }
+    }
 
     pub fn state(&self) -> &ListState {
         &self.state
@@ -165,7 +187,7 @@ impl AppsModel {
                 version: package.version.clone(),
                 description: package.description.clone(),
                 size_text: format_size(package.installed_size),
-                selected: false,
+                selected: self.selected.as_deref() == Some(package.name.as_str()),
             })
             .collect()
     }
