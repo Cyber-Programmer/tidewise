@@ -1,0 +1,78 @@
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { AppsBridge } from "bridge.slint";
+
+// Shown instead of the list when pacman fails. Amber (a warning), never red: nothing was changed.
+export component ErrorPanel inherits Rectangle {
+    background: Theme.warning-bg;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.warning;
+
+    // View state only: is the "Technical details" part open?
+    property <bool> technical-open: false;
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-m;
+        alignment: start;
+
+        Text {
+            text: AppsBridge.error-title;
+            color: Theme.warning;
+            font-size: Theme.size-dialog-title;
+            font-weight: Theme.weight-semibold;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: AppsBridge.error-body;
+            color: Theme.text;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: AppsBridge.error-unchanged;
+            color: Theme.text;
+            font-size: Theme.size-body;
+            font-weight: Theme.weight-medium;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            TwButton {
+                text: "Try again";
+                primary: true;
+                clicked => {
+                    AppsBridge.try-again();
+                }
+            }
+
+            TwButton {
+                text: root.technical-open ? "Hide technical details" : "Technical details";
+                clicked => {
+                    root.technical-open = !root.technical-open;
+                }
+            }
+
+            Rectangle { }
+        }
+
+        if root.technical-open: Text {
+            text: AppsBridge.error-technical;
+            color: Theme.text-2;
+            font-family: Theme.font-mono;
+            font-size: Theme.size-label;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: AppsBridge.error-report;
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+            wrap: word-wrap;
+        }
+    }
+}

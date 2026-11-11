@@ -1,0 +1,72 @@
+// The only place Rust and the Apps screen meet. Rust fills the `in` properties (all decided and
+// worded in crates/app/src/apps_view.rs); the screen only lays them out and reports clicks back.
+
+export struct PackageRow {
+    letter: string,
+    name: string,
+    version: string,
+    description: string,
+    size: string,
+    selected: bool,
+}
+
+export struct DetailsData {
+    name: string,
+    description: string,
+    size: string,
+    version: string,
+    why-here: string,
+    needed-by: [string],
+    more: string,
+    nothing-needs-it: string,
+    note: string,
+    technical-source: string,
+    technical-bytes: string,
+}
+
+// What fills the list panel.
+export enum BodyKind {
+    loading,
+    list,
+    empty,
+    error,
+}
+
+export global AppsBridge {
+    // Header
+    in property <string> subtitle-message;
+    in property <string> subtitle-slow-note;
+    in property <string> subtitle-all;
+    in property <string> subtitle-explicit;
+    // Tabs and sort (tab order: Installed by you, Dependencies, All; sort order: Size, Name)
+    in property <[string]> tab-counts;
+    in property <int> current-tab;
+    in property <int> current-sort;
+    // The search box text. Rust writes it too (when "Clear search" is pressed).
+    in-out property <string> search-text;
+    // List panel
+    in property <BodyKind> body;
+    in property <[PackageRow]> rows;
+    in property <string> footer;
+    in property <string> empty-title;
+    in property <string> empty-body;
+    in property <string> empty-button;
+    // Details panel
+    in property <bool> has-details;
+    in property <DetailsData> details;
+    // Error panel
+    in property <string> error-title;
+    in property <string> error-body;
+    in property <string> error-technical;
+    in property <string> error-unchanged;
+    in property <string> error-report;
+
+    callback tab-chosen(int);
+    callback sort-chosen(int);
+    callback search-edited(string);
+    callback row-chosen(string);
+    callback empty-button-clicked();
+    callback try-again();
+    // Fired on the UI thread when the worker thread has put its answer in the mailbox.
+    callback load-done();
+}

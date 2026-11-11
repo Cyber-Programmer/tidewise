@@ -1,0 +1,144 @@
+import { Theme } from "../theme.slint";
+import { Segmented } from "../widgets/segmented.slint";
+import { SearchField } from "../widgets/search-field.slint";
+import { AppsBridge, BodyKind } from "bridge.slint";
+import { Sidebar } from "sidebar.slint";
+import { ListPanel } from "list-panel.slint";
+import { DetailsPanel } from "details-panel.slint";
+import { ErrorPanel } from "error-panel.slint";
+
+// The whole Apps screen: sidebar, header, tabs, list and details.
+export component AppsScreen inherits Rectangle {
+    background: Theme.bg;
+
+    HorizontalLayout {
+        Sidebar { }
+
+        VerticalLayout {
+            padding-left: Theme.page-padding-x;
+            padding-right: Theme.page-padding-x;
+            padding-top: Theme.page-padding-y;
+            padding-bottom: Theme.page-padding-y;
+            spacing: Theme.section-gap;
+
+            // Header: title and subtitle on the left, search on the right.
+            HorizontalLayout {
+                spacing: Theme.space-xl;
+
+                VerticalLayout {
+                    spacing: Theme.space-xs;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        text: "Apps";
+                        color: Theme.text;
+                        font-size: Theme.size-page-title;
+                        font-weight: Theme.weight-semibold;
+                    }
+
+                    if AppsBridge.subtitle-message == "": HorizontalLayout {
+                        spacing: Theme.space-xs;
+                        alignment: start;
+                        Text {
+                            text: AppsBridge.subtitle-all;
+                            color: Theme.text-2;
+                            font-family: Theme.font-mono;
+                            font-size: Theme.size-body;
+                        }
+
+                        Text {
+                            text: "packages on this system ·";
+                            color: Theme.text-3;
+                            font-size: Theme.size-body;
+                        }
+
+                        Text {
+                            text: AppsBridge.subtitle-explicit;
+                            color: Theme.text-2;
+                            font-family: Theme.font-mono;
+                            font-size: Theme.size-body;
+                        }
+
+                        Text {
+                            text: "installed by you";
+                            color: Theme.text-3;
+                            font-size: Theme.size-body;
+                        }
+                    }
+
+                    if AppsBridge.subtitle-message != "": Text {
+                        text: AppsBridge.subtitle-message;
+                        color: Theme.text-3;
+                        font-size: Theme.size-body;
+                        overflow: elide;
+                    }
+
+                    if AppsBridge.subtitle-slow-note != "": Text {
+                        text: AppsBridge.subtitle-slow-note;
+                        color: Theme.text-3;
+                        font-size: Theme.size-body;
+                        overflow: elide;
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: start;
+                    SearchField {
+                        width: 320px;
+                        text <=> AppsBridge.search-text;
+                        placeholder: "Search name or description";
+                        edited(text) => {
+                            AppsBridge.search-edited(text);
+                        }
+                    }
+                }
+            }
+
+            // Tabs and sort.
+            HorizontalLayout {
+                spacing: Theme.space-xl;
+                Segmented {
+                    labels: ["Installed by you", "Dependencies", "All"];
+                    counts: AppsBridge.tab-counts;
+                    current: AppsBridge.current-tab;
+                    chosen(index) => {
+                        AppsBridge.tab-chosen(index);
+                    }
+                }
+
+                Rectangle { }
+
+                HorizontalLayout {
+                    spacing: Theme.space-s;
+                    Text {
+                        text: "Sort by";
+                        color: Theme.text-3;
+                        font-size: Theme.size-label;
+                        vertical-alignment: center;
+                    }
+
+                    Segmented {
+                        labels: ["Size", "Name"];
+                        current: AppsBridge.current-sort;
+                        chosen(index) => {
+                            AppsBridge.sort-chosen(index);
+                        }
+                    }
+                }
+            }
+
+            // Content: the error panel takes the whole area; otherwise list and details side by side.
+            if AppsBridge.body == BodyKind.error: ErrorPanel {
+                vertical-stretch: 1;
+            }
+
+            if AppsBridge.body != BodyKind.error: HorizontalLayout {
+                spacing: Theme.section-gap;
+                vertical-stretch: 1;
+                ListPanel { }
+
+                DetailsPanel { }
+            }
+        }
+    }
+}

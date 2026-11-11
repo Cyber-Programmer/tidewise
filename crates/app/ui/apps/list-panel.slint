@@ -1,0 +1,90 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { AppsBridge, BodyKind } from "bridge.slint";
+import { PackageRowItem } from "package-row.slint";
+import { SkeletonRow } from "skeleton-row.slint";
+
+// The white panel with the list. Shows skeleton rows, the rows, or an empty-state message.
+export component ListPanel inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+    min-width: 420px;
+
+    VerticalLayout {
+        if AppsBridge.body == BodyKind.loading: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            accessible-role: groupbox;
+            accessible-label: "Loading the list of installed packages";
+            for i in 8: SkeletonRow { }
+        }
+
+        if AppsBridge.body == BodyKind.list: ListView {
+            vertical-stretch: 1;
+            for item in AppsBridge.rows: PackageRowItem {
+                package: item;
+                chosen => {
+                    AppsBridge.row-chosen(item.name);
+                }
+            }
+        }
+
+        if AppsBridge.body == BodyKind.empty: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            padding: Theme.space-xl;
+            spacing: Theme.space-s;
+
+            Text {
+                text: AppsBridge.empty-title;
+                color: Theme.text;
+                font-size: Theme.size-row-title;
+                font-weight: Theme.weight-semibold;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            if AppsBridge.empty-body != "": Text {
+                text: AppsBridge.empty-body;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            if AppsBridge.empty-button != "": HorizontalLayout {
+                padding-top: Theme.space-m;
+                alignment: center;
+                TwButton {
+                    text: AppsBridge.empty-button;
+                    primary: true;
+                    clicked => {
+                        AppsBridge.empty-button-clicked();
+                    }
+                }
+            }
+        }
+
+        if AppsBridge.footer != "": Rectangle {
+            height: 40px;
+            background: Theme.surface;
+            Rectangle {
+                height: 1px;
+                background: Theme.rule;
+            }
+
+            Text {
+                x: Theme.space-l;
+                text: AppsBridge.footer;
+                color: Theme.text-3;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-label;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

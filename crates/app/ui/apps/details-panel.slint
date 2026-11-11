@@ -1,0 +1,152 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { Chip } from "../widgets/chip.slint";
+import { AppsBridge } from "bridge.slint";
+
+// The right-hand panel for the selected package. Read-only in M1.
+export component DetailsPanel inherits Rectangle {
+    width: 340px;
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    // View state only: is the "Technical details" part open?
+    property <bool> technical-open: false;
+
+    if AppsBridge.has-details: ScrollView {
+        VerticalLayout {
+            padding: Theme.space-xl;
+            spacing: Theme.space-m;
+            alignment: start;
+
+            Text {
+                text: AppsBridge.details.name;
+                color: Theme.text;
+                font-size: Theme.size-dialog-title;
+                font-weight: Theme.weight-semibold;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: AppsBridge.details.description;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: AppsBridge.details.size;
+                color: Theme.text;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-big-number;
+            }
+
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "Version";
+                    color: Theme.text-3;
+                    font-size: Theme.size-label;
+                }
+
+                Text {
+                    text: AppsBridge.details.version;
+                    color: Theme.text;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-body;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: "Why it is here";
+                    color: Theme.text-3;
+                    font-size: Theme.size-label;
+                }
+
+                Text {
+                    text: AppsBridge.details.why-here;
+                    color: Theme.text;
+                    font-size: Theme.size-body;
+                }
+            }
+
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                Text {
+                    text: "Needed by";
+                    color: Theme.text-3;
+                    font-size: Theme.size-label;
+                }
+
+                for name in AppsBridge.details.needed-by: HorizontalLayout {
+                    Chip { text: name; }
+
+                    Rectangle { }
+                }
+
+                if AppsBridge.details.more != "": Text {
+                    text: AppsBridge.details.more;
+                    color: Theme.text-2;
+                    font-size: Theme.size-label;
+                }
+
+                if AppsBridge.details.nothing-needs-it != "": Text {
+                    text: AppsBridge.details.nothing-needs-it;
+                    color: Theme.text-2;
+                    font-size: Theme.size-body;
+                    wrap: word-wrap;
+                }
+            }
+
+            // Inset note.
+            Rectangle {
+                background: Theme.surface-2;
+                border-radius: Theme.radius-control;
+                VerticalLayout {
+                    padding: Theme.space-m;
+                    Text {
+                        text: AppsBridge.details.note;
+                        color: Theme.text-3;
+                        font-size: Theme.size-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                TwButton {
+                    text: root.technical-open ? "Hide technical details" : "Technical details";
+                    clicked => {
+                        root.technical-open = !root.technical-open;
+                    }
+                }
+
+                Rectangle { }
+            }
+
+            if root.technical-open: VerticalLayout {
+                spacing: Theme.space-xs;
+                Text {
+                    text: AppsBridge.details.technical-source;
+                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: AppsBridge.details.technical-bytes;
+                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,63 @@
+import { Theme } from "../theme.slint";
+import { Logo } from "../widgets/logo.slint";
+
+// Only items that work today: "Apps". More arrive with their screens.
+export component Sidebar inherits Rectangle {
+    width: 220px;
+    background: Theme.bg;
+
+    // Hairline on the right edge.
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.rule;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-l;
+        spacing: Theme.space-xl;
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            padding-left: Theme.space-s;
+            Logo { }
+
+            Text {
+                text: "Tidewise";
+                color: Theme.text;
+                font-size: Theme.size-row-title;
+                font-weight: Theme.weight-semibold;
+                vertical-alignment: center;
+            }
+        }
+
+        // The current item.
+        Rectangle {
+            height: Theme.min-target;
+            background: Theme.nav-active;
+            border-radius: Theme.radius-control;
+            accessible-role: tab;
+            accessible-label: "Apps";
+            accessible-checkable: true;
+            accessible-checked: true;
+
+            Text {
+                x: Theme.space-m;
+                text: "Apps";
+                color: Theme.text;
+                font-size: Theme.size-body;
+                font-weight: Theme.weight-medium;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle { }
+
+        Text {
+            text: "Arch Linux";
+            color: Theme.text-3;
+            font-size: Theme.size-label;
+            horizontal-alignment: left;
+        }
+    }
+}

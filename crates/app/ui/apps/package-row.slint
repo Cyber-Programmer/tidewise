@@ -1,0 +1,104 @@
+import { Theme } from "../theme.slint";
+import { LetterTile } from "../widgets/letter-tile.slint";
+import { PackageRow } from "bridge.slint";
+
+// One line of the list. Tab reaches it, Enter or Space selects it.
+export component PackageRowItem inherits Rectangle {
+    in property <PackageRow> package;
+    callback chosen();
+
+    height: 64px;
+    background: root.package.selected ? Theme.surface-2 : (touch.has-hover ? Theme.bg : transparent);
+
+    accessible-role: list-item;
+    accessible-label: root.package.name + ", " + root.package.size;
+    accessible-action-default => {
+        root.chosen();
+    }
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.chosen();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.chosen();
+        }
+    }
+
+    // Hairline under the row.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.rule;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        spacing: Theme.space-m;
+        alignment: stretch;
+
+        VerticalLayout {
+            alignment: center;
+            LetterTile { letter: root.package.letter; }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+
+            HorizontalLayout {
+                spacing: Theme.space-s;
+                Text {
+                    text: root.package.name;
+                    color: Theme.text;
+                    font-size: Theme.size-row-title;
+                    font-weight: Theme.weight-semibold;
+                    overflow: elide;
+                    horizontal-stretch: 0;
+                }
+
+                Text {
+                    text: root.package.version;
+                    color: Theme.text-3;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    vertical-alignment: bottom;
+                    overflow: elide;
+                }
+            }
+
+            Text {
+                text: root.package.description;
+                color: Theme.text-2;
+                font-size: Theme.size-label;
+                overflow: elide;
+            }
+        }
+
+        Text {
+            text: root.package.size;
+            color: Theme.text;
+            font-family: Theme.font-mono;
+            font-size: Theme.size-body;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            min-width: 80px;
+            horizontal-stretch: 0;
+        }
+    }
+
+    Rectangle {
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}
