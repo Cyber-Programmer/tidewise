@@ -259,4 +259,120 @@ mod tests {
         assert_eq!(parse_qi("").unwrap(), []);
         assert_eq!(parse_qi("\n\n\n").unwrap(), []);
     }
+
+    const BROKEN: &str = include_str!("../../../tests/fixtures/pacman/qi-broken-truncated.txt");
+
+    fn missing(package: Option<&str>, field: &'static str) -> ParseError {
+        ParseError::MissingField {
+            package: package.map(str::to_string),
+            field,
+        }
+    }
+
+    fn bad_value(package: Option<&str>, field: &'static str, value: &str) -> ParseError {
+        ParseError::BadValue {
+            package: package.map(str::to_string),
+            field,
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn qi_broken_truncated_is_missing_field() {
+        assert_eq!(
+            parse_qi(BROKEN),
+            Err(missing(Some("zsh"), "Installed Size"))
+        );
+    }
+
+    #[test]
+    fn qi_one_bad_record_fails_all() {
+        let text = MULTI.replace("1701.73 KiB", "lots");
+        assert_eq!(
+            parse_qi(&text),
+            Err(bad_value(Some("tzdata"), "Installed Size", "lots"))
+        );
+    }
+
+    #[test]
+    fn qi_unknown_install_reason_is_bad_value() {
+        let text = ZSH.replace("Explicitly installed", "Because I said so");
+        assert_eq!(
+            parse_qi(&text),
+            Err(bad_value(
+                Some("zsh"),
+                "Install Reason",
+                "Because I said so"
+            ))
+        );
+    }
+
+    #[test]
+    fn qi_missing_name_has_no_package() {
+        let text = ZSH.replace("Name            : zsh\n", "");
+        assert_eq!(parse_qi(&text), Err(missing(None, "Name")));
+    }
+
+    #[test]
+    fn qi_bad_name_is_bad_value() {
+        let text = ZSH.replace("Name            : zsh", "Name            : --force");
+        assert_eq!(parse_qi(&text), Err(bad_value(None, "Name", "--force")));
+    }
+
+    #[test]
+    fn qi_missing_or_empty_version_is_an_error() {
+        let no_version = ZSH.replace("Version         : 5.9.2-1\n", "");
+        assert_eq!(parse_qi(&no_version), Err(missing(Some("zsh"), "Version")));
+        let empty = ZSH.replace("5.9.2-1", "");
+        assert_eq!(parse_qi(&empty), Err(bad_value(Some("zsh"), "Version", "")));
+    }
+
+    #[test]
+    fn qi_duplicate_field_is_error() {
+        let text = ZSH.replace("Licenses        : custom", "Version         : 9-9");
+        assert_eq!(
+            parse_qi(&text),
+            Err(ParseError::DuplicateField {
+                package: Some("zsh".to_string()),
+                field: "Version".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn qi_line_without_colon_is_malformed() {
+        let text = "Name            : zsh\nVersion 5.9.2-1\n";
+        assert_eq!(
+            parse_qi(text),
+            Err(ParseError::MalformedLine {
+                package: Some("zsh".to_string()),
+                line_number: 2,
+                line: "Version 5.9.2-1".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn error_messages_name_package_and_field() {
+        assert_eq!(
+            missing(Some("zsh"), "Installed Size").to_string(),
+            "package \"zsh\": missing field \"Installed Size\""
+        );
+        assert_eq!(
+            bad_value(Some("tzdata"), "Installed Size", "lots").to_string(),
+            "package \"tzdata\": field \"Installed Size\" has a value that can't be read: \"lots\""
+        );
+        assert_eq!(
+            missing(None, "Name").to_string(),
+            "record without a package name: missing field \"Name\""
+        );
+        assert_eq!(
+            ParseError::BadName {
+                line_number: 3,
+                name: "--force".to_string()
+            }
+            .to_string(),
+            "line 3: \"--force\" is not a valid package name"
+        );
+    }
 }
