@@ -128,6 +128,8 @@ impl AppsModel {
         self.sort = sort;
     }
 
+    pub fn set_search(&mut self, _search: &str) {}
+
     pub fn state(&self) -> &ListState {
         &self.state
     }
@@ -350,5 +352,39 @@ mod tests {
         ]);
         model.set_sort(SortOrder::NameAToZ);
         assert_eq!(names(&model), ["A", "a", "b"]);
+    }
+
+    #[test]
+    fn search_matches_the_name_or_the_description() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model.set_search("git"); // only the name of git matches
+        assert_eq!(names(&model), ["git"]);
+        model.set_search("library"); // glibc and zlib have it in the description
+        assert_eq!(names(&model), ["glibc", "zlib"]);
+    }
+
+    #[test]
+    fn search_ignores_case_and_surrounding_spaces() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model.set_search("  FireFOX \t");
+        assert_eq!(names(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn the_counts_follow_the_search_and_come_back_when_it_is_cleared() {
+        let mut model = loaded(sample());
+        model.set_search("library");
+        assert_eq!(
+            model.tab_counts(),
+            TabCounts {
+                explicit: 0,
+                dependencies: 2,
+                all: 2
+            }
+        );
+        model.set_search("   ");
+        assert_eq!(model.tab_counts().all, 5);
     }
 }
