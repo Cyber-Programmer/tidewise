@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use crate::{InstalledPackage, PacmanError};
+use crate::{InstalledPackage, PacmanError, parse_qi};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -26,15 +26,13 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
 
 /// Turns what pacman printed into packages. Pure: takes an `Output`, runs nothing.
 fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, PacmanError> {
-    // STUB (red)
-    let _ = output;
-    Ok(Vec::new())
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_qi(&text)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse_qi;
     use std::ffi::OsStr;
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
