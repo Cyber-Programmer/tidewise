@@ -132,13 +132,22 @@ pub fn tab_name(tab: Tab) -> &'static str {
 }
 
 /// The tab at this position in the tab bar, or `None` if there is no such tab.
-pub fn tab_from_index(_index: i32) -> Option<Tab> {
-    None // stub
+pub fn tab_from_index(index: i32) -> Option<Tab> {
+    match index {
+        0 => Some(Tab::Explicit),
+        1 => Some(Tab::Dependencies),
+        2 => Some(Tab::All),
+        _ => None,
+    }
 }
 
 /// The sort at this position in the sort bar, or `None` if there is no such sort.
-pub fn sort_from_index(_index: i32) -> Option<SortOrder> {
-    None // stub
+pub fn sort_from_index(index: i32) -> Option<SortOrder> {
+    match index {
+        0 => Some(SortOrder::SizeLargestFirst),
+        1 => Some(SortOrder::NameAToZ),
+        _ => None,
+    }
 }
 
 /// Builds the whole screen from the model. `typed_search` is the text exactly as typed (used in messages).
@@ -146,8 +155,15 @@ pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
     AppsView {
         subtitle: subtitle(model),
         tab_counts: tab_counts(model),
-        current_tab: 0,  // stub
-        current_sort: 0, // stub
+        current_tab: match model.tab() {
+            Tab::Explicit => 0,
+            Tab::Dependencies => 1,
+            Tab::All => 2,
+        },
+        current_sort: match model.sort() {
+            SortOrder::SizeLargestFirst => 0,
+            SortOrder::NameAToZ => 1,
+        },
         body: body(model, typed_search),
         rows: model.rows().iter().map(row_view).collect(),
         footer: footer(model),

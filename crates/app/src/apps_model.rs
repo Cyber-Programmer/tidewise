@@ -245,7 +245,7 @@ impl AppsModel {
     }
 
     pub fn sort(&self) -> SortOrder {
-        SortOrder::default() // stub
+        self.sort
     }
 
     /// The rows to show: the current tab's packages.
