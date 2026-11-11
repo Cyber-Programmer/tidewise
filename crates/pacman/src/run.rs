@@ -4,6 +4,7 @@
 //! without pacman: "run the process" (`run`) and "turn its `Output` into the result"
 //! (`packages_from_output`).
 
+use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -26,13 +27,17 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
 
 /// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.
 fn run(program: &Path, args: &[&str]) -> Result<Output, PacmanError> {
-    // STUB (red)
-    let _ = pacman_command(program, args);
-    Ok(Output {
-        status: std::process::ExitStatus::default(),
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    })
+    pacman_command(program, args)
+        .output()
+        .map_err(|source| match source.kind() {
+            io::ErrorKind::NotFound => PacmanError::NotFound {
+                program: program.to_path_buf(),
+            },
+            _ => PacmanError::Spawn {
+                program: program.to_path_buf(),
+                source,
+            },
+        })
 }
 
 /// A non-zero exit (or a signal) is an error that keeps pacman's own words.
