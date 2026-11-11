@@ -46,11 +46,17 @@ impl Record {
     }
 }
 
-/// Cuts the text into records. (First version: treats all lines as one record.)
+/// Cuts the text into records. A blank line ends a record; so does the end of the text.
 fn split_records(text: &str) -> Result<Vec<Record>, ParseError> {
+    let mut records = Vec::new();
     let mut fields: Vec<(String, String)> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
+            if !fields.is_empty() {
+                records.push(Record {
+                    fields: std::mem::take(&mut fields),
+                });
+            }
             continue;
         }
         // An indented line continues the previous field's value (one value line per line).
@@ -76,11 +82,11 @@ fn split_records(text: &str) -> Result<Vec<Record>, ParseError> {
         };
         fields.push((key.trim().to_string(), value.trim().to_string()));
     }
-    if fields.is_empty() {
-        Ok(Vec::new())
-    } else {
-        Ok(vec![Record { fields }])
+    // The last record may have no blank line after it; that is not an error.
+    if !fields.is_empty() {
+        records.push(Record { fields });
     }
+    Ok(records)
 }
 
 /// Reads the five fields we need out of one record, or says which one is wrong.
