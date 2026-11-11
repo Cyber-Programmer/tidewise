@@ -33,7 +33,47 @@ pub enum ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "parse error")
+        // `{:?}` on a string shows quotes and escapes control characters, so odd input stays readable.
+        match self {
+            Self::MissingField { package, field } => {
+                write!(f, "{}: missing field {field:?}", who(package))
+            }
+            Self::BadValue {
+                package,
+                field,
+                value,
+            } => write!(
+                f,
+                "{}: field {field:?} has a value that can't be read: {value:?}",
+                who(package)
+            ),
+            Self::DuplicateField { package, field } => {
+                write!(f, "{}: field {field:?} appears twice", who(package))
+            }
+            Self::MalformedLine {
+                package,
+                line_number,
+                line,
+            } => write!(
+                f,
+                "{}: line {line_number} is not \"Key : value\": {line:?}",
+                who(package)
+            ),
+            Self::BadName { line_number, name } => {
+                write!(
+                    f,
+                    "line {line_number}: {name:?} is not a valid package name"
+                )
+            }
+        }
+    }
+}
+
+/// How an error refers to the package: by name when we know it.
+fn who(package: &Option<String>) -> String {
+    match package {
+        Some(name) => format!("package {name:?}"),
+        None => "record without a package name".to_string(),
     }
 }
 
