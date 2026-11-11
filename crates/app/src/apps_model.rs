@@ -652,4 +652,109 @@ mod tests {
         model.set_search("no such app");
         assert_eq!(model.details(), None);
     }
+
+    fn error_of(error: PacmanError) -> ErrorText {
+        let mut model = AppsModel::new();
+        model.set_result(Err(error));
+        match model.state() {
+            ListState::Error(text) => text.clone(),
+            other => panic!("expected the Error state, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pacman_not_found_is_explained_in_plain_words() {
+        let text = error_of(PacmanError::NotFound {
+            program: "/usr/bin/pacman".into(),
+        });
+        assert_eq!(text.title, "Tidewise can't find pacman");
+        assert_eq!(
+            text.body,
+            "Tidewise is made for Arch Linux and reads your apps through pacman, \
+             but there is no pacman at /usr/bin/pacman on this system."
+        );
+        assert_eq!(text.technical, "pacman not found at /usr/bin/pacman");
+    }
+
+    #[test]
+    fn pacman_that_will_not_start_is_explained() {
+        let text = error_of(PacmanError::Spawn {
+            program: "/usr/bin/pacman".into(),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        });
+        assert_eq!(text.title, "Tidewise couldn't start pacman");
+        assert_eq!(
+            text.body,
+            "pacman is there but wouldn't start. Try again, or check its permissions."
+        );
+        assert_eq!(text.technical, "could not start /usr/bin/pacman: denied");
+    }
+
+    #[test]
+    fn a_pacman_failure_shows_its_stderr_and_exit_code() {
+        let text = error_of(PacmanError::Failed {
+            code: Some(1),
+            stderr: "error: unable to lock database\n".to_string(),
+        });
+        assert_eq!(text.title, "pacman couldn't list your packages");
+        assert_eq!(
+            text.body,
+            "pacman stopped with an error before it finished. \
+             This is usually temporary; trying again often works."
+        );
+        assert_eq!(
+            text.technical,
+            "exit code 1: error: unable to lock database"
+        );
+
+        let text = error_of(PacmanError::Failed {
+            code: None,
+            stderr: String::new(),
+        });
+        assert_eq!(text.technical, "stopped by a signal");
+    }
+
+    #[test]
+    fn a_parse_failure_shows_the_parse_error() {
+        let parse_error = tidewise_pacman::ParseError::MissingField {
+            package: Some("zsh".to_string()),
+            field: "Installed Size",
+        };
+        let technical = parse_error.to_string();
+        let text = error_of(PacmanError::Parse(parse_error));
+        assert_eq!(text.title, "Tidewise couldn't read pacman's answer");
+        assert_eq!(
+            text.body,
+            "The list from pacman looked incomplete, so Tidewise shows nothing \
+             rather than a list with packages missing."
+        );
+        assert_eq!(text.technical, technical);
+        assert!(technical.contains("zsh"));
+    }
+
+    #[test]
+    fn an_error_replaces_a_loaded_list() {
+        let mut model = loaded(sample());
+        model.set_result(Err(PacmanError::Failed {
+            code: Some(1),
+            stderr: String::new(),
+        }));
+        assert!(matches!(model.state(), ListState::Error(_)));
+        assert!(model.rows().is_empty());
+        assert_eq!(model.tab_counts(), TabCounts::default());
+        assert_eq!(model.details(), None);
+        assert_eq!(model.empty_state(), EmptyState::NotEmpty);
+    }
+
+    #[test]
+    fn a_later_good_answer_recovers_from_an_error() {
+        let mut model = AppsModel::new();
+        model.set_result(Err(PacmanError::Failed {
+            code: Some(1),
+            stderr: String::new(),
+        }));
+        model.set_result(Ok(sample()));
+        assert_eq!(model.state(), &ListState::Loaded);
+        assert_eq!(selected(&model), ["firefox"]);
+    }
 }
