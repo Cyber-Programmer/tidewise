@@ -574,4 +574,102 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn details_show_the_texts_and_the_looking_only_note() {
+        let mut model = loaded();
+        model.set_tab(Tab::All);
+        model.select("glibc");
+        let details = apps_view(&model, "").details.unwrap();
+        assert_eq!(details.name, "glibc");
+        assert_eq!(details.description, "The C library");
+        assert_eq!(details.size, "50.0 MB");
+        assert_eq!(details.version, "1.0-1");
+        assert_eq!(details.why_here, "Another package needs it");
+        assert_eq!(details.needed_by, ["firefox", "git"]);
+        assert_eq!(details.more, "");
+        assert_eq!(details.nothing_needs_it, "");
+        assert_eq!(
+            details.note,
+            "Looking only. Removing packages comes in a later version of Tidewise."
+        );
+        assert_eq!(details.technical_source, "source: pacman -Qi glibc");
+        assert_eq!(details.technical_bytes, "50 000 000 bytes");
+    }
+
+    #[test]
+    fn a_package_nothing_needs_says_so() {
+        let details = apps_view(&loaded(), "").details.unwrap();
+        assert_eq!(details.name, "firefox");
+        assert!(details.needed_by.is_empty());
+        assert_eq!(
+            details.nothing_needs_it,
+            "Nothing else on this system needs it."
+        );
+        assert_eq!(details.more, "");
+    }
+
+    #[test]
+    fn more_than_five_needers_end_with_and_n_more() {
+        use InstallReason::Explicit;
+        let seven = ["a", "b", "c", "d", "e", "f", "g"];
+        let mut model = AppsModel::new();
+        model.set_result(Ok(vec![pkg("seven", "", 1, Explicit, &seven)]));
+        let details = apps_view(&model, "").details.unwrap();
+        assert_eq!(details.needed_by.len(), 5);
+        assert_eq!(details.more, "and 2 more");
+        assert_eq!(details.nothing_needs_it, "");
+        assert_eq!(details.technical_bytes, "1 byte");
+    }
+
+    #[test]
+    fn exact_bytes_are_grouped_in_thousands() {
+        use InstallReason::Explicit;
+        let bytes = |n: u64| {
+            let mut model = AppsModel::new();
+            model.set_result(Ok(vec![pkg("p", "", n, Explicit, &[])]));
+            apps_view(&model, "").details.unwrap().technical_bytes
+        };
+        assert_eq!(bytes(0), "0 bytes");
+        assert_eq!(bytes(999), "999 bytes");
+        assert_eq!(bytes(1_000), "1 000 bytes");
+        assert_eq!(bytes(7_340_032), "7 340 032 bytes");
+        assert_eq!(bytes(u64::MAX), "18 446 744 073 709 551 615 bytes");
+    }
+
+    fn row(name: &str, selected: bool) -> RowView {
+        RowView {
+            letter: "X".to_string(),
+            name: name.to_string(),
+            version: "1".to_string(),
+            description: String::new(),
+            size: "1 B".to_string(),
+            selected,
+        }
+    }
+
+    #[test]
+    fn identical_rows_need_no_update() {
+        let rows = [row("a", true), row("b", false)];
+        assert_eq!(row_update(&rows, &rows), RowUpdate::Patch(vec![]));
+    }
+
+    #[test]
+    fn moving_the_selection_patches_only_the_two_rows() {
+        let old = [row("a", true), row("b", false), row("c", false)];
+        let new = [row("a", false), row("b", false), row("c", true)];
+        assert_eq!(row_update(&old, &new), RowUpdate::Patch(vec![0, 2]));
+    }
+
+    #[test]
+    fn different_names_length_or_order_replace_the_list() {
+        let old = [row("a", true), row("b", false)];
+        assert_eq!(row_update(&old, &[row("a", true)]), RowUpdate::Replace);
+        assert_eq!(
+            row_update(&old, &[row("b", true), row("a", false)]),
+            RowUpdate::Replace
+        );
+        assert_eq!(row_update(&[], &old), RowUpdate::Replace);
+        assert_eq!(row_update(&old, &[]), RowUpdate::Replace);
+    }
 }
