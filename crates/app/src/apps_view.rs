@@ -137,32 +137,80 @@ pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
     }
 }
 
-fn subtitle(_model: &AppsModel) -> SubtitleView {
-    SubtitleView::default() // stub
+fn subtitle(model: &AppsModel) -> SubtitleView {
+    match model.state() {
+        ListState::Loaded => {
+            let totals = model.totals();
+            SubtitleView {
+                all: totals.all.to_string(),
+                explicit: totals.explicit.to_string(),
+                ..SubtitleView::default()
+            }
+        }
+        ListState::Loading => SubtitleView {
+            message: "Asking pacman for the list of installed packages…".to_string(),
+            slow_note: if model.is_slow() {
+                "This is taking longer than usual.".to_string()
+            } else {
+                String::new()
+            },
+            all: NO_NUMBER.to_string(),
+            explicit: NO_NUMBER.to_string(),
+        },
+        ListState::Error(_) => SubtitleView {
+            message: "Couldn't read the list of installed packages.".to_string(),
+            slow_note: String::new(),
+            all: NO_NUMBER.to_string(),
+            explicit: NO_NUMBER.to_string(),
+        },
+    }
 }
 
-fn tab_counts(_model: &AppsModel) -> [String; 3] {
-    Default::default() // stub
+fn tab_counts(model: &AppsModel) -> [String; 3] {
+    if *model.state() != ListState::Loaded {
+        return [NO_NUMBER, NO_NUMBER, NO_NUMBER].map(str::to_string);
+    }
+    let counts = model.tab_counts();
+    [counts.explicit, counts.dependencies, counts.all].map(|n| n.to_string())
 }
 
-fn row_view(_row: &Row) -> RowView {
+fn row_view(row: &Row) -> RowView {
     RowView {
-        letter: String::new(),
-        name: String::new(),
-        version: String::new(),
-        description: String::new(),
-        size: String::new(),
-        selected: false,
-    } // stub
+        letter: row
+            .name
+            .chars()
+            .next()
+            .map_or("?".to_string(), |first| first.to_uppercase().collect()),
+        name: row.name.clone(),
+        version: row.version.clone(),
+        description: row.description.clone(),
+        size: row.size_text.clone(),
+        selected: row.selected,
+    }
 }
 
-fn footer(_model: &AppsModel) -> String {
-    String::new() // stub
+fn footer(model: &AppsModel) -> String {
+    if *model.state() != ListState::Loaded {
+        return String::new();
+    }
+    let totals = model.totals();
+    let of_this_tab = match model.tab() {
+        Tab::Explicit => totals.explicit,
+        Tab::Dependencies => totals.dependencies,
+        Tab::All => totals.all,
+    };
+    format!("Showing {} of {}", model.rows().len(), of_this_tab)
 }
 
-fn body(_model: &AppsModel, _typed_search: &str) -> Body {
-    let _ = (ListState::Loading, EmptyState::NotEmpty); // stub
-    Body::Loading
+fn body(model: &AppsModel, _typed_search: &str) -> Body {
+    match model.state() {
+        ListState::Loading => Body::Loading,
+        ListState::Error(_) => Body::Loading, // stub
+        ListState::Loaded => {
+            let _ = EmptyState::NotEmpty; // stub
+            Body::List
+        }
+    }
 }
 
 fn error_view(_text: &ErrorText) -> ErrorView {
