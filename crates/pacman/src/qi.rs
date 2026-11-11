@@ -23,6 +23,8 @@ pub struct InstalledPackage {
     /// Installed size in bytes (pacman's KiB/MiB/GiB are 1024-based).
     pub installed_size: u64,
     pub reason: InstallReason,
+    /// Packages that depend on this one. Empty when pacman prints "None" or the line is absent.
+    pub required_by: Vec<String>,
 }
 
 /// Parses the output of `LC_ALL=C pacman -Qi ...` into one entry per record.
@@ -167,6 +169,7 @@ fn build_package(record: &Record) -> Result<InstalledPackage, ParseError> {
         description: record.get("Description").unwrap_or("").to_string(),
         installed_size,
         reason,
+        required_by: Vec::new(), // stub (red step)
     })
 }
 
@@ -189,7 +192,87 @@ mod tests {
                         .to_string(),
                 installed_size: 7_277_117,
                 reason: InstallReason::Explicit,
+                required_by: vec!["zsh-completions".to_string()],
             }]
+        );
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn qi_required_by_two_names() {
+        let text = include_str!("../../../tests/fixtures/pacman/qi-qt6-imageformats.txt");
+        let packages = parse_qi(text).unwrap();
+        assert_eq!(packages[0].required_by, names(&["shotcut", "spectacle"]));
+    }
+
+    #[test]
+    fn qi_required_by_none_is_empty() {
+        let files = [
+            include_str!("../../../tests/fixtures/pacman/qi-base.txt"),
+            include_str!("../../../tests/fixtures/pacman/qi-bc.txt"),
+            include_str!("../../../tests/fixtures/pacman/qi-baobab.txt"),
+        ];
+        for text in files {
+            assert_eq!(parse_qi(text).unwrap()[0].required_by, Vec::<String>::new());
+        }
+    }
+
+    #[test]
+    fn qi_multi_required_by_per_record() {
+        let lists: Vec<Vec<String>> = parse_qi(MULTI)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.required_by)
+            .collect();
+        assert_eq!(
+            lists,
+            [
+                names(&[]),
+                names(&["glibc", "python"]),
+                names(&["glibc", "libbpf", "libxdp"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn qi_required_by_continuation_lines() {
+        let text = "Name            : libfoo\n\
+                    Version         : 1-1\n\
+                    Installed Size  : 1.00 KiB\n\
+                    Install Reason  : Installed as a dependency for another package\n\
+                    Required By     : a  b  c.d\n\
+                    \x20                 e_f  g+h\n\
+                    \x20                 i@j  k-l\n\
+                    Optional For    : None\n";
+        let packages = parse_qi(text).unwrap();
+        assert_eq!(
+            packages[0].required_by,
+            names(&["a", "b", "c.d", "e_f", "g+h", "i@j", "k-l"])
+        );
+    }
+
+    #[test]
+    fn qi_missing_required_by_is_empty() {
+        let text = ZSH.replace("Required By     : zsh-completions\n", "");
+        assert!(!text.contains("Required By"));
+        assert_eq!(
+            parse_qi(&text).unwrap()[0].required_by,
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn qi_required_by_bad_name_is_bad_value() {
+        let text = ZSH.replace(
+            "Required By     : zsh-completions",
+            "Required By     : zsh-completions  --force",
+        );
+        assert_eq!(
+            parse_qi(&text),
+            Err(bad_value(Some("zsh"), "Required By", "--force"))
         );
     }
 
