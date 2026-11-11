@@ -1,0 +1,67 @@
+Name            : base
+Version         : 3-3
+Description     : Minimal package set to define a basic Arch Linux installation
+Architecture    : any
+URL             : https://www.archlinux.org
+Licenses        : GPL
+Groups          : None
+Provides        : None
+Depends On      : filesystem  gcc-libs  glibc  bash  coreutils  file  findutils  gawk  grep  procps-ng  sed  tar  gettext  pciutils  psmisc  shadow  util-linux  bzip2  gzip  xz  licenses  pacman  archlinux-keyring  systemd  systemd-sysvcompat  iputils  iproute2
+Optional Deps   : linux: bare metal support [installed]
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 0.00 B
+Packager        : Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+Build Date      : Fri Feb  6 12:32:26 2026
+Install Date    : Wed Aug 19 23:52:40 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : Signature
+
+Name            : tzdata
+Version         : 2026e-1
+Description     : Sources for time zone and daylight saving time data
+Architecture    : x86_64
+URL             : https://www.iana.org/time-zones
+Licenses        : LicenseRef-tz
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : bash: for tzselect [installed]
+                  glibc: for zdump, zic [installed]
+Required By     : glibc  python
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 1701.73 KiB
+Packager        : Andreas Radke <andyrtr@archlinux.org>
+Build Date      : Wed Sep 30 18:35:43 2026
+Install Date    : Thu Oct  8 18:20:24 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+
+Name            : linux-api-headers
+Version         : 7.2-1
+Description     : Kernel headers sanitized for use in userspace
+Architecture    : x86_64
+URL             : https://www.gnu.org/software/libc
+Licenses        : GPL-2.0-only
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : glibc  libbpf  libxdp
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 7.00 MiB
+Packager        : Frederik Schwan <freswa@archlinux.org>
+Build Date      : Mon Aug 17 13:45:56 2026
+Install Date    : Wed Aug 19 23:52:35 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+

@@ -1,0 +1,22 @@
+Name            : baobab
+Version         : 50.0-1
+Description     : A graphical directory tree analyzer
+Architecture    : x86_64
+URL             : https://apps.gnome.org/Baobab
+Licenses        : GPL-2.0-or-later
+Groups          : gnome
+Provides        : None
+Depends On      : cairo  dconf  glib2  glibc  graphene  gsettings-desktop-schemas  gtk4  hicolor-icon-theme  libadwaita  librsvg  pango
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 1719.97 KiB
+Packager        : Fabian Bornschein <fabiscafe@archlinux.org>
+Build Date      : Sun Mar 15 01:37:40 2026
+Install Date    : Mon Aug 24 17:15:32 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : Signature
+
