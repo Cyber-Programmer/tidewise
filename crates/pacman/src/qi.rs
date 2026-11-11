@@ -169,8 +169,31 @@ fn build_package(record: &Record) -> Result<InstalledPackage, ParseError> {
         description: record.get("Description").unwrap_or("").to_string(),
         installed_size,
         reason,
-        required_by: Vec::new(), // stub (red step)
+        required_by: parse_required_by(record, name)?,
     })
+}
+
+/// Reads `Required By`: names separated by whitespace (pacman prints two spaces; long lists
+/// continue on indented lines, already joined with `\n`). `None` or a missing line means no one.
+fn parse_required_by(record: &Record, package: &str) -> Result<Vec<String>, ParseError> {
+    let Some(value) = record.get("Required By") else {
+        return Ok(Vec::new());
+    };
+    if value == "None" {
+        return Ok(Vec::new());
+    }
+    let mut names = Vec::new();
+    for name in value.split_whitespace() {
+        if !is_valid_package_name(name) {
+            return Err(ParseError::BadValue {
+                package: Some(package.to_string()),
+                field: "Required By",
+                value: name.to_string(),
+            });
+        }
+        names.push(name.to_string());
+    }
+    Ok(names)
 }
 
 #[cfg(test)]
