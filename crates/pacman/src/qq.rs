@@ -3,8 +3,8 @@
 use crate::ParseError;
 
 /// Parses the output of `LC_ALL=C pacman -Qq` into package names, in the order given.
-pub fn parse_qq(_text: &str) -> Result<Vec<String>, ParseError> {
-    Ok(Vec::new())
+pub fn parse_qq(text: &str) -> Result<Vec<String>, ParseError> {
+    Ok(text.lines().map(str::to_string).collect())
 }
 
 #[cfg(test)]
