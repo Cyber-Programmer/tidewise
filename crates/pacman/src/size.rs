@@ -4,8 +4,30 @@
 ///
 /// pacman prints sizes with two decimals, so the result is the nearest whole byte to what pacman
 /// showed, not the exact size on disk. Integer maths only; anything odd or too big gives `None`.
-pub(crate) fn parse_size(_text: &str) -> Option<u64> {
-    None
+pub(crate) fn parse_size(text: &str) -> Option<u64> {
+    let (number, unit) = text.split_once(' ')?;
+    let unit_bytes: u64 = match unit {
+        "B" => 1,
+        "KiB" => 1024,
+        "MiB" => 1024 * 1024,
+        "GiB" => 1024 * 1024 * 1024,
+        _ => return None,
+    };
+    let (whole, hundredths) = number.split_once('.')?;
+    // Plain digits only: `parse` alone would also accept a leading "+".
+    let all_digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    if !all_digits(whole) || hundredths.len() != 2 || !all_digits(hundredths) {
+        return None;
+    }
+    // Work in hundredths of a unit so no floating point is needed.
+    let in_hundredths = whole
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(100)?
+        .checked_add(hundredths.parse::<u64>().ok()?)?;
+    // "+ 50" before dividing by 100 rounds to the nearest whole byte.
+    let scaled = in_hundredths.checked_mul(unit_bytes)?.checked_add(50)?;
+    Some(scaled / 100)
 }
 
 #[cfg(test)]
