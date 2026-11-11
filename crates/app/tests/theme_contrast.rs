@@ -2,7 +2,7 @@
 //! Reads the real colours from ui/theme.slint, so this test can't drift from the app.
 
 use std::collections::HashMap;
-use tidewise_core::contrast::contrast_ratio;
+use tidewise_core::contrast::{contrast_ratio, parse_hex};
 
 const MIN_RATIO: f64 = 4.5;
 
@@ -28,7 +28,24 @@ const PAIRS: [(&str, &str); 16] = [
 
 /// Reads `out property <color> name: #RRGGBB;` lines from ui/theme.slint.
 fn theme_colours() -> HashMap<String, [u8; 3]> {
-    HashMap::new()
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/ui/theme.slint");
+    let source = std::fs::read_to_string(path).expect("read ui/theme.slint");
+    let mut colours = HashMap::new();
+    for line in source.lines().map(str::trim) {
+        if line.starts_with("//") {
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("out property <color> ") else {
+            continue;
+        };
+        let Some((name, value)) = rest.split_once(": ") else {
+            continue;
+        };
+        let rgb = parse_hex(value.trim_end_matches(';'))
+            .unwrap_or_else(|| panic!("{name}: not a #RRGGBB colour: {value:?}"));
+        colours.insert(name.to_string(), rgb);
+    }
+    colours
 }
 
 #[test]
@@ -50,6 +67,9 @@ fn every_text_pair_meets_wcag_aa() {
             failures.push(format!("{fg} on {bg}: {ratio:.2} < {MIN_RATIO}"));
         }
     }
-    assert!(failures.is_empty(), "contrast failures:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "contrast failures:\n{}",
+        failures.join("\n")
+    );
 }
-
