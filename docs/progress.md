@@ -81,3 +81,14 @@ Next: close M0, then M1 (Apps list, read-only).
 Blockers: none.
 Rules bent: cycle 1 (contrast) red was run and shown but not committed separately; the `#+F0000` test was added
 in the green step after finding that `from_str_radix` accepts a leading "+".
+
+## 2026-11-11 — 3.2 pacman fixtures
+Done: real `LC_ALL=C pacman -Qi` output for 7 official-repo packages (base, zsh, linux-api-headers, tzdata, bc,
+baobab, qt6-imageformats), one multi-record file, a short `-Qq` list filtered to those names, and a hand-made
+truncated copy of zsh's record as the broken case, all in `tests/fixtures/pacman/` with a README (command,
+pacman 7.1.0 / libalpm 16.0.1, date, why each file is there). git swapped for zsh at the human's request so no
+AUR package names appear; every name in `Required By` / `Optional For` / `Optional Deps` checked against
+`pacman -Slq`. Found: output to a pipe isn't line-wrapped (base's `Depends On` is one 261-char line).
+Next: 3.3 parser for `pacman -Qi` / `-Qq` using these fixtures.
+Blockers: none.
+Rules bent: no red/green commits (data and docs only, no behaviour change).

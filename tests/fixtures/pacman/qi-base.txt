@@ -1,0 +1,22 @@
+Name            : base
+Version         : 3-3
+Description     : Minimal package set to define a basic Arch Linux installation
+Architecture    : any
+URL             : https://www.archlinux.org
+Licenses        : GPL
+Groups          : None
+Provides        : None
+Depends On      : filesystem  gcc-libs  glibc  bash  coreutils  file  findutils  gawk  grep  procps-ng  sed  tar  gettext  pciutils  psmisc  shadow  util-linux  bzip2  gzip  xz  licenses  pacman  archlinux-keyring  systemd  systemd-sysvcompat  iputils  iproute2
+Optional Deps   : linux: bare metal support [installed]
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 0.00 B
+Packager        : Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+Build Date      : Fri Feb  6 12:32:26 2026
+Install Date    : Wed Aug 19 23:52:40 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : Signature
+

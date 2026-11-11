@@ -1,0 +1,22 @@
+Name            : bc
+Version         : 1.08.2-1
+Description     : An arbitrary precision calculator language
+Architecture    : x86_64
+URL             : https://www.gnu.org/software/bc/
+Licenses        : GPL-3.0-only
+Groups          : None
+Provides        : None
+Depends On      : readline
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : bc-readline
+Replaces        : bc-readline
+Installed Size  : 173.15 KiB
+Packager        : George Rawlinson <grawlinson@archlinux.org>
+Build Date      : Tue May 27 05:48:45 2025
+Install Date    : Sun Aug 23 20:42:32 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : Signature
+

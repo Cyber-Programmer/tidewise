@@ -1,0 +1,22 @@
+Name            : linux-api-headers
+Version         : 7.2-1
+Description     : Kernel headers sanitized for use in userspace
+Architecture    : x86_64
+URL             : https://www.gnu.org/software/libc
+Licenses        : GPL-2.0-only
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : glibc  libbpf  libxdp
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 7.00 MiB
+Packager        : Frederik Schwan <freswa@archlinux.org>
+Build Date      : Mon Aug 17 13:45:56 2026
+Install Date    : Wed Aug 19 23:52:35 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+

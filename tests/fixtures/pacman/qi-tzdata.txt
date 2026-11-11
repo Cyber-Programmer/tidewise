@@ -1,0 +1,23 @@
+Name            : tzdata
+Version         : 2026e-1
+Description     : Sources for time zone and daylight saving time data
+Architecture    : x86_64
+URL             : https://www.iana.org/time-zones
+Licenses        : LicenseRef-tz
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : bash: for tzselect [installed]
+                  glibc: for zdump, zic [installed]
+Required By     : glibc  python
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 1701.73 KiB
+Packager        : Andreas Radke <andyrtr@archlinux.org>
+Build Date      : Wed Sep 30 18:35:43 2026
+Install Date    : Thu Oct  8 18:20:24 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+

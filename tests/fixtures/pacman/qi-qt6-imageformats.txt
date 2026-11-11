@@ -1,0 +1,22 @@
+Name            : qt6-imageformats
+Version         : 6.12.0-1
+Description     : Plugins for additional image formats: TIFF, MNG, TGA, WBMP
+Architecture    : x86_64
+URL             : https://www.qt.io
+Licenses        : GPL-3.0-only  LGPL-3.0-only  LicenseRef-Qt-Commercial  Qt-GPL-exception-1.0
+Groups          : qt6
+Provides        : None
+Depends On      : glibc  jasper  libmng  libstdc++  libtiff  libwebp  qt6-base
+Optional Deps   : None
+Required By     : shotcut  spectacle
+Optional For    : gwenview  kdenlive  kio-extras
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 269.37 KiB
+Packager        : Antonio Rojas <arojas@archlinux.org>
+Build Date      : Wed Sep 30 22:08:22 2026
+Install Date    : Thu Oct  8 18:20:43 2026
+Install Reason  : Installed as a dependency for another package
+Install Script  : No
+Validated By    : Signature
+

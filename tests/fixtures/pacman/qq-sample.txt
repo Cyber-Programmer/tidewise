@@ -1,0 +1,7 @@
+baobab
+base
+bc
+linux-api-headers
+qt6-imageformats
+tzdata
+zsh
