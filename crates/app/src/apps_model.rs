@@ -123,6 +123,8 @@ impl AppsModel {
         self.tab = tab;
     }
 
+    pub fn set_sort(&mut self, _sort: SortOrder) {}
+
     pub fn state(&self) -> &ListState {
         &self.state
     }
@@ -293,5 +295,33 @@ mod tests {
         let mut model = loaded(sample());
         model.set_tab(Tab::All);
         assert_eq!(names(&model).len(), 5);
+    }
+
+    #[test]
+    fn the_default_order_is_largest_first_and_ties_go_by_name() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        // git and vim are both 40 MB: git comes first because of its name.
+        assert_eq!(names(&model), ["firefox", "glibc", "git", "vim", "zlib"]);
+    }
+
+    #[test]
+    fn name_order_is_a_to_z() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model.set_sort(SortOrder::NameAToZ);
+        assert_eq!(names(&model), ["firefox", "git", "glibc", "vim", "zlib"]);
+    }
+
+    #[test]
+    fn name_order_ignores_case_and_is_still_stable() {
+        use InstallReason::Explicit;
+        let mut model = loaded(vec![
+            pkg("b", "", 1, Explicit, &[]),
+            pkg("a", "", 1, Explicit, &[]),
+            pkg("A", "", 1, Explicit, &[]),
+        ]);
+        model.set_sort(SortOrder::NameAToZ);
+        assert_eq!(names(&model), ["A", "a", "b"]);
     }
 }
