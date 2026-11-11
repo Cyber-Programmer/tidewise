@@ -244,6 +244,10 @@ impl AppsModel {
         self.tab
     }
 
+    pub fn sort(&self) -> SortOrder {
+        SortOrder::default() // stub
+    }
+
     /// The rows to show: the current tab's packages.
     pub fn rows(&self) -> Vec<Row> {
         self.visible()

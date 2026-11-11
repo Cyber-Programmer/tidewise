@@ -1,7 +1,9 @@
 //! Turns the `AppsModel` into the exact words and flags the Apps screen shows.
 //! No Slint types here, so every string the window displays is unit-tested.
 
-use crate::apps_model::{AppsModel, Details, EmptyState, ErrorText, ListState, Row, Tab};
+use crate::apps_model::{
+    AppsModel, Details, EmptyState, ErrorText, ListState, Row, SortOrder, Tab,
+};
 
 /// Shown while the list is loading, and as the "number" when there is none yet.
 const NO_NUMBER: &str = "–";
@@ -100,6 +102,10 @@ pub struct AppsView {
     pub subtitle: SubtitleView,
     /// Count texts for the tabs in order: Installed by you, Dependencies, All. "–" until loaded.
     pub tab_counts: [String; 3],
+    /// Position of the current tab in the tab bar: 0 Installed by you, 1 Dependencies, 2 All.
+    pub current_tab: i32,
+    /// Position of the current sort in the sort bar: 0 Size, 1 Name.
+    pub current_sort: i32,
     pub body: Body,
     pub rows: Vec<RowView>,
     /// "Showing N of M", or empty when there is no list.
@@ -125,11 +131,23 @@ pub fn tab_name(tab: Tab) -> &'static str {
     }
 }
 
+/// The tab at this position in the tab bar, or `None` if there is no such tab.
+pub fn tab_from_index(_index: i32) -> Option<Tab> {
+    None // stub
+}
+
+/// The sort at this position in the sort bar, or `None` if there is no such sort.
+pub fn sort_from_index(_index: i32) -> Option<SortOrder> {
+    None // stub
+}
+
 /// Builds the whole screen from the model. `typed_search` is the text exactly as typed (used in messages).
 pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
     AppsView {
         subtitle: subtitle(model),
         tab_counts: tab_counts(model),
+        current_tab: 0,  // stub
+        current_sort: 0, // stub
         body: body(model, typed_search),
         rows: model.rows().iter().map(row_view).collect(),
         footer: footer(model),
@@ -711,5 +729,31 @@ mod tests {
         );
         assert_eq!(row_update(&[], &old), RowUpdate::Replace);
         assert_eq!(row_update(&old, &[]), RowUpdate::Replace);
+    }
+
+    #[test]
+    fn the_bars_show_the_current_tab_and_sort() {
+        let mut model = loaded();
+        let view = apps_view(&model, "");
+        assert_eq!((view.current_tab, view.current_sort), (0, 0));
+        model.set_tab(Tab::All);
+        model.set_sort(SortOrder::NameAToZ);
+        let view = apps_view(&model, "");
+        assert_eq!((view.current_tab, view.current_sort), (2, 1));
+        model.set_tab(Tab::Dependencies);
+        assert_eq!(apps_view(&model, "").current_tab, 1);
+    }
+
+    #[test]
+    fn positions_in_the_bars_map_back_to_tabs_and_sorts() {
+        assert_eq!(tab_from_index(0), Some(Tab::Explicit));
+        assert_eq!(tab_from_index(1), Some(Tab::Dependencies));
+        assert_eq!(tab_from_index(2), Some(Tab::All));
+        assert_eq!(tab_from_index(3), None);
+        assert_eq!(tab_from_index(-1), None);
+        assert_eq!(sort_from_index(0), Some(SortOrder::SizeLargestFirst));
+        assert_eq!(sort_from_index(1), Some(SortOrder::NameAToZ));
+        assert_eq!(sort_from_index(2), None);
+        assert_eq!(sort_from_index(-1), None);
     }
 }
