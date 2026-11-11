@@ -102,9 +102,29 @@ impl From<ParseError> for PacmanError {
 
 impl fmt::Display for PacmanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // STUB (red)
-        write!(f, "pacman error")
+        match self {
+            Self::NotFound { program } => write!(f, "pacman not found at {}", program.display()),
+            Self::Spawn { program, source } => {
+                write!(f, "could not start {}: {source}", program.display())
+            }
+            Self::Failed {
+                code: Some(code),
+                stderr,
+            } => write!(f, "pacman failed (exit code {code}): {stderr}"),
+            Self::Failed { code: None, stderr } => {
+                write!(f, "pacman was stopped by a signal: {stderr}")
+            }
+            Self::Parse(error) => write!(f, "could not read pacman's output: {error}"),
+        }
     }
 }
 
-impl std::error::Error for PacmanError {}
+impl std::error::Error for PacmanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Spawn { source, .. } => Some(source),
+            Self::Parse(error) => Some(error),
+            Self::NotFound { .. } | Self::Failed { .. } => None,
+        }
+    }
+}
