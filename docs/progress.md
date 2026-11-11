@@ -92,3 +92,20 @@ AUR package names appear; every name in `Required By` / `Optional For` / `Option
 Next: 3.3 parser for `pacman -Qi` / `-Qq` using these fixtures.
 Blockers: none.
 Rules bent: no red/green commits (data and docs only, no behaviour change).
+
+## 2026-11-11 — 3.3 Parse `pacman -Qi` / `-Qq`
+Done: `tidewise-pacman` now has `parse_qi` (name, version, description, installed size in bytes, install reason)
+and `parse_qq`, as pure functions on `&str`. Records split at blank lines (last one needs no blank line), indented
+continuation lines join the previous field, lines split at the first `:` only. Errors are all-or-nothing and name
+the package and field (`ParseError`, hand-written, no new dependencies); `qi-broken-truncated.txt` gives
+`missing field "Installed Size"` for `zsh`. Sizes use integer maths only (`B/KiB/MiB/GiB`, 1024-based, rounded to
+the nearest byte, so they are what pacman printed, not exact). `is_valid_package_name` is an allow-list from
+`man PKGBUILD` (`pkgname`): ASCII letters/digits and `@ . _ + -`, not starting with `-` or `.`; used by `-Qq` and
+for `Name` in `-Qi`. clippy denies `unwrap`, `expect`, indexing and `panic!` in library code. 32 tests.
+Next: 3.4 (run `pacman -Qi`/`-Qq` through `std::process::Command`, `LC_ALL=C`) and the Apps list view model.
+Blockers: none.
+Rules bent: red commits use a stub that compiles (so tests fail on an assertion). In cycles 3, 5, 7, 8 and 9
+some new tests passed on first run (they pin behaviour or are a safety net); they are listed in the commit
+messages, not hidden. One green commit (continuation lines) was committed with a compile error because the
+test run was not gating the commit; I fixed and amended it locally before anything was pushed.
+Not parsed yet (not needed for 3.3): `Depends On`, `Optional Deps`, `Required By`, other fields.
