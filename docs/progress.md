@@ -129,3 +129,17 @@ Rules bent: cycles 4 and 5 tests (parse wrap, UTF-8) passed on first run because
 committed as "pin" tests and mutation-checked. Red commits use a stub that compiles; some red failures are
 "expected an error, got Ok" panics from a test helper. WBS sheet not updated (asked to skip). Intermediate green
 commit 2 has a dead-code warning until `installed_packages` landed; the final commit is warning-free.
+
+## 2026-11-11 — 3.8 Parse `Required By`
+Done: `InstalledPackage` has `required_by: Vec<String>`. `parse_required_by` (qi.rs) splits the value on any
+whitespace (pacman's double spaces and `\n` from joined continuation lines alike); `None` or a missing line gives
+an empty list; every name goes through `is_valid_package_name`, and the first bad one is
+`BadValue { package, field: "Required By", value: <that name> }` (all-or-nothing). Fixture coverage: zsh = one
+name, qt6-imageformats = two names, base/bc/baobab = `None`, multi = per-record lists, broken-truncated still
+fails on `Installed Size`. Inline test: 7 names over 3 lines. 38 tests in the crate.
+Next: 3.4 Apps list view model, using `installed_packages()` (3.7) and `required_by`. SI-unit size
+formatting (MB = 1 000 000 bytes) belongs in the 3.4 view model, not the parser.
+Blockers: none.
+Rules bent: red commit used a stub; `none_is_empty` and `missing_required_by_is_empty` passed on the stub (they
+pin behaviour) and are named in the red commit message. A package literally named `None` would be read as "no
+one" (pacman has the same ambiguity; none exists in the repos).
