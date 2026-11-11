@@ -152,7 +152,11 @@ impl AppsModel {
                 self.state = ListState::Loaded;
                 self.fix_selection();
             }
-            Err(_error) => {}
+            Err(error) => {
+                self.packages.clear();
+                self.selected = None;
+                self.state = ListState::Error(error_text(&error));
+            }
         }
     }
 
@@ -297,6 +301,50 @@ impl AppsModel {
             dependencies: count(Tab::Dependencies),
             all: count(Tab::All),
         }
+    }
+}
+
+/// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
+fn error_text(error: &PacmanError) -> ErrorText {
+    match error {
+        PacmanError::NotFound { .. } => ErrorText {
+            title: "Tidewise can't find pacman".to_string(),
+            body: "Tidewise is made for Arch Linux and reads your apps through pacman, \
+                   but there is no pacman at /usr/bin/pacman on this system."
+                .to_string(),
+            technical: error.to_string(),
+        },
+        PacmanError::Spawn { .. } => ErrorText {
+            title: "Tidewise couldn't start pacman".to_string(),
+            body: "pacman is there but wouldn't start. Try again, or check its permissions."
+                .to_string(),
+            technical: error.to_string(),
+        },
+        PacmanError::Failed { code, stderr } => {
+            let how = match code {
+                Some(code) => format!("exit code {code}"),
+                None => "stopped by a signal".to_string(),
+            };
+            let stderr = stderr.trim();
+            ErrorText {
+                title: "pacman couldn't list your packages".to_string(),
+                body: "pacman stopped with an error before it finished. \
+                       This is usually temporary; trying again often works."
+                    .to_string(),
+                technical: if stderr.is_empty() {
+                    how
+                } else {
+                    format!("{how}: {stderr}")
+                },
+            }
+        }
+        PacmanError::Parse(parse_error) => ErrorText {
+            title: "Tidewise couldn't read pacman's answer".to_string(),
+            body: "The list from pacman looked incomplete, so Tidewise shows nothing \
+                   rather than a list with packages missing."
+                .to_string(),
+            technical: parse_error.to_string(),
+        },
     }
 }
 
