@@ -16,6 +16,7 @@
 mod error;
 mod name;
 mod qq;
+mod size;
 
 pub use error::ParseError;
 pub use qq::parse_qq;
