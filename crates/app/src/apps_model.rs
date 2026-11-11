@@ -94,6 +94,17 @@ pub struct TabCounts {
     pub all: usize,
 }
 
+/// What to say when the list is empty. Two different empty states, so the screen can help.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyState {
+    /// There are rows (or the screen is loading or showing an error): no empty message.
+    NotEmpty,
+    /// This tab has no match, but another tab has `count` of them.
+    OtherTabHas { tab: Tab, count: usize },
+    /// Nothing matches on any tab.
+    NothingMatches,
+}
+
 /// The Apps screen's state. Set the inputs with `set_*`, read what to show with the other methods.
 #[derive(Debug, Default)]
 pub struct AppsModel {
@@ -179,6 +190,10 @@ impl AppsModel {
             SortOrder::NameAToZ => visible.sort_by(|a, b| compare_names(&a.name, &b.name)),
         }
         visible
+    }
+
+    pub fn empty_state(&self) -> EmptyState {
+        EmptyState::NotEmpty
     }
 
     pub fn tab_counts(&self) -> TabCounts {
@@ -402,5 +417,42 @@ mod tests {
         );
         model.set_search("   ");
         assert_eq!(model.tab_counts().all, 5);
+    }
+
+    #[test]
+    fn an_empty_tab_points_to_the_other_tab_that_has_matches() {
+        let mut model = loaded(sample());
+        model.set_search("library"); // only dependencies match; the default tab is Explicit
+        assert_eq!(
+            model.empty_state(),
+            EmptyState::OtherTabHas {
+                tab: Tab::Dependencies,
+                count: 2
+            }
+        );
+        model.set_tab(Tab::Dependencies);
+        model.set_search("firefox");
+        assert_eq!(
+            model.empty_state(),
+            EmptyState::OtherTabHas {
+                tab: Tab::Explicit,
+                count: 1
+            }
+        );
+    }
+
+    #[test]
+    fn when_nothing_matches_anywhere_that_is_a_different_empty_state() {
+        let mut model = loaded(sample());
+        model.set_search("no such app");
+        assert_eq!(model.empty_state(), EmptyState::NothingMatches);
+        model.set_tab(Tab::All);
+        assert_eq!(model.empty_state(), EmptyState::NothingMatches);
+    }
+
+    #[test]
+    fn there_is_no_empty_message_when_there_are_rows_or_while_loading() {
+        assert_eq!(AppsModel::new().empty_state(), EmptyState::NotEmpty);
+        assert_eq!(loaded(sample()).empty_state(), EmptyState::NotEmpty);
     }
 }
