@@ -13,3 +13,4 @@
 )]
 
 pub mod apps_model;
+pub mod apps_view;
