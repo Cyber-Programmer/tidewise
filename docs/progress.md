@@ -121,7 +121,7 @@ missing program -> `NotFound`, other start failure -> `Spawn`) and `packages_fro
 Display/source, no new dependencies. Invalid UTF-8 becomes U+FFFD but a bad `Name` is still rejected (both tested;
 checked the tests fail if decoding is made strict). One `#[ignore]` test runs the real pacman
 (`cargo test -p tidewise-pacman -- --ignored`) and cross-checks the count against `-Qq`.
-Next: Apps list view model (3.8?) using `installed_packages()`. Follow-up: **no timeout** on the pacman process
+Next: 3.4 Apps list view model using `installed_packages()`. Follow-up: **no timeout** on the pacman process
 yet (a stuck pacman blocks the caller; also the call must not run on the UI thread); `/usr/bin/pacman` is
 hard-coded, fine for Arch. `-Qq` has no runner yet (not needed).
 Blockers: none.
