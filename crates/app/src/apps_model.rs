@@ -805,4 +805,36 @@ mod tests {
         assert_eq!(model.state(), &ListState::Loaded);
         assert_eq!(selected(&model), ["firefox"]);
     }
+
+    #[test]
+    fn real_parsed_pacman_output_fits_the_model() {
+        let text = include_str!("../../../tests/fixtures/pacman/qi-multi.txt");
+        let mut model = loaded(tidewise_pacman::parse_qi(text).unwrap());
+
+        // base: installed by you, 0 bytes.
+        let rows = model.rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "base");
+        assert_eq!(rows[0].size_text, "0 B");
+
+        // Dependencies, largest first: 7 MiB then 1701.73 KiB.
+        model.set_tab(Tab::Dependencies);
+        let rows = model.rows();
+        let shown: Vec<(&str, &str, &str)> = rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.version.as_str(), r.size_text.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("linux-api-headers", "7.2-1", "7.3 MB"),
+                ("tzdata", "2026e-1", "1.7 MB")
+            ]
+        );
+
+        let details = model.details().unwrap();
+        assert_eq!(details.name, "linux-api-headers");
+        assert_eq!(details.needed_by, ["glibc", "libbpf", "libxdp"]);
+        assert_eq!(details.size_bytes, 7 * 1024 * 1024);
+    }
 }
