@@ -94,6 +94,23 @@ pub struct TabCounts {
     pub all: usize,
 }
 
+/// Everything the details panel shows for the selected package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub size_text: String,
+    /// "You installed it" or "Another package needs it".
+    pub why_here: String,
+    /// The first 5 packages that need this one.
+    pub needed_by: Vec<String>,
+    /// How many more there are beyond `needed_by` (shown as "and N more").
+    pub needed_by_more: usize,
+    /// The exact size, for the technical details.
+    pub size_bytes: u64,
+}
+
 /// What to say when the list is empty. Two different empty states, so the screen can help.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmptyState {
@@ -215,6 +232,11 @@ impl AppsModel {
             SortOrder::NameAToZ => visible.sort_by(|a, b| compare_names(&a.name, &b.name)),
         }
         visible
+    }
+
+    /// Details of the selected package, or `None` when nothing is selected.
+    pub fn details(&self) -> Option<Details> {
+        None
     }
 
     pub fn empty_state(&self) -> EmptyState {
@@ -556,5 +578,55 @@ mod tests {
         model.select("glibc"); // a dependency; the Explicit tab does not show it
         model.select("no-such-package");
         assert_eq!(selected(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn details_describe_the_selected_package() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model.select("glibc");
+        let details = model.details().unwrap();
+        assert_eq!(details.name, "glibc");
+        assert_eq!(details.description, "The C library");
+        assert_eq!(details.version, "1.0-1");
+        assert_eq!(details.size_text, "50.0 MB");
+        assert_eq!(details.size_bytes, 50_000_000);
+        assert_eq!(details.why_here, "Another package needs it");
+        assert_eq!(details.needed_by, ["firefox", "git"]);
+        assert_eq!(details.needed_by_more, 0);
+    }
+
+    #[test]
+    fn details_say_when_you_installed_it() {
+        let model = loaded(sample());
+        let details = model.details().unwrap();
+        assert_eq!(details.name, "firefox");
+        assert_eq!(details.why_here, "You installed it");
+        assert!(details.needed_by.is_empty());
+        assert_eq!(details.needed_by_more, 0);
+    }
+
+    #[test]
+    fn needed_by_shows_five_names_and_counts_the_rest() {
+        use InstallReason::Dependency;
+        let five = ["a", "b", "c", "d", "e"];
+        let seven = ["a", "b", "c", "d", "e", "f", "g"];
+        let model = loaded(vec![pkg("five", "", 1, Dependency, &five)]);
+        let details = model.details().unwrap();
+        assert_eq!(details.needed_by, five);
+        assert_eq!(details.needed_by_more, 0);
+
+        let model = loaded(vec![pkg("seven", "", 1, Dependency, &seven)]);
+        let details = model.details().unwrap();
+        assert_eq!(details.needed_by, ["a", "b", "c", "d", "e"]);
+        assert_eq!(details.needed_by_more, 2);
+    }
+
+    #[test]
+    fn there_are_no_details_when_nothing_is_selected() {
+        assert_eq!(AppsModel::new().details(), None);
+        let mut model = loaded(sample());
+        model.set_search("no such app");
+        assert_eq!(model.details(), None);
     }
 }
