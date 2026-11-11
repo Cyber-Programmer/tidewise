@@ -25,6 +25,14 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// Every installed package, from one `pacman -Qi` call (with no names it prints all of them).
+///
+/// Read-only, no root, no shell. Blocks until pacman finishes (no timeout yet).
+pub fn installed_packages() -> Result<Vec<InstalledPackage>, PacmanError> {
+    // STUB (red)
+    Ok(Vec::new())
+}
+
 /// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.
 fn run(program: &Path, args: &[&str]) -> Result<Output, PacmanError> {
     pacman_command(program, args)
@@ -213,5 +221,20 @@ mod tests {
         assert!(output.status.success());
         let output = run(Path::new("/usr/bin/false"), &[]).unwrap();
         assert_eq!(output.status.code(), Some(1));
+    }
+
+    /// The only test that runs the real pacman. Needs an Arch machine, so CI skips it.
+    /// Run it with: `cargo test -p tidewise-pacman -- --ignored`
+    #[test]
+    #[ignore = "runs the real /usr/bin/pacman; run with: cargo test -p tidewise-pacman -- --ignored"]
+    fn real_pacman_lists_every_installed_package() {
+        let packages = installed_packages().unwrap();
+        assert!(packages.iter().any(|p| p.name == "pacman"));
+
+        // Cross-check "no names prints every package" against a separate `-Qq` run.
+        let output = run(Path::new(PACMAN), &["-Qq"]).unwrap();
+        check_exit(&output).unwrap();
+        let names = crate::parse_qq(&String::from_utf8_lossy(&output.stdout)).unwrap();
+        assert_eq!(packages.len(), names.len());
     }
 }
