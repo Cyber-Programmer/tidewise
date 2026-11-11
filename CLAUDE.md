@@ -68,6 +68,9 @@ The rebuild exists so the human understands every part. For each task:
   (`[worksapce]`) silently drops everything in it. Treat every Cargo warning as an error.
 - The first `cargo clippy` after adding a dependency rebuilds everything in "check" mode (minutes). That's normal.
 - Slint follows the desktop's dark/light setting by default. The design is light-first: set it deliberately.
+- **A pipe hides the exit code.** `cargo test | tail -5 && git commit …` commits even when tests fail, because
+  `&&` sees `tail`'s success. Never gate a commit on a piped command: run the check on its own (or with
+  `set -o pipefail`), read the result, then commit. (Happened once in 3.3; amended before push.)
 
 ## Workspace layout
 
