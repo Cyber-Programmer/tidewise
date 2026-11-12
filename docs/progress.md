@@ -281,3 +281,38 @@ signature-checked DBs, cold-cache timing.
 Rules bent: no red/green commits (spike, nothing merged); branch prefix `spike/` was not in the list (added in this
 PR); new dependency `alpm` added without a decision record because it exists only in the throwaway `spike/`, with the
 human's OK for version `=5.0.2`. WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-12 — 4.3 search the repos with `pacman -Ss`
+Done: `crates/pacman` gets `parse_ss` (new `ss.rs`), `search(query)` and `SearchResult { repo, name, version, groups,
+installed_version: Option<String>, description }`. `[installed]` gives `Some(repo version)`, `[installed: x]` gives
+`Some(x)`. `search` builds `pacman -Ss -- <terms>` the `run.rs` way: split on whitespace, each term escaped for POSIX ERE
+(`c++` works), `--` always first, empty/blank text returns no results without running pacman, cap of 100 characters,
+control characters refused (new `PacmanError::BadQuery`). Exit 1 + empty stdout + empty stderr = no results; exit 1 with
+text on stderr (what a bad regex does) is `Failed`. Output order is pacman's own: ranking is the 4.6 view model's job.
+Third-party repos are kept, labelled by `repo`; `SearchResult::is_official()` is true for `core`, `extra`, `multilib` only
+(testing/staging repos count as third-party: one constant, `OFFICIAL_REPOS` in `ss.rs`).
+Repo-name rule: from pacman's source (`src/pacman/conf.c`, `lib/libalpm/db.c`) a repo is any `[section]` name except
+`options`; libalpm needs it non-empty, without `/`, and not `local`. So `parse_ss` requires only non-empty (the first `/`
+ends it); spaces, dots, capitals, non-ASCII are accepted (test `repo_rule_is_pacmans_not_stricter`).
+Real-pacman finding: `-Ss` also matches what a package *provides* (flac for `c++`, via `libFLAC++.so`), so not every hit
+shows the term in its name or description.
+Fuzz: `ss` target added (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (497 228 runs, nothing in
+`fuzz/artifacts/`). The 10-minute run is the human's, before 4.3 is Done.
+Tests: 88 in `tidewise-pacman` (+2 `#[ignore]`d real-pacman tests, run and passing here), 91 in `tidewise-app`. fmt, clippy,
+`cargo test --all`, `cargo deny check`, release build all exit 0 on the last commit. Commits: 516fe67 fixtures, 327deab
+red / 689f9b8 `parse_ss`, 453f4b8 red / d3545f6 query building, 193be13 red / 8f717f4 `search()`, b5dd0aa red / ce3ada9 app
+error text, ea1427e fuzz target.
+Next: 10-minute `ss` fuzz run (human); 4.4 `parse_si` (details); 4.6 search UI (ranking, official/third-party label,
+use `installed_version` vs `version` for "update available"); delete `spike/cli-vs-alpm` after 4.4.
+Blockers: none.
+Rules bent:
+- Touched `crates/app` (outside the stated scope) with the human's OK: one `BadQuery` arm in `error_text` plus a test, because
+  the new error variant made its exhaustive `match` fail to compile.
+- Commits 453f4b8 to b5dd0aa leave `tidewise-app` not compiling (I ran `-p tidewise-pacman` only and missed it until the
+  full clippy); d3545f6 fails `clippy -D warnings` on dead code until `search()` uses it. Only the last commit is fully green.
+- `tests/fixtures/pacman/ss-third-party.txt` is hand-made (made-up repos `chaotic-aur` layout, `my repo.x`), not captured: my
+  attempt to make a real fake sync DB and run pacman on it was denied, so the made-up lines copy the real layout but were
+  not confirmed against pacman. The repo-name rule comes from the pacman source vendored in `alpm-sys` 5.0.1, not
+  necessarily 7.1.0.
+- `docs/security/threat-model.md` does not exist yet, so nothing was added to it (the parser reads outside text).
+WBS sheet not touched by Claude (the human updates it).
