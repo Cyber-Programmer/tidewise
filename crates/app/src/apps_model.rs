@@ -225,20 +225,40 @@ impl AppsModel {
     }
 
     /// Selects the next row. On the last row nothing changes.
-    pub fn select_next(&mut self) {}
+    pub fn select_next(&mut self) {
+        self.select_page(1);
+    }
 
     /// Selects the previous row. On the first row nothing changes.
-    pub fn select_previous(&mut self) {}
+    pub fn select_previous(&mut self) {
+        self.select_page(-1);
+    }
 
     /// Selects the first row.
-    pub fn select_first(&mut self) {}
+    pub fn select_first(&mut self) {
+        self.select_page(isize::MIN);
+    }
 
     /// Selects the last row.
-    pub fn select_last(&mut self) {}
+    pub fn select_last(&mut self) {
+        self.select_page(isize::MAX);
+    }
 
     /// Moves the selection by `delta` rows (negative = up) and stops at the first or last row.
     pub fn select_page(&mut self, delta: isize) {
-        let _ = delta;
+        let visible = self.visible();
+        let Some(last) = visible.len().checked_sub(1) else {
+            return;
+        };
+        let current = self
+            .selected
+            .as_ref()
+            .and_then(|name| visible.iter().position(|package| &package.name == name))
+            .unwrap_or(0);
+        let target = current.saturating_add_signed(delta).min(last);
+        if let Some(package) = visible.get(target) {
+            self.selected = Some(package.name.clone());
+        }
     }
 
     /// Keeps the selected package if it is still visible; otherwise selects the first visible row, or nothing.
