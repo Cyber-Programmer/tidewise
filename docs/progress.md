@@ -259,3 +259,24 @@ decision on the NCSA licence in M3 (needs the human's OK).
 Blockers: none.
 Rules bent: no `(red)` commit (the harness adds no behaviour to test). `fuzz/` is not checked by root fmt/clippy or
 CI; it has its own fmt check and `cargo +nightly fuzz build`.
+
+## 2026-11-12 — 4.1 spike: CLI parsing vs libalpm (alpm crate) for sync data
+Done: two throwaway prototypes on branch `spike/cli-vs-alpm` (own `[workspace]` in `spike/`, like `fuzz/`; root
+workspace, CI and `deny.toml` untouched; commits `a821c4b` … `5d9e63c`): A runs `pacman -Ss`/`-Si` like `run.rs`,
+B uses `alpm` `=5.0.2`. Read-only, normal user, real DB only through `pacman -Ss/-Si` and libalpm reads; every
+broken-DB case ran on temp copies in the scratchpad. Wrote `docs/decisions/0004-pacman-data-source.md` with the
+results table, the recommendation and the consequences; added `spike/` to the branch prefixes in CLAUDE.md.
+Main findings: search (349) and details (20) are identical in A and B; A is about 2x slower (≈ 0.3 s per pacman call,
+the DB load); B stays silent on a missing or corrupt DB, panics on a non-UTF-8 byte in a description, does not
+start after a libalpm soname bump (exit 127), needs ≈ 61 MB RSS with a handle open and its own `pacman.conf`
+handling, and pulls two GPL-3.0-only crates (`cargo deny`: licences FAILED, rest ok). Lock file `db.lck`: not
+created and not needed by either. My recommendation is A; the decision is the human's.
+Next: the human decides and updates the record's Status and "Decided by"; push `spike/cli-vs-alpm` (kept until
+4.3/4.4 are done, then deleted); update WBS row 4.1 (human, by their instruction); if A: `parse_ss`/`parse_si`
+with fixtures and fuzz targets (4.3/4.4).
+Blockers: none. Not verified: pacman's NEWS (gitlab blocked automated fetches), the C source for when libalpm takes
+the lock, soname history between `.11` and `.14`, which build first shipped `.16`, `-3`/`-4` pacman builds,
+signature-checked DBs, cold-cache timing.
+Rules bent: no red/green commits (spike, nothing merged); branch prefix `spike/` was not in the list (added in this
+PR); new dependency `alpm` added without a decision record because it exists only in the throwaway `spike/`, with the
+human's OK for version `=5.0.2`. WBS sheet not touched by Claude (the human updates it).
