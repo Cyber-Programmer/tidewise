@@ -39,13 +39,43 @@ const MAX_QUERY_CHARS: usize = 100;
 /// Turns what the user typed into the arguments for `pacman -Ss`.
 ///
 /// `Ok(None)`: nothing to search for, so pacman must not be run (`pacman -Ss` alone lists everything).
-fn search_args(_query: &str) -> Result<Option<Vec<String>>, PacmanError> {
-    Ok(None)
+fn search_args(query: &str) -> Result<Option<Vec<String>>, PacmanError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(None);
+    }
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(PacmanError::BadQuery {
+            reason: "the search text is too long",
+        });
+    }
+    // Spaces, tabs and newlines just separate terms; any other control character is refused.
+    if query
+        .chars()
+        .any(|c| c.is_control() && !c.is_ascii_whitespace())
+    {
+        return Err(PacmanError::BadQuery {
+            reason: "the search text contains a control character",
+        });
+    }
+    // "-Ss" then "--" ALWAYS come first, so a term like "--help" or "-dd" can never be an option.
+    // pacman ANDs the terms, which is what a person typing two words expects.
+    let mut args = vec!["-Ss".to_string(), "--".to_string()];
+    args.extend(query.split_whitespace().map(escape_ere));
+    Ok(Some(args))
 }
 
 /// Puts a backslash before every POSIX ERE special character, so the term is matched literally.
-fn escape_ere(_term: &str) -> String {
-    String::new()
+/// (pacman treats each search term as a regular expression. `-` and `_` are not special.)
+fn escape_ere(term: &str) -> String {
+    let mut escaped = String::with_capacity(term.len());
+    for c in term.chars() {
+        if ".[](){}*+?|^$\\".contains(c) {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
 }
 
 /// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.
