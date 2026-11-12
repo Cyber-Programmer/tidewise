@@ -1,0 +1,10 @@
+extra/zsh 5.9.2-1 [installed]
+    A very advanced and programmable command interpreter (shell) for UNIX
+chaotic-aur/tidewise-demo 1.2.3-1
+    A demo package from a made-up third-party repo
+chaotic-aur/demo-tools 4.0-1 (demo-group other-group) [installed: 3.9-2]
+    Tools (with groups) for the demo
+my repo.x/odd-one 0.1-1
+    Repo name with a space and a dot
+core/acl 2.4.0-1 [installed]
+    Access control list utilities, libraries and headers
