@@ -179,8 +179,19 @@ design's SVG data) and Apps panels (sidebar, virtualised `ListView`, 8 static sk
 with a Technical details toggle, amber error panel). Tokens only. Window 1200x800, minimum 1100x640. No new
 dependencies, pacman crate untouched. 69 app tests; fmt, clippy, test, deny, release build and the ignored
 real-pacman test all exit 0.
-Next: remove/clean screens need the helper (M3). Small follow-ups: Up/Down arrows on the list if Tab does not scroll
-a focused row into view (check item 12); a fixed-height details area is not needed yet (the panel scrolls).
+Follow-up (same task, after the manual check): item 12 failed (Tab only reached the rows on screen), so the list is now
+a listbox. It is ONE Tab stop (a `FocusScope` around the `ListView`); rows are no longer Tab stops. Keys: Up/Down
+select the previous/next row, Home/End the first/last, Page Up/Page Down move by the rows that fit (at the ends
+nothing changes; a page that would overshoot stops at the first/last row). The selected row always scrolls into view
+by the smallest amount, also after a sort, tab or search change and when the list is first laid out or resized. New
+tested logic: `AppsModel::select_next/previous/first/last/page`, `AppsView.selected_index`, `list_scroll.rs`
+(`scroll_to_show`, `rows_per_page`, and `offset_to_content_y`/`content_y_to_offset`, the only place the sign of Slint's
+`content-y` flips). `visible-height` is read-only, so a `changed visible-height` handler copies it into the bridge
+(and fires `list-resized`). New tokens: `row-height` (64 px), `size-icon-button` (28 px). Also: the clear (x) button
+is a 28 px rounded square (`radius-chip`) inside a transparent 44 px target; the details' big size is the number and
+the unit as two texts with a `space-s` gap (a real space in the 32 px mono font was far wider than the one in the rows;
+`size_number`/`size_unit` are tested). 90 app tests; all standard commands and the ignored test exit 0.
+Next: remove/clean screens need the helper (M3). A fixed-height details area is not needed yet (the panel scrolls).
 Blockers: none.
 Rules bent: (1) UI-only work has no red test; instead a manual checklist, below. Commits are widgets -> panels ->
 fix -> wiring. (2) Two intermediate commits (red) have stubs; pin tests passing on a stub are named in their commit
@@ -188,9 +199,13 @@ messages. The first green commit of apps_view had an unused-function warning unt
 (3) I could not drive the window: the desktop session was locked, so KWin sent no frame callbacks after the first
 frame. I checked real screenshots of the first frame in these states (by a temporary local harness, since removed,
 that set the state before the first paint): loading, list + details, Dependencies tab, "No match ... Show
-Dependencies" empty state, and the amber error panel. That caught 3 layout bugs (fixed). NOT seen by eye: clicking,
-typing, keyboard, focus rings, the Technical details toggle, "Nothing matches" + Clear search, the 10 s note,
-live updates after the first frame, and the minimum size.
+Dependencies" empty state, and the amber error panel. That caught 3 layout bugs (fixed). Items 1-11 were then
+checked by the human. For the keyboard follow-up the session was unlocked, so I could watch the live window, but I
+cannot send real key presses (`wtype` is unsupported on KWin). A temporary local harness (removed) invoked the same
+`list-key` callback the Slint `FocusScope` fires and I checked screenshots: End shows the last row fully visible
+at the bottom, Page Down moves 10 rows and scrolls just enough, a sort or tab change keeps the selected row in view, the
+details follow the selection. The x square was seen at rest only; the real key mapping (Slint `Key.*` to `ListKey`),
+focus rings, hover/press and the 12 and 14-16 checks below are for the human.
 
 Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop):
 1. The window opens about 1200x800. Grey skeleton rows show for under a second, subtitle "Asking pacman for the list
@@ -211,7 +226,19 @@ Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop):
 10. Keyboard only: Tab walks search, clear (when there is text), tabs, sort, rows, buttons, each with a visible ring;
    Enter and Space activate them.
 11. Make the window as small as it allows (about 1100x640): nothing overlaps; the details panel scrolls.
-12. Tab into the list and press Tab several times: is the focused row scrolled into view? If not, I add Up/Down.
+12. (Replaced; item 12 first failed.) The list is ONE Tab stop: Tab from the sort buttons enters the list, the next
+    Tab leaves it (to "Technical details"). The selected row shows a teal ring only while the list has focus.
+14. With the list focused: Down/Up move one row; the details follow; at the top row Up and at the last row Down do
+    nothing. Home/End jump to the first/last row (End scrolls to the very bottom, the last row fully visible).
+    Page Down/Page Up move by about one screen of rows and stop at the ends. Keep pressing Down past the bottom edge:
+    the list scrolls one row at a time and the selected row never leaves the view.
+15. Scroll the list far away with the mouse wheel, then press an arrow key: it jumps back to the selected row. Select
+    a package far down, then click "Name"/"Size", another tab, or type a search that still matches it: the selected
+    row is still on screen. Click a visible row: the list does not jump.
+16. Search field: type text; the x button shows only then. Hover it: a small rounded grey square (about 28 px)
+    appears with clear space to the field border; press it: slightly darker. Tab to it: a teal ring around that
+    square. Its click area is still large: click about 8 px to the right of the visible square and it clears.
+17. Details panel: the big size reads like "1.67 GB" with the same one-space gap as in the rows, for kB, MB and GB.
 13. Error panel (look only): temporarily change `installed_packages()` in `apps_window.rs` to return
     `Err(PacmanError::Failed { code: Some(1), stderr: "x".into() })`, run, check the amber panel, "Try again",
     "Technical details" and the report line, then `git checkout` the file. 10 s note: same trick with a
