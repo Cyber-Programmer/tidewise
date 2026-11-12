@@ -33,6 +33,21 @@ pub fn installed_packages() -> Result<Vec<InstalledPackage>, PacmanError> {
     packages_from_output(&output)
 }
 
+/// Longest search text we accept, in characters (after trimming).
+const MAX_QUERY_CHARS: usize = 100;
+
+/// Turns what the user typed into the arguments for `pacman -Ss`.
+///
+/// `Ok(None)`: nothing to search for, so pacman must not be run (`pacman -Ss` alone lists everything).
+fn search_args(_query: &str) -> Result<Option<Vec<String>>, PacmanError> {
+    Ok(None)
+}
+
+/// Puts a backslash before every POSIX ERE special character, so the term is matched literally.
+fn escape_ere(_term: &str) -> String {
+    String::new()
+}
+
 /// Starts the program and waits for it. Start-up failures become `NotFound` or `Spawn`.
 fn run(program: &Path, args: &[&str]) -> Result<Output, PacmanError> {
     pacman_command(program, args)
@@ -236,5 +251,96 @@ mod tests {
         check_exit(&output).unwrap();
         let names = crate::parse_qq(&String::from_utf8_lossy(&output.stdout)).unwrap();
         assert_eq!(packages.len(), names.len());
+    }
+}
+
+#[cfg(test)]
+mod search_args_tests {
+    use super::*;
+
+    /// The arguments for `query`, with a clear message if there are none or it was refused.
+    fn args(query: &str) -> Vec<String> {
+        match search_args(query) {
+            Ok(Some(args)) => args,
+            other => panic!("{query:?}: expected arguments, got {other:?}"),
+        }
+    }
+
+    fn refused(query: &str) -> &'static str {
+        match search_args(query) {
+            Err(PacmanError::BadQuery { reason }) => reason,
+            other => panic!("{query:?}: expected BadQuery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_or_blank_query_means_do_not_run_pacman() {
+        for query in ["", " ", "   ", "\t", "\n", " \t\n "] {
+            assert!(
+                matches!(search_args(query), Ok(None)),
+                "{query:?} should give no arguments"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_word_gets_the_fixed_prefix() {
+        assert_eq!(args("firefox"), ["-Ss", "--", "firefox"]);
+        assert_eq!(args("  firefox \n"), ["-Ss", "--", "firefox"]);
+    }
+
+    #[test]
+    fn terms_are_split_on_any_whitespace() {
+        assert_eq!(
+            args("firefox  dev\tkit\nx"),
+            ["-Ss", "--", "firefox", "dev", "kit", "x"]
+        );
+    }
+
+    #[test]
+    fn option_lookalikes_stay_search_words_after_double_dash() {
+        assert_eq!(args("--help"), ["-Ss", "--", "--help"]);
+        assert_eq!(args("-dd"), ["-Ss", "--", "-dd"]);
+        assert_eq!(args("--noconfirm -y"), ["-Ss", "--", "--noconfirm", "-y"]);
+    }
+
+    #[test]
+    fn every_ere_special_character_is_escaped() {
+        for special in ".[](){}*+?|^$\\".chars() {
+            let query = format!("a{special}b");
+            assert_eq!(args(&query), ["-Ss", "--", &format!("a\\{special}b")]);
+        }
+        assert_eq!(args("c++"), ["-Ss", "--", r"c\+\+"]);
+        assert_eq!(args("("), ["-Ss", "--", r"\("]);
+        assert_eq!(args("["), ["-Ss", "--", r"\["]);
+        assert_eq!(args("a.*b"), ["-Ss", "--", r"a\.\*b"]);
+    }
+
+    #[test]
+    fn ordinary_package_name_characters_are_left_alone() {
+        assert_eq!(args("lib32-glibc_2@x"), ["-Ss", "--", "lib32-glibc_2@x"]);
+        assert_eq!(args("café"), ["-Ss", "--", "café"]);
+    }
+
+    #[test]
+    fn length_cap_counts_characters_after_trimming() {
+        assert_eq!(args(&"x".repeat(100)).len(), 3);
+        assert_eq!(args(&format!("  {}  ", "x".repeat(100))).len(), 3);
+        assert_eq!(args(&"é".repeat(100)).len(), 3); // 200 bytes, 100 characters
+        assert!(refused(&"x".repeat(101)).contains("long"));
+        assert!(refused(&"é".repeat(101)).contains("long"));
+    }
+
+    #[test]
+    fn control_characters_are_refused() {
+        for query in ["foo\0bar", "foo\x07", "a\x1bb", "\x7f", "a\u{85}b"] {
+            assert!(refused(query).contains("control"), "{query:?}");
+        }
+    }
+
+    #[test]
+    fn refusal_message_is_plain() {
+        let error = search_args(&"x".repeat(101)).unwrap_err();
+        assert!(error.to_string().starts_with("search text not accepted:"));
     }
 }
