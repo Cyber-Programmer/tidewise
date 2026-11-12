@@ -92,6 +92,8 @@ pub enum PacmanError {
     Failed { code: Option<i32>, stderr: String },
     /// pacman succeeded but its text could not be parsed (the 3.3 error, wrapped).
     Parse(ParseError),
+    /// The search text was refused before pacman was started (too long, or it has control characters).
+    BadQuery { reason: &'static str },
 }
 
 impl From<ParseError> for PacmanError {
@@ -115,6 +117,7 @@ impl fmt::Display for PacmanError {
                 write!(f, "pacman was stopped by a signal: {stderr}")
             }
             Self::Parse(error) => write!(f, "could not read pacman's output: {error}"),
+            Self::BadQuery { reason } => write!(f, "search text not accepted: {reason}"),
         }
     }
 }
@@ -124,7 +127,7 @@ impl std::error::Error for PacmanError {
         match self {
             Self::Spawn { source, .. } => Some(source),
             Self::Parse(error) => Some(error),
-            Self::NotFound { .. } | Self::Failed { .. } => None,
+            Self::NotFound { .. } | Self::Failed { .. } | Self::BadQuery { .. } => None,
         }
     }
 }
