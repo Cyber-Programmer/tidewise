@@ -12,24 +12,36 @@ pub fn scroll_to_show(
     visible_height: f32,
     current_offset: f32,
 ) -> f32 {
-    let _ = (index, row_height, visible_height);
-    current_offset // stub
+    if row_height <= 0.0 || visible_height <= 0.0 {
+        return current_offset;
+    }
+    let top = index as f32 * row_height;
+    let bottom = top + row_height;
+    if top < current_offset || row_height > visible_height {
+        top
+    } else if bottom > current_offset + visible_height {
+        bottom - visible_height
+    } else {
+        current_offset
+    }
 }
 
 /// How many whole rows fit in the visible area (at least 1, so Page Up/Down always move).
 pub fn rows_per_page(visible_height: f32, row_height: f32) -> usize {
-    let _ = (visible_height, row_height);
-    1 // stub
+    if row_height <= 0.0 || visible_height <= 0.0 {
+        return 1;
+    }
+    ((visible_height / row_height) as usize).max(1)
 }
 
 /// Slint's `content-y` for a positive scroll offset.
 pub fn offset_to_content_y(offset: f32) -> f32 {
-    offset // stub
+    if offset <= 0.0 { 0.0 } else { -offset }
 }
 
 /// The positive scroll offset for Slint's `content-y` (never negative).
 pub fn content_y_to_offset(content_y: f32) -> f32 {
-    content_y // stub
+    if content_y >= 0.0 { 0.0 } else { -content_y }
 }
 
 #[cfg(test)]
