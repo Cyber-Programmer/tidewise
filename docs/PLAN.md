@@ -30,6 +30,7 @@ CLI command would, always shows the exact change before making it, and refuses k
 | D8 | **First public release v0.1 after M4** (Apps + Install + Update system), then grow in v0.x releases | Real feedback early; small steps |
 | D9 | **"Update system" screen is in scope** (full `pacman -Syu`) | Installs sometimes need a full upgrade (rule 4); users need a safe way to do it |
 | D10 | **Repo docs are the source of truth**; the claude.ai project copies are refreshed from them | Rules must match the code they govern; the repo is what's public |
+| D11 | **Read pacman data by parsing CLI output** (`LC_ALL=C`, no shell), not libalpm / the `alpm` crate | Spike 4.1: same results, but libalpm fails silently on bad DBs, panics on non-UTF-8, locks us to libalpm's major version and brings GPL-3.0-only crates; see `docs/decisions/0004` |
 
 ## 3. Golden rules (safety)
 
@@ -96,8 +97,8 @@ tests/fixtures          saved real pacman output
 tests/container         Arch container tests (anything that runs pacman for real)
 ```
 
-Open technical choice (decide in M2 with a small spike): read pacman data by **parsing CLI output**
-(`pacman -Qi`, `-Si`, `-Ss`, `-S --print`) vs. using **libalpm bindings** (the `alpm` crate). Verify before deciding.
+Decided (D11): read pacman data by **parsing CLI output** (`pacman -Qi`, `-Si`, `-Ss`, `-S --print`), not with
+libalpm bindings (the `alpm` crate). The M2 spike measured both; see `docs/decisions/0004-pacman-data-source.md`.
 
 ## 7. Milestones (small steps; each ends with something you can run and understand)
 
@@ -135,3 +136,4 @@ Design is done **just in time**: each milestone designs its own screens first.
 ## Changelog
 - 8 Nov 2026 — v2 approved: Arch-only rebuild, AUR packaging, repo-only installer, same repo fresh history, v0.1 after M4, Update system in scope.
 - 9 Nov 2026 — D10: repo docs become the source of truth (2.5). D7 notes the `archive/old-v1` tag. Rust edition 2024 (not 2021).
+- 12 Nov 2026 — D11: CLI parsing for sync data (spike 4.1, decision 0004); the open technical choice in section 6 is closed.

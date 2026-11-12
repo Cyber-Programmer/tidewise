@@ -1,8 +1,8 @@
 # 0004 — How `tidewise-pacman` reads sync data: CLI parsing or libalpm
 
-- Status: **Proposed** (a recommendation; the human decides)
+- Status: **Accepted** (option A, CLI parsing)
 - Date: 2026-11-12
-- Decided by: pending (the human)
+- Decided by: Bahauddin Hassan (human), 2026-11-12
 - Task: WBS 4.1 (spike). Prototype code: branch `spike/cli-vs-alpm` (throwaway, never merged; deleted after 4.3/4.4).
 
 ## Context
