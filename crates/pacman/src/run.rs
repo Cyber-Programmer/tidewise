@@ -8,7 +8,7 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use crate::{InstalledPackage, PacmanError, parse_qi};
+use crate::{InstalledPackage, PacmanError, SearchResult, parse_qi};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -109,6 +109,11 @@ fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, Pacman
     check_exit(output)?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(parse_qi(&text)?)
+}
+
+/// Turns what `pacman -Ss` printed into results. Pure: takes an `Output`, runs nothing.
+fn results_from_output(_output: &Output) -> Result<Vec<SearchResult>, PacmanError> {
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
@@ -372,5 +377,152 @@ mod search_args_tests {
     fn refusal_message_is_plain() {
         let error = search_args(&"x".repeat(101)).unwrap_err();
         assert!(error.to_string().starts_with("search text not accepted:"));
+    }
+}
+
+#[cfg(test)]
+mod search_output_tests {
+    use super::*;
+    use crate::{ParseError, parse_ss};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const SAMPLE: &str = include_str!("../../../tests/fixtures/pacman/ss-sample.txt");
+    const THIRD_PARTY: &str = include_str!("../../../tests/fixtures/pacman/ss-third-party.txt");
+    const TRUNCATED: &str = include_str!("../../../tests/fixtures/pacman/ss-broken-truncated.txt");
+    const BAD_BYTE: &[u8] = include_bytes!("../../../tests/fixtures/pacman/ss-bad-byte.bin");
+
+    /// A fake pacman result. `code` is the exit code (0 = success).
+    fn fake_output(code: i32, stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    fn expect_error(output: &Output) -> PacmanError {
+        match results_from_output(output) {
+            Err(error) => error,
+            Ok(results) => panic!("expected an error, got {} results", results.len()),
+        }
+    }
+
+    #[test]
+    fn success_output_parses_like_parse_ss() {
+        let results = results_from_output(&fake_output(0, SAMPLE.as_bytes(), b"")).unwrap();
+        assert_eq!(results, parse_ss(SAMPLE).unwrap());
+        assert_eq!(results.len(), 7);
+    }
+
+    #[test]
+    fn third_party_repos_and_pacmans_order_survive() {
+        let results = results_from_output(&fake_output(0, THIRD_PARTY.as_bytes(), b"")).unwrap();
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["zsh", "tidewise-demo", "demo-tools", "odd-one", "acl"]
+        );
+        assert!(!results[1].is_official());
+    }
+
+    #[test]
+    fn exit_0_with_no_text_is_no_results() {
+        assert!(
+            results_from_output(&fake_output(0, b"", b""))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn exit_1_with_nothing_printed_is_no_results_not_an_error() {
+        assert!(
+            results_from_output(&fake_output(1, b"", b""))
+                .unwrap()
+                .is_empty()
+        );
+        // A lone newline on stderr is still "nothing said".
+        assert!(
+            results_from_output(&fake_output(1, b"", b"\n"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn exit_1_with_stderr_text_is_an_error() {
+        // What pacman 7.1.0 really prints for a bad regular expression.
+        let stderr = b"error: search failed: invalid regular expression\n";
+        let error = expect_error(&fake_output(1, b"", stderr));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), stderr }
+                if stderr == "error: search failed: invalid regular expression"),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn exit_1_with_stdout_text_is_an_error() {
+        let error = expect_error(&fake_output(1, SAMPLE.as_bytes(), b""));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn other_exit_codes_and_signals_are_errors() {
+        let error = expect_error(&fake_output(2, b"", b""));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(2), .. }),
+            "got {error:?}"
+        );
+        let killed = Output {
+            status: ExitStatus::from_raw(9),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        let error = expect_error(&killed);
+        assert!(
+            matches!(&error, PacmanError::Failed { code: None, .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn unparseable_text_is_wrapped_parse_error() {
+        let error = expect_error(&fake_output(0, TRUNCATED.as_bytes(), b""));
+        let expected = parse_ss(TRUNCATED).unwrap_err();
+        assert!(
+            matches!(&error, PacmanError::Parse(inner) if *inner == expected),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_in_a_description_becomes_replacement_char() {
+        let results = results_from_output(&fake_output(0, BAD_BYTE, b"")).unwrap();
+        assert_eq!(results.len(), 7);
+        let baobab = results.iter().find(|r| r.name == "baobab").unwrap();
+        assert_eq!(
+            baobab.description,
+            "A graphical \u{FFFD}irectory tree analyzer"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_in_a_name_is_still_rejected() {
+        let mut bytes = SAMPLE.as_bytes().to_vec();
+        let at = SAMPLE.find("zsh").unwrap(); // the name in "extra/zsh"
+        bytes[at] = 0xFF;
+        let error = expect_error(&fake_output(0, &bytes, b""));
+        assert!(
+            matches!(
+                &error,
+                PacmanError::Parse(ParseError::BadValue { field: "Name", .. })
+            ),
+            "got {error:?}"
+        );
     }
 }
