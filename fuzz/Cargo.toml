@@ -28,3 +28,10 @@ path = "fuzz_targets/qq.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ss"
+path = "fuzz_targets/ss.rs"
+test = false
+doc = false
+bench = false
