@@ -1,0 +1,12 @@
+[package]
+name = "tidewise-spike"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+alpm = "=5.0.2"
+
+# Own workspace root (like fuzz/): the root workspace, CI and cargo deny never see this crate.
+[workspace]
