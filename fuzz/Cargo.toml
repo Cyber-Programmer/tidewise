@@ -1,0 +1,30 @@
+[package]
+name = "tidewise-pacman-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+tidewise-pacman = { path = "../crates/pacman" }
+
+# Own workspace root: keeps fuzz/ out of the main workspace (cargo deny, CI and the root commands never see it).
+[workspace]
+
+[[bin]]
+name = "qi"
+path = "fuzz_targets/qi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qq"
+path = "fuzz_targets/qq.rs"
+test = false
+doc = false
+bench = false
