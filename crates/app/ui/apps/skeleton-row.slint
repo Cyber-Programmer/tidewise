@@ -2,7 +2,7 @@ import { Theme } from "../theme.slint";
 
 // A grey placeholder row shown while pacman is answering. Static on purpose: no animation.
 export component SkeletonRow inherits Rectangle {
-    height: 64px;
+    height: Theme.row-height;
 
     Rectangle {
         y: parent.height - 1px;

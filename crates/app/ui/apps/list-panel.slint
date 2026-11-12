@@ -1,7 +1,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { TwButton } from "../widgets/button.slint";
-import { AppsBridge, BodyKind } from "bridge.slint";
+import { AppsBridge, BodyKind, ListKey } from "bridge.slint";
 import { PackageRowItem } from "package-row.slint";
 import { SkeletonRow } from "skeleton-row.slint";
 
@@ -23,12 +23,51 @@ export component ListPanel inherits Rectangle {
             for i in 8: SkeletonRow { }
         }
 
-        if AppsBridge.body == BodyKind.list: ListView {
+        // The list is ONE Tab stop (listbox pattern): Tab enters it, the next Tab leaves it.
+        // Up/Down/Home/End/Page Up/Page Down move the selection; Rust keeps the row in view.
+        if AppsBridge.body == BodyKind.list: Rectangle {
             vertical-stretch: 1;
-            for item in AppsBridge.rows: PackageRowItem {
-                package: item;
-                chosen => {
-                    AppsBridge.row-chosen(item.name);
+
+            list-focus := FocusScope {
+                width: parent.width;
+                height: parent.height;
+                key-pressed(event) => {
+                    if (event.text == Key.UpArrow) {
+                        AppsBridge.list-key(ListKey.up);
+                    } else if (event.text == Key.DownArrow) {
+                        AppsBridge.list-key(ListKey.down);
+                    } else if (event.text == Key.Home) {
+                        AppsBridge.list-key(ListKey.home);
+                    } else if (event.text == Key.End) {
+                        AppsBridge.list-key(ListKey.end);
+                    } else if (event.text == Key.PageUp) {
+                        AppsBridge.list-key(ListKey.page-up);
+                    } else if (event.text == Key.PageDown) {
+                        AppsBridge.list-key(ListKey.page-down);
+                    } else {
+                        return reject;
+                    }
+                    return accept;
+                }
+            }
+
+            ListView {
+                width: parent.width;
+                height: parent.height;
+                content-y <=> AppsBridge.list-content-y;
+                changed visible-height => {
+                    AppsBridge.list-visible-height = self.visible-height;
+                    AppsBridge.list-resized();
+                }
+
+                for item[index] in AppsBridge.rows: PackageRowItem {
+                    package: item;
+                    index: index;
+                    list-focused: list-focus.has-focus;
+                    chosen => {
+                        AppsBridge.row-chosen(item.name);
+                        list-focus.focus();
+                    }
                 }
             }
         }

@@ -17,9 +17,12 @@ use tidewise_app::apps_view::{
     AppsView, Body, DetailsView, EmptyAction, RowUpdate, RowView, apps_view, row_update,
     sort_from_index, tab_from_index,
 };
+use tidewise_app::list_scroll::{
+    content_y_to_offset, offset_to_content_y, rows_per_page, scroll_to_show,
+};
 use tidewise_pacman::{InstalledPackage, PacmanError};
 
-use crate::{AppsBridge, BodyKind, DetailsData, MainWindow, PackageRow};
+use crate::{AppsBridge, BodyKind, DetailsData, ListKey, MainWindow, PackageRow, Theme};
 
 /// After this long the screen adds "This is taking longer than usual." (pacman is not stopped).
 const SLOW_AFTER: Duration = Duration::from_secs(10);
@@ -34,6 +37,8 @@ struct Screen {
     typed_search: String,
     /// The rows Slint is showing now, to work out the smallest update.
     shown_rows: Vec<RowView>,
+    /// Where the selected row is in the list, to keep it on screen.
+    selected_index: Option<usize>,
     rows: Rc<VecModel<PackageRow>>,
     /// Where the worker thread leaves its answer.
     mailbox: Option<mpsc::Receiver<Answer>>,
@@ -51,6 +56,7 @@ pub fn start(window: &MainWindow) {
         model: AppsModel::new(),
         typed_search: String::new(),
         shown_rows: Vec::new(),
+        selected_index: None,
         rows,
         mailbox: None,
         slow_timer: Timer::default(),
@@ -83,6 +89,18 @@ pub fn start(window: &MainWindow) {
     bridge.on_row_chosen(move |name| {
         handle.borrow_mut().model.select(&name);
         repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_list_key(move |key| list_key(&handle, key));
+    let handle = screen.clone();
+    bridge.on_list_resized(move || {
+        let (window, selected) = {
+            let state = handle.borrow();
+            (state.window.upgrade(), state.selected_index)
+        };
+        if let Some(window) = window {
+            keep_in_view(&window, selected);
+        }
     });
     let handle = screen.clone();
     bridge.on_empty_button_clicked(move || {
@@ -149,6 +167,43 @@ fn load_done(screen: &Rc<RefCell<Screen>>) {
     repaint(screen);
 }
 
+/// An arrow, Home, End or Page key in the list: the model moves the selection, the window follows it.
+fn list_key(screen: &Rc<RefCell<Screen>>, key: ListKey) {
+    let Some(window) = screen.borrow().window.upgrade() else {
+        return;
+    };
+    let visible = window.global::<AppsBridge>().get_list_visible_height();
+    let row_height = window.global::<Theme>().get_row_height();
+    let page = rows_per_page(visible, row_height) as isize;
+    {
+        let model = &mut screen.borrow_mut().model;
+        match key {
+            ListKey::Up => model.select_previous(),
+            ListKey::Down => model.select_next(),
+            ListKey::Home => model.select_first(),
+            ListKey::End => model.select_last(),
+            ListKey::PageUp => model.select_page(-page),
+            ListKey::PageDown => model.select_page(page),
+        }
+    }
+    repaint(screen);
+}
+
+/// Scrolls the list the smallest amount that shows the selected row completely.
+/// Does nothing while the list has no size yet; `list-resized` calls this again once it has.
+fn keep_in_view(window: &MainWindow, selected_index: Option<usize>) {
+    let Some(index) = selected_index else {
+        return;
+    };
+    let bridge = window.global::<AppsBridge>();
+    let row_height = window.global::<Theme>().get_row_height();
+    let current = content_y_to_offset(bridge.get_list_content_y());
+    let wanted = scroll_to_show(index, row_height, bridge.get_list_visible_height(), current);
+    if wanted != current {
+        bridge.set_list_content_y(offset_to_content_y(wanted));
+    }
+}
+
 /// The button in an empty state: what it does comes from the view, not from here.
 fn empty_button_clicked(screen: &Rc<RefCell<Screen>>) {
     let action = {
@@ -208,7 +263,15 @@ fn repaint(screen: &Rc<RefCell<Screen>>) {
             }
         }
     }
+    state.selected_index = view.selected_index;
     state.shown_rows = view.rows;
+
+    // A list that is not on screen starts from the top next time; otherwise keep the selection visible.
+    if matches!(view.body, Body::List) {
+        keep_in_view(&window, state.selected_index);
+    } else {
+        bridge.set_list_content_y(0.0);
+    }
 }
 
 fn show_body(bridge: &AppsBridge, view: &AppsView) {
