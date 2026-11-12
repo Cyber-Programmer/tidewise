@@ -243,3 +243,19 @@ Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop):
     `Err(PacmanError::Failed { code: Some(1), stderr: "x".into() })`, run, check the amber panel, "Try again",
     "Technical details" and the report line, then `git checkout` the file. 10 s note: same trick with a
     `std::thread::sleep(12 s)` in the worker.
+
+## 2026-11-12 — 3.6 cargo-fuzz targets for the pacman parsers
+Done: `fuzz/` (own workspace, outside the root one; `libfuzzer-sys` 0.4.13, licence `(MIT OR Apache-2.0) AND NCSA`,
+only in `fuzz/`) with two targets, `qi` (`parse_qi`) and `qq` (`parse_qq`). Each returns early on non-UTF-8 input
+(as `run.rs` does) and only calls the parser. Seeds are `tests/fixtures/pacman/` used directly (no copies);
+corpus and artifacts are gitignored. Commands are in `fuzz/README.md` and the "Fuzzing" section of CLAUDE.md,
+including `cargo fmt --manifest-path fuzz/Cargo.toml --check`. Nightly only through `cargo +nightly`; default
+toolchain still stable. Commits: 8420d2a (crate), 721d8ba (CLAUDE.md).
+Results (human's 10-minute runs, `-max_total_time=600`): qi: 6 437 138 runs in 601 s, exit 0; qq: 50 636 026 runs
+in 601 s, exit 0; `fuzz/artifacts/` empty. No crashes, so no new unit tests. Root commands (fmt, clippy, test,
+deny, release build) pass on stable.
+Next: fuzz targets for any new parser (e.g. `-Ss`, `-Si`, `/proc`) when it lands; CI fuzzing and a deny.toml
+decision on the NCSA licence in M3 (needs the human's OK).
+Blockers: none.
+Rules bent: no `(red)` commit (the harness adds no behaviour to test). `fuzz/` is not checked by root fmt/clippy or
+CI; it has its own fmt check and `cargo +nightly fuzz build`.
