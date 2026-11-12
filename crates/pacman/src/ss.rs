@@ -1,6 +1,7 @@
 //! Parser for `pacman -Ss`: a header line and an indented description line per package.
 
 use crate::ParseError;
+use crate::name::is_valid_package_name;
 
 /// One package found by `pacman -Ss`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,16 +19,135 @@ pub struct SearchResult {
     pub description: String,
 }
 
+/// The repositories Arch Linux itself ships. Everything else (chaotic-aur, a company mirror, ...) is
+/// third-party. Testing and staging repos are deliberately not on this list.
+const OFFICIAL_REPOS: [&str; 3] = ["core", "extra", "multilib"];
+
 impl SearchResult {
     /// True for the repositories Arch itself ships (`core`, `extra`, `multilib`).
     pub fn is_official(&self) -> bool {
-        false
+        OFFICIAL_REPOS.contains(&self.repo.as_str())
     }
 }
 
 /// Parses the output of `LC_ALL=C pacman -Ss -- ...`, keeping pacman's own order.
-pub fn parse_ss(_text: &str) -> Result<Vec<SearchResult>, ParseError> {
-    Ok(Vec::new())
+///
+/// Each package is a header line (`repo/name version [(groups)] [[installed...]]`) followed by one
+/// indented description line. No sorting or ranking happens here: that is the view model's job.
+/// All-or-nothing: the first bad line makes the whole call an error.
+pub fn parse_ss(text: &str) -> Result<Vec<SearchResult>, ParseError> {
+    let mut results = Vec::new();
+    // A header we have read whose description line has not come yet.
+    let mut waiting: Option<SearchResult> = None;
+    for (index, line) in text.lines().enumerate() {
+        let line_number = index + 1;
+        // Only indented lines are descriptions. Even a blank-looking one counts: pacman prints
+        // four spaces for a package with no description.
+        if line.starts_with(char::is_whitespace) {
+            let Some(mut result) = waiting.take() else {
+                return Err(ParseError::MalformedLine {
+                    package: None,
+                    line_number,
+                    line: line.to_string(),
+                });
+            };
+            result.description = line.trim().to_string();
+            results.push(result);
+        } else {
+            if let Some(header) = waiting.take() {
+                return Err(missing_description(&header));
+            }
+            waiting = Some(parse_header(line, line_number)?);
+        }
+    }
+    match waiting {
+        Some(header) => Err(missing_description(&header)),
+        None => Ok(results),
+    }
+}
+
+fn missing_description(header: &SearchResult) -> ParseError {
+    ParseError::MissingField {
+        package: Some(header.name.clone()),
+        field: "Description",
+    }
+}
+
+/// Reads `repo/name version [(groups)] [[installed...]]` into a result with an empty description.
+fn parse_header(line: &str, line_number: usize) -> Result<SearchResult, ParseError> {
+    let malformed = || ParseError::MalformedLine {
+        package: None,
+        line_number,
+        line: line.to_string(),
+    };
+    // pacman's own rule for a repo name (it comes from a `[section]` in pacman.conf): not empty and no
+    // '/'. Nothing else is required, so we require nothing else. The first '/' ends the repo.
+    let (repo, rest) = line.split_once('/').ok_or_else(malformed)?;
+    if repo.is_empty() {
+        return Err(ParseError::BadValue {
+            package: None,
+            field: "Repository",
+            value: repo.to_string(),
+        });
+    }
+    let (name, rest) = rest.split_once(' ').ok_or_else(malformed)?;
+    if !is_valid_package_name(name) {
+        return Err(ParseError::BadValue {
+            package: None,
+            field: "Name",
+            value: name.to_string(),
+        });
+    }
+    let bad = |field: &'static str, value: &str| ParseError::BadValue {
+        package: Some(name.to_string()),
+        field,
+        value: value.to_string(),
+    };
+    let (version, extras) = rest.split_once(' ').unwrap_or((rest, ""));
+    if version.is_empty() || version.chars().any(char::is_control) {
+        return Err(bad("Version", version));
+    }
+
+    let mut rest = extras.trim();
+    let mut groups = Vec::new();
+    if let Some(after) = rest.strip_prefix('(') {
+        let Some((inside, tail)) = after.split_once(')') else {
+            return Err(bad("Groups", rest));
+        };
+        groups = inside.split_whitespace().map(String::from).collect();
+        rest = tail.trim_start();
+    }
+    let installed_version = if rest.is_empty() {
+        None
+    } else {
+        match parse_installed(rest, version) {
+            Some(installed) => Some(installed),
+            None if rest.starts_with('[') => return Err(bad("Installed", rest)),
+            None => return Err(bad("Header", rest)),
+        }
+    };
+
+    Ok(SearchResult {
+        repo: repo.to_string(),
+        name: name.to_string(),
+        version: version.to_string(),
+        groups,
+        installed_version,
+        description: String::new(),
+    })
+}
+
+/// `[installed]` gives the repo's own version; `[installed: x]` gives `x`. Anything else is `None`.
+fn parse_installed(text: &str, repo_version: &str) -> Option<String> {
+    let inside = text.strip_prefix('[')?.strip_suffix(']')?;
+    if inside == "installed" {
+        return Some(repo_version.to_string());
+    }
+    let other = inside.strip_prefix("installed: ")?;
+    if other.is_empty() || other.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    Some(other.to_string())
 }
 
 #[cfg(test)]
