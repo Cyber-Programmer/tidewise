@@ -37,11 +37,26 @@ export component DetailsPanel inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            Text {
-                text: AppsBridge.details.size;
-                color: Theme.text;
-                font-family: Theme.font-mono;
-                font-size: Theme.size-big-number;
+            // The number and its unit are two texts with a one-space gap (as in the rows), because a
+            // real space in the big mono font would be far wider than the one next to the small numbers.
+            HorizontalLayout {
+                spacing: Theme.space-s;
+                alignment: start;
+                accessible-role: text;
+                accessible-label: AppsBridge.details.size;
+                Text {
+                    text: AppsBridge.details.size-number;
+                    color: Theme.text;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-big-number;
+                }
+
+                Text {
+                    text: AppsBridge.details.size-unit;
+                    color: Theme.text;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-big-number;
+                }
             }
 
             VerticalLayout {

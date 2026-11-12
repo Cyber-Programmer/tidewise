@@ -304,6 +304,8 @@ fn show_details(bridge: &AppsBridge, details: Option<&DetailsView>) {
         name: details.name.as_str().into(),
         description: details.description.as_str().into(),
         size: details.size.as_str().into(),
+        size_number: details.size_number.as_str().into(),
+        size_unit: details.size_unit.as_str().into(),
         version: details.version.as_str().into(),
         why_here: details.why_here.as_str().into(),
         needed_by: strings(&details.needed_by),
