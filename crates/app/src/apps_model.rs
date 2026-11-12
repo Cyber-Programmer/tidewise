@@ -224,6 +224,23 @@ impl AppsModel {
         }
     }
 
+    /// Selects the next row. On the last row nothing changes.
+    pub fn select_next(&mut self) {}
+
+    /// Selects the previous row. On the first row nothing changes.
+    pub fn select_previous(&mut self) {}
+
+    /// Selects the first row.
+    pub fn select_first(&mut self) {}
+
+    /// Selects the last row.
+    pub fn select_last(&mut self) {}
+
+    /// Moves the selection by `delta` rows (negative = up) and stops at the first or last row.
+    pub fn select_page(&mut self, delta: isize) {
+        let _ = delta;
+    }
+
     /// Keeps the selected package if it is still visible; otherwise selects the first visible row, or nothing.
     fn fix_selection(&mut self) {
         let visible = self.visible();
@@ -971,5 +988,99 @@ mod tests {
                 all: 5
             }
         );
+    }
+    /// Tab All, largest first: firefox, glibc, git, vim, zlib.
+    fn all_tab() -> AppsModel {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::All);
+        model
+    }
+
+    #[test]
+    fn next_and_previous_move_one_row() {
+        let mut model = all_tab();
+        model.select_next();
+        assert_eq!(selected(&model), ["glibc"]);
+        model.select_next();
+        assert_eq!(selected(&model), ["git"]);
+        model.select_previous();
+        assert_eq!(selected(&model), ["glibc"]);
+    }
+
+    #[test]
+    fn at_the_ends_next_and_previous_change_nothing() {
+        let mut model = all_tab();
+        model.select_previous();
+        assert_eq!(selected(&model), ["firefox"]);
+        model.select_last();
+        model.select_next();
+        assert_eq!(selected(&model), ["zlib"]);
+    }
+
+    #[test]
+    fn first_and_last_jump_to_the_ends() {
+        let mut model = all_tab();
+        model.select_last();
+        assert_eq!(selected(&model), ["zlib"]);
+        model.select_first();
+        assert_eq!(selected(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn a_page_moves_by_the_given_number_of_rows() {
+        let mut model = all_tab();
+        model.select_page(3);
+        assert_eq!(selected(&model), ["vim"]);
+        model.select_page(-2);
+        assert_eq!(selected(&model), ["glibc"]);
+        model.select_page(0);
+        assert_eq!(selected(&model), ["glibc"]);
+    }
+
+    #[test]
+    fn a_page_past_the_end_stops_at_the_first_or_last_row() {
+        let mut model = all_tab();
+        model.select_page(100);
+        assert_eq!(selected(&model), ["zlib"]);
+        model.select_page(isize::MAX);
+        assert_eq!(selected(&model), ["zlib"]);
+        model.select_page(-100);
+        assert_eq!(selected(&model), ["firefox"]);
+        model.select_page(isize::MIN);
+        assert_eq!(selected(&model), ["firefox"]);
+    }
+
+    #[test]
+    fn moving_follows_the_current_order_and_tab() {
+        let mut model = all_tab();
+        model.set_sort(SortOrder::NameAToZ); // firefox, git, glibc, vim, zlib
+        model.select_next();
+        assert_eq!(selected(&model), ["git"]);
+        model.set_tab(Tab::Dependencies); // glibc, zlib by name; git is hidden so glibc is selected
+        model.select_next();
+        assert_eq!(selected(&model), ["zlib"]);
+    }
+
+    #[test]
+    fn moving_with_no_rows_does_nothing() {
+        let mut model = loaded(sample());
+        model.set_search("no such app");
+        model.select_next();
+        model.select_previous();
+        model.select_first();
+        model.select_last();
+        model.select_page(5);
+        assert!(selected(&model).is_empty());
+        let mut loading = AppsModel::new();
+        loading.select_next();
+        assert!(selected(&loading).is_empty());
+    }
+
+    #[test]
+    fn moving_keeps_exactly_one_row_selected_and_the_details_follow() {
+        let mut model = all_tab();
+        model.select_page(2);
+        assert_eq!(selected(&model).len(), 1);
+        assert_eq!(model.details().unwrap().name, "git");
     }
 }
