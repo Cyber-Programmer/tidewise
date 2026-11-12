@@ -430,9 +430,11 @@ fn error_text(error: &PacmanError) -> ErrorText {
         },
         // Not reachable from the Apps list yet (it never searches); the search screen (4.6) will use it.
         PacmanError::BadQuery { .. } => ErrorText {
-            title: String::new(),
-            body: String::new(),
-            technical: String::new(),
+            title: "That search can't be used".to_string(),
+            body: "Tidewise didn't search because the text was too long or had characters \
+                   it can't use. Try a shorter, simpler search."
+                .to_string(),
+            technical: error.to_string(),
         },
     }
 }
