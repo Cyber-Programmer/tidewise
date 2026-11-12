@@ -154,7 +154,10 @@ pub fn sort_from_index(index: i32) -> Option<SortOrder> {
 
 /// Builds the whole screen from the model. `typed_search` is the text exactly as typed (used in messages).
 pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
+    let rows: Vec<RowView> = model.rows().iter().map(row_view).collect();
     AppsView {
+        selected_index: rows.iter().position(|row| row.selected),
+        rows,
         subtitle: subtitle(model),
         tab_counts: tab_counts(model),
         current_tab: match model.tab() {
@@ -167,8 +170,6 @@ pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
             SortOrder::NameAToZ => 1,
         },
         body: body(model, typed_search),
-        rows: model.rows().iter().map(row_view).collect(),
-        selected_index: None, // stub
         footer: footer(model),
         details: model.details().map(|d| details_view(&d)),
     }
