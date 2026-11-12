@@ -297,12 +297,13 @@ ends it); spaces, dots, capitals, non-ASCII are accepted (test `repo_rule_is_pac
 Real-pacman finding: `-Ss` also matches what a package *provides* (flac for `c++`, via `libFLAC++.so`), so not every hit
 shows the term in its name or description.
 Fuzz: `ss` target added (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (497 228 runs, nothing in
-`fuzz/artifacts/`). The 10-minute run is the human's, before 4.3 is Done.
+`fuzz/artifacts/`). Human's 10-minute run (`-max_total_time=600`): ss: 7 124 277 runs in 601 s, exit 0;
+`fuzz/artifacts/ss` empty. No crashes, so no new unit tests.
 Tests: 88 in `tidewise-pacman` (+2 `#[ignore]`d real-pacman tests, run and passing here), 91 in `tidewise-app`. fmt, clippy,
 `cargo test --all`, `cargo deny check`, release build all exit 0 on the last commit. Commits: 516fe67 fixtures, 327deab
 red / 689f9b8 `parse_ss`, 453f4b8 red / d3545f6 query building, 193be13 red / 8f717f4 `search()`, b5dd0aa red / ce3ada9 app
 error text, ea1427e fuzz target.
-Next: 10-minute `ss` fuzz run (human); 4.4 `parse_si` (details); 4.6 search UI (ranking, official/third-party label,
+Next: 4.4 `parse_si` (details); 4.6 search UI (ranking, official/third-party label,
 use `installed_version` vs `version` for "update available"); delete `spike/cli-vs-alpm` after 4.4.
 Blockers: none.
 Rules bent:
