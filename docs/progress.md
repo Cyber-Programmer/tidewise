@@ -270,10 +270,11 @@ Main findings: search (349) and details (20) are identical in A and B; A is abou
 the DB load); B stays silent on a missing or corrupt DB, panics on a non-UTF-8 byte in a description, does not
 start after a libalpm soname bump (exit 127), needs ≈ 61 MB RSS with a handle open and its own `pacman.conf`
 handling, and pulls two GPL-3.0-only crates (`cargo deny`: licences FAILED, rest ok). Lock file `db.lck`: not
-created and not needed by either. My recommendation is A; the decision is the human's.
-Next: the human decides and updates the record's Status and "Decided by"; push `spike/cli-vs-alpm` (kept until
-4.3/4.4 are done, then deleted); update WBS row 4.1 (human, by their instruction); if A: `parse_ss`/`parse_si`
-with fixtures and fuzz targets (4.3/4.4).
+created and not needed by either. My recommendation was A.
+Decision (human, 2026-11-12): A, CLI parsing. 0004 is Accepted; CLAUDE.md "Reading pacman data" and PLAN.md §6 / D11
+updated, with the `-Ss` exit-1 = no results rule.
+Next: push `spike/cli-vs-alpm` (kept until 4.3/4.4 are done, then deleted); update WBS row 4.1 (human, by their
+instruction); `parse_ss`/`parse_si` with fixtures and fuzz targets (4.3/4.4).
 Blockers: none. Not verified: pacman's NEWS (gitlab blocked automated fetches), the C source for when libalpm takes
 the lock, soname history between `.11` and `.14`, which build first shipped `.16`, `-3`/`-4` pacman builds,
 signature-checked DBs, cold-cache timing.

@@ -91,11 +91,16 @@ tests/container         Arch container tests (anything that runs pacman for real
 Keep `core` and `pacman` free of UI types. The UI talks to them through view models.
 Slint is built without default features (no system tray): see `docs/decisions/0002-slint-features.md`.
 
-## Reading pacman data (until the M2 spike decides CLI vs libalpm)
+## Reading pacman data (CLI, decision 0004)
 
+Decided: run pacman and parse its text, not libalpm (`docs/decisions/0004-pacman-data-source.md`).
 Force `LC_ALL=C` and parse machine-friendly output: `pacman -Qq`, `pacman -Qi <name>`, `pacman -Qdtq` (orphans),
 `pacman -Ss`, `pacman -Si`, dry-runs with `--print`. Every parser gets fixture tests from real saved output,
 including a broken case.
+
+- `pacman -Ss` exits 1 with empty output when nothing matches: that is "no results", not an error.
+- `pacman -Si a b` with one unknown name still prints the known ones and exits 1: keep the packages, report the name.
+- Sizes come as rounded text (`358.23 KiB`); keep pacman's own words in the technical details.
 
 ## Commands (all must pass before "done"; run them, don't assume)
 
