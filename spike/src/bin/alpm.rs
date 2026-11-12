@@ -18,7 +18,11 @@ fn run(dbpath: &str, exact: bool, time: bool) -> Result<Vec<String>, alpm::Error
     let t0 = std::time::Instant::now();
     let handle = Alpm::new("/", dbpath)?;
     for repo in REPOS {
-        handle.register_syncdb(repo, SigLevel::USE_DEFAULT)?;
+        let db = handle.register_syncdb(repo, SigLevel::USE_DEFAULT)?;
+        if std::env::var_os("SPIKE_CHECK").is_some() {
+            // Experiment: does libalpm's own validity check catch a missing or broken database?
+            eprintln!("is_valid({repo}) = {:?}", db.is_valid());
+        }
     }
     let local = handle.localdb();
     let t_open = t0.elapsed();

@@ -31,11 +31,12 @@ pub const PACKAGES: [&str; 20] = [
     "bc",
 ];
 
-/// `--dbpath DIR`, `--bytes` and `--time`, nothing else.
+/// `--dbpath DIR`, `--bytes`, `--time` and `--pacman PATH` (A only, for the error tests).
 pub struct Args {
     pub dbpath: String,
     pub bytes: bool,
     pub time: bool,
+    pub pacman: String,
 }
 
 pub fn parse_args() -> Args {
@@ -43,6 +44,7 @@ pub fn parse_args() -> Args {
         dbpath: "/var/lib/pacman".to_string(),
         bytes: false,
         time: false,
+        pacman: "/usr/bin/pacman".to_string(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -50,6 +52,7 @@ pub fn parse_args() -> Args {
             "--dbpath" => args.dbpath = it.next().unwrap_or_default(),
             "--bytes" => args.bytes = true,
             "--time" => args.time = true,
+            "--pacman" => args.pacman = it.next().unwrap_or_default(),
             other => eprintln!("ignored argument: {other}"),
         }
     }

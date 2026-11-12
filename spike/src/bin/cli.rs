@@ -2,8 +2,6 @@
 use std::process::{Command, Stdio};
 use tidewise_spike::{PACKAGES, SEARCH_TERM, detail_line, parse_args, search_line};
 
-const PACMAN: &str = "/usr/bin/pacman";
-
 /// Absolute program, argument list, empty environment except LC_ALL=C, no stdin, no shell.
 fn run(program: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(program)
@@ -92,7 +90,7 @@ fn main() {
     let ss = ["--dbpath", &args.dbpath, "-Ss", SEARCH_TERM];
     let mut si = vec!["--dbpath", &args.dbpath, "-Si"];
     si.extend(PACKAGES);
-    let result = run(PACMAN, &ss).and_then(|a| run(PACMAN, &si).map(|b| (a, b)));
+    let result = run(&args.pacman, &ss).and_then(|a| run(&args.pacman, &si).map(|b| (a, b)));
     match result {
         Ok((search, details)) => {
             let mut all = parse_ss(&search);
