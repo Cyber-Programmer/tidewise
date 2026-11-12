@@ -32,6 +32,16 @@ export enum BodyKind {
     error,
 }
 
+// Keys the list understands (Up/Down/Home/End/Page Up/Page Down).
+export enum ListKey {
+    up,
+    down,
+    home,
+    end,
+    page-up,
+    page-down,
+}
+
 export global AppsBridge {
     // Header
     in property <string> subtitle-message;
@@ -48,6 +58,11 @@ export global AppsBridge {
     in property <BodyKind> body;
     in property <[PackageRow]> rows;
     in property <string> footer;
+    // Scroll position of the list. Slint's content-y: 0 at the top, negative when scrolled down.
+    // Two-way bound to the ListView; Rust reads it and moves it to keep the selected row in view.
+    in-out property <length> list-content-y;
+    // Height of the visible part of the list, kept up to date by the ListView.
+    in-out property <length> list-visible-height;
     in property <string> empty-title;
     in property <string> empty-body;
     in property <string> empty-button;
@@ -65,6 +80,10 @@ export global AppsBridge {
     callback sort-chosen(int);
     callback search-edited(string);
     callback row-chosen(string);
+    // A key pressed while the list has focus.
+    callback list-key(ListKey);
+    // The visible part of the list changed size (first layout, window resized).
+    callback list-resized();
     callback empty-button-clicked();
     callback try-again();
     // Fired on the UI thread when the worker thread has put its answer in the mailbox.

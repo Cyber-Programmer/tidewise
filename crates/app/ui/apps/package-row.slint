@@ -2,28 +2,25 @@ import { Theme } from "../theme.slint";
 import { LetterTile } from "../widgets/letter-tile.slint";
 import { PackageRow } from "bridge.slint";
 
-// One line of the list. Tab reaches it, Enter or Space selects it.
+// One line of the list. Not a Tab stop itself: the whole list is one stop and the arrow keys move the selection.
 export component PackageRowItem inherits Rectangle {
     in property <PackageRow> package;
+    // Position in the list, for screen readers.
+    in property <int> index;
+    // True while the list has keyboard focus: the selected row then shows a focus ring.
+    in property <bool> list-focused;
     callback chosen();
 
-    height: 64px;
+    height: Theme.row-height;
     background: root.package.selected ? Theme.surface-2 : (touch.has-hover ? Theme.bg : transparent);
 
     accessible-role: list-item;
     accessible-label: root.package.name + ", " + root.package.size;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.package.selected;
+    accessible-item-index: root.index;
     accessible-action-default => {
         root.chosen();
-    }
-
-    focus := FocusScope {
-        key-pressed(event) => {
-            if (event.text == Key.Return || event.text == " ") {
-                root.chosen();
-                return accept;
-            }
-            return reject;
-        }
     }
 
     touch := TouchArea {
@@ -98,7 +95,7 @@ export component PackageRowItem inherits Rectangle {
     }
 
     Rectangle {
-        border-width: focus.has-focus ? 2px : 0px;
+        border-width: root.list-focused && root.package.selected ? 2px : 0px;
         border-color: Theme.accent;
     }
 }

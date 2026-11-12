@@ -72,6 +72,7 @@ unmodified; see `crates/app/ui/fonts/OFL.txt`). No other fonts.
 - Radius: **12** panels · **8** buttons, inputs, tiles · **4** chips · **99** switches.
 - Spacing scale: **4 · 8 · 12 · 16 · 24 · 32**. Page padding **32 / 40**, gap between sections **24**.
 - Touch targets at least **44 px**.
+- One list row is **64 px** (`row-height`); the app reads it to scroll the selected row into view.
 
 ## Contrast pairs (text on the surfaces it actually appears on)
 
