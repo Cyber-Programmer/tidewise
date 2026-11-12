@@ -105,6 +105,23 @@ cargo deny check                       # advisories (RustSec), licences, bans, s
 cargo build --release -p tidewise-app
 ```
 
+### Fuzzing (nightly only, local; not part of "done" or CI yet)
+
+`fuzz/` is its own workspace (cargo-fuzz), so the commands above never see it. Nightly is used only as
+`cargo +nightly …`: never change the default toolchain. Seeds are `tests/fixtures/pacman/` (read-only).
+Details in `fuzz/README.md`.
+
+```
+cargo fmt --manifest-path fuzz/Cargo.toml --check       # root fmt doesn't cover fuzz/
+cargo +nightly fuzz build
+mkdir -p fuzz/corpus/qi fuzz/corpus/qq
+cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+```
+
+Clean run: ends with `Done N runs in 600 second(s)`, `exit: 0`, nothing in `fuzz/artifacts/`. A crash becomes a
+normal stable unit test in `crates/pacman` (red first), then the fix.
+
 ## Definition of done
 
 1. Test shown failing, then passing (UI-only work: a manual check recorded in progress.md instead, as a bent rule).
