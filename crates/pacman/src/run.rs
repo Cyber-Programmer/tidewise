@@ -8,7 +8,7 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use crate::{InstalledPackage, PacmanError, SearchResult, parse_qi};
+use crate::{InstalledPackage, PacmanError, SearchResult, parse_qi, parse_ss};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -31,6 +31,21 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
 pub fn installed_packages() -> Result<Vec<InstalledPackage>, PacmanError> {
     let output = run(Path::new(PACMAN), &["-Qi"])?;
     packages_from_output(&output)
+}
+
+/// Searches the repositories pacman knows (official and third-party) with `pacman -Ss`.
+///
+/// Every space-separated term must match (name or description), literally: `c++` means `c++`, not a
+/// pattern. An empty or blank `query` returns no results without running pacman. Results are in pacman's
+/// order; use `SearchResult::is_official` to tell Arch's own repos from third-party ones.
+/// Read-only, no root, no shell. Blocks until pacman finishes (no timeout yet).
+pub fn search(query: &str) -> Result<Vec<SearchResult>, PacmanError> {
+    let Some(args) = search_args(query)? else {
+        return Ok(Vec::new());
+    };
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run(Path::new(PACMAN), &args)?;
+    results_from_output(&output)
 }
 
 /// Longest search text we accept, in characters (after trimming).
@@ -112,8 +127,18 @@ fn packages_from_output(output: &Output) -> Result<Vec<InstalledPackage>, Pacman
 }
 
 /// Turns what `pacman -Ss` printed into results. Pure: takes an `Output`, runs nothing.
-fn results_from_output(_output: &Output) -> Result<Vec<SearchResult>, PacmanError> {
-    Ok(Vec::new())
+fn results_from_output(output: &Output) -> Result<Vec<SearchResult>, PacmanError> {
+    // `pacman -Ss` exits 1 when nothing matches, and says nothing at all. A bad pattern also exits 1,
+    // but then it explains itself on stderr, so "no results" needs all three: exit 1, no stdout, no stderr.
+    if output.status.code() == Some(1)
+        && output.stdout.is_empty()
+        && String::from_utf8_lossy(&output.stderr).trim().is_empty()
+    {
+        return Ok(Vec::new());
+    }
+    check_exit(output)?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_ss(&text)?)
 }
 
 #[cfg(test)]
@@ -524,5 +549,45 @@ mod search_output_tests {
             ),
             "got {error:?}"
         );
+    }
+}
+
+/// Runs the real pacman, read-only. Needs an Arch machine, so CI skips them.
+/// Run with: `cargo test -p tidewise-pacman -- --ignored`
+#[cfg(test)]
+mod real_search_tests {
+    use super::*;
+
+    fn mentions(result: &SearchResult, term: &str) -> bool {
+        result.name.to_lowercase().contains(term)
+            || result.description.to_lowercase().contains(term)
+    }
+
+    #[test]
+    #[ignore = "runs the real /usr/bin/pacman; run with: cargo test -p tidewise-pacman -- --ignored"]
+    fn real_pacman_search_is_literal_and_anded() {
+        // A normal search finds the official package.
+        let zsh = search("zsh").unwrap();
+        assert!(zsh.iter().any(|r| r.name == "zsh" && r.is_official()));
+
+        // No match is an empty list, not an error; blank text never reaches pacman.
+        assert!(search("zzqqxxnotapkg").unwrap().is_empty());
+        assert!(search("   ").unwrap().is_empty());
+
+        // "c++" is literal. pacman also matches what a package *provides* (flac provides libFLAC++.so), so
+        // not every hit says "c++" in its name or description; but some do, and far fewer than for "c".
+        let cpp = search("c++").unwrap();
+        assert!(cpp.iter().any(|r| mentions(r, "c++")));
+        assert!(cpp.len() < search("c").unwrap().len());
+
+        // Every term must match: two words give fewer hits than the first word alone.
+        let both = search("gnome calculator").unwrap();
+        assert!(both.iter().any(|r| r.name == "gnome-calculator"));
+        assert!(both.len() < search("gnome").unwrap().len());
+
+        // Characters that would break a regex, and option look-alikes, are plain search words.
+        for query in ["(", "[", "a.*b", "--help", "-dd", "--noconfirm"] {
+            assert!(search(query).is_ok(), "{query:?}");
+        }
     }
 }
