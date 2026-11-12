@@ -108,6 +108,8 @@ pub struct AppsView {
     pub current_sort: i32,
     pub body: Body,
     pub rows: Vec<RowView>,
+    /// Position of the selected row in `rows` (so the window can scroll it into view).
+    pub selected_index: Option<usize>,
     /// "Showing N of M", or empty when there is no list.
     pub footer: String,
     pub details: Option<DetailsView>,
@@ -166,6 +168,7 @@ pub fn apps_view(model: &AppsModel, typed_search: &str) -> AppsView {
         },
         body: body(model, typed_search),
         rows: model.rows().iter().map(row_view).collect(),
+        selected_index: None, // stub
         footer: footer(model),
         details: model.details().map(|d| details_view(&d)),
     }
@@ -771,5 +774,25 @@ mod tests {
         assert_eq!(sort_from_index(1), Some(SortOrder::NameAToZ));
         assert_eq!(sort_from_index(2), None);
         assert_eq!(sort_from_index(-1), None);
+    }
+
+    #[test]
+    fn the_view_says_where_the_selected_row_is() {
+        let mut model = loaded();
+        model.set_tab(Tab::All); // firefox, glibc, git, vim, zlib
+        assert_eq!(apps_view(&model, "").selected_index, Some(0));
+        model.select("vim");
+        assert_eq!(apps_view(&model, "").selected_index, Some(3));
+        model.select_last();
+        assert_eq!(apps_view(&model, "").selected_index, Some(4));
+    }
+
+    #[test]
+    fn the_view_has_no_selected_index_without_rows() {
+        assert_eq!(apps_view(&AppsModel::new(), "").selected_index, None);
+        assert_eq!(apps_view(&failed(), "").selected_index, None);
+        let mut model = loaded();
+        model.set_search("no such app");
+        assert_eq!(apps_view(&model, "no such app").selected_index, None);
     }
 }
