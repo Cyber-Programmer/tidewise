@@ -14,12 +14,14 @@ fn size(bytes: i64, exact: bool) -> String {
     }
 }
 
-fn run(dbpath: &str, exact: bool) -> Result<Vec<String>, alpm::Error> {
+fn run(dbpath: &str, exact: bool, time: bool) -> Result<Vec<String>, alpm::Error> {
+    let t0 = std::time::Instant::now();
     let handle = Alpm::new("/", dbpath)?;
     for repo in REPOS {
         handle.register_syncdb(repo, SigLevel::USE_DEFAULT)?;
     }
     let local = handle.localdb();
+    let t_open = t0.elapsed();
     let mut lines = Vec::new();
 
     for db in handle.syncdbs() {
@@ -36,6 +38,7 @@ fn run(dbpath: &str, exact: bool) -> Result<Vec<String>, alpm::Error> {
         }
     }
 
+    let t_search = t0.elapsed();
     for name in PACKAGES {
         // First repository that has the package, like `pacman -Si <name>`.
         let found = handle
@@ -56,12 +59,26 @@ fn run(dbpath: &str, exact: bool) -> Result<Vec<String>, alpm::Error> {
         ));
     }
     lines.sort();
+    if time {
+        eprintln!(
+            "open+register: {t_open:?}; +search: {:?}; +details: {:?}",
+            t_search - t_open,
+            t0.elapsed() - t_search
+        );
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        for line in status
+            .lines()
+            .filter(|l| l.starts_with("VmRSS") || l.starts_with("VmHWM"))
+        {
+            eprintln!("{line}");
+        }
+    }
     Ok(lines)
 }
 
 fn main() {
     let args = parse_args();
-    match run(&args.dbpath, args.bytes) {
+    match run(&args.dbpath, args.bytes, args.time) {
         Ok(lines) => println!("{}", lines.join("\n")),
         Err(error) => {
             eprintln!("B failed: {error}");
