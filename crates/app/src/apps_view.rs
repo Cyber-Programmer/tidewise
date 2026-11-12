@@ -313,12 +313,13 @@ fn error_view(text: &ErrorText) -> ErrorView {
 
 fn details_view(details: &Details) -> DetailsView {
     let nobody = details.needed_by.is_empty();
+    let (size_number, size_unit) = split_size(&details.size_text);
     DetailsView {
         name: details.name.clone(),
         description: details.description.clone(),
         size: details.size_text.clone(),
-        size_number: String::new(), // stub
-        size_unit: String::new(),   // stub
+        size_number,
+        size_unit,
         version: details.version.clone(),
         why_here: details.why_here.clone(),
         needed_by: details.needed_by.clone(),
@@ -335,6 +336,14 @@ fn details_view(details: &Details) -> DetailsView {
         note: "Looking only. Removing packages comes in a later version of Tidewise.".to_string(),
         technical_source: format!("source: pacman -Qi {}", details.name),
         technical_bytes: exact_bytes(details.size_bytes),
+    }
+}
+
+/// "1.67 GB" becomes ("1.67", "GB"). Text without a space is all number.
+fn split_size(size_text: &str) -> (String, String) {
+    match size_text.split_once(' ') {
+        Some((number, unit)) => (number.to_string(), unit.to_string()),
+        None => (size_text.to_string(), String::new()),
     }
 }
 
