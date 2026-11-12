@@ -79,7 +79,12 @@ pub enum Body {
 pub struct DetailsView {
     pub name: String,
     pub description: String,
+    /// The whole size text, e.g. "1.67 GB".
     pub size: String,
+    /// The number part of `size`, e.g. "1.67" (drawn big, in Plex Mono).
+    pub size_number: String,
+    /// The unit part of `size`, e.g. "GB".
+    pub size_unit: String,
     pub version: String,
     pub why_here: String,
     /// Chips: up to five package names.
@@ -312,6 +317,8 @@ fn details_view(details: &Details) -> DetailsView {
         name: details.name.clone(),
         description: details.description.clone(),
         size: details.size_text.clone(),
+        size_number: String::new(), // stub
+        size_unit: String::new(),   // stub
         version: details.version.clone(),
         why_here: details.why_here.clone(),
         needed_by: details.needed_by.clone(),
@@ -795,5 +802,26 @@ mod tests {
         let mut model = loaded();
         model.set_search("no such app");
         assert_eq!(apps_view(&model, "no such app").selected_index, None);
+    }
+
+    #[test]
+    fn the_big_size_is_split_into_number_and_unit() {
+        let split = |bytes: u64| {
+            use InstallReason::Explicit;
+            let mut model = AppsModel::new();
+            model.set_result(Ok(vec![pkg("p", "", bytes, Explicit, &[])]));
+            let details = apps_view(&model, "").details.unwrap();
+            (details.size_number, details.size_unit, details.size)
+        };
+        assert_eq!(split(0), ("0".into(), "B".into(), "0 B".into()));
+        assert_eq!(split(999_499), ("999".into(), "kB".into(), "999 kB".into()));
+        assert_eq!(
+            split(7_340_032),
+            ("7.3".into(), "MB".into(), "7.3 MB".into())
+        );
+        assert_eq!(
+            split(1_670_000_000),
+            ("1.67".into(), "GB".into(), "1.67 GB".into())
+        );
     }
 }
