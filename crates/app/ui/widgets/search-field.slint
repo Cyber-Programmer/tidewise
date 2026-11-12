@@ -15,7 +15,6 @@ export component SearchField inherits Rectangle {
 
     HorizontalLayout {
         padding-left: Theme.space-m;
-        padding-right: Theme.space-xs;
         spacing: Theme.space-s;
 
         Rectangle {
@@ -44,10 +43,10 @@ export component SearchField inherits Rectangle {
             }
         }
 
+        // The clear button: a 44x44 click target (transparent) around a small 28x28 square,
+        // so the square sits inside the field with space around it, away from the border.
         if root.text != "": Rectangle {
-            width: Theme.min-target - Theme.space-s;
-            border-radius: Theme.radius-control;
-            background: clear-touch.has-hover ? Theme.surface-2 : transparent;
+            width: Theme.min-target;
 
             accessible-role: button;
             accessible-label: "Clear search";
@@ -75,18 +74,21 @@ export component SearchField inherits Rectangle {
                 }
             }
 
-            Text {
-                text: "×";
-                color: Theme.text-2;
-                font-size: Theme.size-dialog-title;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-
             Rectangle {
-                border-radius: Theme.radius-control;
+                width: Theme.size-icon-button;
+                height: Theme.size-icon-button;
+                border-radius: Theme.radius-chip;
+                background: clear-touch.pressed ? Theme.chip : (clear-touch.has-hover ? Theme.surface-2 : transparent);
                 border-width: clear-focus.has-focus ? 2px : 0px;
                 border-color: Theme.accent;
+
+                Text {
+                    text: "×";
+                    color: Theme.text-2;
+                    font-size: Theme.size-dialog-title;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
     }
