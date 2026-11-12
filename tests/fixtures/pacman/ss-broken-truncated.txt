@@ -1,0 +1,5 @@
+core/tzdata 2026f-1 [installed: 2026e-1]
+    Sources for time zone and daylight saving time data
+extra/7zip 26.06-1 [installed: 26.04-1]
+    File archiver for extremely high compression
+extra/alsa-card-profiles 1:1.6.11-1 [instal

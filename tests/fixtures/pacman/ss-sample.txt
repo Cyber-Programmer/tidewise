@@ -1,0 +1,14 @@
+core/tzdata 2026f-1 [installed: 2026e-1]
+    Sources for time zone and daylight saving time data
+extra/7zip 26.06-1 [installed: 26.04-1]
+    File archiver for extremely high compression
+extra/aalib 1.4rc5-19
+    ASCII art graphic library
+extra/alsa-card-profiles 1:1.6.11-1 [installed: 1:1.6.9-1]
+    Low-latency audio/video router and processor - ALSA card profiles
+extra/baobab 50.0-1 (gnome) [installed]
+    A graphical directory tree analyzer
+extra/gnome-calculator 51.1-1 (gnome)
+    GNOME Scientific calculator
+extra/zsh 5.9.2-1 [installed]
+    A very advanced and programmable command interpreter (shell) for UNIX
