@@ -428,6 +428,12 @@ fn error_text(error: &PacmanError) -> ErrorText {
                 .to_string(),
             technical: parse_error.to_string(),
         },
+        // Not reachable from the Apps list yet (it never searches); the search screen (4.6) will use it.
+        PacmanError::BadQuery { .. } => ErrorText {
+            title: String::new(),
+            body: String::new(),
+            technical: String::new(),
+        },
     }
 }
 
@@ -861,6 +867,26 @@ mod tests {
         );
         assert_eq!(text.technical, technical);
         assert!(technical.contains("zsh"));
+    }
+
+    #[test]
+    fn a_refused_search_text_is_explained_in_plain_words() {
+        let error = PacmanError::BadQuery {
+            reason: "the search text is too long",
+        };
+        let technical = error.to_string();
+        let text = error_of(error);
+        assert_eq!(text.title, "That search can't be used");
+        assert_eq!(
+            text.body,
+            "Tidewise didn't search because the text was too long or had characters \
+             it can't use. Try a shorter, simpler search."
+        );
+        assert_eq!(
+            technical,
+            "search text not accepted: the search text is too long"
+        );
+        assert_eq!(text.technical, technical);
     }
 
     #[test]
