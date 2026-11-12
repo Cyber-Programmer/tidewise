@@ -73,6 +73,9 @@ The rebuild exists so the human understands every part. For each task:
 - **A pipe hides the exit code.** `cargo test | tail -5 && git commit …` commits even when tests fail, because
   `&&` sees `tail`'s success. Never gate a commit on a piped command: run the check on its own (or with
   `set -o pipefail`), read the result, then commit. (Happened once in 3.3; amended before push.)
+- **Test the whole workspace, not one crate.** Run `cargo test --all` (the whole workspace), not `-p <crate>`,
+  before every commit: a change in one crate can break another (4.3: `BadQuery` broke the app's exhaustive
+  match for 4 commits).
 
 ## Workspace layout
 
