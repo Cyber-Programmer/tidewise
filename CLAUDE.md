@@ -47,6 +47,12 @@ The rebuild exists so the human understands every part. For each task:
   `packaging/polkit`, `packaging/aur`, `deny.toml` or `.github/workflows/`. Add dependencies with `cargo add`.
 - CI (`.github/workflows/ci.yml`) runs the same commands on every PR; merge only when it shows ✔.
 - Small commits, Conventional Commits, never mix refactor with behaviour change.
+- Commit messages: a Conventional Commits title (≤ 72 chars), a blank line, then a body for every
+  non-trivial commit: what changed, why, tests added or changed, any rule bent. Wrap at 72.
+  Task summary goes in the PR description, not in a commit: at the end of each task, write it to
+  `/tmp/tidewise-pr-<WBS id>.md` (what each commit did, test counts, real-pacman findings, fuzz
+  results, rules bent, how to verify) and give the human the exact
+  `gh pr create --base main --title "…" --body-file /tmp/tidewise-pr-<WBS id>.md` command.
 - **Claude Code commits on the task branch; the human pushes.** Never push, never force-push, never amend or
   rebase a pushed commit. `.claude/settings.json` enforces the common cases (deny `git push`, `sudo`, `rm -rf`…);
   those rules match command text and are not a security boundary, so follow the intent, not the letter.
