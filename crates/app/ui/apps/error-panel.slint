@@ -1,6 +1,5 @@
 import { Theme } from "../theme.slint";
 import { TwButton } from "../widgets/button.slint";
-import { AppsBridge } from "bridge.slint";
 
 // Shown instead of the list when pacman fails. Amber (a warning), never red: nothing was changed.
 export component ErrorPanel inherits Rectangle {
@@ -8,6 +7,14 @@ export component ErrorPanel inherits Rectangle {
     border-radius: Theme.radius-panel;
     border-width: 1px;
     border-color: Theme.warning;
+
+    // Words come from the screen that uses the panel (each screen has its own bridge).
+    in property <string> title;
+    in property <string> body;
+    in property <string> unchanged;
+    in property <string> technical;
+    in property <string> report;
+    callback try-again();
 
     // View state only: is the "Technical details" part open?
     property <bool> technical-open: false;
@@ -18,7 +25,7 @@ export component ErrorPanel inherits Rectangle {
         alignment: start;
 
         Text {
-            text: AppsBridge.error-title;
+            text: root.title;
             color: Theme.warning;
             font-size: Theme.size-dialog-title;
             font-weight: Theme.weight-semibold;
@@ -26,14 +33,14 @@ export component ErrorPanel inherits Rectangle {
         }
 
         Text {
-            text: AppsBridge.error-body;
+            text: root.body;
             color: Theme.text;
             font-size: Theme.size-body;
             wrap: word-wrap;
         }
 
         Text {
-            text: AppsBridge.error-unchanged;
+            text: root.unchanged;
             color: Theme.text;
             font-size: Theme.size-body;
             font-weight: Theme.weight-medium;
@@ -46,7 +53,7 @@ export component ErrorPanel inherits Rectangle {
                 text: "Try again";
                 primary: true;
                 clicked => {
-                    AppsBridge.try-again();
+                    root.try-again();
                 }
             }
 
@@ -61,7 +68,7 @@ export component ErrorPanel inherits Rectangle {
         }
 
         if root.technical-open: Text {
-            text: AppsBridge.error-technical;
+            text: root.technical;
             color: Theme.text-2;
             font-family: Theme.font-mono;
             font-size: Theme.size-label;
@@ -69,7 +76,7 @@ export component ErrorPanel inherits Rectangle {
         }
 
         Text {
-            text: AppsBridge.error-report;
+            text: root.report;
             color: Theme.text-2;
             font-size: Theme.size-label;
             wrap: word-wrap;
