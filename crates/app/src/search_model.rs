@@ -5,7 +5,9 @@ use crate::error_words::{Doing, ErrorText, error_text};
 use crate::list_scroll::moved_selection;
 use std::collections::HashMap;
 
-use tidewise_pacman::{DetailsLookup, PackageDetails, PackageRef, PacmanError, SearchResult};
+use tidewise_pacman::{
+    DetailsLookup, PackageDetails, PackageRef, PacmanError, SearchResult, SyncLists,
+};
 
 /// Why a result is in the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +163,17 @@ pub fn provides_match(details: &PackageDetails, query: &str) -> Option<String> {
         .map(|provided| provided.name.clone())
 }
 
+/// What we know about the package lists (pacman's sync databases).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ListsState {
+    /// Not checked yet. Searching is allowed meanwhile.
+    #[default]
+    Unknown,
+    Known(SyncLists),
+    /// Checking failed. Searching still works; only the age is unknown.
+    Failed(ErrorText),
+}
+
 /// The Search screen's state. Set the inputs with the methods, read what to show with the others.
 ///
 /// Searching is numbered and one at a time: only one `pacman -Ss` runs at once, a newer query waits its turn
@@ -193,6 +206,7 @@ pub struct SearchModel {
     details_pending: Option<PackageRef>,
     /// The last lookup that failed, and why. Shown while that package is selected; never kept as an answer.
     details_failed: Option<(PackageRef, ErrorText)>,
+    lists: ListsState,
 }
 
 impl SearchModel {
@@ -448,6 +462,18 @@ impl SearchModel {
         });
         self.details_running.clone_from(&next);
         next
+    }
+
+    /// Hands the model what `sync_lists()` answered.
+    pub fn set_sync_lists(&mut self, _result: Result<SyncLists, PacmanError>) {}
+
+    pub fn lists(&self) -> &ListsState {
+        &self.lists
+    }
+
+    /// True when pacman has no package list at all: there is nothing to search yet.
+    pub fn has_no_package_lists(&self) -> bool {
+        false
     }
 
     pub fn state(&self) -> &SearchState {
@@ -1287,5 +1313,82 @@ mod tests {
     fn a_package_that_provides_nothing_has_no_match() {
         assert_eq!(provides_match(&zsh_details(), "zsh"), None);
         assert_eq!(provides_match(&zsh_details(), ""), None);
+    }
+
+    // ---- package lists ----
+
+    fn lists_from(seconds: Option<u64>, missing: &[&str]) -> Result<SyncLists, PacmanError> {
+        Ok(SyncLists {
+            newest: seconds.map(|s| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)),
+            missing: missing.iter().map(|repo| repo.to_string()).collect(),
+        })
+    }
+
+    #[test]
+    fn before_the_lists_are_checked_searching_is_allowed() {
+        let mut model = SearchModel::new();
+        assert_eq!(model.lists(), &ListsState::Unknown);
+        assert!(!model.has_no_package_lists());
+        model.set_query("vlc");
+        assert!(model.start_search().is_some());
+    }
+
+    #[test]
+    fn with_package_lists_searching_is_allowed() {
+        let mut model = SearchModel::new();
+        model.set_sync_lists(lists_from(Some(1_000), &[]));
+        assert!(!model.has_no_package_lists());
+        assert!(matches!(model.lists(), ListsState::Known(_)));
+        model.set_query("vlc");
+        assert!(model.start_search().is_some());
+    }
+
+    #[test]
+    fn some_missing_lists_are_still_lists() {
+        let mut model = SearchModel::new();
+        model.set_sync_lists(lists_from(Some(1_000), &["multilib"]));
+        assert!(!model.has_no_package_lists());
+        model.set_query("vlc");
+        assert!(model.start_search().is_some());
+    }
+
+    #[test]
+    fn without_any_package_list_nothing_is_searched() {
+        let mut model = SearchModel::new();
+        model.set_sync_lists(lists_from(None, &["core", "extra"]));
+        assert!(model.has_no_package_lists());
+        model.set_query("vlc");
+        assert_eq!(model.start_search(), None);
+        assert!(!model.is_searching());
+        assert_eq!(model.state(), &SearchState::Start);
+        assert_eq!(model.query(), "vlc");
+    }
+
+    #[test]
+    fn searching_works_again_once_the_lists_exist() {
+        let mut model = SearchModel::new();
+        model.set_sync_lists(lists_from(None, &["core"]));
+        model.set_query("vlc");
+        assert_eq!(model.start_search(), None);
+        model.set_sync_lists(lists_from(Some(1_000), &[]));
+        assert!(!model.has_no_package_lists());
+        assert!(model.start_search().is_some());
+    }
+
+    #[test]
+    fn if_the_lists_cannot_be_checked_searching_still_works() {
+        let mut model = SearchModel::new();
+        let error = PacmanError::ReadLists {
+            path: std::path::PathBuf::from("/var/lib/pacman/sync/core.db"),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        };
+        model.set_sync_lists(Err(error));
+        let ListsState::Failed(text) = model.lists() else {
+            panic!("expected Failed, got {:?}", model.lists());
+        };
+        assert_eq!(text.title, "Tidewise couldn't read your package lists");
+        assert!(!model.has_no_package_lists());
+        model.set_query("vlc");
+        assert!(model.start_search().is_some());
     }
 }
