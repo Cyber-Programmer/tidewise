@@ -5,7 +5,7 @@ list. Update it whenever a milestone adds a privileged action, a file write, a p
 (ENGINEERING.md §2).
 
 How to read it: section 1 draws the system, 2 names what we protect, 3 compares the two ways to reach root
-(**decision pending, yours**), 4 is the threat table, 5 says what we do *not* defend, 6 lists what I could not verify,
+(**decided 13 Nov 2026: pkexec + checked summary, see `docs/decisions/0005-helper-invocation.md`**), 4 is the threat table, 5 says what we do *not* defend, 6 lists what I could not verify,
 7 lists sources. `[n]` is a source in section 7. "Planned" means the defence is designed but no code or test exists yet.
 
 ## 0. Base assumption (read this first)
@@ -75,8 +75,10 @@ flowchart LR
 
 ## 3. How the app reaches the helper: pkexec vs a D-Bus service
 
-Decision: **pending (you decide).** Both options end in the same helper logic and the same allow-list; they differ in
-how the process gets root and in what the user is shown before saying yes.
+Decision: **decided 13 Nov 2026, see `docs/decisions/0005-helper-invocation.md`**: pkexec with a human-readable summary
+in argv that the helper checks (3.2); D-Bus is the fallback. The analysis below is kept as the reasoning behind it.
+Both options end in the same helper logic and the same allow-list; they differ in how the process gets root and in what
+the user is shown before saying yes.
 
 ### 3.1 The main point: what can the password dialog show? (threat T-02)
 
@@ -96,8 +98,11 @@ a password dialog, assumes it is theirs, and approves a *different* request.
   the attacker cannot change that text. The dialog tells the truth about the request that will actually run.
   (Whether the policy file's own `<message>` can also reference detail keys: I believe so but did not verify it. The
   `polkit.message` route above is the documented one.)
-- **What I could not verify:** how KDE's and GNOME's authentication agents render these strings (truncation,
-  multi-line, markup); and what PackageKit's dialog shows. Needs a test on a real desktop.
+- **Evidence (13 Nov 2026, the human's KDE agent):** `pkexec /usr/bin/true install dbeaver jre-openjdk`, cancelled at
+  the dialog: the agent **showed the full argv in the dialog title** [14]. That used the stock `exec` action; our own
+  action must be re-tested in 5.4 (a custom message may hide argv).
+- **What I could not verify:** how GNOME's agent renders these strings; truncation of long summaries, multi-line and
+  markup; and what PackageKit's dialog shows. Needs a test on a real desktop.
 
 ### 3.2 A middle way for pkexec (my idea, untested)
 
@@ -139,7 +144,8 @@ What would flip me to D-Bus: if a manual test on your KDE (and GNOME, if you car
 is truncated or unreadable, so the summary does not reach the user. Then T-02 can only be closed properly by the
 service passing `details`. D-Bus would also change the wording of golden rule 1 ("started with `pkexec`").
 
-**Decision: pending (human).**
+**Decision: made (human, 13 Nov 2026): pkexec + checked summary; see `docs/decisions/0005-helper-invocation.md`.**
+The KDE evidence above supports it; the 5.4 re-test with our own action can reopen it.
 
 ## 4. Threats
 
@@ -152,14 +158,14 @@ STRIDE letters: **S**poofing, **T**ampering, **R**epudiation, **I**nformation di
 | ID | STRIDE | Threat | Defence | Proof | Status |
 |---|---|---|---|---|---|
 | **T-01** | S, E | **Any process in the user's session can run `pkexec tidewise-helper` with its own JSON**, not just our app. Also covers a compromised app. | Base assumption A1: the helper trusts nothing about its caller. Every request gets the full pipeline: size cap -> strict JSON -> allow-list of actions -> name validation -> re-check of the confirmed list. `PKEXEC_UID` is for the log only. Policy requires admin authentication on every call (`auth_admin`, no `_keep`, `allow_any`/`allow_inactive` = `no`) so no retained authorization can be ridden [1][2] | Container test: run the helper directly (no app) with each row of the hostile-input table (T-04..T-07) and with a valid request from a different uid; assert the same checks fire. Unit test: no code path reads `PKEXEC_UID` to allow anything | planned |
-| **T-02** | S, E | **Authorization confusion.** A malicious process starts a helper request at the moment the user expects Tidewise's prompt; with pkexec the dialog cannot show the request (stdin is invisible to polkit), so the user approves the wrong one. | See section 3. If pkexec: summary in argv, helper recomputes it from the validated JSON and refuses on mismatch; `auth_admin` every time; the allow-list bounds what a wrongly approved request can do. If D-Bus: service passes `details`/`polkit.message` built from its own validated request [3]. Residual: user fatigue (T-16) and a fake password dialog drawn by malware (section 5) | Unit test: argv summary != summary derived from JSON -> refused (planned with the helper); manual test of the real dialog on KDE (and GNOME), recorded in progress.md as a bent rule | planned; depends on the section 3 decision |
+| **T-02** | S, E | **Authorization confusion.** A malicious process starts a helper request at the moment the user expects Tidewise's prompt; with pkexec the dialog cannot show the request (stdin is invisible to polkit), so the user approves the wrong one. | See section 3. If pkexec: summary in argv, helper recomputes it from the validated JSON and refuses on mismatch; `auth_admin` every time; the allow-list bounds what a wrongly approved request can do. If D-Bus: service passes `details`/`polkit.message` built from its own validated request [3]. Residual: user fatigue (T-16) and a fake password dialog drawn by malware (section 5) | Unit test: argv summary != summary derived from JSON -> refused (planned with the helper). Dialog: the human's KDE agent showed the full argv in the title for the stock action (13 Nov 2026, [14]); **re-test with our own polkit action in 5.4**, and on GNOME if wanted, recorded in progress.md as a bent rule | planned; design decided (0005), dialog re-test pending (5.4) |
 | **T-03** | T, E | **Tampering with installed files:** the helper binary, the polkit policy, any config or library the helper loads. A user-writable helper is a free root shell. | The package installs everything as `root:root`, directories `0755`, files not group/other-writable, under `/usr/lib/tidewise/` and `/usr/share/polkit-1/actions/`; nothing under `$HOME`, `/tmp` or `/opt`. The helper reads **no** config from user-controlled places (no env, no home). No RPATH/RUNPATH in the binary (`namcap` flags insecure RPATH/RUNPATH [9]); `cargo` builds without `-C rpath`. The policy's `exec.path` annotation is the absolute helper path [1] | **WBS 5.5**: `namcap` on the built package (`insecure-rpath` / `insecure-runpath` clean) + a permission test that walks the package file list and every parent directory and asserts owner root and no group/other write bit; plus `readelf -d` check for RPATH/RUNPATH | planned |
 
 ### 4.2 Input to the helper and to pacman
 
 | ID | STRIDE | Threat | Defence | Proof | Status |
 |---|---|---|---|---|---|
-| T-04 | T, E | **Option injection into pacman.** Any option that moves pacman's root, config, hooks, keys or checks turns the helper into a root shell. All of these exist in pacman 7.1's man page [7]: `--root/-r`, `--dbpath/-b`, `--config`, `--hookdir`, `--gpgdir`, `--cachedir`, `--sysroot`, `--logfile`, `--overwrite`, `-d/-dd/--nodeps`, `--assume-installed`, `--noconfirm`, `--noscriptlet`, `--dbonly`, `--disable-sandbox`, `--print-format` | The request has **no free-form option field**. The helper builds argv from fixed templates (one per allow-listed action); the only caller-supplied values are validated `repo/name` pairs placed after `--`. A test lists every option above and shows no request can produce it. Never a shell (rule 3), absolute `/usr/bin/pacman` | Unit tests on the argv builder (one per forbidden option, plus "every argv equals template + names"); container test with real pacman for `-S -- --root=/x`-style names. Read-only side, *exists*: `option_lookalikes_stay_search_words_after_double_dash`, `args_are_si_then_double_dash_then_repo_slash_name`, `command_is_absolute_pacman_with_arg_list_and_c_locale` | read-only: done; helper: planned |
+| T-04 | T, E | **Option injection into pacman.** Any option that moves pacman's root, config, hooks, keys or checks turns the helper into a root shell. All of these exist in pacman 7.1's man page [7]: `--root/-r`, `--dbpath/-b`, `--config`, `--hookdir`, `--gpgdir`, `--cachedir`, `--sysroot`, `--logfile`, `--overwrite`, `-d/-dd/--nodeps`, `--assume-installed`, `--noconfirm`, `--noscriptlet`, `--dbonly`, `--disable-sandbox`, `--print-format` | The request has **no free-form option field**. The helper builds argv from fixed templates (one per allow-listed action; the helper itself adds `--noconfirm` only as golden rule 10 allows: a verified transaction, never a caller's choice); the only caller-supplied values are validated `repo/name` pairs placed after `--`. A test lists every option above and shows no request can produce it. Never a shell (rule 3), absolute `/usr/bin/pacman` | Unit tests on the argv builder (one per forbidden option, plus "every argv equals template + names"); container test with real pacman for `-S -- --root=/x`-style names. Read-only side, *exists*: `option_lookalikes_stay_search_words_after_double_dash`, `args_are_si_then_double_dash_then_repo_slash_name`, `command_is_absolute_pacman_with_arg_list_and_c_locale` | read-only: done; helper: planned |
 | T-05 | T, E | **`-U`, local file paths, URLs.** `pacman -U` installs an arbitrary file or URL as root. | The protocol has **no path or URL field**; the helper only ever runs `-S` (sync) forms with repo package names, never `-U`. Names with `/`, `:`, `.` first etc. are refused by the allow-list (T-06) | Unit test: argv never contains `-U`/`--upgrade`; request with `file:///x`, `/tmp/a.pkg.tar.zst`, `http://..` as names is refused | planned |
 | T-06 | T, E | **Hostile names:** leading `-`, NUL, `../`, whitespace, shell characters, unicode look-alikes (Cyrillic "a", full-width characters), empty string, 10 000 names, one 1 MB name | Allow-list (not block-list) from `man PKGBUILD`: ASCII letters, digits and `@ . _ + -`, not starting with `-` or `.`; repo names likewise (no `/`, not `local`, no control chars). Refuse the whole request on the first bad name; never "clean" a name. Cap on name length and on the number of names per request | *exists*: `accepts_real_package_names`, `rejects_everything_else` (includes `café`), `rejects_repo_names_pacman_or_we_refuse`, `bad_package_names_are_refused`, `one_bad_ref_among_good_ones_refuses_everything`. Helper: same table plus NUL, 10 000 names, look-alikes, over-length | read-only: done; helper: planned |
 | T-07 | D, T | **Huge or deeply nested JSON**, trailing garbage, duplicate keys, unknown fields | Read stdin with a hard byte cap before parsing; parse into typed structs with unknown fields denied; exactly one JSON value, nothing after it; bounded nesting (serde_json has a default recursion limit; I believe 128, to be confirmed by a test, not assumed) | Hostile-input tests (oversize, 10 000 levels, trailing data, NUL in strings, `-1`/huge numbers) + a `cargo fuzz` target for the request parser (ENGINEERING.md §2) | planned |
@@ -222,18 +228,18 @@ STRIDE letters: **S**poofing, **T**ampering, **R**epudiation, **I**nformation di
 
 ## 6. Open questions and "I don't know"
 
-1. **Decision: pkexec vs D-Bus** (section 3). Yours.
-2. **How KDE's and GNOME's authentication agents render `$(command_line)`** or `polkit.message`; needed before T-02
-   can be marked done. Not tested.
+1. ~~**Decision: pkexec vs D-Bus** (section 3).~~ **Answered 13 Nov 2026:** pkexec + checked summary, D-Bus as
+   fallback (`docs/decisions/0005-helper-invocation.md`).
+2. **How agents render `$(command_line)`** or `polkit.message`. KDE (stock `exec` action): full argv in the dialog
+   title, tested by the human 13 Nov 2026 [14]. **Still open:** our own action (re-test in 5.4), GNOME, long summaries.
 3. **What PackageKit's dialog shows.** The searches did not settle it. A KDE bug report mentions PackageKit's own
    polkit actions (e.g. `org.freedesktop.packagekit.package-remove`) [12], nothing about dialog contents.
 4. **Fixed versions of polkit** for CVE-2021-4034 and CVE-2021-3560 on Arch: I didn't verify. The machine I looked at
    has polkit 128-1.
-5. **Running pacman non-interactively without `--noconfirm`.** Golden rule 10 forbids `--noconfirm` "with
-   user-chosen input", and with stdin closed pacman answers its prompts with defaults. Which is acceptable? This
-   needs your ruling before the first install job: either (a) rule 10 means "never with a user-chosen *option*" and
-   `--noconfirm` is allowed with validated names, or (b) we rely on pacman's default answers on a closed stdin
-   (behaviour to test on the container, not assumed).
+5. ~~**Running pacman non-interactively without `--noconfirm`.**~~ **Answered 13 Nov 2026 (human, option A):** golden
+   rule 10 now allows `--noconfirm` only for a transaction the helper has verified: providers named explicitly, a
+   `--print` dry run equal to the confirmed list, no removals. Never `--overwrite` or `-d`/`-dd` with user-chosen
+   input. The helper tests for this (T-04, T-09) are written against that wording.
 6. **Closing inherited file descriptors under `#![forbid(unsafe_code)]`**: Rust's standard library doesn't expose a
    safe "close all fds" call. Options: check `/proc/self/fd` and refuse to run if unexpected fds exist (no new
    dependency), or a small safe-wrapper crate (needs your OK as a dependency).
@@ -282,3 +288,6 @@ STRIDE letters: **S**poofing, **T**ampering, **R**epudiation, **I**nformation di
     polkit actions.
 13. In-repo evidence: `crates/pacman/src/run.rs` (absolute `/usr/bin/pacman`, `env_clear`, `LC_ALL=C`, null stdin,
     `--` before terms), `crates/pacman/src/name.rs`, `crates/pacman/src/partial.rs`, `fuzz/`, `docs/progress.md`.
+14. The human's own test, 13 Nov 2026, KDE Plasma authentication agent: `pkexec /usr/bin/true install dbeaver
+    jre-openjdk`, cancelled at the dialog; the dialog title showed the full argv. First-hand report, not reproduced
+    by me; stock `org.freedesktop.policykit.exec` action only. Recorded in `docs/decisions/0005-helper-invocation.md`.
