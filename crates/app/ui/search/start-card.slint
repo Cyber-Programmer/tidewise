@@ -1,0 +1,42 @@
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { SearchBridge } from "bridge.slint";
+
+// Shown before anything is typed: what search does, and a few examples to press.
+export component StartCard inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 28px;
+        spacing: Theme.space-m;
+
+        Text {
+            text: SearchBridge.start-title;
+            color: Theme.text;
+            font-size: Theme.size-row-title;
+            font-weight: Theme.weight-semibold;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: SearchBridge.start-body;
+            color: Theme.text-2;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            alignment: start;
+            for example[index] in SearchBridge.start-examples: TwButton {
+                text: example;
+                clicked => {
+                    SearchBridge.example-chosen(index);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,119 @@
+// The only place Rust and the Search screen meet. Rust fills the `in` properties (all decided and worded in
+// crates/app/src/search_view.rs); the screen only lays them out and reports clicks and keys back.
+import { ListKey } from "../apps/bridge.slint";
+
+export struct ResultRow {
+    letter: string,
+    name: string,
+    version: string,
+    repo: string,
+    // "", "testing" or "third-party"
+    tag: string,
+    installed: bool,
+    description: string,
+    selected: bool,
+}
+
+// What fills the area under the search box.
+export enum SearchBodyKind {
+    start,
+    no-lists,
+    loading,
+    results,
+    no-results,
+    error,
+    bad-query,
+}
+
+export enum SearchDetailsKind {
+    loading,
+    found,
+    not-found,
+    failed,
+}
+
+export struct SearchDetailsData {
+    kind: SearchDetailsKind,
+    letter: string,
+    name: string,
+    description: string,
+    version: string,
+    repo: string,
+    repo-tag: string,
+    installed-note: string,
+    matched-note: string,
+    // Shown instead of the numbers (loading, or not in the package lists any more).
+    message: string,
+    download-number: string,
+    download-unit: string,
+    installed-number: string,
+    installed-unit: string,
+    needs-count: string,
+    needs: [string],
+    needs-more: string,
+    needs-nothing: string,
+    provides: [string],
+    provides-more: string,
+    note: string,
+    // The amber words when the lookup failed.
+    error-title: string,
+    error-body: string,
+    error-technical: string,
+    error-unchanged: string,
+    error-report: string,
+    technical: [string],
+}
+
+export global SearchBridge {
+    // Header
+    in property <string> subtitle;
+    in property <string> status;
+    // The refused-search words under the box (empty when nothing was refused).
+    in property <string> inline-note;
+    // The search box text. Rust writes it too (when "Clear search" or an example is pressed).
+    in-out property <string> search-text;
+    in property <SearchBodyKind> body;
+    // Start card
+    in property <string> start-title;
+    in property <string> start-body;
+    in property <[string]> start-examples;
+    // "No package lists" card
+    in property <string> no-lists-title;
+    in property <string> no-lists-body;
+    in property <string> no-lists-next-step;
+    in property <[string]> no-lists-technical;
+    // "No results" message
+    in property <string> no-results-title;
+    in property <string> no-results-body;
+    in property <string> no-results-button;
+    // Results
+    in property <string> caption;
+    in property <[ResultRow]> rows;
+    in property <string> footer;
+    // Scroll position of the list. Slint's content-y: 0 at the top, negative when scrolled down.
+    // Two-way bound to the ListView; Rust reads it and moves it to keep the selected row in view.
+    in-out property <length> list-content-y;
+    // Height of the visible part of the list, kept up to date by the ListView.
+    in-out property <length> list-visible-height;
+    // Details panel
+    in property <bool> has-details;
+    in property <SearchDetailsData> details;
+    // Error panel (pacman failed the search)
+    in property <string> error-title;
+    in property <string> error-body;
+    in property <string> error-technical;
+    in property <string> error-unchanged;
+    in property <string> error-report;
+
+    callback search-edited(string);
+    callback example-chosen(int);
+    callback row-chosen(int);
+    // A key pressed while the list has focus.
+    callback list-key(ListKey);
+    // The visible part of the list changed size (first layout, window resized).
+    callback list-resized();
+    callback clear-search();
+    // "Try again" after a failed search, and after a failed details lookup.
+    callback try-again();
+    callback details-try-again();
+}

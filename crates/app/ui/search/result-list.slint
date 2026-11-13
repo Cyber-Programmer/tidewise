@@ -1,0 +1,153 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { ListKey } from "../apps/bridge.slint";
+import { SkeletonRow } from "../apps/skeleton-row.slint";
+import { SearchBridge, SearchBodyKind } from "bridge.slint";
+import { ResultRowItem } from "result-row.slint";
+
+// The white panel under the search box: skeleton rows, the results, or the "no results" message.
+export component ResultList inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+    min-width: 420px;
+
+    VerticalLayout {
+        if SearchBridge.body == SearchBodyKind.loading: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            accessible-role: groupbox;
+            accessible-label: "Searching the package lists";
+            for i in 8: SkeletonRow { }
+        }
+
+        if SearchBridge.body == SearchBodyKind.results: Rectangle {
+            height: 40px;
+            Text {
+                x: Theme.space-l;
+                width: parent.width - 2 * Theme.space-l;
+                height: parent.height;
+                text: SearchBridge.caption;
+                color: Theme.text-3;
+                font-size: Theme.size-label;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.rule;
+            }
+        }
+
+        // The list is ONE Tab stop (listbox pattern): Tab enters it, the next Tab leaves it.
+        // Up/Down/Home/End/Page Up/Page Down move the selection; Rust keeps the row in view.
+        if SearchBridge.body == SearchBodyKind.results: Rectangle {
+            vertical-stretch: 1;
+
+            list-focus := FocusScope {
+                width: parent.width;
+                height: parent.height;
+                key-pressed(event) => {
+                    if (event.text == Key.UpArrow) {
+                        SearchBridge.list-key(ListKey.up);
+                    } else if (event.text == Key.DownArrow) {
+                        SearchBridge.list-key(ListKey.down);
+                    } else if (event.text == Key.Home) {
+                        SearchBridge.list-key(ListKey.home);
+                    } else if (event.text == Key.End) {
+                        SearchBridge.list-key(ListKey.end);
+                    } else if (event.text == Key.PageUp) {
+                        SearchBridge.list-key(ListKey.page-up);
+                    } else if (event.text == Key.PageDown) {
+                        SearchBridge.list-key(ListKey.page-down);
+                    } else {
+                        return reject;
+                    }
+                    return accept;
+                }
+            }
+
+            ListView {
+                width: parent.width;
+                height: parent.height;
+                content-y <=> SearchBridge.list-content-y;
+                changed visible-height => {
+                    SearchBridge.list-visible-height = self.visible-height;
+                    SearchBridge.list-resized();
+                }
+
+                for item[index] in SearchBridge.rows: ResultRowItem {
+                    result: item;
+                    index: index;
+                    list-focused: list-focus.has-focus;
+                    chosen => {
+                        SearchBridge.row-chosen(index);
+                        list-focus.focus();
+                    }
+                }
+            }
+        }
+
+        if SearchBridge.body == SearchBodyKind.no-results: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            padding: Theme.space-xl;
+            spacing: Theme.space-s;
+
+            Text {
+                text: SearchBridge.no-results-title;
+                color: Theme.text;
+                font-size: Theme.size-row-title;
+                font-weight: Theme.weight-semibold;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: SearchBridge.no-results-body;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                padding-top: Theme.space-m;
+                alignment: center;
+                TwButton {
+                    text: SearchBridge.no-results-button;
+                    primary: true;
+                    clicked => {
+                        SearchBridge.clear-search();
+                    }
+                }
+            }
+        }
+
+        if SearchBridge.footer != "": Rectangle {
+            height: 40px;
+            background: Theme.surface;
+            Rectangle {
+                y: 0px;
+                height: 1px;
+                background: Theme.rule;
+            }
+
+            Text {
+                x: Theme.space-l;
+                y: 0px;
+                height: parent.height;
+                text: SearchBridge.footer;
+                color: Theme.text-3;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-label;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

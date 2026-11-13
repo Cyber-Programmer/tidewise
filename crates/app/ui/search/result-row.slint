@@ -1,0 +1,116 @@
+import { Theme } from "../theme.slint";
+import { LetterTile } from "../widgets/letter-tile.slint";
+import { Chip } from "../widgets/chip.slint";
+import { ResultRow } from "bridge.slint";
+
+// One line of the results. Not a Tab stop itself: the whole list is one stop and the arrow keys move the selection.
+export component ResultRowItem inherits Rectangle {
+    in property <ResultRow> result;
+    // Position in the list, for screen readers.
+    in property <int> index;
+    // True while the list has keyboard focus: the selected row then shows a focus ring.
+    in property <bool> list-focused;
+    callback chosen();
+
+    height: Theme.row-height;
+    background: root.result.selected ? Theme.surface-2 : (touch.has-hover ? Theme.bg : transparent);
+
+    accessible-role: list-item;
+    accessible-label: root.result.name + ", " + root.result.repo
+        + (root.result.tag != "" ? ", " + root.result.tag : "")
+        + (root.result.installed ? ", installed" : "");
+    accessible-item-selectable: true;
+    accessible-item-selected: root.result.selected;
+    accessible-item-index: root.index;
+    accessible-action-default => {
+        root.chosen();
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.chosen();
+        }
+    }
+
+    // Hairline under the row.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.rule;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        spacing: Theme.space-m;
+        alignment: stretch;
+
+        VerticalLayout {
+            alignment: center;
+            LetterTile { letter: root.result.letter; }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+
+            HorizontalLayout {
+                spacing: Theme.space-s;
+                alignment: start;
+                Text {
+                    text: root.result.name;
+                    color: Theme.text;
+                    font-size: Theme.size-row-title;
+                    font-weight: Theme.weight-semibold;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: root.result.version;
+                    color: Theme.text-3;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    vertical-alignment: bottom;
+                    overflow: elide;
+                }
+
+                Chip { text: root.result.repo; }
+
+                if root.result.tag != "": Chip { text: root.result.tag; }
+
+                if root.result.installed: Rectangle {
+                    horizontal-stretch: 0;
+                    border-radius: Theme.radius-chip;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    HorizontalLayout {
+                        padding-left: Theme.space-s;
+                        padding-right: Theme.space-s;
+                        padding-top: Theme.space-xs;
+                        padding-bottom: Theme.space-xs;
+                        Text {
+                            text: "Installed";
+                            color: Theme.accent;
+                            font-size: Theme.size-label;
+                            font-weight: Theme.weight-semibold;
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: root.result.description;
+                color: Theme.text-2;
+                font-size: Theme.size-label;
+                overflow: elide;
+            }
+        }
+    }
+
+    Rectangle {
+        border-width: root.list-focused && root.result.selected ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}

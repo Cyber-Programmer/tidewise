@@ -5,6 +5,7 @@ import { NavBridge, Screen } from "nav/bridge.slint";
 import { SearchScreen } from "search/search-screen.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
 import { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow } from "apps/bridge.slint";
+import { ResultRow, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind } from "search/bridge.slint";
 
 import "./fonts/IBMPlexSans-Regular.ttf";
 import "./fonts/IBMPlexSans-Medium.ttf";
@@ -12,7 +13,7 @@ import "./fonts/IBMPlexSans-SemiBold.ttf";
 import "./fonts/IBMPlexMono-Regular.ttf";
 
 // Rust reaches these through the generated code, so they are re-exported here.
-export { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow, Theme }
+export { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow, ResultRow, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme }
 
 export component MainWindow inherits Window {
     in property <string> app-name;
