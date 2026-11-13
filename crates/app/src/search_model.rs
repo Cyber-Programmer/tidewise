@@ -3,7 +3,9 @@
 
 use crate::error_words::{Doing, ErrorText, error_text};
 use crate::list_scroll::moved_selection;
-use tidewise_pacman::{PackageRef, PacmanError, SearchResult};
+use std::collections::HashMap;
+
+use tidewise_pacman::{DetailsLookup, PackageDetails, PackageRef, PacmanError, SearchResult};
 
 /// Why a result is in the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +126,33 @@ pub enum SearchState {
     BadQuery(ErrorText),
 }
 
+/// What the details area shows for the selected package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetailsState<'a> {
+    /// No package is selected.
+    NothingSelected,
+    /// Waiting for `pacman -Si` (or for the short pause before asking).
+    Loading,
+    Found(&'a PackageDetails),
+    /// pacman does not know the package any more (the package lists changed).
+    NotFound,
+    Failed(&'a ErrorText),
+}
+
+/// What pacman said about a package that we keep. A failure is shown but not kept, so "Try again" asks again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Answer {
+    Found(PackageDetails),
+    NotFound,
+}
+
+/// The first thing the package provides that contains one of the search words, for "Matched because it
+/// provides ...". `None` when nothing it provides contains a search word.
+pub fn provides_match(_details: &PackageDetails, _query: &str) -> Option<String> {
+    // Stub for the red commit.
+    None
+}
+
 /// The Search screen's state. Set the inputs with the methods, read what to show with the others.
 ///
 /// Searching is numbered and one at a time: only one `pacman -Ss` runs at once, a newer query waits its turn
@@ -148,6 +177,8 @@ pub struct SearchModel {
     slow: bool,
     /// The selected package. Always one of `results`, or `None` when there are none.
     selected: Option<PackageRef>,
+    /// What pacman said about packages we looked up (kept for the whole session).
+    answers: HashMap<PackageRef, Answer>,
 }
 
 impl SearchModel {
@@ -317,6 +348,33 @@ impl SearchModel {
                 .first()
                 .map(|first| PackageRef::from(&first.result));
         }
+    }
+
+    /// What the details area shows for the selected package.
+    pub fn details_state(&self) -> DetailsState<'_> {
+        DetailsState::NothingSelected
+    }
+
+    /// The pause on a row is over: asks to look the selected package up. `Some(package)`: start the worker now.
+    /// `None`: nothing to look up, it is known already, or another lookup is running (then the newest request
+    /// waits and runs when that one answers).
+    pub fn request_details(&mut self) -> Option<PackageRef> {
+        None
+    }
+
+    /// Like `request_details`, after a failure: "Try again".
+    pub fn retry_details(&mut self) -> Option<PackageRef> {
+        None
+    }
+
+    /// The worker answered the lookup of `package`. An answer for a row that is no longer selected is dropped.
+    /// Returns the next lookup to start when the newest request was waiting and is still wanted.
+    pub fn details_done(
+        &mut self,
+        _package: &PackageRef,
+        _result: Result<DetailsLookup, PacmanError>,
+    ) -> Option<PackageRef> {
+        None
     }
 
     pub fn state(&self) -> &SearchState {
@@ -947,5 +1005,214 @@ mod tests {
         let ticket = model.start_search().unwrap();
         model.search_done(ticket.number, Err(failed()));
         assert_eq!(selected_name(&model), None);
+    }
+
+    // ---- details: latest selection wins, one lookup at a time ----
+
+    fn zsh_details() -> PackageDetails {
+        let text = include_str!("../../../tests/fixtures/pacman/si-zsh.txt");
+        tidewise_pacman::parse_si(text).unwrap().remove(0)
+    }
+
+    fn details_of(name: &str) -> PackageDetails {
+        PackageDetails {
+            repo: "extra".to_string(),
+            name: name.to_string(),
+            ..zsh_details()
+        }
+    }
+
+    fn pkg(name: &str) -> PackageRef {
+        PackageRef {
+            repo: "extra".to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn lookup_found(name: &str) -> Result<DetailsLookup, PacmanError> {
+        Ok(DetailsLookup {
+            found: vec![details_of(name)],
+            not_found: Vec::new(),
+        })
+    }
+
+    fn select(model: &mut SearchModel, name: &str) {
+        model.select("extra", name);
+    }
+
+    fn shown_name(model: &SearchModel) -> Option<String> {
+        match model.details_state() {
+            DetailsState::Found(details) => Some(details.name.clone()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn there_are_no_details_without_a_selection() {
+        let mut model = SearchModel::new();
+        assert_eq!(model.details_state(), DetailsState::NothingSelected);
+        assert_eq!(model.request_details(), None);
+    }
+
+    #[test]
+    fn a_listed_package_is_asked_for_once_and_shows_loading() {
+        let mut model = loaded(&["x1", "x2"]);
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        assert_eq!(model.request_details(), Some(pkg("x1")));
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        // Asked again (a second dwell on the same row): it is already on its way.
+        assert_eq!(model.request_details(), None);
+    }
+
+    #[test]
+    fn a_found_answer_is_shown_and_kept() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.request_details();
+        assert_eq!(model.details_done(&pkg("x1"), lookup_found("x1")), None);
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+        // Known already: asking again does nothing, also after going away and coming back.
+        assert_eq!(model.request_details(), None);
+        select(&mut model, "x2");
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        select(&mut model, "x1");
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+        assert_eq!(model.request_details(), None);
+    }
+
+    #[test]
+    fn a_package_pacman_no_longer_knows_says_so() {
+        let mut model = loaded(&["x1"]);
+        model.request_details();
+        let lookup = Ok(DetailsLookup {
+            found: Vec::new(),
+            not_found: vec![pkg("x1")],
+        });
+        model.details_done(&pkg("x1"), lookup);
+        assert_eq!(model.details_state(), DetailsState::NotFound);
+        assert_eq!(model.request_details(), None);
+    }
+
+    #[test]
+    fn a_failure_is_shown_but_not_kept_so_try_again_asks_again() {
+        let mut model = loaded(&["x1"]);
+        model.request_details();
+        model.details_done(&pkg("x1"), Err(failed()));
+        let DetailsState::Failed(text) = model.details_state() else {
+            panic!("expected Failed, got {:?}", model.details_state());
+        };
+        assert_eq!(text.title, "pacman couldn't look up this package");
+        // No automatic loop of asking again.
+        assert_eq!(model.request_details(), None);
+        assert_eq!(model.retry_details(), Some(pkg("x1")));
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        model.details_done(&pkg("x1"), lookup_found("x1"));
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+    }
+
+    #[test]
+    fn only_one_lookup_runs_at_a_time_and_the_newest_request_waits() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        assert_eq!(model.request_details(), Some(pkg("x1")));
+        select(&mut model, "x2");
+        assert_eq!(model.request_details(), None);
+        select(&mut model, "x3");
+        assert_eq!(model.request_details(), None);
+        // x1 answers (it is no longer selected, so it is dropped); x3, the newest request, runs next.
+        let next = model.details_done(&pkg("x1"), lookup_found("x1"));
+        assert_eq!(next, Some(pkg("x3")));
+        assert_eq!(model.details_done(&pkg("x3"), lookup_found("x3")), None);
+        assert_eq!(shown_name(&model), Some("x3".to_string()));
+    }
+
+    #[test]
+    fn an_answer_for_a_row_that_is_no_longer_selected_is_dropped() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.request_details();
+        select(&mut model, "x2");
+        model.details_done(&pkg("x1"), lookup_found("x1"));
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        // It was not kept: coming back to x1 asks again.
+        select(&mut model, "x1");
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        assert_eq!(model.request_details(), Some(pkg("x1")));
+    }
+
+    #[test]
+    fn a_waiting_request_is_dropped_if_its_row_was_left_without_pausing() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        model.request_details(); // x1 runs
+        select(&mut model, "x2");
+        model.request_details(); // x2 waits
+        select(&mut model, "x3"); // arrowing on: no pause yet, so no request for x3
+        // Neither x2 (not selected any more) nor x3 (no pause yet) starts now.
+        assert_eq!(model.details_done(&pkg("x1"), lookup_found("x1")), None);
+        // The pause on x3 ends: now it is asked for.
+        assert_eq!(model.request_details(), Some(pkg("x3")));
+    }
+
+    #[test]
+    fn coming_back_to_the_running_row_cancels_the_waiting_request() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.request_details(); // x1 runs
+        select(&mut model, "x2");
+        model.request_details(); // x2 waits
+        select(&mut model, "x1");
+        assert_eq!(model.request_details(), None); // x1 is already running
+        // x1 answers and is shown; nothing else starts (x2 is not selected).
+        assert_eq!(model.details_done(&pkg("x1"), lookup_found("x1")), None);
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+    }
+
+    #[test]
+    fn an_answer_nobody_asked_for_is_ignored() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.request_details();
+        assert_eq!(model.details_done(&pkg("x2"), lookup_found("x2")), None);
+        assert_eq!(model.details_state(), DetailsState::Loading);
+        model.details_done(&pkg("x1"), lookup_found("x1"));
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+    }
+
+    #[test]
+    fn what_pacman_said_survives_a_new_search() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.request_details();
+        model.details_done(&pkg("x1"), lookup_found("x1"));
+        let ticket = model.start_search().unwrap();
+        model.search_done(ticket.number, found(&["x2", "x1"]));
+        select(&mut model, "x1");
+        assert_eq!(shown_name(&model), Some("x1".to_string()));
+    }
+
+    #[test]
+    fn the_search_words_are_found_in_what_a_package_provides() {
+        // Real pacman output: dmd provides d-compiler=2.113.0.
+        let text = include_str!("../../../tests/fixtures/pacman/si-dmd.txt");
+        let dmd = tidewise_pacman::parse_si(text).unwrap().remove(0);
+        assert_eq!(
+            provides_match(&dmd, "compiler"),
+            Some("d-compiler".to_string())
+        );
+        assert_eq!(
+            provides_match(&dmd, "  D-COMPILER "),
+            Some("d-compiler".to_string())
+        );
+        assert_eq!(provides_match(&dmd, "java"), None);
+    }
+
+    #[test]
+    fn with_several_words_any_provided_name_that_contains_one_counts() {
+        let text = include_str!("../../../tests/fixtures/pacman/si-multi.txt");
+        let man_db = tidewise_pacman::parse_si(text).unwrap().remove(0);
+        assert_eq!(
+            provides_match(&man_db, "pages man"),
+            Some("man".to_string())
+        );
+    }
+
+    #[test]
+    fn a_package_that_provides_nothing_has_no_match() {
+        assert_eq!(provides_match(&zsh_details(), "zsh"), None);
+        assert_eq!(provides_match(&zsh_details(), ""), None);
     }
 }
