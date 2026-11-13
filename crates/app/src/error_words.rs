@@ -10,8 +10,19 @@ pub struct ErrorText {
     pub technical: String,
 }
 
+/// What Tidewise was asking pacman for when it failed, so the title can say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Doing {
+    /// The Apps list: `pacman -Qi`.
+    ListingInstalled,
+    /// A search: `pacman -Ss`.
+    Searching,
+    /// The details of one package: `pacman -Si`.
+    LookingUp,
+}
+
 /// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
-pub fn error_text(error: &PacmanError) -> ErrorText {
+pub fn error_text(error: &PacmanError, _doing: Doing) -> ErrorText {
     match error {
         PacmanError::NotFound { .. } => ErrorText {
             title: "Tidewise can't find pacman".to_string(),
@@ -73,5 +84,91 @@ pub fn error_text(error: &PacmanError) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed() -> PacmanError {
+        PacmanError::Failed {
+            code: Some(1),
+            stderr: "error: unable to lock database\n".to_string(),
+        }
+    }
+
+    fn parse_failed() -> PacmanError {
+        PacmanError::Parse(tidewise_pacman::ParseError::MissingField {
+            package: Some("zsh".to_string()),
+            field: "Description",
+        })
+    }
+
+    const FAILED_BODY: &str = "pacman stopped with an error before it finished. \
+                               This is usually temporary; trying again often works.";
+
+    #[test]
+    fn the_apps_list_keeps_its_words() {
+        let text = error_text(&failed(), Doing::ListingInstalled);
+        assert_eq!(text.title, "pacman couldn't list your packages");
+        assert_eq!(text.body, FAILED_BODY);
+        let text = error_text(&parse_failed(), Doing::ListingInstalled);
+        assert_eq!(
+            text.body,
+            "The list from pacman looked incomplete, so Tidewise shows nothing \
+             rather than a list with packages missing."
+        );
+    }
+
+    #[test]
+    fn a_failed_search_says_the_search_failed() {
+        let text = error_text(&failed(), Doing::Searching);
+        assert_eq!(text.title, "pacman couldn't finish the search");
+        assert_eq!(text.body, FAILED_BODY);
+        assert_eq!(
+            text.technical,
+            "exit code 1: error: unable to lock database"
+        );
+    }
+
+    #[test]
+    fn a_failed_lookup_says_the_lookup_failed() {
+        let text = error_text(&failed(), Doing::LookingUp);
+        assert_eq!(text.title, "pacman couldn't look up this package");
+        assert_eq!(text.body, FAILED_BODY);
+    }
+
+    #[test]
+    fn an_unreadable_search_answer_says_results() {
+        let text = error_text(&parse_failed(), Doing::Searching);
+        assert_eq!(text.title, "Tidewise couldn't read pacman's answer");
+        assert_eq!(
+            text.body,
+            "The search results from pacman looked incomplete, so Tidewise shows none \
+             rather than a list with packages missing."
+        );
+        assert!(text.technical.contains("zsh"));
+    }
+
+    #[test]
+    fn an_unreadable_lookup_answer_says_details() {
+        let text = error_text(&parse_failed(), Doing::LookingUp);
+        assert_eq!(text.title, "Tidewise couldn't read pacman's answer");
+        assert_eq!(
+            text.body,
+            "The details from pacman looked incomplete, so Tidewise shows none \
+             rather than details with something missing."
+        );
+    }
+
+    #[test]
+    fn failures_that_do_not_depend_on_the_task_read_the_same() {
+        let missing = PacmanError::NotFound {
+            program: "/usr/bin/pacman".into(),
+        };
+        let apps = error_text(&missing, Doing::ListingInstalled);
+        assert_eq!(error_text(&missing, Doing::Searching), apps);
+        assert_eq!(error_text(&missing, Doing::LookingUp), apps);
     }
 }

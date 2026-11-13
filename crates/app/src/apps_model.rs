@@ -1,7 +1,7 @@
 //! View model for the Apps screen: tabs, search, sort, selection and details.
 //! Plain Rust. It never runs pacman; it is handed the result of `tidewise_pacman::installed_packages()`.
 
-use crate::error_words::{ErrorText, error_text};
+use crate::error_words::{Doing, ErrorText, error_text};
 use crate::list_scroll::moved_selection;
 use crate::size_text::format_size;
 use tidewise_pacman::{InstallReason, InstalledPackage, PacmanError};
@@ -123,7 +123,7 @@ impl AppsModel {
             Err(error) => {
                 self.packages.clear();
                 self.selected = None;
-                self.state = ListState::Error(error_text(&error));
+                self.state = ListState::Error(error_text(&error, Doing::ListingInstalled));
             }
         }
     }
