@@ -4243,6 +4243,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidewise-container-tests"
+version = "0.1.0"
+
+[[package]]
 name = "tidewise-core"
 version = "0.1.0"
 
