@@ -180,11 +180,18 @@ fn missing_from_stderr(output: &Output, request: &[PackageRef]) -> Option<Vec<Pa
 /// empty answer without running pacman. Reads the local sync database only (no `-Sy`, no network, no root).
 /// Blocks until pacman finishes (no timeout yet).
 pub fn package_details(refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError> {
-    let _ = refs;
-    Ok(DetailsLookup {
-        found: Vec::new(),
-        not_found: Vec::new(),
-    })
+    let request = details_request(refs)?;
+    if request.is_empty() {
+        // `pacman -Si` with no names prints EVERY package, so it must not run.
+        return Ok(DetailsLookup {
+            found: Vec::new(),
+            not_found: Vec::new(),
+        });
+    }
+    let args = details_args(&request);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run(Path::new(PACMAN), &args)?;
+    lookup_from_output(&output, &request)
 }
 
 /// Longest search text we accept, in characters (after trimming).
