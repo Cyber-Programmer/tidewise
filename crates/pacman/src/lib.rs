@@ -20,6 +20,7 @@ mod qi;
 mod qq;
 mod record;
 mod run;
+mod si;
 mod size;
 mod ss;
 
