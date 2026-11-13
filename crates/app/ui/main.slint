@@ -1,5 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+import { Sidebar } from "nav/sidebar.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
 import { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow } from "apps/bridge.slint";
 
@@ -27,5 +28,11 @@ export component MainWindow inherits Window {
         Palette.color-scheme = ColorScheme.light;
     }
 
-    AppsScreen { }
+    HorizontalLayout {
+        Sidebar { }
+
+        AppsScreen {
+            horizontal-stretch: 1;
+        }
+    }
 }
