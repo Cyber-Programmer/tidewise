@@ -1,9 +1,8 @@
 //! Turns the `AppsModel` into the exact words and flags the Apps screen shows.
 //! No Slint types here, so every string the window displays is unit-tested.
 
-use crate::apps_model::{
-    AppsModel, Details, EmptyState, ErrorText, ListState, Row, SortOrder, Tab,
-};
+use crate::apps_model::{AppsModel, Details, EmptyState, ListState, Row, SortOrder, Tab};
+use crate::error_words::ErrorText;
 use crate::size_text::split_size;
 
 /// Shown while the list is loading, and as the "number" when there is none yet.
