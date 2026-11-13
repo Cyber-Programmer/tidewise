@@ -1,0 +1,38 @@
+Repository      : core
+Name            : man-db
+Version         : 2.13.1-2
+Description     : A utility for reading man pages
+Architecture    : x86_64
+URL             : https://gitlab.com/man-db/man-db
+Licenses        : GPL-2.0-or-later AND GPL-3.0-or-later
+Groups          : None
+Provides        : man
+Depends On      : bash  gdbm  zlib  groff  libpipeline  less  libseccomp  glibc
+Optional Deps   : gzip
+Conflicts With  : man
+Replaces        : man
+Download Size   : 1176.30 KiB
+Installed Size  : 2484.84 KiB
+Packager        : Andreas Radke <andyrtr@archlinux.org>
+Build Date      : Thu Jul 16 20:31:18 2026
+Validated By    : SHA-256 Sum  Signature
+
+Repository      : core
+Name            : less
+Version         : 1:710-1
+Description     : A terminal based program for viewing text files
+Architecture    : x86_64
+URL             : https://www.greenwoodsoftware.com/less/
+Licenses        : GPL-3.0-or-later OR LicenseRef-Less
+Groups          : None
+Provides        : None
+Depends On      : glibc  ncurses  pcre2
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 168.79 KiB
+Installed Size  : 337.67 KiB
+Packager        : Tobias Powalowski <tpowa@archlinux.org>
+Build Date      : Fri Sep 18 00:42:04 2026
+Validated By    : SHA-256 Sum  Signature
+

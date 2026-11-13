@@ -1,0 +1,19 @@
+Repository      : extra
+Name            : xf86-video-fbdev
+Version         : 0.5.1-1
+Description     : X.org framebuffer video driver
+Architecture    : x86_64
+URL             : https://xorg.freedesktop.org/
+Licenses        : X11
+Groups          : xorg-drivers
+Provides        : None
+Depends On      : glibc
+Optional Deps   : None
+Conflicts With  : xorg-server<21.1.1  X-ABI-VIDEODRV_VERSION<25  X-ABI-VIDEODRV_VERSION>=26
+Replaces        : None
+Download Size   : 13.27 KiB
+Installed Size  : 33.60 KiB
+Packager        : Andreas Radke <andyrtr@archlinux.org>
+Build Date      : Sat Nov  9 01:02:10 2024
+Validated By    : SHA-256 Sum  Signature
+

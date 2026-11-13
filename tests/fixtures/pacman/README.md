@@ -1,10 +1,10 @@
 # pacman fixtures
 
-Real pacman output saved for the parser tests (WBS 3.3). This is a small hand-picked sample, not a machine's
+Real pacman output saved for the parser tests (WBS 3.3, 4.3, 4.4). This is a small hand-picked sample, not a machine's
 full package list. Every package named here, including names in `Required By`, `Optional For` and
 `Optional Deps`, comes from the official Arch repos (checked against `pacman -Slq`).
 
-- Captured: 2026-11-11, on Arch Linux
+- Captured: 2026-11-11 (`qi`, `qq`), 2026-11-13 (`si`), on Arch Linux
 - pacman: **v7.1.0**, libalpm v16.0.1
 - Environment: `LC_ALL=C` (English field names, `.` decimal point)
 - Output went **to a file, not a terminal**, so pacman did **not** wrap long lines (base's `Depends On` is one
@@ -28,6 +28,14 @@ full package list. Every package named here, including names in `Required By`, `
 | `ss-third-party.txt` | *hand-made* (not captured from pacman) | Made-up third-party repos `chaotic-aur` and `my repo.x` (a name with a space and a dot, which pacman's rules allow), a package with two groups and `[installed: x]`, mixed with official `extra` and `core` lines **in non-alphabetical order**, to prove the parser keeps pacman's order. The line layout copies the real output above; the names are invented |
 | `ss-broken-truncated.txt` | *hand-made*: first 4 lines of `ss-sample.txt` plus the first 43 bytes of the next header | **Deliberately broken.** Ends inside `[installed: …]` with no final newline and no description. The parser must report an error, not panic |
 | `ss-bad-byte.bin` | *hand-made*: `ss-sample.txt` with one byte of the `baobab` description changed to `0xFF` | A stray non-UTF-8 byte. `.bin`, not `.txt`, because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does |
+| `si-zsh.txt` | `LC_ALL=C pacman -Si -- extra/zsh` (WBS 4.4) | Real `-Si` output, official repo. 8 Optional Deps lines on continuation lines; **no `[installed]` marker** even though `zsh-completions` is installed (`-Qi` marks it, `-Si` never does); `Groups`/`Provides`/`Conflicts With`/`Replaces` are `None`; MiB sizes |
+| `si-dmd.txt` | `LC_ALL=C pacman -Si -- extra/dmd` | Epoch version `1:2.113.0-2`; `Provides : d-compiler=2.113.0` (version rule with `=`); two groups; 3 Optional Deps lines |
+| `si-xf86-video-fbdev.txt` | `LC_ALL=C pacman -Si -- extra/xf86-video-fbdev` | `Conflicts With : xorg-server<21.1.1  X-ABI-VIDEODRV_VERSION<25  X-ABI-VIDEODRV_VERSION>=26`: the `<` and `>=` rules, three entries separated by two spaces |
+| `si-iana-etc.txt` | `LC_ALL=C pacman -Si -- core/iana-etc` | Every list field is `None`; `Licenses : custom:none` (a colon inside a value); `4114.47 KiB` |
+| `si-multi.txt` | `LC_ALL=C pacman -Si -- core/man-db core/less` | Two records, blank line between; man-db has a bare Optional Dep (`gzip`, no reason) and `GPL-2.0-or-later AND GPL-3.0-or-later`; less has an epoch and `GPL-3.0-or-later OR LicenseRef-Less` (a licence with single spaces) |
+| `si-not-found.stderr.txt` | stderr of `LC_ALL=C pacman -Si -- extra/zsh nosuchpkg` (exit code 1) | What pacman says about an unknown name: `error: package 'nosuchpkg' was not found`, quoted exactly as we passed it. stdout still has the zsh record |
+| `si-broken-truncated.txt` | *hand-made*: first 11 lines of `si-dmd.txt` plus the first 30 bytes of line 12 | **Deliberately broken.** Ends half-way through the `gcc-multilib` Optional Deps line, no final newline, and `Conflicts With` ... `Installed Size` are missing. The parser must report an error, not panic |
+| `si-bad-byte.bin` | *hand-made*: `si-zsh.txt` with the `p` of `programmable` in the description changed to `0xFF` | A stray non-UTF-8 byte. `.bin` because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does |
 
 ## Refreshing
 
