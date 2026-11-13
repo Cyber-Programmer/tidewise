@@ -126,7 +126,20 @@ pub enum SearchState {
 pub struct SearchModel {
     state: SearchState,
     results: Vec<RankedResult>,
+    /// The text in the search box, trimmed.
     query: String,
+    /// The query the current results (or error) answer.
+    answered_query: String,
+    /// The number given to the last search that was asked for.
+    last_number: u64,
+    /// The number of the search whose answer we want to show. `None` when nothing is wanted (nothing typed, or
+    /// the answer has arrived): any other answer is stale.
+    wanted: Option<u64>,
+    /// The search the worker thread is running now.
+    running: Option<SearchTicket>,
+    /// A newer search that waits for the running one to finish. Only the newest is kept.
+    pending: Option<SearchTicket>,
+    slow: bool,
 }
 
 impl SearchModel {
@@ -134,9 +147,20 @@ impl SearchModel {
         Self::default()
     }
 
-    /// The text in the search box, trimmed. This only remembers it: `start_search` (after the debounce)
-    /// decides to search. A blank text clears the results at once.
-    pub fn set_query(&mut self, _text: &str) {}
+    /// Remembers the text in the search box (trimmed). It does not search: `start_search` (called after the
+    /// debounce) does. A blank text goes back to the start card at once and makes every answer still on its way
+    /// stale.
+    pub fn set_query(&mut self, text: &str) {
+        self.query = text.trim().to_string();
+        if self.query.is_empty() {
+            self.wanted = None;
+            self.pending = None;
+            self.slow = false;
+            self.state = SearchState::Start;
+            self.results.clear();
+            self.answered_query.clear();
+        }
+    }
 
     /// The text in the search box, trimmed.
     pub fn query(&self) -> &str {
@@ -146,17 +170,78 @@ impl SearchModel {
     /// Asks to search for the current text. `Some(ticket)`: start the worker now. `None`: nothing to search
     /// for, or a search is already running (this query waits and runs when that one answers).
     pub fn start_search(&mut self) -> Option<SearchTicket> {
-        None
+        if self.query.is_empty() {
+            return None;
+        }
+        // The running search is for exactly this text (the user typed something else and then came back):
+        // its answer is the one we want, and anything that was waiting is out of date.
+        if let Some(running) = &self.running
+            && running.query == self.query
+        {
+            self.wanted = Some(running.number);
+            self.pending = None;
+            self.show_loading_unless_rows_are_shown();
+            return None;
+        }
+        self.last_number += 1;
+        let ticket = SearchTicket {
+            number: self.last_number,
+            query: self.query.clone(),
+        };
+        self.wanted = Some(ticket.number);
+        self.slow = false;
+        self.show_loading_unless_rows_are_shown();
+        if self.running.is_some() {
+            self.pending = Some(ticket);
+            None
+        } else {
+            self.running = Some(ticket.clone());
+            Some(ticket)
+        }
+    }
+
+    /// With rows on screen they stay while the next search runs; otherwise the screen shows the skeleton.
+    fn show_loading_unless_rows_are_shown(&mut self) {
+        if self.state != SearchState::Loaded || self.results.is_empty() {
+            self.state = SearchState::Loading;
+        }
     }
 
     /// The worker answered the search with this number. Stale answers are ignored. Returns the next search to
     /// start when a newer query was waiting.
     pub fn search_done(
         &mut self,
-        _number: u64,
-        _result: Result<Vec<SearchResult>, PacmanError>,
+        number: u64,
+        result: Result<Vec<SearchResult>, PacmanError>,
     ) -> Option<SearchTicket> {
-        None
+        let ticket = self.running.take()?;
+        if ticket.number != number {
+            // Not the search we started: leave everything as it was.
+            self.running = Some(ticket);
+            return None;
+        }
+        if self.wanted == Some(number) {
+            self.wanted = None;
+            self.slow = false;
+            self.answered_query = ticket.query.clone();
+            match result {
+                Ok(found) => {
+                    self.results = rank(found, &ticket.query);
+                    self.state = SearchState::Loaded;
+                }
+                Err(error) => {
+                    self.results.clear();
+                    let text = error_text(&error, Doing::Searching);
+                    self.state = match error {
+                        PacmanError::BadQuery { .. } => SearchState::BadQuery(text),
+                        _ => SearchState::Error(text),
+                    };
+                }
+            }
+        }
+        let next = self.pending.take();
+        self.running.clone_from(&next);
+        next
     }
 
     pub fn state(&self) -> &SearchState {
@@ -170,19 +255,23 @@ impl SearchModel {
 
     /// The query the results (or the error) answer. Differs from `query` while a newer search runs.
     pub fn answered_query(&self) -> &str {
-        ""
+        &self.answered_query
     }
 
     /// True from the moment a search for the latest text is wanted until its answer arrives.
     pub fn is_searching(&self) -> bool {
-        false
+        self.wanted.is_some()
     }
 
     /// Called when a search has taken too long. Ignored unless one is wanted.
-    pub fn mark_slow(&mut self) {}
+    pub fn mark_slow(&mut self) {
+        if self.is_searching() {
+            self.slow = true;
+        }
+    }
 
     pub fn is_slow(&self) -> bool {
-        false
+        self.slow
     }
 }
 
