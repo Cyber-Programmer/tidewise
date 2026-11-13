@@ -1,6 +1,8 @@
 import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Sidebar } from "nav/sidebar.slint";
+import { NavBridge, Screen } from "nav/bridge.slint";
+import { SearchScreen } from "search/search-screen.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
 import { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow } from "apps/bridge.slint";
 
@@ -31,7 +33,11 @@ export component MainWindow inherits Window {
     HorizontalLayout {
         Sidebar { }
 
-        AppsScreen {
+        if NavBridge.current == Screen.apps: AppsScreen {
+            horizontal-stretch: 1;
+        }
+
+        if NavBridge.current == Screen.search: SearchScreen {
             horizontal-stretch: 1;
         }
     }

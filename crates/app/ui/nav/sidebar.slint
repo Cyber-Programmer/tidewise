@@ -1,7 +1,9 @@
 import { Theme } from "../theme.slint";
 import { Logo } from "../widgets/logo.slint";
+import { NavBridge, Screen } from "bridge.slint";
+import { NavItem } from "nav-item.slint";
 
-// Only items that work today: "Apps". More arrive with their screens.
+// Only items that work today: Apps and Search. More arrive with their screens.
 export component Sidebar inherits Rectangle {
     width: 220px;
     background: Theme.bg;
@@ -31,23 +33,24 @@ export component Sidebar inherits Rectangle {
             }
         }
 
-        // The current item.
-        Rectangle {
-            height: Theme.min-target;
-            background: Theme.nav-active;
-            border-radius: Theme.radius-control;
-            accessible-role: tab;
-            accessible-label: "Apps";
-            accessible-checkable: true;
-            accessible-checked: true;
+        VerticalLayout {
+            spacing: 2px;
+            NavItem {
+                label: "Apps";
+                icon: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z";
+                current: NavBridge.current == Screen.apps;
+                clicked => {
+                    NavBridge.current = Screen.apps;
+                }
+            }
 
-            Text {
-                x: Theme.space-m;
-                text: "Apps";
-                color: Theme.text;
-                font-size: Theme.size-body;
-                font-weight: Theme.weight-medium;
-                vertical-alignment: center;
+            NavItem {
+                label: "Search";
+                icon: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13M15.5 15.5L20 20";
+                current: NavBridge.current == Screen.search;
+                clicked => {
+                    NavBridge.current = Screen.search;
+                }
             }
         }
 
