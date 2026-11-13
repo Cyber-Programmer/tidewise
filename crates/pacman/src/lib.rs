@@ -18,6 +18,7 @@ mod error;
 mod name;
 mod qi;
 mod qq;
+mod record;
 mod run;
 mod size;
 mod ss;
