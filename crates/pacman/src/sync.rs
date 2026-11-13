@@ -3,9 +3,12 @@
 //! Pure reading of files and of `pacman-conf` text. The process is started in `run.rs`, and the clock stays
 //! out of here: the caller compares `SyncLists::newest` with its own "now".
 
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::name::is_valid_repo_name;
 use crate::{PacmanError, ParseError};
 
 /// What is on disk for the configured repositories.
@@ -20,13 +23,40 @@ pub struct SyncLists {
 }
 
 /// Reads the output of `LC_ALL=C pacman-conf DBPath`: one absolute path.
-pub(crate) fn parse_dbpath(_text: &str) -> Result<PathBuf, ParseError> {
-    Ok(PathBuf::new())
+pub(crate) fn parse_dbpath(text: &str) -> Result<PathBuf, ParseError> {
+    let bad = |line_number: usize, line: &str| ParseError::BadConfigLine {
+        what: "DBPath",
+        line_number,
+        line: line.to_string(),
+    };
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or("");
+    // A second line would mean pacman-conf printed something we don't understand.
+    if let Some(second) = lines.next() {
+        return Err(bad(2, second));
+    }
+    // Absolute, and no control character (this also refuses NUL, which no path can hold).
+    if !first.starts_with('/') || first.chars().any(char::is_control) {
+        return Err(bad(1, first));
+    }
+    Ok(PathBuf::from(first))
 }
 
 /// Reads the output of `LC_ALL=C pacman-conf --repo-list`: one repository name per line.
-pub(crate) fn parse_repo_list(_text: &str) -> Result<Vec<String>, ParseError> {
-    Ok(Vec::new())
+pub(crate) fn parse_repo_list(text: &str) -> Result<Vec<String>, ParseError> {
+    let mut repos = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        // No `/` means `<repo>.db` can only ever be a file inside the sync folder.
+        if !is_valid_repo_name(line) {
+            return Err(ParseError::BadConfigLine {
+                what: "repository",
+                line_number: index + 1,
+                line: line.to_string(),
+            });
+        }
+        repos.push(line.to_string());
+    }
+    Ok(repos)
 }
 
 /// Looks for `<sync_dir>/<repo>.db` for each repository. Nothing else in the folder is looked at (pacman
@@ -34,11 +64,25 @@ pub(crate) fn parse_repo_list(_text: &str) -> Result<Vec<String>, ParseError> {
 ///
 /// A missing file, or a missing folder, is not an error: the repository goes in `missing`. Any other failure
 /// to read a file's details is `PacmanError::ReadLists`.
-pub(crate) fn sync_lists_in(_sync_dir: &Path, _repos: &[String]) -> Result<SyncLists, PacmanError> {
-    Ok(SyncLists {
-        newest: None,
-        missing: Vec::new(),
-    })
+pub(crate) fn sync_lists_in(sync_dir: &Path, repos: &[String]) -> Result<SyncLists, PacmanError> {
+    let mut newest: Option<SystemTime> = None;
+    let mut missing = Vec::new();
+    for repo in repos {
+        let path = sync_dir.join(format!("{repo}.db"));
+        match fs::metadata(&path) {
+            // Only a regular file is a list; a folder that happens to be called `core.db` is not.
+            Ok(details) if details.is_file() => {
+                let modified = details
+                    .modified()
+                    .map_err(|source| PacmanError::ReadLists { path, source })?;
+                newest = Some(newest.map_or(modified, |current| current.max(modified)));
+            }
+            Ok(_) => missing.push(repo.clone()),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => missing.push(repo.clone()),
+            Err(source) => return Err(PacmanError::ReadLists { path, source }),
+        }
+    }
+    Ok(SyncLists { newest, missing })
 }
 
 #[cfg(test)]
