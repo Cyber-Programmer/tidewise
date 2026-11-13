@@ -425,3 +425,93 @@ Rules bent:
 - `qu-broken-truncated.txt` and `qu-bad-byte.bin` are hand-made (described in the README).
 - `docs/security/threat-model.md` does not exist yet, so nothing was added to it (new parsers read outside text).
 WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-13 — 4.6 Search screen (Slint), wired to search / package_details / sync_lists
+Done: the Search screen next to Apps, all logic in tested view models. 27 commits on `feat/4.6-search` (red then green):
+refactors `d15b96e` `49cf4fa` `6cafd2a` `2a3d0f1` `32f8778`; core age helper `e40233c` / `918e764`; error words
+`86adda1` / `81da4b0` and (checking the lists) `cea96fb` / `e4dcfbd`; ranking `888e963` / `1b715ef`; numbered one-at-a-time
+searching `fc49f9d` / `9c7edd7`; selection and keys `8c348eb` / `f46403e`; details, latest selection wins `ab8d1f5` /
+`02d7b4d`; package lists `69182ef` / `10fbe77`; the screen's words `0bfc1e1` / `01cd96a`; UI `590a20d` (sidebar) `0e29283`
+(panels) `b58439c` (hairline fix) `dcd1158` (wiring).
+- `tidewise-core::age`: `whole_days(earlier, now)` (0 for a future time) and `utc_timestamp` (integer civil-from-days, no
+  date dependency). The header says "Package lists updated today / 1 day ago / N days ago"; the exact UTC time is only in
+  the details' technical lines.
+- `SearchModel` (`crates/app/src/search_model.rs`): every search is numbered; **one `pacman -Ss` at a time**, and while it
+  runs only the newest query waits and runs next; an answer that is not for the latest query is dropped (also a stale
+  failure); clearing the box makes the running answer stale; typing back to the running text keeps its answer. Ranking
+  (`rank`): exact name, then name, then description, then provides-only, pacman's order kept inside each group
+  (stable sort); `repo_kind`: core/extra/multilib plain, `*-testing` "testing", else "third-party".
+- Details: **latest selection wins**: the glue waits 150 ms on a row before `request_details`; one `pacman -Si` at a time,
+  only the newest request waits, an answer for a row that is no longer selected is dropped (not cached), and the waiting
+  request is skipped if its row was left (no queue while arrowing). Found / not-found answers are cached for the session;
+  a failure is shown, not cached, and "Try again" asks again.
+- `search_view` words every state of the board (start, skeleton, results, no results, refused text, pacman error, details
+  loading / found / not found / failed, no package lists). Sizes use the shared `size_text` (SI, number and unit split).
+- Slint: `ui/nav/` (sidebar buttons Apps and Search, `NavBridge`), `ui/search/` (bridge, screen, start card, no-lists card,
+  list, row, details). `ErrorPanel` now takes properties, so both screens use it. No new colour token: the "Installed"
+  pill is outlined teal (accent on surface, an already-tested pair).
+- Wording differs from the board on purpose: "official" is dropped (Tidewise searches every repository pacman knows),
+  "about 15 000 packages" is dropped (the count is not known), no sizes on rows (human's decision: `-Ss` has none), the date
+  became an age (human's decision, a UTC day can be off by one), no "Show in Apps" link yet (Apps can't select a package).
+Real-pacman findings (v7.1.0, this machine, read-only, through the real app): `vlc` 86 results, exact `vlc` first, details
+loaded (6.7 MB download, 44.2 MB on disk, needs bash, hicolor-icon-theme, vlc-gui-qt); `c++` 359 results and
+`libstdc++` shows "Also counts as libstdc++.so=6-64"; `spotfy` 0 results, exit handled as "no results"; a 101-character
+text is refused before pacman starts. `-Ss` matching provides is the 4.3 finding (flac via `libFLAC++.so`), so no new fixture.
+Tests: 204 in `tidewise-app` (was 93), 15 in `tidewise-core` (was 7), 200 in `tidewise-pacman` (+5 `#[ignore]`d real-pacman tests,
+all run and passing). fmt, clippy, `cargo test --all`, `cargo deny check`, release build all exit 0 on the last commit.
+Next: M4 "Get package lists" (the no-lists card has one explanatory line instead of the button); focus the search box when
+Search opens (not done); a "Show in Apps" link once Apps can select a package; `OFFICIAL_REPOS` is repeated in
+`search_model.rs` because `SearchResult::is_official` keeps its own list private (expose one `is_official_repo(&str)` in
+`tidewise-pacman` to remove the copy); `spike/cli-vs-alpm` still to delete.
+Blockers: none.
+Rules bent:
+- UI-only commits (`590a20d` `0e29283` `b58439c` `dcd1158`) have no red test; checked by rendering the real window to
+  snapshots (see below) and the manual checklist.
+- Red commits fail their new tests on purpose (each commit message names the tests that already pass on the stub);
+  `cargo test --all` was run before every commit, clippy only on green ones.
+- One red-commit test was corrected in its green commit (`f46403e`, `a_new_answer_keeps_the_selection...`): it searched
+  "x2", and ranking rightly moves an exact name to the top, so the expected index was wrong; it now checks the same thing
+  with a query that keeps pacman's order. Stated in that commit's message.
+- Plan reorder: ranking came before the model, and the "one search at a time" and "numbering" steps are one pair (their
+  tests would have contradicted each other). Two extra small commits: `Doing::CheckingLists` words (a `pacman-conf`
+  failure must not say "couldn't list your packages") and the `ErrorView` move. `crates/core` got a new module (`age`), as planned.
+- Three unpushed commits were amended: two messages that had a wrong test count, and the wiring commit, which had slipped
+  past `cargo fmt --check` (restored file was unformatted; the gate was read after the commit). Fixed before anything was pushed.
+- I could not drive the window with key presses: `xdotool` made KDE show a "xdotool is asking to control input devices"
+  prompt. I did not approve it (that is yours to answer; it may still be on your screen: choose Deny). Instead a temporary
+  local harness (removed, not committed) opened the Search screen, fed the real `search-edited` callback and
+  `list-key` callbacks, and wrote snapshots with `Window::take_snapshot`, so the compositor was not involved. Seen:
+  `vlc` (results + details), `c++`, `spotfy`, a 101-character text, the End key (last row selected and in view, details
+  followed), the skeleton. NOT seen: the no-package-lists card, the amber pacman-error panel, the 10 s slow note, the details
+  not-found / failed states, real key presses and focus rings. Their words are unit-tested; the rest is in the checklist.
+- `docs/security/threat-model.md` still does not exist; nothing was added (Search reads pacman output the existing
+  parsers already cover, and adds no privileged action, file write or network call).
+WBS sheet not touched by Claude (the human updates it).
+
+Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop; the human):
+1. The sidebar has Apps and Search with icons. Tab reaches each (teal ring), Enter and Space switch screens. Switch to
+   Search and back: Apps shows the same list, tab, sort and selected row as before.
+2. Search opens: title "Search", "Package lists updated N days ago" (or today), a search box with a magnifier and the
+   placeholder "Find an app, e.g. vlc or video editor", and the start card with four buttons (java, video, vlc, spotfy).
+3. Press "vlc": the box fills at once and results appear (no 300 ms wait). Skeleton rows may flash for a moment.
+4. Type "vlc" with the keyboard: nothing happens while you type, results appear about 0.3 s after you stop. `vlc` is the first
+   row, caption "Name matches first, then description matches", footer "N results for “vlc”".
+5. Type "a", then quickly "ab", "abc", "abcd": the old rows stay (never a flash of results for a shorter text), the footer
+   says "Searching for “abcd”…" and ends with the results for "abcd" only.
+6. Click rows: the row highlights, the details follow after a short pause ("Loading the details…" first), with Download and
+   "On disk after install" in big mono numbers, Version, Repository, Needs (up to 5 chips, "and N more"), "Already
+   installed" when it is. There is NO Install button; the note says "Looking only. Installing comes in Tidewise 0.1."
+7. "Technical details" shows `source: pacman -Si repo/name`, pacman's own sizes (MiB), Depends On and the lists' UTC time.
+8. `jre-openjdk` or `java`: "Also counts as" shows things like `java-runtime=25`.
+9. Type `c++`, select a row labelled with the provides-only group (e.g. `flac`): "Matched because it provides libFLAC++.so".
+10. A third-party or testing repository, if you have one in pacman.conf: its rows carry a "third-party" / "testing" chip.
+11. Keyboard only: Tab goes search box, × (when there is text), list (ONE stop), "Technical details". In the list Up/Down move
+    one row, Home/End the first/last, Page Up/Down about a screen; the selected row never leaves the view; the teal ring
+    shows only while the list has focus. Hold Down for a few seconds: the details do not flicker row by row; the last row's
+    details appear a moment after you stop.
+12. `spotfy`: "No package matches “spotfy”" and a "Clear search" button that empties the box and shows the start card.
+13. Paste 101 or more characters: an amber note under the box ("That search can't be used…"), no results; shorten it and
+    search works again. The × button clears the box and returns to the start card.
+14. Make the window as small as it allows (about 1100x640): nothing overlaps; the details panel scrolls.
+15. Not testable on this machine: the "no package lists" card (needs a system that never ran `pacman -Sy`; use a fresh Arch
+    VM), the amber error panel and "Try again" (needs pacman to fail), the 10 s "taking longer" note.
