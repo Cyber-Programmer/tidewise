@@ -11,7 +11,8 @@ use std::process::{Command, Output, Stdio};
 
 use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::{
-    DetailsLookup, InstalledPackage, PackageRef, PacmanError, SearchResult, parse_qi, parse_ss,
+    DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, SearchResult, parse_qi,
+    parse_si, parse_ss,
 };
 
 /// Absolute path: never looked up through `PATH`.
@@ -97,11 +98,78 @@ fn lookup_from_output(
     output: &Output,
     request: &[PackageRef],
 ) -> Result<DetailsLookup, PacmanError> {
-    let _ = (output, request);
-    Ok(DetailsLookup {
-        found: Vec::new(),
-        not_found: Vec::new(),
-    })
+    // The exit code counts the unknown names (1, 2, 3, ...) so it can't tell "some missing" from a real
+    // failure. The words on stderr can: see `missing_from_stderr`.
+    let not_found = if output.status.success() {
+        Vec::new()
+    } else if let Some(missing) = missing_from_stderr(output, request) {
+        missing
+    } else {
+        check_exit(output)?;
+        Vec::new()
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let found = parse_si(&text)?;
+
+    // Every record must be something we asked for, once.
+    let mut seen = HashSet::new();
+    for details in &found {
+        let asked = request
+            .iter()
+            .any(|item| item.repo == details.repo && item.name == details.name);
+        if !asked || !seen.insert((details.repo.as_str(), details.name.as_str())) {
+            return Err(ParseError::UnexpectedPackage {
+                repo: details.repo.clone(),
+                name: details.name.clone(),
+            }
+            .into());
+        }
+    }
+    // Every request must be answered: described, or reported as not found.
+    for item in request {
+        if !seen.contains(&(item.repo.as_str(), item.name.as_str())) && !not_found.contains(item) {
+            return Err(ParseError::MissingPackage {
+                repo: item.repo.clone(),
+                name: item.name.clone(),
+            }
+            .into());
+        }
+    }
+    Ok(DetailsLookup { found, not_found })
+}
+
+/// The packages pacman said were not found, if that is ALL it complained about.
+///
+/// Every non-empty stderr line must be exactly `error: package 'repo/name' was not found` for a package in
+/// the request. Anything else (an unknown repository, a warning, an empty stderr, a signal) returns `None`
+/// and the caller reports a failure. The result follows the request's order.
+fn missing_from_stderr(output: &Output, request: &[PackageRef]) -> Option<Vec<PackageRef>> {
+    output.status.code()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut missing = HashSet::new();
+    for line in stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let asked = line
+            .strip_prefix("error: package '")?
+            .strip_suffix("' was not found")?;
+        let item = request
+            .iter()
+            .find(|item| format!("{}/{}", item.repo, item.name) == asked)?;
+        missing.insert(item);
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    Some(
+        request
+            .iter()
+            .filter(|item| missing.contains(item))
+            .cloned()
+            .collect(),
+    )
 }
 
 /// Longest search text we accept, in characters (after trimming).
