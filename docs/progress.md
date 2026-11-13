@@ -349,7 +349,8 @@ Fixtures (`tests/fixtures/pacman/`, README updated): `si-zsh`, `si-dmd` (epoch, 
 `si-xf86-video-fbdev` (`<` and `>=` conflicts), `si-iana-etc` (all `None`), `si-multi` (2 records, bare optional dep, SPDX
 licences), `si-not-found.stderr`, `si-unknown-repo.stderr` (real), `si-broken-truncated`, `si-bad-byte.bin` (hand-made).
 Fuzz: `si` target added (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (101 456 runs, nothing in
-`fuzz/artifacts/si`). The 10-minute run is the human's.
+`fuzz/artifacts/si`). Human's 10-minute run (`-max_total_time=600`): si: 5 259 938 runs in 601 s, exit 0;
+`fuzz/artifacts/si` empty. No crashes, so no new unit tests.
 Tests: 149 in `tidewise-pacman` (+3 `#[ignore]`d real-pacman tests, run and passing here), 92 in `tidewise-app`. fmt, clippy,
 `cargo test --all`, `cargo deny check`, release build all exit 0 on the last commit.
 Next: 4.5 (whatever the WBS says); 4.6 UI: search hit -> `PackageRef::from(&result)` -> `package_details` -> details panel;
