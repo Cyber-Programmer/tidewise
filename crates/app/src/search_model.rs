@@ -33,24 +33,64 @@ pub struct RankedResult {
     pub repo_kind: RepoKind,
 }
 
+/// The repositories Arch itself ships. The same list lives in `tidewise_pacman::SearchResult::is_official`
+/// (kept private there); this one works from a bare repository name.
+const OFFICIAL_REPOS: [&str; 3] = ["core", "extra", "multilib"];
+
 /// Which kind of repository this is, from its name.
-pub fn repo_kind(_repo: &str) -> RepoKind {
-    // Stub for the red commit.
-    RepoKind::Official
+pub fn repo_kind(repo: &str) -> RepoKind {
+    if OFFICIAL_REPOS.contains(&repo) {
+        RepoKind::Official
+    } else if repo.ends_with("-testing") {
+        RepoKind::Testing
+    } else {
+        RepoKind::ThirdParty
+    }
 }
 
 /// Puts pacman's results in the order people expect: an exact name first, then name matches, then
 /// description matches, then provides-only matches. Inside each group pacman's own order is kept.
-pub fn rank(results: Vec<SearchResult>, _query: &str) -> Vec<RankedResult> {
-    // Stub for the red commit: pacman's order, everything a name match.
-    results
+///
+/// pacman matches every search word against the name and description (and what the package provides),
+/// ignoring case. So a result that is in neither text must have matched through what it provides.
+pub fn rank(results: Vec<SearchResult>, query: &str) -> Vec<RankedResult> {
+    let query = query.trim().to_lowercase();
+    let terms: Vec<&str> = query.split_whitespace().collect();
+    let mut ranked: Vec<(u8, RankedResult)> = results
         .into_iter()
-        .map(|result| RankedResult {
-            repo_kind: repo_kind(&result.repo),
-            result,
-            matched: MatchKind::Name,
+        .map(|result| {
+            let name = result.name.to_lowercase();
+            let description = result.description.to_lowercase();
+            let matched = if terms.iter().all(|term| name.contains(term)) {
+                MatchKind::Name
+            } else if terms
+                .iter()
+                .all(|term| name.contains(term) || description.contains(term))
+            {
+                MatchKind::Description
+            } else {
+                MatchKind::Provides
+            };
+            let group = match matched {
+                MatchKind::Name if name == query => 0,
+                MatchKind::Name => 1,
+                MatchKind::Description => 2,
+                MatchKind::Provides => 3,
+            };
+            let repo_kind = repo_kind(&result.repo);
+            (
+                group,
+                RankedResult {
+                    result,
+                    matched,
+                    repo_kind,
+                },
+            )
         })
-        .collect()
+        .collect();
+    // A stable sort: results in the same group stay in pacman's order.
+    ranked.sort_by_key(|(group, _)| *group);
+    ranked.into_iter().map(|(_, ranked)| ranked).collect()
 }
 
 #[cfg(test)]
