@@ -2,6 +2,7 @@
 //! Plain Rust. It never runs pacman; it is handed the result of `tidewise_pacman::installed_packages()`.
 
 use crate::error_words::{ErrorText, error_text};
+use crate::list_scroll::moved_selection;
 use crate::size_text::format_size;
 use tidewise_pacman::{InstallReason, InstalledPackage, PacmanError};
 
@@ -208,16 +209,12 @@ impl AppsModel {
     /// Moves the selection by `delta` rows (negative = up) and stops at the first or last row.
     pub fn select_page(&mut self, delta: isize) {
         let visible = self.visible();
-        let Some(last) = visible.len().checked_sub(1) else {
-            return;
-        };
         let current = self
             .selected
             .as_ref()
-            .and_then(|name| visible.iter().position(|package| &package.name == name))
-            .unwrap_or(0);
-        let target = current.saturating_add_signed(delta).min(last);
-        if let Some(package) = visible.get(target) {
+            .and_then(|name| visible.iter().position(|package| &package.name == name));
+        let target = moved_selection(current, visible.len(), delta);
+        if let Some(package) = target.and_then(|index| visible.get(index)) {
             self.selected = Some(package.name.clone());
         }
     }

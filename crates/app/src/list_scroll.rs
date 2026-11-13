@@ -34,6 +34,15 @@ pub fn rows_per_page(visible_height: f32, row_height: f32) -> usize {
     ((visible_height / row_height) as usize).max(1)
 }
 
+/// Where the selection lands after moving `delta` rows (negative = up), stopping at the first or last row.
+///
+/// `current` is the selected row's position, or `None` when nothing is selected yet (that counts as the first
+/// row). Returns `None` only when there are no rows at all.
+pub fn moved_selection(current: Option<usize>, row_count: usize, delta: isize) -> Option<usize> {
+    let last = row_count.checked_sub(1)?;
+    Some(current.unwrap_or(0).saturating_add_signed(delta).min(last))
+}
+
 /// Slint's `content-y` for a positive scroll offset.
 pub fn offset_to_content_y(offset: f32) -> f32 {
     if offset <= 0.0 { 0.0 } else { -offset }
@@ -107,6 +116,31 @@ mod tests {
         assert_eq!(rows_per_page(0.0, ROW), 1);
         assert_eq!(rows_per_page(-5.0, ROW), 1);
         assert_eq!(rows_per_page(640.0, 0.0), 1);
+    }
+
+    #[test]
+    fn moving_the_selection_steps_and_stops_at_the_ends() {
+        assert_eq!(moved_selection(Some(2), 5, 1), Some(3));
+        assert_eq!(moved_selection(Some(2), 5, -1), Some(1));
+        assert_eq!(moved_selection(Some(4), 5, 1), Some(4));
+        assert_eq!(moved_selection(Some(0), 5, -1), Some(0));
+        assert_eq!(moved_selection(Some(2), 5, 100), Some(4));
+        assert_eq!(moved_selection(Some(2), 5, -100), Some(0));
+        assert_eq!(moved_selection(Some(2), 5, isize::MAX), Some(4));
+        assert_eq!(moved_selection(Some(2), 5, isize::MIN), Some(0));
+        assert_eq!(moved_selection(Some(2), 5, 0), Some(2));
+    }
+
+    #[test]
+    fn with_nothing_selected_the_first_row_is_the_starting_point() {
+        assert_eq!(moved_selection(None, 5, 0), Some(0));
+        assert_eq!(moved_selection(None, 5, 2), Some(2));
+    }
+
+    #[test]
+    fn moving_the_selection_with_no_rows_gives_nothing() {
+        assert_eq!(moved_selection(None, 0, 1), None);
+        assert_eq!(moved_selection(Some(0), 0, -1), None);
     }
 
     #[test]
