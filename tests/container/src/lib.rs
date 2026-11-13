@@ -58,8 +58,14 @@ impl std::error::Error for GuardError {}
 ///
 /// Both must be regular files: the container marker and the test repository's database.
 pub fn require_container_at(root: &Path) -> Result<(), GuardError> {
-    let _ = root;
-    Err(GuardError::NotInContainer)
+    // `is_file()` is false for a folder and for anything that can't be read, so odd cases are refused, not crashes.
+    if !root.join(CONTAINER_MARKER).is_file() {
+        return Err(GuardError::NotInContainer);
+    }
+    if !root.join(TEST_REPO_DB).is_file() {
+        return Err(GuardError::NotOurImage);
+    }
+    Ok(())
 }
 
 /// The check every container test starts with: are we inside our test image, right now?
