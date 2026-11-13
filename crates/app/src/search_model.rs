@@ -2,6 +2,7 @@
 //! Plain Rust, no Slint, no threads, no clock. It never runs pacman; it is handed pacman's answers.
 
 use crate::error_words::{Doing, ErrorText, error_text};
+use crate::list_scroll::moved_selection;
 use tidewise_pacman::{PackageRef, PacmanError, SearchResult};
 
 /// Why a result is in the list.
@@ -32,6 +33,11 @@ pub struct RankedResult {
     pub result: SearchResult,
     pub matched: MatchKind,
     pub repo_kind: RepoKind,
+}
+
+/// Is this result the package `package` names? (A name alone is not enough: repositories can repeat names.)
+fn is_package(result: &RankedResult, package: &PackageRef) -> bool {
+    result.result.repo == package.repo && result.result.name == package.name
 }
 
 /// The repositories Arch itself ships. The same list lives in `tidewise_pacman::SearchResult::is_official`
@@ -140,6 +146,8 @@ pub struct SearchModel {
     /// A newer search that waits for the running one to finish. Only the newest is kept.
     pending: Option<SearchTicket>,
     slow: bool,
+    /// The selected package. Always one of `results`, or `None` when there are none.
+    selected: Option<PackageRef>,
 }
 
 impl SearchModel {
@@ -159,6 +167,7 @@ impl SearchModel {
             self.state = SearchState::Start;
             self.results.clear();
             self.answered_query.clear();
+            self.fix_selection();
         }
     }
 
@@ -238,6 +247,7 @@ impl SearchModel {
                     };
                 }
             }
+            self.fix_selection();
         }
         let next = self.pending.take();
         self.running.clone_from(&next);
@@ -246,36 +256,68 @@ impl SearchModel {
 
     /// Position of the selected result in `results()`.
     pub fn selected_index(&self) -> Option<usize> {
-        None
+        let selected = self.selected.as_ref()?;
+        self.results.iter().position(|r| is_package(r, selected))
     }
 
     /// The selected result.
     pub fn selected(&self) -> Option<&RankedResult> {
-        None
+        self.results.get(self.selected_index()?)
     }
 
     /// The selected package, as `pacman -Si` wants to be asked about it.
     pub fn selected_ref(&self) -> Option<PackageRef> {
-        None
+        self.selected.clone()
     }
 
     /// Selects a result by repository and name. Ignored unless it is in the list.
-    pub fn select(&mut self, _repo: &str, _name: &str) {}
+    pub fn select(&mut self, repo: &str, name: &str) {
+        if let Some(found) = self
+            .results
+            .iter()
+            .find(|r| r.result.repo == repo && r.result.name == name)
+        {
+            self.selected = Some(PackageRef::from(&found.result));
+        }
+    }
 
     /// Selects the next row. On the last row nothing changes.
-    pub fn select_next(&mut self) {}
+    pub fn select_next(&mut self) {
+        self.select_page(1);
+    }
 
     /// Selects the previous row. On the first row nothing changes.
-    pub fn select_previous(&mut self) {}
+    pub fn select_previous(&mut self) {
+        self.select_page(-1);
+    }
 
     /// Selects the first row.
-    pub fn select_first(&mut self) {}
+    pub fn select_first(&mut self) {
+        self.select_page(isize::MIN);
+    }
 
     /// Selects the last row.
-    pub fn select_last(&mut self) {}
+    pub fn select_last(&mut self) {
+        self.select_page(isize::MAX);
+    }
 
     /// Moves the selection by `delta` rows (negative = up) and stops at the first or last row.
-    pub fn select_page(&mut self, _delta: isize) {}
+    pub fn select_page(&mut self, delta: isize) {
+        let target = moved_selection(self.selected_index(), self.results.len(), delta);
+        if let Some(found) = target.and_then(|index| self.results.get(index)) {
+            self.selected = Some(PackageRef::from(&found.result));
+        }
+    }
+
+    /// Keeps the selected package if it is still listed; otherwise selects the first row, or nothing.
+    fn fix_selection(&mut self) {
+        if self.selected_index().is_none() {
+            self.selected = self
+                .results
+                .first()
+                .map(|first| PackageRef::from(&first.result));
+        }
+    }
 
     pub fn state(&self) -> &SearchState {
         &self.state
@@ -870,7 +912,7 @@ mod tests {
     fn a_new_answer_keeps_the_selection_if_that_package_is_still_listed() {
         let mut model = loaded(&["x1", "x2", "x3"]);
         model.select("extra", "x2");
-        model.set_query("x2");
+        // Search "x" again (try again): the answer lists x2 in a different place.
         let ticket = model.start_search().unwrap();
         model.search_done(ticket.number, found(&["x3", "x2"]));
         assert_eq!(selected_name(&model), Some("x2"));
