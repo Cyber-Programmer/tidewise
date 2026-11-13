@@ -42,3 +42,10 @@ path = "fuzz_targets/si.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "qu"
+path = "fuzz_targets/qu.rs"
+test = false
+doc = false
+bench = false
