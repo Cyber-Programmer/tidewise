@@ -515,3 +515,20 @@ Manual checklist (run `cargo run -p tidewise-app`, on an unlocked desktop; the h
 14. Make the window as small as it allows (about 1100x640): nothing overlaps; the details panel scrolls.
 15. Not testable on this machine: the "no package lists" card (needs a system that never ran `pacman -Sy`; use a fresh Arch
     VM), the amber error panel and "Try again" (needs pacman to fail), the 10 s "taking longer" note.
+
+## 2026-11-13 — 5.1 threat model v1
+Done: `docs/security/threat-model.md` (STRIDE): data-flow diagram with three trust boundaries, assets, pkexec vs
+D-Bus comparison (recommendation: pkexec + a summary in argv that the helper checks; **decision pending, yours**),
+21 threats T-01..T-21 with defence, proof and status, out-of-scope list, open questions, sources. Your three additions
+are T-01 (any process can call the helper; base assumption A1), T-02 (authorization confusion; what each dialog can
+show is a main point of the comparison) and T-03 (installed-file tampering; proof planned in 5.5). `docs/PLAN.md`
+records the new M3 order (5.7 container harness right after 5.1). Document only: no code touched.
+- Checked locally: `pkexec(1)`, `pacman(8)` 7.1, `pacman.conf(5)`, `alpm-hooks(5)`, polkit 128-1 default rules.
+  Cited existing test names were checked to exist. Web sources: Qualys PwnKit, GHSL-2021-074, CVE-2011-1485, polkit
+  docs, namcap.
+- NOT verified: how KDE/GNOME agents render `$(command_line)` / `polkit.message`; PackageKit's dialog; fixed polkit
+  versions; serde_json nesting limit. All listed in section 6 of the model.
+Next: 5.7 container harness (rootless Podman). You decide pkexec vs D-Bus, and rule 10 vs running pacman without
+`--noconfirm` (open question 5), before the first install job.
+Blockers: none.
+Rules bent: no `(red)` commit (document only, allowed for docs). WBS sheet not touched by Claude (the human updates it).
