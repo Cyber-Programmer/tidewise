@@ -116,6 +116,10 @@ libalpm bindings (the `alpm` crate). The M2 spike measured both; see `docs/decis
 | M9 | Home, Settings, accessibility, polish | — | — |
 | M10 | v1.0: security review, pen-test checklist, AUR release | release process | — |
 
+**M3 order (changed 13 Nov 2026, human decision):** 5.1 threat model -> **5.7 container harness (rootless Podman)**
+-> the other M3 tasks, so every helper task can be tested against real pacman in a container from the start.
+Threat model: `docs/security/threat-model.md`.
+
 Design is done **just in time**: each milestone designs its own screens first.
 
 ## 8. Working rules (for Claude Code and chats)
@@ -137,3 +141,4 @@ Design is done **just in time**: each milestone designs its own screens first.
 - 8 Nov 2026 — v2 approved: Arch-only rebuild, AUR packaging, repo-only installer, same repo fresh history, v0.1 after M4, Update system in scope.
 - 9 Nov 2026 — D10: repo docs become the source of truth (2.5). D7 notes the `archive/old-v1` tag. Rust edition 2024 (not 2021).
 - 12 Nov 2026 — D11: CLI parsing for sync data (spike 4.1, decision 0004); the open technical choice in section 6 is closed.
+- 13 Nov 2026 — M3 order: 5.7 container harness (rootless Podman) right after 5.1 threat model (human decision).
