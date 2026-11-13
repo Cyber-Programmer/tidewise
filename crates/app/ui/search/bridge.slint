@@ -116,4 +116,8 @@ export global SearchBridge {
     // "Try again" after a failed search, and after a failed details lookup.
     callback try-again();
     callback details-try-again();
+    // Fired on the UI thread when a worker thread has put its answer in its mailbox.
+    callback search-done();
+    callback details-done();
+    callback lists-done();
 }
