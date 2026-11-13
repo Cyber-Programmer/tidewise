@@ -78,8 +78,16 @@ pub struct OptionalDependency {
 
 /// Reads `name: reason`, `name` or `name>=1.0: reason`. `None` if the dependency part is not valid.
 fn parse_optional_dep(line: &str) -> Option<OptionalDependency> {
-    let _ = line;
-    None
+    // The separator is ": " (colon and space), so an epoch colon like `foo>=1:2.0` is left alone.
+    // `name:` alone happens when the reason is empty and the reader trimmed the trailing space.
+    let (dependency, reason) = line
+        .split_once(": ")
+        .or_else(|| line.strip_suffix(':').map(|name| (name, "")))
+        .unwrap_or((line, ""));
+    Some(OptionalDependency {
+        dependency: parse_dependency(dependency)?,
+        reason: reason.trim().to_string(),
+    })
 }
 
 #[cfg(test)]
