@@ -81,10 +81,9 @@ impl fmt::Display for ParseError {
                 f,
                 "pacman said nothing about {repo}/{name}: neither details nor \"not found\""
             ),
-            Self::BadUpdateLine { line_number, line } => write!(
-                f,
-                "line {line_number} is not \"name old -> new\": {line:?}"
-            ),
+            Self::BadUpdateLine { line_number, line } => {
+                write!(f, "line {line_number} is not \"name old -> new\": {line:?}")
+            }
         }
     }
 }
