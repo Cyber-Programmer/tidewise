@@ -1,0 +1,12 @@
+[package]
+name = "tidewise-container-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Tests that run real pacman as root. They only run inside the Tidewise test container."
+
+# No dependencies on purpose: this crate runs inside a throwaway image, and every dependency would be one more thing
+# to build and review there.
+[dependencies]
