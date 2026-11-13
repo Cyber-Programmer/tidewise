@@ -142,15 +142,23 @@ pub enum DetailsState<'a> {
 /// What pacman said about a package that we keep. A failure is shown but not kept, so "Try again" asks again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Answer {
-    Found(PackageDetails),
+    Found(Box<PackageDetails>),
     NotFound,
 }
 
 /// The first thing the package provides that contains one of the search words, for "Matched because it
 /// provides ...". `None` when nothing it provides contains a search word.
-pub fn provides_match(_details: &PackageDetails, _query: &str) -> Option<String> {
-    // Stub for the red commit.
-    None
+pub fn provides_match(details: &PackageDetails, query: &str) -> Option<String> {
+    let query = query.to_lowercase();
+    let terms: Vec<&str> = query.split_whitespace().collect();
+    details
+        .provides
+        .iter()
+        .find(|provided| {
+            let name = provided.name.to_lowercase();
+            terms.iter().any(|term| name.contains(term))
+        })
+        .map(|provided| provided.name.clone())
 }
 
 /// The Search screen's state. Set the inputs with the methods, read what to show with the others.
@@ -179,6 +187,12 @@ pub struct SearchModel {
     selected: Option<PackageRef>,
     /// What pacman said about packages we looked up (kept for the whole session).
     answers: HashMap<PackageRef, Answer>,
+    /// The package the worker is looking up now.
+    details_running: Option<PackageRef>,
+    /// The newest package asked for while a lookup was running. Only this one is kept.
+    details_pending: Option<PackageRef>,
+    /// The last lookup that failed, and why. Shown while that package is selected; never kept as an answer.
+    details_failed: Option<(PackageRef, ErrorText)>,
 }
 
 impl SearchModel {
@@ -352,29 +366,88 @@ impl SearchModel {
 
     /// What the details area shows for the selected package.
     pub fn details_state(&self) -> DetailsState<'_> {
-        DetailsState::NothingSelected
+        let Some(package) = &self.selected else {
+            return DetailsState::NothingSelected;
+        };
+        match self.answers.get(package) {
+            Some(Answer::Found(details)) => return DetailsState::Found(details),
+            Some(Answer::NotFound) => return DetailsState::NotFound,
+            None => {}
+        }
+        match &self.details_failed {
+            Some((failed, text)) if failed == package => DetailsState::Failed(text),
+            _ => DetailsState::Loading,
+        }
     }
 
     /// The pause on a row is over: asks to look the selected package up. `Some(package)`: start the worker now.
     /// `None`: nothing to look up, it is known already, or another lookup is running (then the newest request
     /// waits and runs when that one answers).
     pub fn request_details(&mut self) -> Option<PackageRef> {
-        None
+        let package = self.selected.clone()?;
+        if self
+            .details_failed
+            .as_ref()
+            .is_some_and(|(failed, _)| *failed != package)
+        {
+            self.details_failed = None;
+        }
+        if self.answers.contains_key(&package) || self.details_failed.is_some() {
+            return None;
+        }
+        if self.details_running.as_ref() == Some(&package) {
+            // Already on its way: whatever was waiting is out of date.
+            self.details_pending = None;
+            return None;
+        }
+        if self.details_running.is_some() {
+            self.details_pending = Some(package);
+            return None;
+        }
+        self.details_running = Some(package.clone());
+        Some(package)
     }
 
     /// Like `request_details`, after a failure: "Try again".
     pub fn retry_details(&mut self) -> Option<PackageRef> {
-        None
+        self.details_failed = None;
+        self.request_details()
     }
 
     /// The worker answered the lookup of `package`. An answer for a row that is no longer selected is dropped.
     /// Returns the next lookup to start when the newest request was waiting and is still wanted.
     pub fn details_done(
         &mut self,
-        _package: &PackageRef,
-        _result: Result<DetailsLookup, PacmanError>,
+        package: &PackageRef,
+        result: Result<DetailsLookup, PacmanError>,
     ) -> Option<PackageRef> {
-        None
+        if self.details_running.as_ref() != Some(package) {
+            return None;
+        }
+        self.details_running = None;
+        if self.selected.as_ref() == Some(package) {
+            match result {
+                Ok(lookup) => {
+                    let found = lookup
+                        .found
+                        .into_iter()
+                        .find(|d| d.repo == package.repo && d.name == package.name);
+                    let answer =
+                        found.map_or(Answer::NotFound, |details| Answer::Found(Box::new(details)));
+                    self.answers.insert(package.clone(), answer);
+                }
+                Err(error) => {
+                    let text = error_text(&error, Doing::LookingUp);
+                    self.details_failed = Some((package.clone(), text));
+                }
+            }
+        }
+        // Only the newest waiting request counts, and only if its row is still selected and still unknown.
+        let next = self.details_pending.take().filter(|waiting| {
+            self.selected.as_ref() == Some(waiting) && !self.answers.contains_key(waiting)
+        });
+        self.details_running.clone_from(&next);
+        next
     }
 
     pub fn state(&self) -> &SearchState {
