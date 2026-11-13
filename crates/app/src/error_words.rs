@@ -10,6 +10,29 @@ pub struct ErrorText {
     pub technical: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorView {
+    pub title: String,
+    pub body: String,
+    /// Behind the "Technical details" toggle.
+    pub technical: String,
+    /// "Nothing on your system was changed."
+    pub unchanged: String,
+    /// Plain text, not a link in M1.
+    pub report: String,
+}
+
+/// The amber error panel's texts: the failure's words, the reassurance, and where to report it.
+pub fn error_view(text: &ErrorText) -> ErrorView {
+    ErrorView {
+        title: text.title.clone(),
+        body: text.body.clone(),
+        technical: text.technical.clone(),
+        unchanged: "Nothing on your system was changed.".to_string(),
+        report: "Report problems at github.com/Cyber-Programmer/tidewise/issues".to_string(),
+    }
+}
+
 /// What Tidewise was asking pacman for when it failed, so the title can say so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Doing {
