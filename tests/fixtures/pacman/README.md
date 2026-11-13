@@ -4,7 +4,7 @@ Real pacman output saved for the parser tests (WBS 3.3, 4.3, 4.4). This is a sma
 full package list. Every package named here, including names in `Required By`, `Optional For` and
 `Optional Deps`, comes from the official Arch repos (checked against `pacman -Slq`).
 
-- Captured: 2026-11-11 (`qi`, `qq`), 2026-11-13 (`si`), on Arch Linux
+- Captured: 2026-11-11 (`qi`, `qq`), 2026-11-12 (`ss`), 2026-11-13 (`si`), on Arch Linux
 - pacman: **v7.1.0**, libalpm v16.0.1
 - Environment: `LC_ALL=C` (English field names, `.` decimal point)
 - Output went **to a file, not a terminal**, so pacman did **not** wrap long lines (base's `Depends On` is one
