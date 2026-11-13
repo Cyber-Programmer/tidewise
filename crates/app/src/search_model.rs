@@ -238,7 +238,7 @@ impl SearchModel {
     /// Asks to search for the current text. `Some(ticket)`: start the worker now. `None`: nothing to search
     /// for, or a search is already running (this query waits and runs when that one answers).
     pub fn start_search(&mut self) -> Option<SearchTicket> {
-        if self.query.is_empty() {
+        if self.query.is_empty() || self.has_no_package_lists() {
             return None;
         }
         // The running search is for exactly this text (the user typed something else and then came back):
@@ -465,7 +465,12 @@ impl SearchModel {
     }
 
     /// Hands the model what `sync_lists()` answered.
-    pub fn set_sync_lists(&mut self, _result: Result<SyncLists, PacmanError>) {}
+    pub fn set_sync_lists(&mut self, result: Result<SyncLists, PacmanError>) {
+        self.lists = match result {
+            Ok(lists) => ListsState::Known(lists),
+            Err(error) => ListsState::Failed(error_text(&error, Doing::CheckingLists)),
+        };
+    }
 
     pub fn lists(&self) -> &ListsState {
         &self.lists
@@ -473,7 +478,7 @@ impl SearchModel {
 
     /// True when pacman has no package list at all: there is nothing to search yet.
     pub fn has_no_package_lists(&self) -> bool {
-        false
+        matches!(&self.lists, ListsState::Known(lists) if lists.newest.is_none())
     }
 
     pub fn state(&self) -> &SearchState {
