@@ -368,3 +368,59 @@ Rules bent:
   instead of a `(Comparison, String)` tuple. No cap on the number of names in one call (Linux argv limit applies).
 - `docs/security/threat-model.md` does not exist yet, so nothing was added to it (the parser reads outside text).
 WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-13 — 4.5 detect when installing would be a partial upgrade
+Done: three readers and one decision in `crates/pacman` (offline, no root, no `-Sy`, no network), a fuzz target, one
+rule added to CLAUDE.md. Commits (red then green): `parse_qu` (`72a77d9` / `24bbc1c`), `pending_updates()`
+(`58b161d` / `bdefbb0`), `sync_lists()` (`2088b1a` / `67bd9c9`), `install_decision` (`9f7645a` / `c6c4793`); fixtures
+`c667ec7`; fuzz `ab91816`; CLAUDE.md commit-message rule `6b3faea`.
+- `pending_updates() -> Vec<PendingUpdate { name, installed_version, new_version, ignored }>` from `pacman -Qu`.
+  Rule (as in 4.3): exit 1 with empty stdout AND empty stderr is "no updates"; everything else not exit 0 is `Failed`.
+- `sync_lists() -> SyncLists { newest: Option<SystemTime>, missing: Vec<String> }`: DBPath and repo list come from
+  `pacman-conf` (nothing hard-coded), only `<DBPath>/sync/<repo>.db` is read. `newest == None` is "never synced".
+  The clock stays out: the caller compares `newest` with its own "now".
+- `install_decision(&[PendingUpdate]) -> Allowed { ignored } | MustUpdateSystem { count, ignored }`.
+  Ignored updates do not block (the human's decision, matches `-Syu`) but are counted for the review screen.
+- New errors: `ParseError::BadUpdateLine`, `ParseError::BadConfigLine`, `PacmanError::ReadLists { path, source }`
+  (app `error_text` arm and test, same commit as the variant).
+Real-pacman findings (v7.1.0, this machine, read-only):
+- `pacman -Qu`: 493 lines, exit 0, stderr empty; every line has 4 words `name old -> new`, epochs included.
+- Nothing pending: exit 1, stdout and stderr both empty (observed with `pacman -Qu <up-to-date package>`; the no-names
+  case could not be observed because this system was 493 packages behind).
+- `[ignored]`: only seen with a private copy of pacman.conf (`--config`, adds `IgnorePkg = 7zip aom`); the line gets
+  one space and the literal ` [ignored]`, exit still 0.
+- Never synced (private DBPath, empty `sync/`): exit 1, empty stdout, stderr
+  `warning: database file for 'core' does not exist (use '-Sy' to download)`. The stderr rule turns it into `Failed`.
+- `pacman-conf DBPath` is `/var/lib/pacman/` (trailing slash); `--repo-list` is `core extra multilib`.
+- `sync/` also holds 6 leftover `download-*` folders, so only the configured `<repo>.db` files are read.
+- `.db` times are the mirror's timestamps (whole seconds), so "age" means how old the lists are, not when this
+  machine last synced.
+Research (no code): `checkupdates` (pacman-contrib 1.13.1) keeps a private DB folder `${TMPDIR:-/tmp}/checkup-db-$UID/`,
+symlinks the real `local/` into it, and runs `fakeroot -- pacman -Sy --disable-sandbox-filesystem --dbpath <private>
+--logfile /dev/null`; then `pacman -Qu --dbpath <private>` and drops every line containing `[...]` (so ignored packages
+vanish). A trap removes only its own `db.lck`. Details and risks are in the PR description.
+Fixtures (`tests/fixtures/pacman/`, README updated): `qu-sample`, `qu-ignored`, `qu-never-synced.stderr` (real),
+`pacman-conf-dbpath`, `pacman-conf-repo-list` (real), `qu-broken-truncated`, `qu-bad-byte.bin` (hand-made).
+Fuzz: `qu` target (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (331 119 runs, nothing in
+`fuzz/artifacts/qu`). The 10-minute run is the human's. `parse_dbpath` / `parse_repo_list` are not fuzzed (small,
+`pub(crate)`, unit-tested).
+Tests: 200 in `tidewise-pacman` (was 149; +5 `#[ignore]`d real-pacman tests, all run and passing here), 93 in
+`tidewise-app` (was 92). fmt, clippy, `cargo test --all`, `cargo deny check`, release build all exit 0 on the last
+commit.
+Next: M4 must decide the private-copy refresh as its own decision record (fakeroot, `$XDG_CACHE_HOME` not `/tmp`, a
+download that is network use under rule 11). 4.6 UI: call `install_decision(&pending_updates()?)` and `sync_lists()`;
+"never synced" card when `newest` is `None`. M4: when `ignored > 0` say "N packages held back by your pacman.conf
+(IgnorePkg) won't be updated"; the dry run must catch any dependency conflict with a held-back package before anything
+installs. Delete `spike/cli-vs-alpm` (still there, as in 4.4).
+Blockers: none.
+Rules bent:
+- Touched `crates/app` (outside the stated scope) with the human's OK: one `ReadLists` arm in `error_text` plus a test.
+  The red commit has a placeholder arm (empty title and body) so every commit compiles; the green commit fills it in.
+- Red commits (`72a77d9`, `58b161d`, `2088b1a`, `9f7645a`) fail their new tests on purpose. `cargo test --all` was run
+  before every commit (red ones: only the new tests fail); clippy was NOT run on the red commits. Only the last commit
+  was checked with the full "done" list.
+- The no-names "nothing pending" case of `pacman -Qu` could not be run on this machine (493 behind); the exit-1 rule
+  rests on `pacman -Qu <up-to-date package>`, the no-repos case, and pacman's source behaviour as described in 4.3.
+- `qu-broken-truncated.txt` and `qu-bad-byte.bin` are hand-made (described in the README).
+- `docs/security/threat-model.md` does not exist yet, so nothing was added to it (new parsers read outside text).
+WBS sheet not touched by Claude (the human updates it).
