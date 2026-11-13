@@ -30,8 +30,42 @@ pub struct Dependency {
 /// Splits `glibc>=2.40` into a name and a version rule. `None` if the text is not a valid entry:
 /// a bad name, or an operator with no usable version after it.
 fn parse_dependency(text: &str) -> Option<Dependency> {
-    let _ = (text, is_valid_package_name);
-    None
+    // The name ends at the first `<`, `>` or `=`; names can't contain those, so this is unambiguous.
+    let Some(split) = text.find(['<', '>', '=']) else {
+        return is_valid_package_name(text).then(|| Dependency {
+            name: text.to_string(),
+            rule: None,
+        });
+    };
+    let (name, rest) = text.split_at(split);
+    if !is_valid_package_name(name) {
+        return None;
+    }
+    // Two-character operators first, or `<=` would be read as `<` followed by a version `=...`.
+    let (comparison, version) = if let Some(version) = rest.strip_prefix("<=") {
+        (Comparison::LessOrEqual, version)
+    } else if let Some(version) = rest.strip_prefix(">=") {
+        (Comparison::GreaterOrEqual, version)
+    } else if let Some(version) = rest.strip_prefix('<') {
+        (Comparison::Less, version)
+    } else if let Some(version) = rest.strip_prefix('>') {
+        (Comparison::Greater, version)
+    } else {
+        (Comparison::Equal, rest.strip_prefix('=')?)
+    };
+    // The version is whatever follows, but it must be one plain word: no spaces, no control
+    // characters, and no second operator (`foo<=>1`, `foo=1=2`).
+    let usable = !version.is_empty()
+        && !version
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '='));
+    usable.then(|| Dependency {
+        name: name.to_string(),
+        rule: Some(VersionRule {
+            comparison,
+            version: version.to_string(),
+        }),
+    })
 }
 
 #[cfg(test)]
