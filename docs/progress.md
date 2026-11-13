@@ -402,7 +402,8 @@ vanish). A trap removes only its own `db.lck`. Details and risks are in the PR d
 Fixtures (`tests/fixtures/pacman/`, README updated): `qu-sample`, `qu-ignored`, `qu-never-synced.stderr` (real),
 `pacman-conf-dbpath`, `pacman-conf-repo-list` (real), `qu-broken-truncated`, `qu-bad-byte.bin` (hand-made).
 Fuzz: `qu` target (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (331 119 runs, nothing in
-`fuzz/artifacts/qu`). The 10-minute run is the human's. `parse_dbpath` / `parse_repo_list` are not fuzzed (small,
+`fuzz/artifacts/qu`). Human's 10-minute run (`-max_total_time=600`): qu: 5 254 056 runs in 601 s, exit 0;
+`fuzz/artifacts/qu` empty. No crashes, so no new unit tests. `parse_dbpath` / `parse_repo_list` are not fuzzed (small,
 `pub(crate)`, unit-tested).
 Tests: 200 in `tidewise-pacman` (was 149; +5 `#[ignore]`d real-pacman tests, all run and passing here), 93 in
 `tidewise-app` (was 92). fmt, clippy, `cargo test --all`, `cargo deny check`, release build all exit 0 on the last
