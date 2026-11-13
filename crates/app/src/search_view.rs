@@ -4,9 +4,14 @@
 use std::time::SystemTime;
 
 use crate::apps_view::RowUpdate;
-use crate::error_words::ErrorView;
-use crate::search_model::SearchModel;
-use tidewise_pacman::Dependency;
+use crate::error_words::{ErrorView, error_view};
+use crate::search_model::{
+    DetailsState, ListsState, MatchKind, RankedResult, RepoKind, SearchModel, SearchState,
+    provides_match,
+};
+use crate::size_text::{format_size, split_size};
+use tidewise_core::age::{utc_timestamp, whole_days};
+use tidewise_pacman::{Comparison, Dependency, PackageDetails};
 
 /// The example searches on the start card, in order.
 pub const EXAMPLES: [&str; 4] = ["java", "video", "vlc", "spotfy"];
@@ -172,28 +177,346 @@ impl Default for DetailsView {
     }
 }
 
+/// How many names the "Needs" and "Also counts as" lists show before "and N more".
+const SHOWN: usize = 5;
+
 /// The example search at this position on the start card, or `None` if there is no such example.
-pub fn example_query(_index: i32) -> Option<&'static str> {
-    // Stub for the red commit.
-    None
+pub fn example_query(index: i32) -> Option<&'static str> {
+    let index = usize::try_from(index).ok()?;
+    EXAMPLES.get(index).copied()
 }
 
 /// `glibc>=2.40`, `java-runtime=25` or just `bash`: a name with its version rule, the way pacman prints it.
-pub fn dependency_text(_dependency: &Dependency) -> String {
-    // Stub for the red commit.
-    String::new()
+pub fn dependency_text(dependency: &Dependency) -> String {
+    let Some(rule) = &dependency.rule else {
+        return dependency.name.clone();
+    };
+    let operator = match rule.comparison {
+        Comparison::Equal => "=",
+        Comparison::Less => "<",
+        Comparison::LessOrEqual => "<=",
+        Comparison::Greater => ">",
+        Comparison::GreaterOrEqual => ">=",
+    };
+    format!("{}{operator}{}", dependency.name, rule.version)
 }
 
 /// Compares the rows on screen with the rows that should be on screen.
-pub fn row_update(_old: &[ResultRowView], _new: &[ResultRowView]) -> RowUpdate {
-    // Stub for the red commit.
-    RowUpdate::Replace
+/// Rows are the same package when repository and name match (a name alone can repeat across repositories).
+pub fn row_update(old: &[ResultRowView], new: &[ResultRowView]) -> RowUpdate {
+    let same_rows = old.len() == new.len()
+        && old
+            .iter()
+            .zip(new)
+            .all(|(before, after)| before.repo == after.repo && before.name == after.name);
+    if !same_rows {
+        return RowUpdate::Replace;
+    }
+    let changed = old
+        .iter()
+        .zip(new)
+        .enumerate()
+        .filter(|(_, (before, after))| before != after)
+        .map(|(index, _)| index)
+        .collect();
+    RowUpdate::Patch(changed)
 }
 
 /// Builds the whole screen from the model. `now` is the caller's clock (the model has none).
-pub fn search_view(_model: &SearchModel, _now: SystemTime) -> SearchView {
-    // Stub for the red commit.
-    SearchView::default()
+pub fn search_view(model: &SearchModel, now: SystemTime) -> SearchView {
+    let selected_index = model.selected_index();
+    SearchView {
+        subtitle: subtitle(model.lists(), now),
+        status: if model.is_searching() && model.is_slow() {
+            "This is taking longer than usual.".to_string()
+        } else {
+            String::new()
+        },
+        inline_note: inline_note(model),
+        body: body(model),
+        start: start_view(),
+        no_lists: no_lists_view(model),
+        no_results: no_results_view(model),
+        caption: caption(model.results()),
+        rows: model
+            .results()
+            .iter()
+            .enumerate()
+            .map(|(index, result)| row_view(result, Some(index) == selected_index))
+            .collect(),
+        selected_index,
+        footer: footer(model),
+        details: model.selected().map(|result| details_view(model, result)),
+    }
+}
+
+fn subtitle(lists: &ListsState, now: SystemTime) -> String {
+    match lists {
+        ListsState::Unknown => "Checking the package lists…".to_string(),
+        ListsState::Failed(_) => "Couldn't check how new the package lists are".to_string(),
+        ListsState::Known(known) => match known.newest {
+            None => "No package lists yet".to_string(),
+            Some(newest) => match whole_days(newest, now) {
+                0 => "Package lists updated today".to_string(),
+                1 => "Package lists updated 1 day ago".to_string(),
+                days => format!("Package lists updated {days} days ago"),
+            },
+        },
+    }
+}
+
+fn inline_note(model: &SearchModel) -> String {
+    match model.state() {
+        SearchState::BadQuery(text) => format!("{}. {}", text.title, text.body),
+        _ => String::new(),
+    }
+}
+
+fn body(model: &SearchModel) -> Body {
+    if model.has_no_package_lists() {
+        return Body::NoLists;
+    }
+    match model.state() {
+        SearchState::Start => Body::Start,
+        SearchState::Loading => Body::Loading,
+        SearchState::Loaded if model.results().is_empty() => Body::NoResults,
+        SearchState::Loaded => Body::Results,
+        SearchState::Error(text) => Body::Error(error_view(text)),
+        SearchState::BadQuery(_) => Body::BadQuery,
+    }
+}
+
+fn start_view() -> StartView {
+    StartView {
+        title: "Type to search your package lists".to_string(),
+        body: "Search looks at package names and descriptions, like pacman -Ss. \
+               AUR packages are not included."
+            .to_string(),
+        examples: EXAMPLES.map(str::to_string).to_vec(),
+    }
+}
+
+fn no_lists_view(model: &SearchModel) -> NoListsView {
+    let technical = match model.lists() {
+        ListsState::Known(lists) => lists
+            .missing
+            .iter()
+            .map(|repo| format!("{repo}: no package list"))
+            .collect(),
+        _ => Vec::new(),
+    };
+    NoListsView {
+        title: "Tidewise has no package lists to search yet".to_string(),
+        body: "pacman keeps a list of every package in the repositories, but this system hasn't \
+               downloaded it yet (usually right after installing Arch). Getting the package lists \
+               from Tidewise comes in Tidewise 0.1."
+            .to_string(),
+        next_step: "Until then, running sudo pacman -Syu in a terminal downloads them and \
+                    updates your system."
+            .to_string(),
+        technical,
+    }
+}
+
+fn no_results_view(model: &SearchModel) -> NoResultsView {
+    NoResultsView {
+        title: format!("No package matches “{}”", model.answered_query()),
+        body: "Check the spelling, or try a word from what the app does (“image editor” instead \
+               of a brand name). Tidewise searches the repositories pacman knows about, not the AUR."
+            .to_string(),
+        button: "Clear search".to_string(),
+    }
+}
+
+/// The line above the rows: which kinds of match the list holds (an exact name counts as a name match).
+fn caption(results: &[RankedResult]) -> String {
+    if results.is_empty() {
+        return String::new();
+    }
+    let has = |kind| results.iter().any(|result| result.matched == kind);
+    let text = match (
+        has(MatchKind::Name),
+        has(MatchKind::Description),
+        has(MatchKind::Provides),
+    ) {
+        (true, true, true) => {
+            "Name matches first, then description matches, then packages that provide it"
+        }
+        (true, true, false) => "Name matches first, then description matches",
+        (true, false, true) => "Name matches first, then packages that provide it",
+        (false, true, true) => "Description matches first, then packages that provide it",
+        _ => "Package",
+    };
+    text.to_string()
+}
+
+fn footer(model: &SearchModel) -> String {
+    if *model.state() != SearchState::Loaded || model.results().is_empty() {
+        return String::new();
+    }
+    if model.is_searching() {
+        return format!("Searching for “{}”…", model.query());
+    }
+    let count = model.results().len();
+    let noun = if count == 1 { "result" } else { "results" };
+    format!("{count} {noun} for “{}”", model.answered_query())
+}
+
+/// "", "testing" or "third-party".
+fn repo_tag(kind: RepoKind) -> String {
+    match kind {
+        RepoKind::Official => "",
+        RepoKind::Testing => "testing",
+        RepoKind::ThirdParty => "third-party",
+    }
+    .to_string()
+}
+
+/// The first character of the name, upper-case ("?" for an empty name).
+fn letter(name: &str) -> String {
+    name.chars()
+        .next()
+        .map_or("?".to_string(), |first| first.to_uppercase().collect())
+}
+
+fn row_view(ranked: &RankedResult, selected: bool) -> ResultRowView {
+    let result = &ranked.result;
+    ResultRowView {
+        letter: letter(&result.name),
+        name: result.name.clone(),
+        version: result.version.clone(),
+        repo: result.repo.clone(),
+        tag: repo_tag(ranked.repo_kind),
+        installed: result.installed_version.is_some(),
+        description: result.description.clone(),
+        selected,
+    }
+}
+
+fn details_view(model: &SearchModel, ranked: &RankedResult) -> DetailsView {
+    let result = &ranked.result;
+    let state = model.details_state();
+    let mut technical = vec![format!(
+        "source: pacman -Si {}/{}",
+        result.repo, result.name
+    )];
+    let mut view = DetailsView {
+        letter: letter(&result.name),
+        name: result.name.clone(),
+        description: result.description.clone(),
+        version: result.version.clone(),
+        repo: result.repo.clone(),
+        repo_tag: repo_tag(ranked.repo_kind),
+        installed_note: installed_note(result),
+        matched_note: matched_note(model, ranked, &state),
+        note: "Looking only. Installing comes in Tidewise 0.1.".to_string(),
+        ..DetailsView::default()
+    };
+    match state {
+        DetailsState::NothingSelected | DetailsState::Loading => {
+            view.message = "Loading the details…".to_string();
+        }
+        DetailsState::NotFound => {
+            view.kind = DetailsKind::NotFound;
+            view.message = "This package isn't in your package lists any more".to_string();
+        }
+        DetailsState::Failed(text) => {
+            view.kind = DetailsKind::Failed;
+            view.error = Some(error_view(text));
+        }
+        DetailsState::Found(details) => {
+            view.kind = DetailsKind::Found;
+            fill_found(&mut view, details);
+            technical.extend(found_technical(details));
+        }
+    }
+    if let ListsState::Known(lists) = model.lists()
+        && let Some(newest) = lists.newest
+    {
+        technical.push(format!("Package lists  : {}", utc_timestamp(newest)));
+    }
+    view.technical = technical;
+    view
+}
+
+fn installed_note(result: &tidewise_pacman::SearchResult) -> String {
+    match &result.installed_version {
+        None => String::new(),
+        Some(installed) if *installed == result.version => "Already installed".to_string(),
+        Some(installed) => format!(
+            "Already installed (version {installed}; the repository has {})",
+            result.version
+        ),
+    }
+}
+
+/// "Matched because it provides <x>" for a result pacman found only through what it provides.
+fn matched_note(model: &SearchModel, ranked: &RankedResult, state: &DetailsState<'_>) -> String {
+    if ranked.matched != MatchKind::Provides {
+        return String::new();
+    }
+    if let DetailsState::Found(details) = state
+        && let Some(provided) = provides_match(details, model.answered_query())
+    {
+        return format!("Matched because it provides {provided}");
+    }
+    "Matched because of something it provides".to_string()
+}
+
+fn fill_found(view: &mut DetailsView, details: &PackageDetails) {
+    (view.download_number, view.download_unit) = split_size(&format_size(details.download_size));
+    (view.installed_number, view.installed_unit) = split_size(&format_size(details.installed_size));
+    let needs = details.depends_on.len();
+    view.needs = details
+        .depends_on
+        .iter()
+        .take(SHOWN)
+        .map(|dependency| dependency.name.clone())
+        .collect();
+    view.needs_count = match needs {
+        0 => String::new(),
+        1 => "1 package".to_string(),
+        many => format!("{many} packages"),
+    };
+    view.needs_more = and_more(needs);
+    if needs == 0 {
+        view.needs_nothing = "Needs nothing else.".to_string();
+    }
+    view.provides = details
+        .provides
+        .iter()
+        .take(SHOWN)
+        .map(dependency_text)
+        .collect();
+    view.provides_more = and_more(details.provides.len());
+}
+
+/// "and 2 more" when `total` is more than the five shown, otherwise empty.
+fn and_more(total: usize) -> String {
+    match total.checked_sub(SHOWN) {
+        Some(more) if more > 0 => format!("and {more} more"),
+        _ => String::new(),
+    }
+}
+
+/// Pacman's own words for the technical details, one line each.
+fn found_technical(details: &PackageDetails) -> Vec<String> {
+    let depends = if details.depends_on.is_empty() {
+        "None".to_string()
+    } else {
+        details
+            .depends_on
+            .iter()
+            .map(dependency_text)
+            .collect::<Vec<_>>()
+            .join("  ")
+    };
+    vec![
+        format!("Repository     : {}", details.repo),
+        format!("Download Size  : {}", details.download_size_text),
+        format!("Installed Size : {}", details.installed_size_text),
+        format!("Depends On     : {depends}"),
+    ]
 }
 
 #[cfg(test)]
