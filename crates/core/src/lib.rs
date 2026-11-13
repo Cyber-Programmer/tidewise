@@ -1,5 +1,6 @@
 //! Shared logic for Tidewise: no UI, no root.
 
+pub mod age;
 pub mod contrast;
 
 /// The app's name as shown to users.
