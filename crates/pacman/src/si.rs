@@ -2,7 +2,7 @@
 
 use crate::ParseError;
 use crate::name::{is_valid_package_name, is_valid_repo_name};
-use crate::record::split_records;
+use crate::record::{Record, split_records};
 use crate::size::parse_size;
 
 /// How a dependency compares versions (`=`, `<`, `<=`, `>`, `>=`).
@@ -60,8 +60,145 @@ pub struct PackageDetails {
 ///
 /// All-or-nothing: the first bad record makes the whole call an error naming the package and field.
 pub fn parse_si(text: &str) -> Result<Vec<PackageDetails>, ParseError> {
-    let _ = (text, split_records, parse_size, is_valid_repo_name);
-    Ok(Vec::new())
+    split_records(text)?.iter().map(build_details).collect()
+}
+
+/// Reads the fields we need out of one record, or says which one is wrong.
+fn build_details(record: &Record) -> Result<PackageDetails, ParseError> {
+    // Errors about the repository or the name can't name the package yet, like in `-Qi`.
+    let repo = record.get("Repository").ok_or(ParseError::MissingField {
+        package: None,
+        field: "Repository",
+    })?;
+    if !is_valid_repo_name(repo) {
+        return Err(ParseError::BadValue {
+            package: None,
+            field: "Repository",
+            value: repo.to_string(),
+        });
+    }
+    let name = record.get("Name").ok_or(ParseError::MissingField {
+        package: None,
+        field: "Name",
+    })?;
+    if !is_valid_package_name(name) {
+        return Err(ParseError::BadValue {
+            package: None,
+            field: "Name",
+            value: name.to_string(),
+        });
+    }
+    let package = Some(name.to_string());
+
+    let version = record.get("Version").ok_or(ParseError::MissingField {
+        package: package.clone(),
+        field: "Version",
+    })?;
+    if version.is_empty() {
+        return Err(ParseError::BadValue {
+            package,
+            field: "Version",
+            value: String::new(),
+        });
+    }
+    let (download_size, download_size_text) = read_size(record, name, "Download Size")?;
+    let (installed_size, installed_size_text) = read_size(record, name, "Installed Size")?;
+
+    Ok(PackageDetails {
+        repo: repo.to_string(),
+        name: name.to_string(),
+        version: version.to_string(),
+        description: text_value(record, "Description"),
+        url: text_value(record, "URL"),
+        // Licences are separated by two spaces; one licence can hold single spaces (`A OR B`).
+        licenses: list_value(record, "Licenses")
+            .split("  ")
+            .map(str::trim)
+            .filter(|licence| !licence.is_empty())
+            .map(str::to_string)
+            .collect(),
+        groups: list_value(record, "Groups")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+        provides: dependencies(record, name, "Provides")?,
+        depends_on: dependencies(record, name, "Depends On")?,
+        optional_deps: optional_dependencies(record, name)?,
+        conflicts_with: dependencies(record, name, "Conflicts With")?,
+        replaces: dependencies(record, name, "Replaces")?,
+        download_size,
+        download_size_text,
+        installed_size,
+        installed_size_text,
+    })
+}
+
+/// A required size field: the bytes, and pacman's own text.
+fn read_size(
+    record: &Record,
+    package: &str,
+    field: &'static str,
+) -> Result<(u64, String), ParseError> {
+    let text = record.get(field).ok_or_else(|| ParseError::MissingField {
+        package: Some(package.to_string()),
+        field,
+    })?;
+    let bytes = parse_size(text).ok_or_else(|| ParseError::BadValue {
+        package: Some(package.to_string()),
+        field,
+        value: text.to_string(),
+    })?;
+    Ok((bytes, text.to_string()))
+}
+
+/// The value of a list field, with "None" and a missing line both meaning "nothing".
+fn list_value<'a>(record: &'a Record, field: &str) -> &'a str {
+    match record.get(field) {
+        Some("None") | None => "",
+        Some(value) => value,
+    }
+}
+
+/// The value of a text field; "None" and a missing line become an empty string.
+fn text_value(record: &Record, field: &str) -> String {
+    list_value(record, field).to_string()
+}
+
+/// A field made of dependencies separated by whitespace (`Depends On`, `Provides`, ...).
+fn dependencies(
+    record: &Record,
+    package: &str,
+    field: &'static str,
+) -> Result<Vec<Dependency>, ParseError> {
+    list_value(record, field)
+        .split_whitespace()
+        .map(|entry| {
+            parse_dependency(entry).ok_or_else(|| ParseError::BadValue {
+                package: Some(package.to_string()),
+                field,
+                value: entry.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// `Optional Deps`: one `name: reason` per line (continuation lines are already joined with `\n`).
+fn optional_dependencies(
+    record: &Record,
+    package: &str,
+) -> Result<Vec<OptionalDependency>, ParseError> {
+    list_value(record, "Optional Deps")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            parse_optional_dep(line).ok_or_else(|| ParseError::BadValue {
+                package: Some(package.to_string()),
+                field: "Optional Deps",
+                value: line.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// Splits `glibc>=2.40` into a name and a version rule. `None` if the text is not a valid entry:
@@ -342,8 +479,8 @@ mod tests {
         assert_eq!(zsh.depends_on, plains(&["pcre2", "libcap", "gdbm"]));
         assert_eq!(zsh.conflicts_with, Vec::<Dependency>::new());
         assert_eq!(zsh.replaces, Vec::<Dependency>::new());
-        // 2.31 MiB = 2_422_374.4 bytes, 6.94 MiB = 7_277_117.44 bytes
-        assert_eq!(zsh.download_size, 2_422_374);
+        // 2.31 MiB = 2_422_210.56 bytes, 6.94 MiB = 7_277_117.44 bytes
+        assert_eq!(zsh.download_size, 2_422_211);
         assert_eq!(zsh.download_size_text, "2.31 MiB");
         assert_eq!(zsh.installed_size, 7_277_117);
         assert_eq!(zsh.installed_size_text, "6.94 MiB");
