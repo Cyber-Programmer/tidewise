@@ -43,6 +43,9 @@
       "Bash(rm -rf *)",
       "Bash(curl *)",
       "Bash(wget *)",
+      "Bash(xdotool:*)",
+      "Bash(ydotool:*)",
+      "Bash(wtype:*)",
       "Read(./.env)",
       "Read(./.env.*)"
     ]
