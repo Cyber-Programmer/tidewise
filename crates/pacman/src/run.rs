@@ -12,7 +12,7 @@ use std::process::{Command, Output, Stdio};
 use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::{
     DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, PendingUpdate,
-    SearchResult, parse_qi, parse_si, parse_ss,
+    SearchResult, parse_qi, parse_qu, parse_si, parse_ss,
 };
 
 /// Absolute path: never looked up through `PATH`.
@@ -299,8 +299,19 @@ fn results_from_output(output: &Output) -> Result<Vec<SearchResult>, PacmanError
 }
 
 /// Turns what `pacman -Qu` printed into pending updates. Pure: takes an `Output`, runs nothing.
-fn updates_from_output(_output: &Output) -> Result<Vec<PendingUpdate>, PacmanError> {
-    Ok(Vec::new())
+fn updates_from_output(output: &Output) -> Result<Vec<PendingUpdate>, PacmanError> {
+    // Like `-Ss`: pacman exits 1 and prints nothing when there is nothing to list. Missing sync databases
+    // also exit 1 with an empty stdout, but explain themselves on stderr, so "no updates" needs all three:
+    // exit 1, no stdout, no stderr.
+    if output.status.code() == Some(1)
+        && output.stdout.is_empty()
+        && String::from_utf8_lossy(&output.stderr).trim().is_empty()
+    {
+        return Ok(Vec::new());
+    }
+    check_exit(output)?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_qu(&text)?)
 }
 
 #[cfg(test)]
