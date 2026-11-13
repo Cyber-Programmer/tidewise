@@ -317,3 +317,53 @@ Rules bent:
   necessarily 7.1.0.
 - `docs/security/threat-model.md` does not exist yet, so nothing was added to it (the parser reads outside text).
 WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-13 — 4.4 package details with `pacman -Si`
+Done: `crates/pacman` gets `parse_si` (new `si.rs`) and `package_details(&[PackageRef]) -> Result<DetailsLookup, PacmanError>`.
+`PackageRef { repo, name }` converts from a `&SearchResult`. `PackageDetails` has repo, name, version, description, url,
+licenses, groups, `provides` / `depends_on` / `conflicts_with` / `replaces` (each `Dependency { name, rule:
+Option<VersionRule { comparison, version }> }`), `optional_deps` (`OptionalDependency { dependency, reason }`) and both
+sizes as bytes **and** pacman's own text (`download_size_text`, `installed_size_text`, for Technical details). "None"
+means an empty list or string. `DetailsLookup { found, not_found }`: an unknown name is a normal answer, not an error.
+How a call goes: every repo (`is_valid_repo_name`: the 4.3 rule plus no control characters) and name
+(`is_valid_package_name`) is checked, repeated refs are dropped (first-seen order kept), an empty request never runs
+pacman, then `/usr/bin/pacman -Si -- repo/name ...` runs the `run.rs` way. A non-zero exit is a partial result only if
+**every** stderr line is `error: package 'repo/name' was not found` for a package we asked for; anything else is
+`Failed`. Each record must be one we asked for, once (`ParseError::UnexpectedPackage`), and each request must be found or
+reported missing (`ParseError::MissingPackage`). New `PacmanError::BadPackageRef { reason }` with its arm in the app's
+`error_text` (plain "this is a bug, please report it" words, reason in the technical line).
+Refactor first, alone: `Record` / `split_records` moved from `qi.rs` to `record.rs` (same 88 + 91 tests before and after).
+Real-pacman findings (v7.1.0, this machine, read-only; all 15 732 records in core/extra/multilib surveyed):
+- `repo/name` works for every repo; the right name in the wrong repo is "not found" (exit 1); an unknown repo adds
+  `error: repository 'x' does not exist` (exit 2).
+- The exit code counts the unknown names (1, 2, 3, ...) but is 1 for 256 and 257 of them, so it can't be trusted: the
+  stderr words decide.
+- `pacman -Si` with no names prints every package (15 732 records), hence the empty-request rule.
+- No package is in two repos here, so "does a bare `-Si name` print one or all repos" could not be observed; we always
+  pass `repo/name`, so it does not matter.
+- `-Si` never prints `[installed]` in Optional Deps (0 of 15 732; `-Qi` does). Continuation lines only in Optional Deps.
+- Lists are separated by two spaces; 675 licences hold single spaces (`A OR B`), so Licenses split on two spaces.
+- Version rules seen: `=` 7436, `>=` 655, `<` 196, `<=` 60, `>` 2; every name before a rule is a valid package name.
+  Optional Deps: 8335 `name: reason`, 403 bare names, 13 with a rule.
+Fixtures (`tests/fixtures/pacman/`, README updated): `si-zsh`, `si-dmd` (epoch, versioned Provides, 2 groups),
+`si-xf86-video-fbdev` (`<` and `>=` conflicts), `si-iana-etc` (all `None`), `si-multi` (2 records, bare optional dep, SPDX
+licences), `si-not-found.stderr`, `si-unknown-repo.stderr` (real), `si-broken-truncated`, `si-bad-byte.bin` (hand-made).
+Fuzz: `si` target added (`fuzz/`, README and CLAUDE.md updated); 10-second smoke run clean (101 456 runs, nothing in
+`fuzz/artifacts/si`). The 10-minute run is the human's.
+Tests: 149 in `tidewise-pacman` (+3 `#[ignore]`d real-pacman tests, run and passing here), 92 in `tidewise-app`. fmt, clippy,
+`cargo test --all`, `cargo deny check`, release build all exit 0 on the last commit.
+Next: 4.5 (whatever the WBS says); 4.6 UI: search hit -> `PackageRef::from(&result)` -> `package_details` -> details panel;
+format `*_size_text` in Technical details; delete `spike/cli-vs-alpm` (still there).
+Blockers: none.
+Rules bent:
+- Touched `crates/app` (outside the stated scope) with the human's OK: one `BadPackageRef` arm in `error_text` plus a test.
+  Variant and arm landed in the same (red) commit so every commit compiles.
+- Intermediate commits fail `clippy -D warnings` on dead code (`parse_dependency`, `parse_optional_dep`, `parse_si` and the
+  request helpers are unused until `package_details` calls them); red commits fail their tests on purpose. Only the last
+  commit is fully green. `cargo test --all` was run before every commit (red commits: only the new tests fail).
+- A red test had a wrong expected size (2.31 MiB is 2 422 211 bytes, not 2 422 374); fixed in the green commit `ce92d6c`.
+- `si-broken-truncated.txt` and `si-bad-byte.bin` are hand-made (derived from real output; both described in the README).
+- Plan changes agreed: new error name `UnexpectedPackage` (was `NotRequested`) plus `MissingPackage`; `VersionRule` struct
+  instead of a `(Comparison, String)` tuple. No cap on the number of names in one call (Linux argv limit applies).
+- `docs/security/threat-model.md` does not exist yet, so nothing was added to it (the parser reads outside text).
+WBS sheet not touched by Claude (the human updates it).
