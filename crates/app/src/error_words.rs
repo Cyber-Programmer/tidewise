@@ -22,7 +22,7 @@ pub enum Doing {
 }
 
 /// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
-pub fn error_text(error: &PacmanError, _doing: Doing) -> ErrorText {
+pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
     match error {
         PacmanError::NotFound { .. } => ErrorText {
             title: "Tidewise can't find pacman".to_string(),
@@ -44,7 +44,12 @@ pub fn error_text(error: &PacmanError, _doing: Doing) -> ErrorText {
             };
             let stderr = stderr.trim();
             ErrorText {
-                title: "pacman couldn't list your packages".to_string(),
+                title: match doing {
+                    Doing::ListingInstalled => "pacman couldn't list your packages",
+                    Doing::Searching => "pacman couldn't finish the search",
+                    Doing::LookingUp => "pacman couldn't look up this package",
+                }
+                .to_string(),
                 body: "pacman stopped with an error before it finished. \
                        This is usually temporary; trying again often works."
                     .to_string(),
@@ -57,12 +62,24 @@ pub fn error_text(error: &PacmanError, _doing: Doing) -> ErrorText {
         }
         PacmanError::Parse(parse_error) => ErrorText {
             title: "Tidewise couldn't read pacman's answer".to_string(),
-            body: "The list from pacman looked incomplete, so Tidewise shows nothing \
-                   rather than a list with packages missing."
-                .to_string(),
+            body: match doing {
+                Doing::ListingInstalled => {
+                    "The list from pacman looked incomplete, so Tidewise shows nothing \
+                     rather than a list with packages missing."
+                }
+                Doing::Searching => {
+                    "The search results from pacman looked incomplete, so Tidewise shows none \
+                     rather than a list with packages missing."
+                }
+                Doing::LookingUp => {
+                    "The details from pacman looked incomplete, so Tidewise shows none \
+                     rather than details with something missing."
+                }
+            }
+            .to_string(),
             technical: parse_error.to_string(),
         },
-        // Not reachable from the Apps list yet (it never searches); the search screen (4.6) will use it.
+        // Only the Search screen can get this: the Apps list never searches.
         PacmanError::BadQuery { .. } => ErrorText {
             title: "That search can't be used".to_string(),
             body: "Tidewise didn't search because the text was too long or had characters \
@@ -70,7 +87,7 @@ pub fn error_text(error: &PacmanError, _doing: Doing) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
-        // The details screen (4.6) only passes names that pacman itself printed, so this is a bug in Tidewise.
+        // The Search screen only passes names that pacman itself printed, so this is a bug in Tidewise.
         PacmanError::BadPackageRef { .. } => ErrorText {
             title: "Tidewise asked pacman about an invalid package".to_string(),
             body: "This is a bug in Tidewise, not something you did. Please report it.".to_string(),
