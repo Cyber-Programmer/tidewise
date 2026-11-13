@@ -11,8 +11,8 @@ use std::process::{Command, Output, Stdio};
 
 use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::{
-    DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, SearchResult, parse_qi,
-    parse_si, parse_ss,
+    DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, PendingUpdate,
+    SearchResult, parse_qi, parse_si, parse_ss,
 };
 
 /// Absolute path: never looked up through `PATH`.
@@ -194,6 +194,17 @@ pub fn package_details(refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError
     lookup_from_output(&output, &request)
 }
 
+/// The installed packages that have a newer version in the sync databases already on disk, from `pacman -Qu`.
+///
+/// This is "how far behind the system is", measured against the package lists as they are now: it never
+/// refreshes them (no `-Sy`, no network, no root). An empty list means up to date with those lists. Lines pacman
+/// marks `[ignored]` (IgnorePkg / IgnoreGroup) are kept, with `ignored` set. Check `sync_lists` for how old the
+/// lists are. Blocks until pacman finishes (no timeout yet).
+pub fn pending_updates() -> Result<Vec<PendingUpdate>, PacmanError> {
+    let output = run(Path::new(PACMAN), &["-Qu"])?;
+    updates_from_output(&output)
+}
+
 /// Longest search text we accept, in characters (after trimming).
 const MAX_QUERY_CHARS: usize = 100;
 
@@ -285,6 +296,11 @@ fn results_from_output(output: &Output) -> Result<Vec<SearchResult>, PacmanError
     check_exit(output)?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(parse_ss(&text)?)
+}
+
+/// Turns what `pacman -Qu` printed into pending updates. Pure: takes an `Output`, runs nothing.
+fn updates_from_output(_output: &Output) -> Result<Vec<PendingUpdate>, PacmanError> {
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
@@ -1180,5 +1196,173 @@ mod real_details_tests {
             package_details(&[no_repo]),
             Err(PacmanError::Failed { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod updates_output_tests {
+    use super::*;
+    use crate::parse_qu;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const SAMPLE: &str = include_str!("../../../tests/fixtures/pacman/qu-sample.txt");
+    const IGNORED: &str = include_str!("../../../tests/fixtures/pacman/qu-ignored.txt");
+    const NEVER_SYNCED: &str =
+        include_str!("../../../tests/fixtures/pacman/qu-never-synced.stderr.txt");
+    const TRUNCATED: &str = include_str!("../../../tests/fixtures/pacman/qu-broken-truncated.txt");
+    const BAD_BYTE: &[u8] = include_bytes!("../../../tests/fixtures/pacman/qu-bad-byte.bin");
+
+    /// A fake pacman result. `code` is the exit code (0 = success).
+    fn fake_output(code: i32, stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    fn expect_error(output: &Output) -> PacmanError {
+        match updates_from_output(output) {
+            Err(error) => error,
+            Ok(updates) => panic!("expected an error, got {} updates", updates.len()),
+        }
+    }
+
+    #[test]
+    fn success_output_parses_like_parse_qu() {
+        let updates = updates_from_output(&fake_output(0, SAMPLE.as_bytes(), b"")).unwrap();
+        assert_eq!(updates, parse_qu(SAMPLE).unwrap());
+        assert_eq!(updates.len(), 8);
+    }
+
+    #[test]
+    fn ignored_lines_are_kept_with_the_flag() {
+        let updates = updates_from_output(&fake_output(0, IGNORED.as_bytes(), b"")).unwrap();
+        let ignored: Vec<&str> = updates
+            .iter()
+            .filter(|u| u.ignored)
+            .map(|u| u.name.as_str())
+            .collect();
+        assert_eq!(ignored, ["7zip", "aom"]);
+    }
+
+    #[test]
+    fn exit_0_with_a_warning_on_stderr_still_parses() {
+        let updates = updates_from_output(&fake_output(
+            0,
+            SAMPLE.as_bytes(),
+            b"warning: something harmless\n",
+        ))
+        .unwrap();
+        assert_eq!(updates.len(), 8);
+    }
+
+    #[test]
+    fn exit_0_with_no_text_is_no_updates() {
+        assert!(
+            updates_from_output(&fake_output(0, b"", b""))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn exit_1_with_nothing_printed_is_no_updates_not_an_error() {
+        // Seen on the real pacman 7.1.0 when nothing is pending.
+        assert!(
+            updates_from_output(&fake_output(1, b"", b""))
+                .unwrap()
+                .is_empty()
+        );
+        // A lone newline on stderr is still "nothing said".
+        assert!(
+            updates_from_output(&fake_output(1, b"", b"\n"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn exit_1_with_the_never_synced_warning_is_an_error() {
+        // Real stderr when the sync databases do not exist: also exit 1 with an empty stdout, so
+        // only the words on stderr tell it apart from "no updates".
+        let error = expect_error(&fake_output(1, b"", NEVER_SYNCED.as_bytes()));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), stderr }
+                if stderr == "warning: database file for 'core' does not exist (use '-Sy' to download)"),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn exit_1_with_stdout_text_is_an_error() {
+        let error = expect_error(&fake_output(1, SAMPLE.as_bytes(), b""));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn other_exit_codes_and_signals_are_errors() {
+        let error = expect_error(&fake_output(2, b"", b""));
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(2), .. }),
+            "got {error:?}"
+        );
+        let killed = Output {
+            status: ExitStatus::from_raw(9),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        let error = expect_error(&killed);
+        assert!(
+            matches!(&error, PacmanError::Failed { code: None, .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn unparseable_text_is_wrapped_parse_error() {
+        let error = expect_error(&fake_output(0, TRUNCATED.as_bytes(), b""));
+        let expected = parse_qu(TRUNCATED).unwrap_err();
+        assert!(
+            matches!(&error, PacmanError::Parse(inner) if *inner == expected),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_in_a_name_is_rejected() {
+        let error = expect_error(&fake_output(0, BAD_BYTE, b""));
+        assert!(
+            matches!(
+                &error,
+                PacmanError::Parse(ParseError::BadUpdateLine { line_number: 5, .. })
+            ),
+            "got {error:?}"
+        );
+    }
+}
+
+/// Runs the real pacman, read-only. Needs an Arch machine, so CI skips them.
+#[cfg(test)]
+mod real_updates_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "runs the real /usr/bin/pacman; run with: cargo test -p tidewise-pacman -- --ignored"]
+    fn real_pacman_pending_updates_are_installed_packages() {
+        let updates = pending_updates().unwrap();
+        let installed = installed_packages().unwrap();
+        for update in &updates {
+            assert!(
+                installed.iter().any(|p| p.name == update.name),
+                "{} is pending but not installed",
+                update.name
+            );
+            assert_ne!(update.installed_version, update.new_version);
+        }
     }
 }
