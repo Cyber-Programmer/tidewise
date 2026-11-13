@@ -17,4 +17,5 @@ pub mod apps_view;
 pub mod error_words;
 pub mod list_scroll;
 pub mod search_model;
+pub mod search_view;
 pub mod size_text;
