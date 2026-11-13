@@ -442,6 +442,12 @@ fn error_text(error: &PacmanError) -> ErrorText {
             body: "This is a bug in Tidewise, not something you did. Please report it.".to_string(),
             technical: error.to_string(),
         },
+        // Placeholder until the green commit; the Home/Apps screens will show it when the lists can't be read.
+        PacmanError::ReadLists { .. } => ErrorText {
+            title: String::new(),
+            body: String::new(),
+            technical: error.to_string(),
+        },
     }
 }
 
@@ -912,6 +918,27 @@ mod tests {
         assert_eq!(
             technical,
             "package reference not accepted: the package name is not valid"
+        );
+        assert_eq!(text.technical, technical);
+    }
+
+    #[test]
+    fn unreadable_package_lists_are_reported_in_plain_words() {
+        let error = PacmanError::ReadLists {
+            path: std::path::PathBuf::from("/var/lib/pacman/sync/core.db"),
+            source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
+        };
+        let technical = error.to_string();
+        let text = error_of(error);
+        assert_eq!(text.title, "Tidewise couldn't read your package lists");
+        assert_eq!(
+            text.body,
+            "Tidewise couldn't check how up to date your package lists are, because one of \
+             pacman's database files couldn't be read. Try again, or check the folder's permissions."
+        );
+        assert_eq!(
+            technical,
+            "could not read the package list /var/lib/pacman/sync/core.db: denied"
         );
         assert_eq!(text.technical, technical);
     }

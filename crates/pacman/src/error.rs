@@ -37,6 +37,12 @@ pub enum ParseError {
     MissingPackage { repo: String, name: String },
     /// A `-Qu` line that is not `name old -> new` (optionally followed by ` [ignored]`).
     BadUpdateLine { line_number: usize, line: String },
+    /// A line of `pacman-conf` output (`what` says which setting) that can't be used.
+    BadConfigLine {
+        what: &'static str,
+        line_number: usize,
+        line: String,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -84,6 +90,14 @@ impl fmt::Display for ParseError {
             Self::BadUpdateLine { line_number, line } => {
                 write!(f, "line {line_number} is not \"name old -> new\": {line:?}")
             }
+            Self::BadConfigLine {
+                what,
+                line_number,
+                line,
+            } => write!(
+                f,
+                "pacman-conf {what}: line {line_number} can't be used: {line:?}"
+            ),
         }
     }
 }
@@ -114,6 +128,9 @@ pub enum PacmanError {
     /// A repository or package name given to the details lookup was refused before pacman was started.
     /// Callers pass names that came from pacman, so this means a bug in the caller.
     BadPackageRef { reason: &'static str },
+    /// A package list (`<repo>.db`) exists but its details could not be read (for example permission denied).
+    /// A list that is simply not there is not an error: see `SyncLists::missing`.
+    ReadLists { path: PathBuf, source: io::Error },
 }
 
 impl From<ParseError> for PacmanError {
@@ -139,6 +156,13 @@ impl fmt::Display for PacmanError {
             Self::Parse(error) => write!(f, "could not read pacman's output: {error}"),
             Self::BadQuery { reason } => write!(f, "search text not accepted: {reason}"),
             Self::BadPackageRef { reason } => write!(f, "package reference not accepted: {reason}"),
+            Self::ReadLists { path, source } => {
+                write!(
+                    f,
+                    "could not read the package list {}: {source}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -146,7 +170,7 @@ impl fmt::Display for PacmanError {
 impl std::error::Error for PacmanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Spawn { source, .. } => Some(source),
+            Self::Spawn { source, .. } | Self::ReadLists { source, .. } => Some(source),
             Self::Parse(error) => Some(error),
             Self::NotFound { .. }
             | Self::Failed { .. }

@@ -42,6 +42,8 @@ full package list. Every package named here, including names in `Required By`, `
 | `qu-never-synced.stderr.txt` | `LC_ALL=C pacman -Qu` with `DBPath` pointing at a private folder whose `sync/` is empty | Real stderr. pacman exits **1** with nothing on stdout, so this is NOT "no updates": stderr is how to tell them apart |
 | `qu-broken-truncated.txt` | *hand-made*: first 3 lines of `qu-sample.txt` plus the first 18 bytes of line 4 | **Deliberately broken.** Ends in the middle of the `->` arrow, no final newline. The parser must report an error, not panic |
 | `qu-bad-byte.bin` | *hand-made*: `qu-sample.txt` with the `z` of `bluez` changed to `0xFF` | A stray non-UTF-8 byte inside a package name. `.bin` because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does, so the name must be refused |
+| `pacman-conf-dbpath.txt` | `LC_ALL=C pacman-conf DBPath` (WBS 4.5) | Real output: one absolute path with a trailing `/` and a final newline. The sync databases are in its `sync/` folder |
+| `pacman-conf-repo-list.txt` | `LC_ALL=C pacman-conf --repo-list` (WBS 4.5) | Real output: the configured repositories, one per line (`core`, `extra`, `multilib`). Each repo's list is `<DBPath>/sync/<repo>.db` |
 
 ## Refreshing
 

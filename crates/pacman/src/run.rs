@@ -6,17 +6,21 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use crate::name::{is_valid_package_name, is_valid_repo_name};
+use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
     DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, PendingUpdate,
-    SearchResult, parse_qi, parse_qu, parse_si, parse_ss,
+    SearchResult, SyncLists, parse_qi, parse_qu, parse_si, parse_ss,
 };
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
+
+/// pacman's own tool for reading pacman.conf (the same package). Also an absolute path.
+const PACMAN_CONF: &str = "/usr/bin/pacman-conf";
 
 /// Builds the command: absolute program, arguments as a list (no shell), empty environment
 /// except `LC_ALL=C`, and no stdin so pacman can never wait for a prompt.
@@ -205,6 +209,17 @@ pub fn pending_updates() -> Result<Vec<PendingUpdate>, PacmanError> {
     updates_from_output(&output)
 }
 
+/// Do the package lists exist, and how new are they? Reads pacman's own configuration and the files, nothing else.
+///
+/// Asks `pacman-conf` for `DBPath` and the repository list (so nothing is hard-coded), then looks at
+/// `<DBPath>/sync/<repo>.db` for each repository. Compare `SyncLists::newest` with the current time yourself.
+/// Read-only: no `-Sy`, no network, no root. Blocks until `pacman-conf` finishes (no timeout yet).
+pub fn sync_lists() -> Result<SyncLists, PacmanError> {
+    let dbpath = dbpath_from_output(&run(Path::new(PACMAN_CONF), &["DBPath"])?)?;
+    let repos = repos_from_output(&run(Path::new(PACMAN_CONF), &["--repo-list"])?)?;
+    sync_lists_in(&dbpath.join("sync"), &repos)
+}
+
 /// Longest search text we accept, in characters (after trimming).
 const MAX_QUERY_CHARS: usize = 100;
 
@@ -312,6 +327,18 @@ fn updates_from_output(output: &Output) -> Result<Vec<PendingUpdate>, PacmanErro
     check_exit(output)?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(parse_qu(&text)?)
+}
+
+/// Turns what `pacman-conf DBPath` printed into a path. Pure: takes an `Output`, runs nothing.
+fn dbpath_from_output(output: &Output) -> Result<PathBuf, PacmanError> {
+    check_exit(output)?;
+    Ok(parse_dbpath(&String::from_utf8_lossy(&output.stdout))?)
+}
+
+/// Turns what `pacman-conf --repo-list` printed into repository names. Pure: takes an `Output`, runs nothing.
+fn repos_from_output(output: &Output) -> Result<Vec<String>, PacmanError> {
+    check_exit(output)?;
+    Ok(parse_repo_list(&String::from_utf8_lossy(&output.stdout))?)
 }
 
 #[cfg(test)]
@@ -1375,5 +1402,94 @@ mod real_updates_tests {
             );
             assert_ne!(update.installed_version, update.new_version);
         }
+    }
+}
+
+#[cfg(test)]
+mod config_output_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const DBPATH: &str = include_str!("../../../tests/fixtures/pacman/pacman-conf-dbpath.txt");
+    const REPO_LIST: &str =
+        include_str!("../../../tests/fixtures/pacman/pacman-conf-repo-list.txt");
+
+    fn fake_output(code: i32, stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    #[test]
+    fn dbpath_output_becomes_a_path() {
+        let path = dbpath_from_output(&fake_output(0, DBPATH.as_bytes(), b"")).unwrap();
+        assert_eq!(path, PathBuf::from("/var/lib/pacman/"));
+    }
+
+    #[test]
+    fn repo_list_output_becomes_names() {
+        let repos = repos_from_output(&fake_output(0, REPO_LIST.as_bytes(), b"")).unwrap();
+        assert_eq!(repos, ["core", "extra", "multilib"]);
+    }
+
+    #[test]
+    fn a_failing_pacman_conf_keeps_its_words() {
+        let stderr = b"error: config file /etc/pacman.conf could not be read\n";
+        for error in [
+            dbpath_from_output(&fake_output(1, b"", stderr)).unwrap_err(),
+            repos_from_output(&fake_output(1, b"", stderr)).unwrap_err(),
+        ] {
+            assert!(
+                matches!(&error, PacmanError::Failed { code: Some(1), stderr }
+                    if stderr == "error: config file /etc/pacman.conf could not be read"),
+                "got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unusable_pacman_conf_text_is_a_parse_error() {
+        let error = dbpath_from_output(&fake_output(0, b"relative/path\n", b"")).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                PacmanError::Parse(ParseError::BadConfigLine { what: "DBPath", .. })
+            ),
+            "got {error:?}"
+        );
+        let error = repos_from_output(&fake_output(0, b"core\n\n", b"")).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                PacmanError::Parse(ParseError::BadConfigLine {
+                    what: "repository",
+                    line_number: 2,
+                    ..
+                })
+            ),
+            "got {error:?}"
+        );
+    }
+}
+
+/// Runs the real pacman-conf, read-only. Needs an Arch machine, so CI skips it.
+#[cfg(test)]
+mod real_sync_tests {
+    use super::*;
+    use std::time::SystemTime;
+
+    #[test]
+    #[ignore = "runs the real /usr/bin/pacman-conf; run with: cargo test -p tidewise-pacman -- --ignored"]
+    fn real_sync_lists_are_found_and_not_in_the_future() {
+        let lists = sync_lists().unwrap();
+        // Mirror timestamps can't be newer than now (plus a little clock slack).
+        if let Some(newest) = lists.newest {
+            assert!(newest <= SystemTime::now() + std::time::Duration::from_secs(3600));
+        }
+        // Every configured repo is either found (then `newest` is set) or listed as missing.
+        assert!(lists.newest.is_some() || !lists.missing.is_empty());
     }
 }
