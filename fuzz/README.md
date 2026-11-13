@@ -1,6 +1,6 @@
 # Fuzzing the pacman parsers
 
-Three cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`) and `ss` (`parse_ss`). They only call the parsers on text;
+Four cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`), `ss` (`parse_ss`) and `si` (`parse_si`). They only call the parsers on text;
 they never run pacman or touch the system. Needs **nightly**, used only through `cargo +nightly`
 (the default toolchain stays stable). `fuzz/` is its own workspace, so the root fmt/clippy/test/deny and CI do
 not see it.
@@ -11,10 +11,11 @@ Both are gitignored.
 
 Run from the repo root (10 minutes each):
 
-    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss
+    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si
     cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+    cargo +nightly fuzz run si fuzz/corpus/si tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 
 No crashes: the output ends with `Done <N> runs in 600 second(s)`, `exit: 0`, and `fuzz/artifacts/` has
 nothing in it. A crash prints `panicked at …` or `deadly signal`, then `Test unit written to
