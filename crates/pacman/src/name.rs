@@ -18,8 +18,10 @@ pub(crate) fn is_valid_package_name(name: &str) -> bool {
 /// and not `local` (that name is the installed-packages database). On top of that we refuse control
 /// characters, so nothing odd can reach the command line.
 pub(crate) fn is_valid_repo_name(repo: &str) -> bool {
-    let _ = repo;
-    false
+    !repo.is_empty()
+        && !repo.contains('/')
+        && repo != "local"
+        && !repo.chars().any(char::is_control)
 }
 
 #[cfg(test)]
