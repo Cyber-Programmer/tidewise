@@ -1,6 +1,7 @@
 //! Parser for `pacman -Qu`: the packages that have a newer version in the sync databases.
 
 use crate::ParseError;
+use crate::name::is_valid_package_name;
 
 /// One pending update: an installed package whose repository has a newer version.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,8 +20,58 @@ pub struct PendingUpdate {
 ///
 /// Every line must be `name old -> new`, optionally followed by ` [ignored]`. The first bad line
 /// (counted from 1) is an error. Empty text means no updates.
-pub fn parse_qu(_text: &str) -> Result<Vec<PendingUpdate>, ParseError> {
-    Ok(Vec::new())
+pub fn parse_qu(text: &str) -> Result<Vec<PendingUpdate>, ParseError> {
+    let mut updates = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let update = parse_line(line).ok_or_else(|| ParseError::BadUpdateLine {
+            line_number: index + 1,
+            line: line.to_string(),
+        })?;
+        updates.push(update);
+    }
+    Ok(updates)
+}
+
+/// One line, or `None` if it is not exactly `name old -> new` or `name old -> new [ignored]`.
+///
+/// Words are split on single spaces only, so a doubled, leading or trailing space leaves an empty word
+/// and is refused.
+fn parse_line(line: &str) -> Option<PendingUpdate> {
+    let mut words = line.split(' ');
+    let name = words.next()?;
+    let installed_version = words.next()?;
+    let arrow = words.next()?;
+    let new_version = words.next()?;
+    let ignored = match words.next() {
+        None => false,
+        Some("[ignored]") => true,
+        Some(_) => return None,
+    };
+    // Nothing may follow the marker.
+    if words.next().is_some() || arrow != "->" {
+        return None;
+    }
+    if !is_valid_package_name(name)
+        || !is_valid_version(installed_version)
+        || !is_valid_version(new_version)
+    {
+        return None;
+    }
+    Some(PendingUpdate {
+        name: name.to_string(),
+        installed_version: installed_version.to_string(),
+        new_version: new_version.to_string(),
+        ignored,
+    })
+}
+
+/// A version as pacman prints it (`epoch:version-release`): ASCII letters and digits and `. _ + ~ : -`.
+/// This also keeps the `[ignored]` marker, spaces and control characters out of a version.
+fn is_valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '~' | ':' | '-'))
 }
 
 #[cfg(test)]
