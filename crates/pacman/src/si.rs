@@ -1,6 +1,9 @@
 //! Parser for `pacman -Si`: the details of packages in the repositories.
 
-use crate::name::is_valid_package_name;
+use crate::ParseError;
+use crate::name::{is_valid_package_name, is_valid_repo_name};
+use crate::record::split_records;
+use crate::size::parse_size;
 
 /// How a dependency compares versions (`=`, `<`, `<=`, `>`, `>=`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +28,40 @@ pub struct VersionRule {
 pub struct Dependency {
     pub name: String,
     pub rule: Option<VersionRule>,
+}
+
+/// Everything `pacman -Si` says about one package in a repository.
+///
+/// "None" in pacman's text becomes an empty list or an empty string. Sizes come twice: in bytes (the
+/// nearest whole byte to what pacman showed) and as pacman's own words, for the technical details.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageDetails {
+    pub repo: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub url: String,
+    pub licenses: Vec<String>,
+    pub groups: Vec<String>,
+    pub provides: Vec<Dependency>,
+    pub depends_on: Vec<Dependency>,
+    pub optional_deps: Vec<OptionalDependency>,
+    pub conflicts_with: Vec<Dependency>,
+    pub replaces: Vec<Dependency>,
+    pub download_size: u64,
+    /// pacman's own text, like `2.31 MiB`.
+    pub download_size_text: String,
+    pub installed_size: u64,
+    /// pacman's own text, like `6.94 MiB`.
+    pub installed_size_text: String,
+}
+
+/// Parses the output of `LC_ALL=C pacman -Si -- ...` into one entry per record, in pacman's order.
+///
+/// All-or-nothing: the first bad record makes the whole call an error naming the package and field.
+pub fn parse_si(text: &str) -> Result<Vec<PackageDetails>, ParseError> {
+    let _ = (text, split_records, parse_size, is_valid_repo_name);
+    Ok(Vec::new())
 }
 
 /// Splits `glibc>=2.40` into a name and a version rule. `None` if the text is not a valid entry:
@@ -240,6 +277,442 @@ mod tests {
             "a/b: x",
         ] {
             assert_eq!(parse_optional_dep(line), None, "should refuse {line:?}");
+        }
+    }
+
+    const ZSH: &str = include_str!("../../../tests/fixtures/pacman/si-zsh.txt");
+    const DMD: &str = include_str!("../../../tests/fixtures/pacman/si-dmd.txt");
+    const FBDEV: &str = include_str!("../../../tests/fixtures/pacman/si-xf86-video-fbdev.txt");
+    const IANA: &str = include_str!("../../../tests/fixtures/pacman/si-iana-etc.txt");
+    const MULTI: &str = include_str!("../../../tests/fixtures/pacman/si-multi.txt");
+    const BROKEN: &str = include_str!("../../../tests/fixtures/pacman/si-broken-truncated.txt");
+    const BAD_BYTE: &[u8] = include_bytes!("../../../tests/fixtures/pacman/si-bad-byte.bin");
+
+    /// Parses text that must hold exactly one record.
+    fn one(text: &str) -> PackageDetails {
+        let mut all = parse_si(text).unwrap_or_else(|e| panic!("parse failed: {e}"));
+        assert_eq!(all.len(), 1, "expected exactly one record");
+        all.remove(0)
+    }
+
+    fn plain(name: &str) -> Dependency {
+        Dependency {
+            name: name.to_string(),
+            rule: None,
+        }
+    }
+
+    fn plains(names: &[&str]) -> Vec<Dependency> {
+        names.iter().map(|n| plain(n)).collect()
+    }
+
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn missing(package: Option<&str>, field: &'static str) -> ParseError {
+        ParseError::MissingField {
+            package: package.map(str::to_string),
+            field,
+        }
+    }
+
+    fn bad_value(package: Option<&str>, field: &'static str, value: &str) -> ParseError {
+        ParseError::BadValue {
+            package: package.map(str::to_string),
+            field,
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn si_zsh_every_field() {
+        let zsh = one(ZSH);
+        assert_eq!(zsh.repo, "extra");
+        assert_eq!(zsh.name, "zsh");
+        assert_eq!(zsh.version, "5.9.2-1");
+        assert_eq!(
+            zsh.description,
+            "A very advanced and programmable command interpreter (shell) for UNIX"
+        );
+        assert_eq!(zsh.url, "https://www.zsh.org/");
+        assert_eq!(zsh.licenses, strings(&["custom"]));
+        assert_eq!(zsh.groups, Vec::<String>::new());
+        assert_eq!(zsh.provides, Vec::<Dependency>::new());
+        assert_eq!(zsh.depends_on, plains(&["pcre2", "libcap", "gdbm"]));
+        assert_eq!(zsh.conflicts_with, Vec::<Dependency>::new());
+        assert_eq!(zsh.replaces, Vec::<Dependency>::new());
+        // 2.31 MiB = 2_422_374.4 bytes, 6.94 MiB = 7_277_117.44 bytes
+        assert_eq!(zsh.download_size, 2_422_374);
+        assert_eq!(zsh.download_size_text, "2.31 MiB");
+        assert_eq!(zsh.installed_size, 7_277_117);
+        assert_eq!(zsh.installed_size_text, "6.94 MiB");
+    }
+
+    #[test]
+    fn si_optional_deps_continuation_lines_and_no_installed_marker() {
+        let zsh = one(ZSH);
+        let names: Vec<&str> = zsh
+            .optional_deps
+            .iter()
+            .map(|o| o.dependency.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "grml-zsh-config",
+                "zsh-autosuggestions",
+                "zsh-completions",
+                "zsh-doc",
+                "zsh-history-substring-search",
+                "zsh-lovers",
+                "zsh-syntax-highlighting",
+                "zshdb"
+            ]
+        );
+        assert_eq!(zsh.optional_deps[0].reason, "grml's zsh setup");
+        // `-Qi` marks installed ones with "[installed]"; `-Si` never does (checked on real pacman).
+        assert!(zsh.optional_deps.iter().all(|o| !o.reason.contains('[')));
+        assert_eq!(
+            zsh.optional_deps[5].reason,
+            "A collection of tips, tricks and examples for the Z shell."
+        );
+    }
+
+    #[test]
+    fn si_dmd_epoch_versioned_provides_and_two_groups() {
+        let dmd = one(DMD);
+        assert_eq!(dmd.version, "1:2.113.0-2");
+        assert_eq!(dmd.groups, strings(&["dlang", "dlang-dmd"]));
+        assert_eq!(
+            dmd.provides,
+            [Dependency {
+                name: "d-compiler".to_string(),
+                rule: Some(VersionRule {
+                    comparison: Comparison::Equal,
+                    version: "2.113.0".to_string()
+                })
+            }]
+        );
+        assert_eq!(dmd.optional_deps.len(), 3);
+        assert_eq!(dmd.optional_deps[1].dependency.name, "gcc-multilib");
+    }
+
+    #[test]
+    fn si_conflicts_keep_each_version_rule() {
+        let fbdev = one(FBDEV);
+        let rules: Vec<(&str, Comparison, &str)> = fbdev
+            .conflicts_with
+            .iter()
+            .map(|d| {
+                let rule = d.rule.as_ref().unwrap();
+                (d.name.as_str(), rule.comparison, rule.version.as_str())
+            })
+            .collect();
+        assert_eq!(
+            rules,
+            [
+                ("xorg-server", Comparison::Less, "21.1.1"),
+                ("X-ABI-VIDEODRV_VERSION", Comparison::Less, "25"),
+                ("X-ABI-VIDEODRV_VERSION", Comparison::GreaterOrEqual, "26"),
+            ]
+        );
+        assert_eq!(fbdev.groups, strings(&["xorg-drivers"]));
+    }
+
+    #[test]
+    fn si_all_none_means_empty() {
+        let iana = one(IANA);
+        assert_eq!(iana.repo, "core");
+        assert_eq!(iana.groups, Vec::<String>::new());
+        assert_eq!(iana.provides, Vec::<Dependency>::new());
+        assert_eq!(iana.depends_on, Vec::<Dependency>::new());
+        assert_eq!(iana.optional_deps, Vec::<OptionalDependency>::new());
+        assert_eq!(iana.conflicts_with, Vec::<Dependency>::new());
+        assert_eq!(iana.replaces, Vec::<Dependency>::new());
+        // A colon inside a value is fine.
+        assert_eq!(iana.licenses, strings(&["custom:none"]));
+        // 4114.47 KiB = 4_213_217.28 bytes; 401.79 KiB = 411_432.96 bytes
+        assert_eq!(iana.installed_size, 4_213_217);
+        assert_eq!(iana.installed_size_text, "4114.47 KiB");
+        assert_eq!(iana.download_size, 411_433);
+        assert_eq!(iana.download_size_text, "401.79 KiB");
+    }
+
+    #[test]
+    fn si_none_in_text_fields_is_an_empty_string() {
+        let text = ZSH.replace("https://www.zsh.org/", "None");
+        assert_eq!(one(&text).url, "");
+    }
+
+    #[test]
+    fn si_two_records_keep_pacmans_order() {
+        let all = parse_si(MULTI).unwrap();
+        let summary: Vec<(&str, &str, &str)> = all
+            .iter()
+            .map(|p| (p.repo.as_str(), p.name.as_str(), p.version.as_str()))
+            .collect();
+        assert_eq!(
+            summary,
+            [("core", "man-db", "2.13.1-2"), ("core", "less", "1:710-1")]
+        );
+        // A bare optional dependency has no reason.
+        assert_eq!(all[0].optional_deps.len(), 1);
+        assert_eq!(all[0].optional_deps[0].dependency, plain("gzip"));
+        assert_eq!(all[0].optional_deps[0].reason, "");
+    }
+
+    #[test]
+    fn si_licenses_are_split_on_two_spaces_not_one() {
+        // `AND` / `OR` / `WITH` expressions contain single spaces and stay in one entry.
+        let all = parse_si(MULTI).unwrap();
+        assert_eq!(
+            all[0].licenses,
+            strings(&["GPL-2.0-or-later AND GPL-3.0-or-later"])
+        );
+        assert_eq!(
+            all[1].licenses,
+            strings(&["GPL-3.0-or-later OR LicenseRef-Less"])
+        );
+        let text = ZSH.replace(
+            "custom\n",
+            "GPL-3.0-or-later WITH GCC-exception-3.1  GFDL-1.3-or-later\n",
+        );
+        assert_eq!(
+            one(&text).licenses,
+            strings(&[
+                "GPL-3.0-or-later WITH GCC-exception-3.1",
+                "GFDL-1.3-or-later"
+            ])
+        );
+    }
+
+    #[test]
+    fn si_missing_list_fields_are_empty() {
+        let text = DMD
+            .replace("Groups          : dlang  dlang-dmd\n", "")
+            .replace("Provides        : d-compiler=2.113.0\n", "")
+            .replace("Conflicts With  : None\n", "");
+        let dmd = one(&text);
+        assert_eq!(dmd.groups, Vec::<String>::new());
+        assert_eq!(dmd.provides, Vec::<Dependency>::new());
+        assert_eq!(dmd.conflicts_with, Vec::<Dependency>::new());
+    }
+
+    #[test]
+    fn si_empty_input_is_no_packages() {
+        assert_eq!(parse_si("").unwrap(), []);
+        assert_eq!(parse_si("\n\n\n").unwrap(), []);
+    }
+
+    #[test]
+    fn si_without_trailing_blank_line() {
+        let with_blank = one(ZSH);
+        assert_eq!(one(ZSH.trim_end_matches('\n')), with_blank);
+    }
+
+    #[test]
+    fn si_broken_truncated_is_missing_field() {
+        assert_eq!(parse_si(BROKEN), Err(missing(Some("dmd"), "Download Size")));
+    }
+
+    #[test]
+    fn si_stray_non_utf8_byte_becomes_replacement_char() {
+        // run.rs decodes lossily before parsing; so does this test.
+        let text = String::from_utf8_lossy(BAD_BYTE);
+        let zsh = one(&text);
+        assert!(
+            zsh.description.contains('\u{FFFD}'),
+            "{:?}",
+            zsh.description
+        );
+        assert!(!zsh.description.contains("programmable"));
+        assert_eq!(zsh.name, "zsh");
+    }
+
+    #[test]
+    fn si_missing_required_fields() {
+        let cases = [
+            ("Repository      : extra\n", None, "Repository"),
+            ("Name            : zsh\n", None, "Name"),
+            ("Version         : 5.9.2-1\n", Some("zsh"), "Version"),
+            ("Download Size   : 2.31 MiB\n", Some("zsh"), "Download Size"),
+            (
+                "Installed Size  : 6.94 MiB\n",
+                Some("zsh"),
+                "Installed Size",
+            ),
+        ];
+        for (line, package, field) in cases {
+            let text = ZSH.replace(line, "");
+            assert_ne!(text, ZSH, "{field}: line not found in the fixture");
+            assert_eq!(parse_si(&text), Err(missing(package, field)), "{field}");
+        }
+    }
+
+    #[test]
+    fn si_bad_values() {
+        let cases = [
+            (
+                "Repository      : extra",
+                "Repository      : ",
+                None,
+                "Repository",
+                "",
+            ),
+            (
+                "Repository      : extra",
+                "Repository      : a/b",
+                None,
+                "Repository",
+                "a/b",
+            ),
+            (
+                "Name            : zsh",
+                "Name            : --force",
+                None,
+                "Name",
+                "--force",
+            ),
+            (
+                "Version         : 5.9.2-1",
+                "Version         : ",
+                Some("zsh"),
+                "Version",
+                "",
+            ),
+            (
+                "Download Size   : 2.31 MiB",
+                "Download Size   : lots",
+                Some("zsh"),
+                "Download Size",
+                "lots",
+            ),
+            (
+                "Installed Size  : 6.94 MiB",
+                "Installed Size  : 6.94 TB",
+                Some("zsh"),
+                "Installed Size",
+                "6.94 TB",
+            ),
+            (
+                "Depends On      : pcre2  libcap  gdbm",
+                "Depends On      : pcre2  --force",
+                Some("zsh"),
+                "Depends On",
+                "--force",
+            ),
+            (
+                "Depends On      : pcre2  libcap  gdbm",
+                "Depends On      : pcre2>=",
+                Some("zsh"),
+                "Depends On",
+                "pcre2>=",
+            ),
+            (
+                "Provides        : None",
+                "Provides        : a<=>b",
+                Some("zsh"),
+                "Provides",
+                "a<=>b",
+            ),
+            (
+                "Conflicts With  : None",
+                "Conflicts With  : $(x)",
+                Some("zsh"),
+                "Conflicts With",
+                "$(x)",
+            ),
+            (
+                "Replaces        : None",
+                "Replaces        : -x",
+                Some("zsh"),
+                "Replaces",
+                "-x",
+            ),
+            (
+                "zshdb: A debugger for zsh scripts",
+                "--rm: A debugger",
+                Some("zsh"),
+                "Optional Deps",
+                "--rm: A debugger",
+            ),
+        ];
+        for (from, to, package, field, value) in cases {
+            let text = ZSH.replace(from, to);
+            assert_ne!(text, ZSH, "{field}: text to replace not found");
+            assert_eq!(
+                parse_si(&text),
+                Err(bad_value(package, field, value)),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn si_duplicate_field_is_an_error() {
+        let text = ZSH.replace("Licenses        : custom", "Version         : 9-9");
+        assert_eq!(
+            parse_si(&text),
+            Err(ParseError::DuplicateField {
+                package: Some("zsh".to_string()),
+                field: "Version".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn si_one_bad_record_fails_all() {
+        let text = MULTI.replace("Download Size   : 168.79 KiB", "Download Size   : lots");
+        assert_eq!(
+            parse_si(&text),
+            Err(bad_value(Some("less"), "Download Size", "lots"))
+        );
+    }
+
+    #[test]
+    fn si_all_real_fixtures_parse() {
+        for (file, text, count) in [
+            ("si-zsh.txt", ZSH, 1),
+            ("si-dmd.txt", DMD, 1),
+            ("si-xf86-video-fbdev.txt", FBDEV, 1),
+            ("si-iana-etc.txt", IANA, 1),
+            ("si-multi.txt", MULTI, 2),
+        ] {
+            let all = parse_si(text).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(all.len(), count, "{file}");
+        }
+    }
+
+    #[test]
+    fn si_odd_inputs_never_panic() {
+        let many_blank = "\n".repeat(10_000);
+        let many_fields = "Name : a\n".repeat(10_000);
+        let long_line = format!("Name : {}", "a".repeat(1_000_000));
+        let many_deps = format!("Name : a\nDepends On : {}\n", "b ".repeat(100_000));
+        let inputs = [
+            "",
+            ":",
+            " : ",
+            "Name",
+            "Name :",
+            "\t",
+            "é : ü",
+            "  continuation first",
+            "Name : zsh\r\nVersion : 1\r\n",
+            "Name : zsh\0\nVersion : 1\n",
+            "Depends On : >=",
+            "Optional Deps : :\n  : :\n",
+            "Download Size : 99999999999999999999.00 GiB",
+            "\u{feff}Name : zsh",
+            many_blank.as_str(),
+            many_fields.as_str(),
+            long_line.as_str(),
+            many_deps.as_str(),
+        ];
+        for input in inputs {
+            // Ok or Err are both fine; the test only proves that it returns.
+            let _ = parse_si(input);
         }
     }
 }
