@@ -94,6 +94,9 @@ pub enum PacmanError {
     Parse(ParseError),
     /// The search text was refused before pacman was started (too long, or it has control characters).
     BadQuery { reason: &'static str },
+    /// A repository or package name given to the details lookup was refused before pacman was started.
+    /// Callers pass names that came from pacman, so this means a bug in the caller.
+    BadPackageRef { reason: &'static str },
 }
 
 impl From<ParseError> for PacmanError {
@@ -118,6 +121,7 @@ impl fmt::Display for PacmanError {
             }
             Self::Parse(error) => write!(f, "could not read pacman's output: {error}"),
             Self::BadQuery { reason } => write!(f, "search text not accepted: {reason}"),
+            Self::BadPackageRef { reason } => write!(f, "package reference not accepted: {reason}"),
         }
     }
 }
@@ -127,7 +131,10 @@ impl std::error::Error for PacmanError {
         match self {
             Self::Spawn { source, .. } => Some(source),
             Self::Parse(error) => Some(error),
-            Self::NotFound { .. } | Self::Failed { .. } | Self::BadQuery { .. } => None,
+            Self::NotFound { .. }
+            | Self::Failed { .. }
+            | Self::BadQuery { .. }
+            | Self::BadPackageRef { .. } => None,
         }
     }
 }

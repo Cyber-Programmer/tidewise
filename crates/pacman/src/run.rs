@@ -8,7 +8,7 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use crate::{InstalledPackage, PacmanError, SearchResult, parse_qi, parse_ss};
+use crate::{InstalledPackage, PackageRef, PacmanError, SearchResult, parse_qi, parse_ss};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -46,6 +46,20 @@ pub fn search(query: &str) -> Result<Vec<SearchResult>, PacmanError> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let output = run(Path::new(PACMAN), &args)?;
     results_from_output(&output)
+}
+
+/// Checks the packages to look up and removes repeats (keeping first-seen order).
+///
+/// Nothing invalid may reach pacman: every repo and name is checked first. An empty request stays empty,
+/// and the caller must not run pacman for it (`pacman -Si` with no names prints every package).
+fn details_request(refs: &[PackageRef]) -> Result<Vec<PackageRef>, PacmanError> {
+    Ok(refs.to_vec())
+}
+
+/// The arguments for `pacman -Si`: `--` always comes before the names, so no name can be an option.
+fn details_args(request: &[PackageRef]) -> Vec<String> {
+    let _ = request;
+    Vec::new()
 }
 
 /// Longest search text we accept, in characters (after trimming).
@@ -589,5 +603,119 @@ mod real_search_tests {
         for query in ["(", "[", "a.*b", "--help", "-dd", "--noconfirm"] {
             assert!(search(query).is_ok(), "{query:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod details_tests {
+    use super::*;
+
+    fn pkg(repo: &str, name: &str) -> PackageRef {
+        PackageRef {
+            repo: repo.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn refused(refs: &[PackageRef]) -> &'static str {
+        match details_request(refs) {
+            Err(PacmanError::BadPackageRef { reason }) => reason,
+            other => panic!("{refs:?}: expected BadPackageRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_request_stays_empty() {
+        assert_eq!(details_request(&[]).unwrap(), []);
+    }
+
+    #[test]
+    fn valid_refs_keep_their_order() {
+        let refs = [
+            pkg("extra", "zsh"),
+            pkg("core", "glibc"),
+            pkg("my repo.x", "a+b"),
+        ];
+        assert_eq!(details_request(&refs).unwrap(), refs);
+    }
+
+    #[test]
+    fn repeated_refs_are_removed_keeping_first_seen_order() {
+        let refs = [
+            pkg("extra", "zsh"),
+            pkg("core", "glibc"),
+            pkg("extra", "zsh"),
+            pkg("extra", "bc"),
+            pkg("core", "glibc"),
+        ];
+        assert_eq!(
+            details_request(&refs).unwrap(),
+            [
+                pkg("extra", "zsh"),
+                pkg("core", "glibc"),
+                pkg("extra", "bc")
+            ]
+        );
+    }
+
+    #[test]
+    fn same_name_in_two_repos_is_not_a_repeat() {
+        let refs = [pkg("extra", "x"), pkg("testing", "x")];
+        assert_eq!(details_request(&refs).unwrap(), refs);
+    }
+
+    #[test]
+    fn bad_repo_names_are_refused() {
+        for repo in ["", "a/b", "local", "a\nb", "a\0b"] {
+            assert_eq!(
+                refused(&[pkg(repo, "zsh")]),
+                "the repository name is not valid",
+                "{repo:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bad_package_names_are_refused() {
+        for name in [
+            "",
+            "-dd",
+            "--help",
+            ".x",
+            "foo bar",
+            "$(x)",
+            "x\n",
+            "a/b",
+            "caf\u{e9}",
+            "--overwrite",
+        ] {
+            assert_eq!(
+                refused(&[pkg("extra", name)]),
+                "the package name is not valid",
+                "{name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_bad_ref_among_good_ones_refuses_everything() {
+        let refs = [
+            pkg("extra", "zsh"),
+            pkg("extra", "--force"),
+            pkg("core", "bc"),
+        ];
+        assert_eq!(refused(&refs), "the package name is not valid");
+        // Even when the bad one is a repeat of itself.
+        let twice = [pkg("extra", "-x"), pkg("extra", "-x")];
+        assert_eq!(refused(&twice), "the package name is not valid");
+    }
+
+    #[test]
+    fn args_are_si_then_double_dash_then_repo_slash_name() {
+        let request = [pkg("extra", "zsh"), pkg("core", "glibc")];
+        assert_eq!(
+            details_args(&request),
+            ["-Si", "--", "extra/zsh", "core/glibc"]
+        );
     }
 }

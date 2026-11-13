@@ -1,9 +1,25 @@
 //! Parser for `pacman -Si`: the details of packages in the repositories.
 
-use crate::ParseError;
 use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::record::{Record, split_records};
 use crate::size::parse_size;
+use crate::{ParseError, SearchResult};
+
+/// A package to look up: the repository and the name, as a search result gives them.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PackageRef {
+    pub repo: String,
+    pub name: String,
+}
+
+impl From<&SearchResult> for PackageRef {
+    fn from(result: &SearchResult) -> Self {
+        Self {
+            repo: String::new(),
+            name: result.name.clone(),
+        }
+    }
+}
 
 /// How a dependency compares versions (`=`, `<`, `<=`, `>`, `>=`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,6 +292,20 @@ mod tests {
                 version: version.to_string(),
             }),
         })
+    }
+
+    #[test]
+    fn a_search_result_converts_to_a_package_ref() {
+        let results =
+            crate::parse_ss(include_str!("../../../tests/fixtures/pacman/ss-sample.txt")).unwrap();
+        let zsh = results.iter().find(|r| r.name == "zsh").unwrap();
+        assert_eq!(
+            PackageRef::from(zsh),
+            PackageRef {
+                repo: "extra".to_string(),
+                name: "zsh".to_string()
+            }
+        );
     }
 
     #[test]

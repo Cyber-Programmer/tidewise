@@ -436,6 +436,11 @@ fn error_text(error: &PacmanError) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
+        PacmanError::BadPackageRef { .. } => ErrorText {
+            title: String::new(),
+            body: String::new(),
+            technical: error.to_string(),
+        },
     }
 }
 
@@ -887,6 +892,25 @@ mod tests {
         assert_eq!(
             technical,
             "search text not accepted: the search text is too long"
+        );
+        assert_eq!(text.technical, technical);
+    }
+
+    #[test]
+    fn a_refused_package_reference_is_reported_as_a_bug() {
+        let error = PacmanError::BadPackageRef {
+            reason: "the package name is not valid",
+        };
+        let technical = error.to_string();
+        let text = error_of(error);
+        assert_eq!(text.title, "Tidewise asked pacman about an invalid package");
+        assert_eq!(
+            text.body,
+            "This is a bug in Tidewise, not something you did. Please report it."
+        );
+        assert_eq!(
+            technical,
+            "package reference not accepted: the package name is not valid"
         );
         assert_eq!(text.technical, technical);
     }
