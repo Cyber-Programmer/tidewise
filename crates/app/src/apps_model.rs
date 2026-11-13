@@ -442,10 +442,12 @@ fn error_text(error: &PacmanError) -> ErrorText {
             body: "This is a bug in Tidewise, not something you did. Please report it.".to_string(),
             technical: error.to_string(),
         },
-        // Placeholder until the green commit; the Home/Apps screens will show it when the lists can't be read.
+        // The Home screen (M4) will show this when the package lists can't be checked.
         PacmanError::ReadLists { .. } => ErrorText {
-            title: String::new(),
-            body: String::new(),
+            title: "Tidewise couldn't read your package lists".to_string(),
+            body: "Tidewise couldn't check how up to date your package lists are, because one of \
+                   pacman's database files couldn't be read. Try again, or check the folder's permissions."
+                .to_string(),
             technical: error.to_string(),
         },
     }
