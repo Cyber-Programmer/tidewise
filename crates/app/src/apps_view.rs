@@ -4,6 +4,7 @@
 use crate::apps_model::{
     AppsModel, Details, EmptyState, ErrorText, ListState, Row, SortOrder, Tab,
 };
+use crate::size_text::split_size;
 
 /// Shown while the list is loading, and as the "number" when there is none yet.
 const NO_NUMBER: &str = "–";
@@ -336,14 +337,6 @@ fn details_view(details: &Details) -> DetailsView {
         note: "Looking only. Removing packages comes in a later version of Tidewise.".to_string(),
         technical_source: format!("source: pacman -Qi {}", details.name),
         technical_bytes: exact_bytes(details.size_bytes),
-    }
-}
-
-/// "1.67 GB" becomes ("1.67", "GB"). Text without a space is all number.
-fn split_size(size_text: &str) -> (String, String) {
-    match size_text.split_once(' ') {
-        Some((number, unit)) => (number.to_string(), unit.to_string()),
-        None => (size_text.to_string(), String::new()),
     }
 }
 
