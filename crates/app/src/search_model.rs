@@ -2,7 +2,7 @@
 //! Plain Rust, no Slint, no threads, no clock. It never runs pacman; it is handed pacman's answers.
 
 use crate::error_words::{Doing, ErrorText, error_text};
-use tidewise_pacman::{PacmanError, SearchResult};
+use tidewise_pacman::{PackageRef, PacmanError, SearchResult};
 
 /// Why a result is in the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,6 +243,39 @@ impl SearchModel {
         self.running.clone_from(&next);
         next
     }
+
+    /// Position of the selected result in `results()`.
+    pub fn selected_index(&self) -> Option<usize> {
+        None
+    }
+
+    /// The selected result.
+    pub fn selected(&self) -> Option<&RankedResult> {
+        None
+    }
+
+    /// The selected package, as `pacman -Si` wants to be asked about it.
+    pub fn selected_ref(&self) -> Option<PackageRef> {
+        None
+    }
+
+    /// Selects a result by repository and name. Ignored unless it is in the list.
+    pub fn select(&mut self, _repo: &str, _name: &str) {}
+
+    /// Selects the next row. On the last row nothing changes.
+    pub fn select_next(&mut self) {}
+
+    /// Selects the previous row. On the first row nothing changes.
+    pub fn select_previous(&mut self) {}
+
+    /// Selects the first row.
+    pub fn select_first(&mut self) {}
+
+    /// Selects the last row.
+    pub fn select_last(&mut self) {}
+
+    /// Moves the selection by `delta` rows (negative = up) and stops at the first or last row.
+    pub fn select_page(&mut self, _delta: isize) {}
 
     pub fn state(&self) -> &SearchState {
         &self.state
@@ -726,5 +759,151 @@ mod tests {
         model.set_query("java");
         model.start_search();
         assert!(!model.is_slow());
+    }
+
+    // ---- selection and keys ----
+
+    /// A model that has answered "x" with these names (all name matches, so pacman's order is kept).
+    fn loaded(names: &[&str]) -> SearchModel {
+        let (mut model, ticket) = searching("x");
+        model.search_done(ticket.number, found(names));
+        model
+    }
+
+    fn selected_name(model: &SearchModel) -> Option<&str> {
+        model.selected().map(|r| r.result.name.as_str())
+    }
+
+    #[test]
+    fn after_an_answer_the_first_row_is_selected() {
+        let model = loaded(&["x1", "x2", "x3"]);
+        assert_eq!(selected_name(&model), Some("x1"));
+        assert_eq!(model.selected_index(), Some(0));
+        assert_eq!(
+            model.selected_ref(),
+            Some(PackageRef {
+                repo: "extra".to_string(),
+                name: "x1".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn nothing_is_selected_without_results() {
+        assert_eq!(selected_name(&SearchModel::new()), None);
+        assert_eq!(SearchModel::new().selected_ref(), None);
+        assert_eq!(selected_name(&loaded(&[])), None);
+        assert_eq!(loaded(&[]).selected_index(), None);
+    }
+
+    #[test]
+    fn a_result_can_be_selected_by_repository_and_name() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        model.select("extra", "x3");
+        assert_eq!(selected_name(&model), Some("x3"));
+        assert_eq!(model.selected_index(), Some(2));
+    }
+
+    #[test]
+    fn selecting_something_that_is_not_listed_is_ignored() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.select("extra", "nope");
+        model.select("core", "x2"); // right name, wrong repository
+        assert_eq!(selected_name(&model), Some("x1"));
+    }
+
+    #[test]
+    fn the_same_name_in_two_repositories_is_two_rows() {
+        let (mut model, ticket) = searching("x");
+        model.search_done(
+            ticket.number,
+            Ok(vec![hit("extra", "x1", ""), hit("extra-testing", "x1", "")]),
+        );
+        model.select("extra-testing", "x1");
+        assert_eq!(model.selected_index(), Some(1));
+        assert_eq!(model.selected_ref().unwrap().repo, "extra-testing");
+    }
+
+    #[test]
+    fn next_and_previous_move_one_row_and_stop_at_the_ends() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        model.select_previous();
+        assert_eq!(selected_name(&model), Some("x1"));
+        model.select_next();
+        model.select_next();
+        assert_eq!(selected_name(&model), Some("x3"));
+        model.select_next();
+        assert_eq!(selected_name(&model), Some("x3"));
+        model.select_previous();
+        assert_eq!(selected_name(&model), Some("x2"));
+    }
+
+    #[test]
+    fn first_last_and_pages_jump_and_stop_at_the_ends() {
+        let mut model = loaded(&["x1", "x2", "x3", "x4", "x5"]);
+        model.select_last();
+        assert_eq!(selected_name(&model), Some("x5"));
+        model.select_first();
+        assert_eq!(selected_name(&model), Some("x1"));
+        model.select_page(3);
+        assert_eq!(selected_name(&model), Some("x4"));
+        model.select_page(-2);
+        assert_eq!(selected_name(&model), Some("x2"));
+        model.select_page(100);
+        assert_eq!(selected_name(&model), Some("x5"));
+        model.select_page(isize::MIN);
+        assert_eq!(selected_name(&model), Some("x1"));
+    }
+
+    #[test]
+    fn moving_with_no_rows_does_nothing() {
+        let mut model = loaded(&[]);
+        model.select_next();
+        model.select_previous();
+        model.select_first();
+        model.select_last();
+        model.select_page(5);
+        assert_eq!(selected_name(&model), None);
+    }
+
+    #[test]
+    fn a_new_answer_keeps_the_selection_if_that_package_is_still_listed() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        model.select("extra", "x2");
+        model.set_query("x2");
+        let ticket = model.start_search().unwrap();
+        model.search_done(ticket.number, found(&["x3", "x2"]));
+        assert_eq!(selected_name(&model), Some("x2"));
+        assert_eq!(model.selected_index(), Some(1));
+    }
+
+    #[test]
+    fn a_new_answer_without_the_selected_package_selects_the_first_row() {
+        let mut model = loaded(&["x1", "x2", "x3"]);
+        model.select("extra", "x2");
+        model.set_query("x9");
+        let ticket = model.start_search().unwrap();
+        model.search_done(ticket.number, found(&["x9a", "x9b"]));
+        assert_eq!(selected_name(&model), Some("x9a"));
+    }
+
+    #[test]
+    fn the_selection_stays_while_a_later_search_runs_and_goes_when_the_box_is_cleared() {
+        let mut model = loaded(&["x1", "x2"]);
+        model.select("extra", "x2");
+        model.set_query("y");
+        model.start_search();
+        assert_eq!(selected_name(&model), Some("x2"));
+        model.set_query("");
+        assert_eq!(selected_name(&model), None);
+    }
+
+    #[test]
+    fn an_error_leaves_nothing_selected() {
+        let mut model = loaded(&["x1"]);
+        model.set_query("y");
+        let ticket = model.start_search().unwrap();
+        model.search_done(ticket.number, Err(failed()));
+        assert_eq!(selected_name(&model), None);
     }
 }
