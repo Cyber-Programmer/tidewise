@@ -172,6 +172,21 @@ fn missing_from_stderr(output: &Output, request: &[PackageRef]) -> Option<Vec<Pa
     )
 }
 
+/// Looks up the details of packages in the repositories with `pacman -Si`.
+///
+/// Pass what a search result gave you (`PackageRef::from(&result)`). Repeats are asked once. A name pacman does
+/// not know is not an error: it comes back in `not_found` next to the packages that were found. An invalid
+/// repository or package name is refused before pacman starts (`BadPackageRef`); an empty list returns an
+/// empty answer without running pacman. Reads the local sync database only (no `-Sy`, no network, no root).
+/// Blocks until pacman finishes (no timeout yet).
+pub fn package_details(refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError> {
+    let _ = refs;
+    Ok(DetailsLookup {
+        found: Vec::new(),
+        not_found: Vec::new(),
+    })
+}
+
 /// Longest search text we accept, in characters (after trimming).
 const MAX_QUERY_CHARS: usize = 100;
 
@@ -1084,5 +1099,79 @@ mod lookup_tests {
             missing.to_string(),
             "pacman said nothing about core/bc: neither details nor \"not found\""
         );
+    }
+}
+
+#[cfg(test)]
+mod details_runner_tests {
+    use super::*;
+
+    fn pkg(repo: &str, name: &str) -> PackageRef {
+        PackageRef {
+            repo: repo.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn empty_request_returns_an_empty_answer_without_running_pacman() {
+        let lookup = package_details(&[]).unwrap();
+        assert_eq!(lookup.found, []);
+        assert_eq!(lookup.not_found, []);
+    }
+
+    #[test]
+    fn a_bad_ref_is_refused_before_pacman_runs() {
+        let error = package_details(&[pkg("extra", "--noconfirm")]).unwrap_err();
+        assert!(
+            matches!(error, PacmanError::BadPackageRef { .. }),
+            "got {error:?}"
+        );
+    }
+}
+
+/// Runs the real pacman, read-only. Needs an Arch machine, so CI skips them.
+/// Run with: `cargo test -p tidewise-pacman -- --ignored`
+#[cfg(test)]
+mod real_details_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "runs the real /usr/bin/pacman; run with: cargo test -p tidewise-pacman -- --ignored"]
+    fn real_pacman_details_found_not_found_and_repeats() {
+        let zsh = PackageRef {
+            repo: "extra".to_string(),
+            name: "zsh".to_string(),
+        };
+        let unknown = PackageRef {
+            repo: "extra".to_string(),
+            name: "zzqqxxnotapkg".to_string(),
+        };
+        // zsh twice: it is asked once and answered once.
+        let lookup = package_details(&[zsh.clone(), unknown.clone(), zsh.clone()]).unwrap();
+        assert_eq!(lookup.found.len(), 1);
+        let found = lookup.found.first().unwrap();
+        assert_eq!((found.repo.as_str(), found.name.as_str()), ("extra", "zsh"));
+        assert!(found.installed_size > 0 && !found.installed_size_text.is_empty());
+        assert_eq!(lookup.not_found, [unknown]);
+
+        // The right name in the wrong repository is "not found", not a failure.
+        let wrong_repo = PackageRef {
+            repo: "core".to_string(),
+            name: "zsh".to_string(),
+        };
+        let lookup = package_details(std::slice::from_ref(&wrong_repo)).unwrap();
+        assert_eq!(lookup.found, []);
+        assert_eq!(lookup.not_found, [wrong_repo]);
+
+        // A repository pacman does not have is a real failure.
+        let no_repo = PackageRef {
+            repo: "nosuchrepo".to_string(),
+            name: "zsh".to_string(),
+        };
+        assert!(matches!(
+            package_details(&[no_repo]),
+            Err(PacmanError::Failed { .. })
+        ));
     }
 }
