@@ -68,6 +68,20 @@ fn parse_dependency(text: &str) -> Option<Dependency> {
     })
 }
 
+/// One line of `Optional Deps`: a dependency and the reason it helps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionalDependency {
+    pub dependency: Dependency,
+    /// Empty when pacman printed only the name.
+    pub reason: String,
+}
+
+/// Reads `name: reason`, `name` or `name>=1.0: reason`. `None` if the dependency part is not valid.
+fn parse_optional_dep(line: &str) -> Option<OptionalDependency> {
+    let _ = line;
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +161,77 @@ mod tests {
             "foo=", "foo<=", "foo<=>1", "foo=1=2", "foo>= 1", "foo>=1 2", "foo>=1\n", "foo>=1\0",
         ] {
             assert_eq!(parse_dependency(text), None, "should refuse {text:?}");
+        }
+    }
+
+    fn optional(name: &str, reason: &str) -> Option<OptionalDependency> {
+        Some(OptionalDependency {
+            dependency: Dependency {
+                name: name.to_string(),
+                rule: None,
+            },
+            reason: reason.to_string(),
+        })
+    }
+
+    #[test]
+    fn optional_dep_name_and_reason() {
+        assert_eq!(
+            parse_optional_dep("grml-zsh-config: grml's zsh setup"),
+            optional("grml-zsh-config", "grml's zsh setup")
+        );
+    }
+
+    #[test]
+    fn optional_dep_bare_name_has_empty_reason() {
+        assert_eq!(parse_optional_dep("gzip"), optional("gzip", ""));
+    }
+
+    #[test]
+    fn optional_dep_reason_may_contain_colons() {
+        assert_eq!(
+            parse_optional_dep("a: Plugins: TIFF, MNG"),
+            optional("a", "Plugins: TIFF, MNG")
+        );
+    }
+
+    #[test]
+    fn optional_dep_name_followed_by_a_lone_colon_has_empty_reason() {
+        // The record reader trims trailing spaces, so `name: ` arrives as `name:`.
+        assert_eq!(parse_optional_dep("foo:"), optional("foo", ""));
+    }
+
+    #[test]
+    fn optional_dep_with_a_version_rule() {
+        let parsed = parse_optional_dep("python>=3: For Python bindings").unwrap();
+        assert_eq!(parsed.reason, "For Python bindings");
+        assert_eq!(
+            parsed.dependency,
+            dep("python", Comparison::GreaterOrEqual, "3").unwrap()
+        );
+    }
+
+    #[test]
+    fn optional_dep_epoch_colon_is_not_the_reason_separator() {
+        let parsed = parse_optional_dep("foo>=1:2.0: reason").unwrap();
+        assert_eq!(parsed.reason, "reason");
+        assert_eq!(
+            parsed.dependency,
+            dep("foo", Comparison::GreaterOrEqual, "1:2.0").unwrap()
+        );
+    }
+
+    #[test]
+    fn optional_dep_with_a_bad_name_is_refused() {
+        for line in [
+            "",
+            ": reason",
+            "--force: x",
+            "foo bar: x",
+            "foo;rm",
+            "a/b: x",
+        ] {
+            assert_eq!(parse_optional_dep(line), None, "should refuse {line:?}");
         }
     }
 }
