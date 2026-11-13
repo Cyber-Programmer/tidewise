@@ -29,6 +29,7 @@ pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
 pub use run::{installed_packages, search};
 pub use si::{
-    Comparison, Dependency, OptionalDependency, PackageDetails, PackageRef, VersionRule, parse_si,
+    Comparison, Dependency, DetailsLookup, OptionalDependency, PackageDetails, PackageRef,
+    VersionRule, parse_si,
 };
 pub use ss::{SearchResult, parse_ss};
