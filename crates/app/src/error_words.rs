@@ -47,7 +47,8 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
             let stderr = stderr.trim();
             ErrorText {
                 title: match doing {
-                    Doing::ListingInstalled | Doing::CheckingLists => "pacman couldn't list your packages",
+                    Doing::ListingInstalled => "pacman couldn't list your packages",
+                    Doing::CheckingLists => "pacman couldn't check the package lists",
                     Doing::Searching => "pacman couldn't finish the search",
                     Doing::LookingUp => "pacman couldn't look up this package",
                 }
@@ -65,7 +66,11 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
         PacmanError::Parse(parse_error) => ErrorText {
             title: "Tidewise couldn't read pacman's answer".to_string(),
             body: match doing {
-                Doing::ListingInstalled | Doing::CheckingLists => {
+                Doing::CheckingLists => {
+                    "pacman's answer looked wrong, so Tidewise can't tell how new your \
+                     package lists are."
+                }
+                Doing::ListingInstalled => {
                     "The list from pacman looked incomplete, so Tidewise shows nothing \
                      rather than a list with packages missing."
                 }
