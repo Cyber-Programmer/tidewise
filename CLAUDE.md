@@ -35,7 +35,9 @@ The rebuild exists so the human understands every part. For each task:
 8. **Protected things get no destructive button:** `base`, installed kernels, bootloader, desktop session, audio,
    network, `pacman`, `systemd`, the journal. Refuse in code, not only in the UI.
 9. **Never delete or "fix" `/var/lib/pacman/db.lck`.** Wait and explain instead.
-10. **Never pass `--overwrite`, `-d`/`-dd` or `--noconfirm`** with user-chosen input.
+10. **Never pass `--overwrite` or `-d`/`-dd`** with user-chosen input. **`--noconfirm` only for a transaction the
+    helper has verified:** providers named explicitly, a `--print` dry run equal to the confirmed list, no removals.
+    (Human's decision, 13 Nov 2026; see `docs/decisions/0005-helper-invocation.md` and `docs/security/threat-model.md`.)
 11. **No network** except what pacman itself does, plus an optional update check. No telemetry.
 12. AUR is out of scope for v1.0. When added: build as the normal user, never root; show the PKGBUILD first.
 
