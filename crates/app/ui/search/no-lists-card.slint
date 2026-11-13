@@ -1,0 +1,64 @@
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { SearchBridge } from "bridge.slint";
+
+// Shown when pacman has no package lists yet. There is no button: getting them comes in Tidewise 0.1.
+export component NoListsCard inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    // View state only: is the "Technical details" part open?
+    property <bool> technical-open: false;
+
+    VerticalLayout {
+        padding: 28px;
+        spacing: Theme.space-m;
+
+        Text {
+            text: SearchBridge.no-lists-title;
+            color: Theme.text;
+            font-size: Theme.size-row-title;
+            font-weight: Theme.weight-semibold;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: SearchBridge.no-lists-body;
+            color: Theme.text-2;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: SearchBridge.no-lists-next-step;
+            color: Theme.text;
+            font-size: Theme.size-body;
+            font-weight: Theme.weight-medium;
+            wrap: word-wrap;
+        }
+
+        if SearchBridge.no-lists-technical.length > 0: HorizontalLayout {
+            TwButton {
+                text: root.technical-open ? "Hide technical details" : "Technical details";
+                clicked => {
+                    root.technical-open = !root.technical-open;
+                }
+            }
+
+            Rectangle { }
+        }
+
+        if root.technical-open: VerticalLayout {
+            spacing: Theme.space-xs;
+            for line in SearchBridge.no-lists-technical: Text {
+                text: line;
+                color: Theme.text-2;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-label;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

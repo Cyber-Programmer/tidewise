@@ -4,6 +4,8 @@ import { Theme } from "../theme.slint";
 export component SearchField inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
+    // Optional SVG path data (24 x 24 grid) for a small icon before the text.
+    in property <string> icon;
     // Fired for every change the user makes, including pressing the clear button.
     callback edited(string);
 
@@ -16,6 +18,20 @@ export component SearchField inherits Rectangle {
     HorizontalLayout {
         padding-left: Theme.space-m;
         spacing: Theme.space-s;
+
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            Path {
+                width: 17px;
+                height: 17px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: root.icon;
+                stroke: Theme.text-3;
+                stroke-width: 1.9px;
+                stroke-line-cap: round;
+            }
+        }
 
         Rectangle {
             input := TextInput {

@@ -1,6 +1,14 @@
 import { Theme } from "../theme.slint";
+import { SearchField } from "../widgets/search-field.slint";
+import { ErrorPanel } from "../apps/error-panel.slint";
+import { SearchBridge, SearchBodyKind } from "bridge.slint";
+import { StartCard } from "start-card.slint";
+import { NoListsCard } from "no-lists-card.slint";
+import { ResultList } from "result-list.slint";
+import { SearchDetailsPanel } from "details-panel.slint";
 
-// The Search screen. Placeholder: the title only. The next commit builds it.
+// The Search screen: header and search box, then (depending on what is happening) a card, the results with
+// their details, a message or the error panel. The sidebar lives in MainWindow.
 export component SearchScreen inherits Rectangle {
     background: Theme.bg;
 
@@ -9,13 +17,101 @@ export component SearchScreen inherits Rectangle {
         padding-right: Theme.page-padding-x;
         padding-top: Theme.page-padding-y;
         padding-bottom: Theme.page-padding-y;
-        alignment: start;
+        spacing: Theme.section-gap;
 
-        Text {
-            text: "Search";
-            color: Theme.text;
-            font-size: Theme.size-page-title;
-            font-weight: Theme.weight-semibold;
+        // Header: title, how old the package lists are, the search box, and a note if the text was refused.
+        VerticalLayout {
+            spacing: Theme.space-m;
+
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                Text {
+                    text: "Search";
+                    color: Theme.text;
+                    font-size: Theme.size-page-title;
+                    font-weight: Theme.weight-semibold;
+                }
+
+                Text {
+                    text: SearchBridge.subtitle;
+                    color: Theme.text-3;
+                    font-size: Theme.size-body;
+                    overflow: elide;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                SearchField {
+                    width: 640px;
+                    height: 48px;
+                    text <=> SearchBridge.search-text;
+                    icon: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13M15.5 15.5L20 20";
+                    placeholder: "Find an app, e.g. vlc or video editor";
+                    edited(text) => {
+                        SearchBridge.search-edited(text);
+                    }
+                }
+            }
+
+            if SearchBridge.status != "": Text {
+                text: SearchBridge.status;
+                color: Theme.text-3;
+                font-size: Theme.size-body;
+            }
+
+            if SearchBridge.inline-note != "": Rectangle {
+                background: Theme.warning-bg;
+                border-radius: Theme.radius-control;
+                border-width: 1px;
+                border-color: Theme.warning;
+                VerticalLayout {
+                    padding: Theme.space-m;
+                    Text {
+                        text: SearchBridge.inline-note;
+                        color: Theme.warning;
+                        font-size: Theme.size-body;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
+        if SearchBridge.body == SearchBodyKind.start: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            StartCard { }
+        }
+
+        if SearchBridge.body == SearchBodyKind.no-lists: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            NoListsCard { }
+        }
+
+        if SearchBridge.body == SearchBodyKind.error: ErrorPanel {
+            vertical-stretch: 1;
+            title: SearchBridge.error-title;
+            body: SearchBridge.error-body;
+            unchanged: SearchBridge.error-unchanged;
+            technical: SearchBridge.error-technical;
+            report: SearchBridge.error-report;
+            try-again => {
+                SearchBridge.try-again();
+            }
+        }
+
+        // Skeleton rows, results (with details beside them) or "no results".
+        if SearchBridge.body == SearchBodyKind.loading || SearchBridge.body == SearchBodyKind.results || SearchBridge.body == SearchBodyKind.no-results: HorizontalLayout {
+            spacing: Theme.section-gap;
+            vertical-stretch: 1;
+            ResultList { }
+
+            if SearchBridge.body == SearchBodyKind.results: SearchDetailsPanel { }
+        }
+
+        if SearchBridge.body == SearchBodyKind.bad-query: Rectangle {
+            vertical-stretch: 1;
         }
     }
 }

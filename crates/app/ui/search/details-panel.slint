@@ -1,0 +1,298 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { Chip } from "../widgets/chip.slint";
+import { LetterTile } from "../widgets/letter-tile.slint";
+import { ErrorPanel } from "../apps/error-panel.slint";
+import { SearchBridge, SearchDetailsKind } from "bridge.slint";
+
+// A label on the left and a value on the right, with a hairline above.
+component FactRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> mono: true;
+    height: 44px;
+
+    Rectangle {
+        height: 1px;
+        background: Theme.rule;
+    }
+
+    HorizontalLayout {
+        Text {
+            text: root.label;
+            color: Theme.text-3;
+            font-size: Theme.size-body;
+            vertical-alignment: center;
+        }
+
+        Rectangle { }
+
+        Text {
+            text: root.value;
+            color: Theme.text;
+            font-family: root.mono ? Theme.font-mono : Theme.font-sans;
+            font-size: Theme.size-body;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// One of the two size boxes: a label, then the number and its unit as two texts (a real space in the
+// big mono font would be far wider than the gap next to the small numbers).
+component SizeBox inherits Rectangle {
+    in property <string> label;
+    in property <string> number;
+    in property <string> unit;
+    background: Theme.surface-2;
+    border-radius: Theme.radius-control;
+    horizontal-stretch: 1;
+    accessible-role: text;
+    accessible-label: root.label + " " + root.number + " " + root.unit;
+
+    VerticalLayout {
+        padding: Theme.space-m;
+        spacing: Theme.space-xs;
+        Text {
+            text: root.label;
+            color: Theme.text-3;
+            font-size: Theme.size-label;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            alignment: start;
+            Text {
+                text: root.number;
+                color: Theme.text;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-dialog-title;
+            }
+
+            Text {
+                text: root.unit;
+                color: Theme.text;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-body;
+                vertical-alignment: bottom;
+            }
+        }
+    }
+}
+
+// The right-hand panel for the selected search result. Read-only in M2: no Install button yet.
+export component SearchDetailsPanel inherits Rectangle {
+    width: 340px;
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    // View state only: is the "Technical details" part open?
+    property <bool> technical-open: false;
+
+    if SearchBridge.has-details: ScrollView {
+        VerticalLayout {
+            padding: Theme.space-xl;
+            spacing: Theme.space-m;
+            alignment: start;
+
+            HorizontalLayout {
+                spacing: Theme.space-m;
+                VerticalLayout {
+                    alignment: start;
+                    LetterTile { letter: SearchBridge.details.letter; }
+                }
+
+                Text {
+                    text: SearchBridge.details.name;
+                    color: Theme.text;
+                    font-size: Theme.size-dialog-title;
+                    font-weight: Theme.weight-semibold;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+
+            Text {
+                text: SearchBridge.details.description;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                wrap: word-wrap;
+            }
+
+            if SearchBridge.details.message != "": Text {
+                text: SearchBridge.details.message;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                font-weight: Theme.weight-medium;
+                wrap: word-wrap;
+            }
+
+            if SearchBridge.details.kind == SearchDetailsKind.found: HorizontalLayout {
+                spacing: Theme.space-m;
+                SizeBox {
+                    label: "Download";
+                    number: SearchBridge.details.download-number;
+                    unit: SearchBridge.details.download-unit;
+                }
+
+                SizeBox {
+                    label: "On disk after install";
+                    number: SearchBridge.details.installed-number;
+                    unit: SearchBridge.details.installed-unit;
+                }
+            }
+
+            VerticalLayout {
+                FactRow {
+                    label: "Version";
+                    value: SearchBridge.details.version;
+                }
+
+                FactRow {
+                    label: "Repository";
+                    value: SearchBridge.details.repo;
+                }
+            }
+
+            if SearchBridge.details.repo-tag != "": HorizontalLayout {
+                Chip { text: SearchBridge.details.repo-tag; }
+
+                Rectangle { }
+            }
+
+            if SearchBridge.details.kind == SearchDetailsKind.found: VerticalLayout {
+                spacing: Theme.space-xs;
+                HorizontalLayout {
+                    Text {
+                        text: "Needs";
+                        color: Theme.text-3;
+                        font-size: Theme.size-label;
+                    }
+
+                    Rectangle { }
+
+                    Text {
+                        text: SearchBridge.details.needs-count;
+                        color: Theme.text-3;
+                        font-family: Theme.font-mono;
+                        font-size: Theme.size-label;
+                    }
+                }
+
+                for name in SearchBridge.details.needs: HorizontalLayout {
+                    Chip { text: name; }
+
+                    Rectangle { }
+                }
+
+                if SearchBridge.details.needs-more != "": Text {
+                    text: SearchBridge.details.needs-more;
+                    color: Theme.text-2;
+                    font-size: Theme.size-label;
+                }
+
+                if SearchBridge.details.needs-nothing != "": Text {
+                    text: SearchBridge.details.needs-nothing;
+                    color: Theme.text-2;
+                    font-size: Theme.size-body;
+                    wrap: word-wrap;
+                }
+            }
+
+            if SearchBridge.details.provides.length > 0: VerticalLayout {
+                spacing: Theme.space-xs;
+                Text {
+                    text: "Also counts as";
+                    color: Theme.text-3;
+                    font-size: Theme.size-label;
+                }
+
+                for name in SearchBridge.details.provides: HorizontalLayout {
+                    Chip { text: name; }
+
+                    Rectangle { }
+                }
+
+                if SearchBridge.details.provides-more != "": Text {
+                    text: SearchBridge.details.provides-more;
+                    color: Theme.text-2;
+                    font-size: Theme.size-label;
+                }
+            }
+
+            if SearchBridge.details.matched-note != "": Text {
+                text: SearchBridge.details.matched-note;
+                color: Theme.text-2;
+                font-size: Theme.size-body;
+                wrap: word-wrap;
+            }
+
+            if SearchBridge.details.installed-note != "": Rectangle {
+                background: Theme.surface-2;
+                border-radius: Theme.radius-control;
+                VerticalLayout {
+                    padding: Theme.space-m;
+                    Text {
+                        text: SearchBridge.details.installed-note;
+                        color: Theme.accent;
+                        font-size: Theme.size-body;
+                        font-weight: Theme.weight-semibold;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if SearchBridge.details.kind == SearchDetailsKind.failed: ErrorPanel {
+                title: SearchBridge.details.error-title;
+                body: SearchBridge.details.error-body;
+                unchanged: SearchBridge.details.error-unchanged;
+                technical: SearchBridge.details.error-technical;
+                report: SearchBridge.details.error-report;
+                try-again => {
+                    SearchBridge.details-try-again();
+                }
+            }
+
+            // Inset note.
+            Rectangle {
+                background: Theme.surface-2;
+                border-radius: Theme.radius-control;
+                VerticalLayout {
+                    padding: Theme.space-m;
+                    Text {
+                        text: SearchBridge.details.note;
+                        color: Theme.text-3;
+                        font-size: Theme.size-label;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                TwButton {
+                    text: root.technical-open ? "Hide technical details" : "Technical details";
+                    clicked => {
+                        root.technical-open = !root.technical-open;
+                    }
+                }
+
+                Rectangle { }
+            }
+
+            if root.technical-open: VerticalLayout {
+                spacing: Theme.space-xs;
+                for line in SearchBridge.details.technical: Text {
+                    text: line;
+                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
