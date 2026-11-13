@@ -1,0 +1,19 @@
+Repository      : core
+Name            : iana-etc
+Version         : 20260617-1
+Description     : /etc/protocols and /etc/services provided by IANA
+Architecture    : any
+URL             : https://www.iana.org/protocols
+Licenses        : custom:none
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 401.79 KiB
+Installed Size  : 4114.47 KiB
+Packager        : Jelle van der Waa <jelle@archlinux.org>
+Build Date      : Sun Jun 21 19:40:13 2026
+Validated By    : SHA-256 Sum  Signature
+

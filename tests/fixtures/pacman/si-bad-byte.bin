@@ -1,0 +1,26 @@
+Repository      : extra
+Name            : zsh
+Version         : 5.9.2-1
+Description     : A very advanced and ÿrogrammable command interpreter (shell) for UNIX
+Architecture    : x86_64
+URL             : https://www.zsh.org/
+Licenses        : custom
+Groups          : None
+Provides        : None
+Depends On      : pcre2  libcap  gdbm
+Optional Deps   : grml-zsh-config: grml's zsh setup
+                  zsh-autosuggestions: Fish-like autosuggestions for zsh
+                  zsh-completions: Additional completion definitions for Zsh
+                  zsh-doc: Info, HTML and PDF format of the ZSH documentation
+                  zsh-history-substring-search: ZSH port of Fish history search (up arrow)
+                  zsh-lovers: A collection of tips, tricks and examples for the Z shell.
+                  zsh-syntax-highlighting: Fish shell like syntax highlighting for Zsh
+                  zshdb: A debugger for zsh scripts
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.31 MiB
+Installed Size  : 6.94 MiB
+Packager        : Frederik Schwan <freswa@archlinux.org>
+Build Date      : Mon Jul 13 01:13:37 2026
+Validated By    : SHA-256 Sum  Signature
+

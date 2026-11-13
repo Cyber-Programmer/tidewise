@@ -1,0 +1,21 @@
+Repository      : extra
+Name            : dmd
+Version         : 1:2.113.0-2
+Description     : The D programming language reference compiler
+Architecture    : x86_64
+URL             : https://www.dlang.org
+Licenses        : BSL-1.0
+Groups          : dlang  dlang-dmd
+Provides        : d-compiler=2.113.0
+Depends On      : gcc  libphobos
+Optional Deps   : dtools: collection of useful utilities for development in D
+                  gcc-multilib: to cross-compile 32-bit applications
+                  dmd-docs: documentation and sample code for D
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.02 MiB
+Installed Size  : 5.96 MiB
+Packager        : Dan Printzell <wild@archlinux.org>
+Build Date      : Mon Aug 31 01:49:57 2026
+Validated By    : SHA-256 Sum  Signature
+

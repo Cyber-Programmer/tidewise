@@ -1,0 +1,12 @@
+Repository      : extra
+Name            : dmd
+Version         : 1:2.113.0-2
+Description     : The D programming language reference compiler
+Architecture    : x86_64
+URL             : https://www.dlang.org
+Licenses        : BSL-1.0
+Groups          : dlang  dlang-dmd
+Provides        : d-compiler=2.113.0
+Depends On      : gcc  libphobos
+Optional Deps   : dtools: collection of useful utilities for development in D
+                  gcc-multilib
