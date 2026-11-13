@@ -19,6 +19,8 @@ pub enum Doing {
     Searching,
     /// The details of one package: `pacman -Si`.
     LookingUp,
+    /// How new the package lists are: `pacman-conf` and the files in the sync folder.
+    CheckingLists,
 }
 
 /// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
@@ -45,7 +47,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
             let stderr = stderr.trim();
             ErrorText {
                 title: match doing {
-                    Doing::ListingInstalled => "pacman couldn't list your packages",
+                    Doing::ListingInstalled | Doing::CheckingLists => "pacman couldn't list your packages",
                     Doing::Searching => "pacman couldn't finish the search",
                     Doing::LookingUp => "pacman couldn't look up this package",
                 }
@@ -63,7 +65,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
         PacmanError::Parse(parse_error) => ErrorText {
             title: "Tidewise couldn't read pacman's answer".to_string(),
             body: match doing {
-                Doing::ListingInstalled => {
+                Doing::ListingInstalled | Doing::CheckingLists => {
                     "The list from pacman looked incomplete, so Tidewise shows nothing \
                      rather than a list with packages missing."
                 }
@@ -187,5 +189,23 @@ mod tests {
         let apps = error_text(&missing, Doing::ListingInstalled);
         assert_eq!(error_text(&missing, Doing::Searching), apps);
         assert_eq!(error_text(&missing, Doing::LookingUp), apps);
+    }
+
+    #[test]
+    fn a_failed_list_check_says_the_package_lists_could_not_be_checked() {
+        let text = error_text(&failed(), Doing::CheckingLists);
+        assert_eq!(text.title, "pacman couldn't check the package lists");
+        assert_eq!(text.body, FAILED_BODY);
+    }
+
+    #[test]
+    fn an_unreadable_list_check_answer_says_what_could_not_be_told() {
+        let text = error_text(&parse_failed(), Doing::CheckingLists);
+        assert_eq!(text.title, "Tidewise couldn't read pacman's answer");
+        assert_eq!(
+            text.body,
+            "pacman's answer looked wrong, so Tidewise can't tell how new your \
+             package lists are."
+        );
     }
 }
