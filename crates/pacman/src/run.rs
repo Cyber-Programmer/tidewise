@@ -10,7 +10,9 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use crate::name::{is_valid_package_name, is_valid_repo_name};
-use crate::{InstalledPackage, PackageRef, PacmanError, SearchResult, parse_qi, parse_ss};
+use crate::{
+    DetailsLookup, InstalledPackage, PackageRef, PacmanError, SearchResult, parse_qi, parse_ss,
+};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
@@ -86,6 +88,20 @@ fn details_args(request: &[PackageRef]) -> Vec<String> {
             .map(|item| format!("{}/{}", item.repo, item.name)),
     );
     args
+}
+
+/// Turns what `pacman -Si` printed into found and not-found packages. Pure: takes an `Output`, runs nothing.
+///
+/// `request` is the checked, de-duplicated list that was asked for.
+fn lookup_from_output(
+    output: &Output,
+    request: &[PackageRef],
+) -> Result<DetailsLookup, PacmanError> {
+    let _ = (output, request);
+    Ok(DetailsLookup {
+        found: Vec::new(),
+        not_found: Vec::new(),
+    })
 }
 
 /// Longest search text we accept, in characters (after trimming).
@@ -742,6 +758,263 @@ mod details_tests {
         assert_eq!(
             details_args(&request),
             ["-Si", "--", "extra/zsh", "core/glibc"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+    use crate::{ParseError, parse_si};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const ZSH: &str = include_str!("../../../tests/fixtures/pacman/si-zsh.txt");
+    const MULTI: &str = include_str!("../../../tests/fixtures/pacman/si-multi.txt");
+    const BROKEN: &str = include_str!("../../../tests/fixtures/pacman/si-broken-truncated.txt");
+    const BAD_BYTE: &[u8] = include_bytes!("../../../tests/fixtures/pacman/si-bad-byte.bin");
+    const NOT_FOUND: &str = include_str!("../../../tests/fixtures/pacman/si-not-found.stderr.txt");
+    const UNKNOWN_REPO: &str =
+        include_str!("../../../tests/fixtures/pacman/si-unknown-repo.stderr.txt");
+
+    fn fake_output(code: i32, stdout: &[u8], stderr: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    fn pkg(repo: &str, name: &str) -> PackageRef {
+        PackageRef {
+            repo: repo.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn names(lookup: &DetailsLookup) -> Vec<&str> {
+        lookup.found.iter().map(|p| p.name.as_str()).collect()
+    }
+
+    fn failed(result: Result<DetailsLookup, PacmanError>) -> (Option<i32>, String) {
+        match result {
+            Err(PacmanError::Failed { code, stderr }) => (code, stderr),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    fn parse_error(result: Result<DetailsLookup, PacmanError>) -> ParseError {
+        match result {
+            Err(PacmanError::Parse(error)) => error,
+            other => panic!("expected a parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn success_gives_found_records_and_nothing_missing() {
+        let request = [pkg("extra", "zsh")];
+        let lookup = lookup_from_output(&fake_output(0, ZSH.as_bytes(), ""), &request).unwrap();
+        assert_eq!(lookup.found, parse_si(ZSH).unwrap());
+        assert_eq!(lookup.not_found, []);
+    }
+
+    #[test]
+    fn success_keeps_pacmans_order() {
+        let request = [pkg("core", "man-db"), pkg("core", "less")];
+        let lookup = lookup_from_output(&fake_output(0, MULTI.as_bytes(), ""), &request).unwrap();
+        assert_eq!(names(&lookup), ["man-db", "less"]);
+    }
+
+    #[test]
+    fn unknown_name_is_partial_success_not_an_error() {
+        let request = [pkg("extra", "zsh"), pkg("extra", "nosuchpkg")];
+        let output = fake_output(1, ZSH.as_bytes(), NOT_FOUND);
+        let lookup = lookup_from_output(&output, &request).unwrap();
+        assert_eq!(names(&lookup), ["zsh"]);
+        assert_eq!(lookup.not_found, [pkg("extra", "nosuchpkg")]);
+    }
+
+    #[test]
+    fn nothing_found_is_still_not_an_error() {
+        let request = [pkg("extra", "a"), pkg("core", "b"), pkg("extra", "c")];
+        let stderr = "error: package 'extra/a' was not found\n\
+                      error: package 'core/b' was not found\n\
+                      error: package 'extra/c' was not found\n";
+        // The exit code counts the misses; it must not matter whether it is 1, 3 or 255.
+        for code in [1, 3, 255] {
+            let lookup = lookup_from_output(&fake_output(code, b"", stderr), &request).unwrap();
+            assert_eq!(lookup.found, []);
+            assert_eq!(lookup.not_found, request, "exit code {code}");
+        }
+    }
+
+    #[test]
+    fn not_found_follows_request_order_not_stderr_order() {
+        let request = [pkg("extra", "a"), pkg("extra", "b")];
+        let stderr =
+            "error: package 'extra/b' was not found\nerror: package 'extra/a' was not found\n";
+        let lookup = lookup_from_output(&fake_output(2, b"", stderr), &request).unwrap();
+        assert_eq!(lookup.not_found, request);
+    }
+
+    #[test]
+    fn any_other_stderr_line_makes_it_a_failure() {
+        // An unknown repository adds a line that is not a "not found" line.
+        let request = [pkg("nosuchrepo", "zsh")];
+        let (code, stderr) = failed(lookup_from_output(
+            &fake_output(2, b"", UNKNOWN_REPO),
+            &request,
+        ));
+        assert_eq!(code, Some(2));
+        assert!(stderr.contains("repository 'nosuchrepo' does not exist"));
+
+        let request = [pkg("extra", "zsh"), pkg("extra", "x")];
+        let stderr = "warning: something odd\nerror: package 'extra/x' was not found\n";
+        failed(lookup_from_output(
+            &fake_output(1, ZSH.as_bytes(), stderr),
+            &request,
+        ));
+    }
+
+    #[test]
+    fn a_not_found_line_for_a_package_we_did_not_ask_for_is_a_failure() {
+        let request = [pkg("extra", "zsh")];
+        let stderr = "error: package 'extra/other' was not found\n";
+        failed(lookup_from_output(&fake_output(1, b"", stderr), &request));
+    }
+
+    #[test]
+    fn non_zero_exit_with_empty_stderr_is_a_failure() {
+        let request = [pkg("extra", "zsh")];
+        let (code, stderr) = failed(lookup_from_output(&fake_output(1, b"", ""), &request));
+        assert_eq!((code, stderr.as_str()), (Some(1), ""));
+    }
+
+    #[test]
+    fn a_signal_is_a_failure() {
+        let output = Output {
+            status: ExitStatus::from_raw(9),
+            stdout: Vec::new(),
+            stderr: b"partial".to_vec(),
+        };
+        let (code, stderr) = failed(lookup_from_output(&output, &[pkg("extra", "zsh")]));
+        assert_eq!((code, stderr.as_str()), (None, "partial"));
+    }
+
+    #[test]
+    fn a_record_that_was_not_asked_for_is_refused() {
+        let request = [pkg("core", "bc")];
+        let error = parse_error(lookup_from_output(
+            &fake_output(0, ZSH.as_bytes(), ""),
+            &request,
+        ));
+        assert_eq!(
+            error,
+            ParseError::UnexpectedPackage {
+                repo: "extra".to_string(),
+                name: "zsh".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn the_right_name_in_the_wrong_repo_is_refused() {
+        let request = [pkg("core", "zsh")];
+        let error = parse_error(lookup_from_output(
+            &fake_output(0, ZSH.as_bytes(), ""),
+            &request,
+        ));
+        assert!(
+            matches!(error, ParseError::UnexpectedPackage { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_record_printed_twice_is_refused() {
+        let twice = format!("{ZSH}{ZSH}");
+        let request = [pkg("extra", "zsh")];
+        let error = parse_error(lookup_from_output(
+            &fake_output(0, twice.as_bytes(), ""),
+            &request,
+        ));
+        assert!(
+            matches!(error, ParseError::UnexpectedPackage { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_requested_package_pacman_said_nothing_about_is_reported() {
+        // Exit 0 but only zsh printed: core/bc is neither found nor not-found.
+        let request = [pkg("extra", "zsh"), pkg("core", "bc")];
+        let error = parse_error(lookup_from_output(
+            &fake_output(0, ZSH.as_bytes(), ""),
+            &request,
+        ));
+        assert_eq!(
+            error,
+            ParseError::MissingPackage {
+                repo: "core".to_string(),
+                name: "bc".to_string()
+            }
+        );
+        // The same on the partial path.
+        let request = [
+            pkg("extra", "zsh"),
+            pkg("extra", "nosuchpkg"),
+            pkg("core", "bc"),
+        ];
+        let error = parse_error(lookup_from_output(
+            &fake_output(1, ZSH.as_bytes(), NOT_FOUND),
+            &request,
+        ));
+        assert!(
+            matches!(error, ParseError::MissingPackage { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn unparseable_text_is_wrapped_parse_error() {
+        let request = [pkg("extra", "dmd")];
+        let error = parse_error(lookup_from_output(
+            &fake_output(0, BROKEN.as_bytes(), ""),
+            &request,
+        ));
+        assert_eq!(error, parse_si(BROKEN).unwrap_err());
+    }
+
+    #[test]
+    fn invalid_utf8_becomes_replacement_char() {
+        let request = [pkg("extra", "zsh")];
+        let lookup = lookup_from_output(&fake_output(0, BAD_BYTE, ""), &request).unwrap();
+        assert_eq!(names(&lookup), ["zsh"]);
+        let found = lookup.found.first().unwrap();
+        assert!(
+            found.description.contains('\u{FFFD}'),
+            "{:?}",
+            found.description
+        );
+    }
+
+    #[test]
+    fn new_parse_errors_say_what_happened() {
+        let unexpected = ParseError::UnexpectedPackage {
+            repo: "extra".to_string(),
+            name: "zsh".to_string(),
+        };
+        assert_eq!(
+            unexpected.to_string(),
+            "pacman printed extra/zsh, which was not asked for (or printed it twice)"
+        );
+        let missing = ParseError::MissingPackage {
+            repo: "core".to_string(),
+            name: "bc".to_string(),
+        };
+        assert_eq!(
+            missing.to_string(),
+            "pacman said nothing about core/bc: neither details nor \"not found\""
         );
     }
 }

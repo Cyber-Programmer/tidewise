@@ -31,6 +31,10 @@ pub enum ParseError {
     },
     /// A `-Qq` line that is not a valid package name.
     BadName { line_number: usize, name: String },
+    /// `pacman -Si` printed a package that was not asked for, or printed one twice.
+    UnexpectedPackage { repo: String, name: String },
+    /// `pacman -Si` neither printed a requested package nor said it was not found.
+    MissingPackage { repo: String, name: String },
 }
 
 impl fmt::Display for ParseError {
@@ -67,6 +71,14 @@ impl fmt::Display for ParseError {
                     "line {line_number}: {name:?} is not a valid package name"
                 )
             }
+            Self::UnexpectedPackage { repo, name } => write!(
+                f,
+                "pacman printed {repo}/{name}, which was not asked for (or printed it twice)"
+            ),
+            Self::MissingPackage { repo, name } => write!(
+                f,
+                "pacman said nothing about {repo}/{name}: neither details nor \"not found\""
+            ),
         }
     }
 }

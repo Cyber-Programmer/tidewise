@@ -21,6 +21,15 @@ impl From<&SearchResult> for PackageRef {
     }
 }
 
+/// The answer to a details lookup. Each requested package is in exactly one of the two lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailsLookup {
+    /// The packages pacman described, in pacman's order.
+    pub found: Vec<PackageDetails>,
+    /// Requested packages pacman does not know (the repository does not have them), in request order.
+    pub not_found: Vec<PackageRef>,
+}
+
 /// How a dependency compares versions (`=`, `<`, `<=`, `>`, `>=`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Comparison {
