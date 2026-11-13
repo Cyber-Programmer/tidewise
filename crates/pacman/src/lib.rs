@@ -18,6 +18,7 @@ mod error;
 mod name;
 mod qi;
 mod qq;
+mod qu;
 mod record;
 mod run;
 mod si;
@@ -27,6 +28,7 @@ mod ss;
 pub use error::{PacmanError, ParseError};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
+pub use qu::{PendingUpdate, parse_qu};
 pub use run::{installed_packages, package_details, search};
 pub use si::{
     Comparison, Dependency, DetailsLookup, OptionalDependency, PackageDetails, PackageRef,

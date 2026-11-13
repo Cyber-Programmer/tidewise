@@ -35,6 +35,8 @@ pub enum ParseError {
     UnexpectedPackage { repo: String, name: String },
     /// `pacman -Si` neither printed a requested package nor said it was not found.
     MissingPackage { repo: String, name: String },
+    /// A `-Qu` line that is not `name old -> new` (optionally followed by ` [ignored]`).
+    BadUpdateLine { line_number: usize, line: String },
 }
 
 impl fmt::Display for ParseError {
@@ -78,6 +80,10 @@ impl fmt::Display for ParseError {
             Self::MissingPackage { repo, name } => write!(
                 f,
                 "pacman said nothing about {repo}/{name}: neither details nor \"not found\""
+            ),
+            Self::BadUpdateLine { line_number, line } => write!(
+                f,
+                "line {line_number} is not \"name old -> new\": {line:?}"
             ),
         }
     }
