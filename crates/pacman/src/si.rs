@@ -15,7 +15,7 @@ pub struct PackageRef {
 impl From<&SearchResult> for PackageRef {
     fn from(result: &SearchResult) -> Self {
         Self {
-            repo: String::new(),
+            repo: result.repo.clone(),
             name: result.name.clone(),
         }
     }
