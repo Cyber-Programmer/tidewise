@@ -1,10 +1,10 @@
 # pacman fixtures
 
-Real pacman output saved for the parser tests (WBS 3.3, 4.3, 4.4). This is a small hand-picked sample, not a machine's
+Real pacman output saved for the parser tests (WBS 3.3, 4.3, 4.4, 4.5). This is a small hand-picked sample, not a machine's
 full package list. Every package named here, including names in `Required By`, `Optional For` and
 `Optional Deps`, comes from the official Arch repos (checked against `pacman -Slq`).
 
-- Captured: 2026-11-11 (`qi`, `qq`), 2026-11-12 (`ss`), 2026-11-13 (`si`), on Arch Linux
+- Captured: 2026-11-11 (`qi`, `qq`), 2026-11-12 (`ss`), 2026-11-13 (`si`, `qu`), on Arch Linux
 - pacman: **v7.1.0**, libalpm v16.0.1
 - Environment: `LC_ALL=C` (English field names, `.` decimal point)
 - Output went **to a file, not a terminal**, so pacman did **not** wrap long lines (base's `Depends On` is one
@@ -37,6 +37,11 @@ full package list. Every package named here, including names in `Required By`, `
 | `si-unknown-repo.stderr.txt` | stderr of `LC_ALL=C pacman -Si -- nosuchrepo/zsh` (exit code 2) | An unknown *repository*: two lines, `error: repository 'nosuchrepo' does not exist` and the not-found line. The first line is not a not-found line, so this is a real failure, not a partial result |
 | `si-broken-truncated.txt` | *hand-made*: first 11 lines of `si-dmd.txt` plus the first 30 bytes of line 12 | **Deliberately broken.** Ends half-way through the `gcc-multilib` Optional Deps line, no final newline, and `Conflicts With` ... `Installed Size` are missing. The parser must report an error, not panic |
 | `si-bad-byte.bin` | *hand-made*: `si-zsh.txt` with the `p` of `programmable` in the description changed to `0xFF` | A stray non-UTF-8 byte. `.bin` because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does |
+| `qu-sample.txt` | `LC_ALL=C pacman -Qu \| grep -E '^(7zip\|alsa-card-profiles\|aom\|avahi\|bluez\|electron43\|python-sentry_sdk\|wpa_supplicant) '` (WBS 4.5) | Real `-Qu` output (exit 0), filtered to 8 lines so a whole machine's list isn't published. One `name old -> new` line per package: epochs on both sides (`1:1.6.9-1 -> 1:1.6.11-1`), an epoch that stays while only pkgrel changes (`2:2.12-1 -> 2:2.12-2`), `rc` in a version, digits and `_` in names |
+| `qu-ignored.txt` | The same command, run with `--config` pointing at a **private copy** of `/etc/pacman.conf` that adds `IgnorePkg = 7zip aom` | Real output with the `[ignored]` marker: one space, then the literal `[ignored]` at the end of the line. Still exit 0. The system's config was only read |
+| `qu-never-synced.stderr.txt` | `LC_ALL=C pacman -Qu` with `DBPath` pointing at a private folder whose `sync/` is empty | Real stderr. pacman exits **1** with nothing on stdout, so this is NOT "no updates": stderr is how to tell them apart |
+| `qu-broken-truncated.txt` | *hand-made*: first 3 lines of `qu-sample.txt` plus the first 18 bytes of line 4 | **Deliberately broken.** Ends in the middle of the `->` arrow, no final newline. The parser must report an error, not panic |
+| `qu-bad-byte.bin` | *hand-made*: `qu-sample.txt` with the `z` of `bluez` changed to `0xFF` | A stray non-UTF-8 byte inside a package name. `.bin` because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does, so the name must be refused |
 
 ## Refreshing
 
