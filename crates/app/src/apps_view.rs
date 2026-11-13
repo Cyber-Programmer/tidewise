@@ -2,7 +2,7 @@
 //! No Slint types here, so every string the window displays is unit-tested.
 
 use crate::apps_model::{AppsModel, Details, EmptyState, ListState, Row, SortOrder, Tab};
-use crate::error_words::ErrorText;
+use crate::error_words::{ErrorView, error_view};
 use crate::size_text::split_size;
 
 /// Shown while the list is loading, and as the "number" when there is none yet.
@@ -49,18 +49,6 @@ pub struct EmptyView {
     /// Empty when there is no button.
     pub button: String,
     pub action: EmptyAction,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ErrorView {
-    pub title: String,
-    pub body: String,
-    /// Behind the "Technical details" toggle.
-    pub technical: String,
-    /// "Nothing on your system was changed."
-    pub unchanged: String,
-    /// Plain text, not a link in M1.
-    pub report: String,
 }
 
 /// What fills the list panel.
@@ -298,16 +286,6 @@ fn nothing_matches_view(search: &str) -> EmptyView {
         body: String::new(),
         button: "Clear search".to_string(),
         action: EmptyAction::ClearSearch,
-    }
-}
-
-fn error_view(text: &ErrorText) -> ErrorView {
-    ErrorView {
-        title: text.title.clone(),
-        body: text.body.clone(),
-        technical: text.technical.clone(),
-        unchanged: "Nothing on your system was changed.".to_string(),
-        report: "Report problems at github.com/Cyber-Programmer/tidewise/issues".to_string(),
     }
 }
 
