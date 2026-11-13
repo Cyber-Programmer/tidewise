@@ -130,11 +130,12 @@ Details in `fuzz/README.md`.
 ```
 cargo fmt --manifest-path fuzz/Cargo.toml --check       # root fmt doesn't cover fuzz/
 cargo +nightly fuzz build
-mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si
+mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu
 cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run si fuzz/corpus/si tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run qu fuzz/corpus/qu tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 ```
 
 Clean run: ends with `Done N runs in 600 second(s)`, `exit: 0`, nothing in `fuzz/artifacts/`. A crash becomes a
