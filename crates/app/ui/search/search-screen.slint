@@ -1,0 +1,21 @@
+import { Theme } from "../theme.slint";
+
+// The Search screen. Placeholder: the title only. The next commit builds it.
+export component SearchScreen inherits Rectangle {
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding-left: Theme.page-padding-x;
+        padding-right: Theme.page-padding-x;
+        padding-top: Theme.page-padding-y;
+        padding-bottom: Theme.page-padding-y;
+        alignment: start;
+
+        Text {
+            text: "Search";
+            color: Theme.text;
+            font-size: Theme.size-page-title;
+            font-weight: Theme.weight-semibold;
+        }
+    }
+}

@@ -1,0 +1,75 @@
+import { Theme } from "../theme.slint";
+
+// One button in the sidebar. A real button: Tab reaches it, Enter or Space presses it, a ring shows the focus.
+export component NavItem inherits Rectangle {
+    in property <string> label;
+    // SVG path data on a 24 x 24 grid.
+    in property <string> icon;
+    // True for the screen that is showing.
+    in property <bool> current;
+    callback clicked();
+
+    height: Theme.min-target;
+    border-radius: Theme.radius-control;
+    background: root.current ? Theme.nav-active : (touch.has-hover ? Theme.surface-2 : transparent);
+
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.current;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-m;
+        spacing: Theme.space-m;
+        alignment: start;
+
+        VerticalLayout {
+            alignment: center;
+            Path {
+                width: 18px;
+                height: 18px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: root.icon;
+                stroke: root.current ? Theme.accent : Theme.text-2;
+                stroke-width: 1.7px;
+                stroke-line-cap: round;
+                stroke-line-join: round;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: Theme.size-body;
+            font-weight: root.current ? Theme.weight-medium : Theme.weight-regular;
+            vertical-alignment: center;
+        }
+    }
+
+    // Focus ring, drawn over the item.
+    Rectangle {
+        border-radius: Theme.radius-control;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}

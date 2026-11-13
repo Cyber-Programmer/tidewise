@@ -1,0 +1,10 @@
+// Which screen the window shows. Only the window itself reads and writes this: no Rust logic depends on it.
+
+export enum Screen {
+    apps,
+    search,
+}
+
+export global NavBridge {
+    in-out property <Screen> current: Screen.apps;
+}
