@@ -4,10 +4,12 @@
 //! without pacman: "run the process" (`run`) and "turn its `Output` into the result"
 //! (`packages_from_output`).
 
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::{InstalledPackage, PackageRef, PacmanError, SearchResult, parse_qi, parse_ss};
 
 /// Absolute path: never looked up through `PATH`.
@@ -53,13 +55,37 @@ pub fn search(query: &str) -> Result<Vec<SearchResult>, PacmanError> {
 /// Nothing invalid may reach pacman: every repo and name is checked first. An empty request stays empty,
 /// and the caller must not run pacman for it (`pacman -Si` with no names prints every package).
 fn details_request(refs: &[PackageRef]) -> Result<Vec<PackageRef>, PacmanError> {
-    Ok(refs.to_vec())
+    // Check everything first, repeats included: one bad entry refuses the whole request.
+    for item in refs {
+        if !is_valid_repo_name(&item.repo) {
+            return Err(PacmanError::BadPackageRef {
+                reason: "the repository name is not valid",
+            });
+        }
+        if !is_valid_package_name(&item.name) {
+            return Err(PacmanError::BadPackageRef {
+                reason: "the package name is not valid",
+            });
+        }
+    }
+    // Asking twice would print the package twice, and then a result could not be matched to one request.
+    let mut seen = HashSet::new();
+    Ok(refs
+        .iter()
+        .filter(|item| seen.insert(*item))
+        .cloned()
+        .collect())
 }
 
 /// The arguments for `pacman -Si`: `--` always comes before the names, so no name can be an option.
 fn details_args(request: &[PackageRef]) -> Vec<String> {
-    let _ = request;
-    Vec::new()
+    let mut args = vec!["-Si".to_string(), "--".to_string()];
+    args.extend(
+        request
+            .iter()
+            .map(|item| format!("{}/{}", item.repo, item.name)),
+    );
+    args
 }
 
 /// Longest search text we accept, in characters (after trimming).

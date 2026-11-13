@@ -436,9 +436,10 @@ fn error_text(error: &PacmanError) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
+        // The details screen (4.6) only passes names that pacman itself printed, so this is a bug in Tidewise.
         PacmanError::BadPackageRef { .. } => ErrorText {
-            title: String::new(),
-            body: String::new(),
+            title: "Tidewise asked pacman about an invalid package".to_string(),
+            body: "This is a bug in Tidewise, not something you did. Please report it.".to_string(),
             technical: error.to_string(),
         },
     }
