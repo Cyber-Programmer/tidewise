@@ -25,8 +25,14 @@ pub enum InstallDecision {
 ///
 /// Ignored updates don't count towards "must update the system", because `-Syu` would not install them
 /// either, so waiting for them could never end. They are counted separately.
-pub fn install_decision(_updates: &[PendingUpdate]) -> InstallDecision {
-    InstallDecision::Allowed { ignored: 0 }
+pub fn install_decision(updates: &[PendingUpdate]) -> InstallDecision {
+    let ignored = updates.iter().filter(|update| update.ignored).count();
+    let count = updates.len() - ignored;
+    if count == 0 {
+        InstallDecision::Allowed { ignored }
+    } else {
+        InstallDecision::MustUpdateSystem { count, ignored }
+    }
 }
 
 #[cfg(test)]
