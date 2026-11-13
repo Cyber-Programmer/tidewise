@@ -1,0 +1,2 @@
+error: repository 'nosuchrepo' does not exist
+error: package 'nosuchrepo/zsh' was not found

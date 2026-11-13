@@ -1,1 +1,1 @@
-error: package 'nosuchpkg' was not found
+error: package 'extra/nosuchpkg' was not found
