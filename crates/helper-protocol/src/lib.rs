@@ -18,6 +18,7 @@
 
 mod parse;
 mod request;
+mod summary;
 mod validate;
 
 pub use parse::{MAX_REQUEST_BYTES, ProtocolError, parse_request};
@@ -25,6 +26,7 @@ pub use request::{
     Action, Install, PROTOCOL_VERSION, PackageRef, ProviderChoice, Request, TransactionItem,
     UpdateSystem,
 };
+pub use summary::{MAX_SUMMARY_BYTES, summary};
 pub use validate::{
     Field, InvalidRequest, MAX_NAME_BYTES, MAX_PROVIDERS, MAX_TARGETS, MAX_TRANSACTION,
     MAX_VERSION_BYTES, Reason, validate,
