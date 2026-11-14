@@ -9,8 +9,31 @@ use std::io;
 /// The effective user id in the text of `/proc/self/status`, or `None` if the text is not exactly one well-formed
 /// `Uid:` line (four numbers that each fit in a `u32`).
 pub fn effective_uid(status: &str) -> Option<u32> {
-    let _ = status;
-    None
+    let mut uid_line = None;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("Uid:") {
+            if uid_line.is_some() {
+                // The kernel prints one. Two means something odd: refuse instead of picking one.
+                return None;
+            }
+            uid_line = Some(rest);
+        }
+    }
+
+    let ids: Option<Vec<u32>> = uid_line?.split_whitespace().map(parse_id).collect();
+    match ids?.as_slice() {
+        [_real, effective, _saved, _file_system] => Some(*effective),
+        _ => None,
+    }
+}
+
+/// Digits only (`u32::from_str` would also accept a leading `+`), and the number must fit in a `u32`.
+fn parse_id(field: &str) -> Option<u32> {
+    if field.bytes().all(|byte| byte.is_ascii_digit()) {
+        field.parse().ok()
+    } else {
+        None
+    }
 }
 
 /// True only when the effective user id is 0.
@@ -20,7 +43,7 @@ pub fn is_root(status: &str) -> bool {
 
 /// Reads `/proc/self/status`.
 pub fn read_status() -> io::Result<String> {
-    Ok(String::new())
+    std::fs::read_to_string("/proc/self/status")
 }
 
 #[cfg(test)]
