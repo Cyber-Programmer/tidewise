@@ -563,3 +563,46 @@ Blockers: none.
 Rules bent: no `(red)` commit for docs. `makepkg --nodeps` during the image build only (the lib is not in any
 repository yet). `SigLevel = Never` for the local test repository in the test image only. WBS sheet not touched by
 Claude (the human updates it).
+
+## 2026-11-14 — 5.2 helper-protocol: request/response types + allow-list
+Done: two new crates, no root, no pacman, no I/O.
+- `crates/names` (`tidewise-names`, no dependencies): the package/repo name rules moved out of `tidewise-pacman` in a
+  refactor-only commit, plus the helper's stricter `is_helper_repo_name` (ASCII only, ≤ 64 bytes, never `local`; you
+  chose this over "same as the read side").
+- `crates/helper-protocol` (`forbid(unsafe_code)`, same no-panic lints; serde 1.0.229 `derive` + serde_json 1.0.154
+  default features, both already in Cargo.lock through Slint, so no new external crate; `cargo deny` ok):
+  - requests: `Install`, `UpdateSystem`, `UpdateSystemAndInstall` only; every struct `deny_unknown_fields`;
+    `protocol_version` (1); no field maps to a pacman flag, path or URL; each carries the confirmed `transaction`
+    (repo, name, version per line) for the 5.3 re-check (T-09).
+  - `parse_request(&[u8])`: 2 MiB cap before parsing → strict JSON → version → `validate`. `validate`: sizes first, then
+    names/repos/versions, duplicates, and "every target and chosen provider is in the confirmed list from the same
+    repo". Errors say field + position + reason, never the text.
+  - `summary(&Request)`: ≤ 200 bytes, printable ASCII, deterministic; lists targets, then the chosen providers when all
+    fit ("install extra/dbeaver with extra/jre-openjdk (5 packages)"), else "and N more".
+  - events: `Progress` / `Finished(Ok | Error(kind))`, one JSON line each; `ErrorKind::plain_text` is one fixed sentence
+    per kind; `TransactionChanged` tells the user to finish with a full system update (your note 2); `Details` is the
+    only free text (cleaned, 4 KiB).
+- Tests: 6 in names, 69 unit + 12 hostile-input table in helper-protocol; whole workspace green. Fuzz target `request`:
+  clean. Done 7 182 452 runs in 601 seconds, exit 0, nothing in `fuzz/artifacts/request`.
+- Real findings: (1) serde_json 1.0.154 has no 128-level nesting limit (my belief in threat model question 8 was
+  wrong): deep values under unknown keys are skipped in a loop, ~150 ms at 1 million levels; the byte cap plus the typed
+  shape protect us. Two red-commit tests encoded the wrong belief and were corrected in the green commit (explained
+  there). (2) `cargo deny` caught a path dependency without a version (wildcard ban); fixed in its own commit.
+- Threat model updated (rows T-02, T-04..T-07, T-09..T-11, T-15; question 8 answered; questions 11 and 12 added).
+Next: 5.3 helper binary (needs your OK before any `crates/helper*` change).
+- **Requirement (your note 1):** chosen providers passed to `pacman -S` become "explicitly installed". The helper must
+  follow with `pacman -D --asdeps <providers>` in the same run, and a container test must show `pacman -Qi` printing
+  "Installed as a dependency" for them. `-D --asdeps` is a new allow-listed invocation: needs your explicit OK in 5.3.
+- **For M4 (your note 2):** the helper's `-Syu --print` refreshes the REAL lists first; a `TransactionChanged` refusal
+  leaves "lists newer than packages". Wording covers it for now; settle with the private-copy decision before the
+  update flow (threat model question 12; I could not find that decision written down, please correct my wording).
+- **For M4 (your repo-name note):** if a search result comes from a repo whose name the helper refuses (non-ASCII), the
+  details panel must say plainly that Tidewise can't install from that repository, instead of showing an Install button
+  that will fail.
+- Check `Phase` (`Checking/Downloading/Installing/Hooks`) against real pacman output in the container; any new error
+  kind or request variant needs your OK. Run the 10-minute fuzz again if the protocol changes.
+Blockers: none.
+Rules bent: no `(red)` commit for the hostile-input table (characterisation tests of existing behaviour) or for docs.
+Two red-commit tests were corrected, not weakened, in the green commit (serde_json depth). `Details` keeps a new line
+(the plan said all control characters) so multi-line pacman errors stay readable. WBS sheet not touched by Claude (the
+human updates it).
