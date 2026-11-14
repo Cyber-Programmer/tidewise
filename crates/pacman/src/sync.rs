@@ -8,8 +8,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::name::is_valid_repo_name;
 use crate::{PacmanError, ParseError};
+use tidewise_names::is_valid_repo_name;
 
 /// What is on disk for the configured repositories.
 #[derive(Debug, Clone, PartialEq, Eq)]

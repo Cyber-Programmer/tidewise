@@ -1,7 +1,7 @@
 //! Parser for `pacman -Ss`: a header line and an indented description line per package.
 
 use crate::ParseError;
-use crate::name::is_valid_package_name;
+use tidewise_names::is_valid_package_name;
 
 /// One package found by `pacman -Ss`.
 #[derive(Debug, Clone, PartialEq, Eq)]

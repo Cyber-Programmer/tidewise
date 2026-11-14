@@ -1,7 +1,7 @@
 //! Parser for `pacman -Qu`: the packages that have a newer version in the sync databases.
 
 use crate::ParseError;
-use crate::name::is_valid_package_name;
+use tidewise_names::is_valid_package_name;
 
 /// One pending update: an installed package whose repository has a newer version.
 #[derive(Debug, Clone, PartialEq, Eq)]
