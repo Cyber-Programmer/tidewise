@@ -4251,6 +4251,15 @@ name = "tidewise-core"
 version = "0.1.0"
 
 [[package]]
+name = "tidewise-helper-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tidewise-names",
+]
+
+[[package]]
 name = "tidewise-names"
 version = "0.1.0"
 

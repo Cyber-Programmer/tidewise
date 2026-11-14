@@ -1,0 +1,1 @@
+{"protocol_version":1,"action":{"update_system":{"transaction":[{"repo":"core","name":"glibc","version":"2.42-2"},{"repo":"extra","name":"zsh","version":"5.9-5"},{"repo":"extra","name":"vim","version":"9.1.1500-1"}]}}}
