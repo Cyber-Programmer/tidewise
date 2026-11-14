@@ -123,6 +123,16 @@ cargo deny check                       # advisories (RustSec), licences, bans, s
 cargo build --release -p tidewise-app
 ```
 
+### Container tests (rootless Podman; not part of "done" or CI yet)
+
+Anything that runs pacman for real, as root, runs only in the test container (`tests/container/README.md`; one-time
+setup there). Never on the host, never `--privileged`, never with a host mount except the built test binary, read-only.
+Every container test starts with `require_container()`; the tests are `#[ignore]`, so `cargo test --all` skips them.
+
+```
+tests/container/run.sh                  # builds the image (cached) and the test binary, runs them with --network=none
+```
+
 ### Fuzzing (nightly only, local; not part of "done" or CI yet)
 
 `fuzz/` is its own workspace (cargo-fuzz), so the commands above never see it. Nightly is used only as
