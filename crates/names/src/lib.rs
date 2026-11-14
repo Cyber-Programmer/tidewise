@@ -37,6 +37,13 @@ pub fn is_valid_repo_name(repo: &str) -> bool {
         && !repo.chars().any(char::is_control)
 }
 
+/// True if `repo` may appear in a request to the helper: stricter than `is_valid_repo_name`.
+///
+/// STUB (red commit): refuses everything until the real rule is written.
+pub fn is_helper_repo_name(_repo: &str) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +91,43 @@ mod tests {
         for repo in ["", "a/b", "/", "local", "a\nb", "a\0b", "\u{7f}", "x\ty"] {
             assert!(!is_valid_repo_name(repo), "should reject {repo:?}");
         }
+    }
+
+    #[test]
+    fn helper_accepts_plain_ascii_repo_names() {
+        for repo in [
+            "core",
+            "extra",
+            "multilib",
+            "chaotic-aur",
+            "my_repo.x",
+            "r+1",
+            "a@b",
+        ] {
+            assert!(is_helper_repo_name(repo), "should accept {repo:?}");
+        }
+    }
+
+    #[test]
+    fn helper_refuses_everything_that_is_not_plain_ascii_or_is_reserved() {
+        let too_long = "a".repeat(65);
+        for repo in [
+            "",
+            "Ünï",
+            "my repo.x",
+            "extr\u{430}",
+            "ｅｘｔｒａ",
+            "local",
+            "-x",
+            ".x",
+            "a/b",
+            "a\0b",
+            "a\nb",
+            "a;b",
+            too_long.as_str(),
+        ] {
+            assert!(!is_helper_repo_name(repo), "should refuse {repo:?}");
+        }
+        assert!(is_helper_repo_name(&"a".repeat(64)));
     }
 }
