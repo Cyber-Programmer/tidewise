@@ -3,9 +3,12 @@
 //! We refuse, we never clean: the first thing wrong makes the whole request fail, and the error says which
 //! list and which position, never the offending text (threat model T-06, T-15).
 
-use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
-use crate::Request;
+use serde::{Deserialize, Serialize};
+use tidewise_names::{is_helper_repo_name, is_valid_package_name};
+
+use crate::{Action, Install, Request, TransactionItem};
 
 /// Most packages the user can ask for in one request.
 pub const MAX_TARGETS: usize = 100;
@@ -59,9 +62,145 @@ pub struct InvalidRequest {
 
 /// Checks a parsed request against the allow-list. `Ok` means every check passed.
 ///
-/// STUB (red commit): accepts everything until the checks are written.
-pub fn validate(_request: &Request) -> Result<(), InvalidRequest> {
+/// Order: list sizes first (so a huge list is never walked), then targets, provider answers, the confirmed
+/// list, and last that every target and chosen provider is in the confirmed list from the same repository.
+/// The protocol version is not judged here; `parse_request` does that before it gets this far.
+pub fn validate(request: &Request) -> Result<(), InvalidRequest> {
+    match &request.action {
+        Action::Install(install) | Action::UpdateSystemAndInstall(install) => {
+            validate_install(install)
+        }
+        Action::UpdateSystem(update) => {
+            check_size(
+                Field::Transaction,
+                update.transaction.len(),
+                MAX_TRANSACTION,
+            )?;
+            check_transaction(&update.transaction)
+        }
+    }
+}
+
+fn validate_install(install: &Install) -> Result<(), InvalidRequest> {
+    check_size(Field::Targets, install.targets.len(), MAX_TARGETS)?;
+    if install.providers.len() > MAX_PROVIDERS {
+        return fail(Field::Providers, 0, Reason::TooMany);
+    }
+    check_size(
+        Field::Transaction,
+        install.transaction.len(),
+        MAX_TRANSACTION,
+    )?;
+
+    // Targets: what the user asked for. One entry per package name, whatever the repository.
+    let mut target_names = HashSet::new();
+    for (index, target) in install.targets.iter().enumerate() {
+        check_ref(Field::Targets, index, &target.repo, &target.name)?;
+        if !target_names.insert(target.name.as_str()) {
+            return fail(Field::Targets, index, Reason::Duplicate);
+        }
+    }
+
+    // Provider answers: each dependency answered once, each package chosen once, never a target again.
+    let mut dependencies = HashSet::new();
+    let mut chosen_names = HashSet::new();
+    for (index, answer) in install.providers.iter().enumerate() {
+        if !is_package_name(&answer.dependency) {
+            return fail(Field::Providers, index, Reason::BadPackageName);
+        }
+        if !dependencies.insert(answer.dependency.as_str()) {
+            return fail(Field::Providers, index, Reason::Duplicate);
+        }
+        check_ref(
+            Field::Providers,
+            index,
+            &answer.chosen.repo,
+            &answer.chosen.name,
+        )?;
+        if target_names.contains(answer.chosen.name.as_str())
+            || !chosen_names.insert(answer.chosen.name.as_str())
+        {
+            return fail(Field::Providers, index, Reason::Duplicate);
+        }
+    }
+
+    check_transaction(&install.transaction)?;
+
+    // The confirmed list must contain everything the user asked for, from the repository they saw.
+    let repo_of: HashMap<&str, &str> = install
+        .transaction
+        .iter()
+        .map(|line| (line.name.as_str(), line.repo.as_str()))
+        .collect();
+    for (index, target) in install.targets.iter().enumerate() {
+        if repo_of.get(target.name.as_str()) != Some(&target.repo.as_str()) {
+            return fail(Field::Targets, index, Reason::NotInTransaction);
+        }
+    }
+    for (index, answer) in install.providers.iter().enumerate() {
+        if repo_of.get(answer.chosen.name.as_str()) != Some(&answer.chosen.repo.as_str()) {
+            return fail(Field::Providers, index, Reason::NotInTransaction);
+        }
+    }
     Ok(())
+}
+
+fn check_transaction(lines: &[TransactionItem]) -> Result<(), InvalidRequest> {
+    let mut names = HashSet::new();
+    for (index, line) in lines.iter().enumerate() {
+        check_ref(Field::Transaction, index, &line.repo, &line.name)?;
+        if !is_version(&line.version) {
+            return fail(Field::Transaction, index, Reason::BadVersion);
+        }
+        if !names.insert(line.name.as_str()) {
+            return fail(Field::Transaction, index, Reason::Duplicate);
+        }
+    }
+    Ok(())
+}
+
+fn fail<T>(field: Field, index: usize, reason: Reason) -> Result<T, InvalidRequest> {
+    Err(InvalidRequest {
+        field,
+        index,
+        reason,
+    })
+}
+
+/// A list that must not be empty and must not be too long.
+fn check_size(field: Field, len: usize, max: usize) -> Result<(), InvalidRequest> {
+    if len == 0 {
+        fail(field, 0, Reason::Empty)
+    } else if len > max {
+        fail(field, 0, Reason::TooMany)
+    } else {
+        Ok(())
+    }
+}
+
+fn check_ref(field: Field, index: usize, repo: &str, name: &str) -> Result<(), InvalidRequest> {
+    if !is_helper_repo_name(repo) {
+        return fail(field, index, Reason::BadRepoName);
+    }
+    if !is_package_name(name) {
+        return fail(field, index, Reason::BadPackageName);
+    }
+    Ok(())
+}
+
+fn is_package_name(name: &str) -> bool {
+    name.len() <= MAX_NAME_BYTES && is_valid_package_name(name)
+}
+
+/// pacman versions look like `1:2.0-1`: an optional epoch, the upstream version and a release number.
+/// Allow-list: ASCII letters and digits and `. _ + : ~ -`, not empty, not starting with `-`, at most 64 bytes.
+fn is_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= MAX_VERSION_BYTES
+        && !version.starts_with('-')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | ':' | '~' | '-'))
 }
 
 #[cfg(test)]
