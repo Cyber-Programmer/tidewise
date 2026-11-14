@@ -191,6 +191,12 @@ fn snapshot() -> BTreeMap<String, (u64, u32, i64, i64)> {
         "/var/lib/pacman",
         "/var/cache/pacman",
         "/var/log",
+        "/root",
+        "/opt",
+        "/srv",
+        "/home",
+        "/boot",
+        "/tmp",
     ] {
         walk(&PathBuf::from(root), &mut files);
     }
