@@ -26,7 +26,14 @@
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 
-use crate::fds::FdEntry;
+use tidewise_helper_protocol::{Event, Outcome, event_line};
+
+use crate::args::{caller_uid, summary_arg};
+use crate::fds::{FdEntry, check_fds};
+use crate::gate::decide;
+use crate::input::read_capped;
+use crate::journal::record;
+use crate::uid::is_root;
 
 /// The job finished. Unused until 5.3b.
 pub const EXIT_OK: u8 = 0;
@@ -71,7 +78,7 @@ impl StartRefusal {
                 "tidewise-helper: could not check the open files, so it did not start. Nothing was changed."
             }
             Self::UnexpectedFd => {
-                "tidewise-helper: it was started with extra open files, so it did not start. Nothing was changed."
+                "tidewise-helper: it was started with unexpected open files, so it did not start. Nothing was changed."
             }
             Self::CannotCheckUser => {
                 "tidewise-helper: could not check which user it runs as, so it did not start. Nothing was changed."
@@ -91,8 +98,38 @@ impl StartRefusal {
 
 /// Writes `line` and a new line in one call, then flushes. The error is returned, never a panic.
 pub fn write_line(out: &mut impl Write, line: &str) -> io::Result<()> {
-    let _ = (out, line);
-    Ok(())
+    let mut bytes = String::with_capacity(line.len() + 1);
+    bytes.push_str(line);
+    bytes.push('\n');
+    out.write_all(bytes.as_bytes())?;
+    out.flush()
+}
+
+/// What the start checks hand on: the raw summary argument and the caller's id (for the log only).
+struct Started {
+    summary: Vec<u8>,
+    caller: Option<u32>,
+}
+
+/// The four start checks, in order. The first one that fails decides.
+fn start(facts: Facts) -> Result<Started, StartRefusal> {
+    let entries = facts.fds.map_err(|_| StartRefusal::CannotCheckFds)?;
+    check_fds(&entries, facts.own_pid).map_err(|_| StartRefusal::UnexpectedFd)?;
+
+    let status = facts.status.map_err(|_| StartRefusal::CannotCheckUser)?;
+    if !is_root(&status) {
+        return Err(StartRefusal::NotRoot);
+    }
+
+    facts
+        .chdir
+        .map_err(|_| StartRefusal::CannotChangeDirectory)?;
+
+    let summary = summary_arg(facts.args).map_err(|_| StartRefusal::BadArguments)?;
+    Ok(Started {
+        summary,
+        caller: caller_uid(facts.pkexec_uid),
+    })
 }
 
 /// Runs the whole start and returns the exit code.
@@ -103,8 +140,23 @@ pub fn run(
     stderr: &mut impl Write,
     log: &mut dyn FnMut(&[u8]),
 ) -> u8 {
-    let _ = (facts, stdin, stdout, stderr, log);
-    EXIT_OK
+    let started = match start(facts) {
+        Ok(started) => started,
+        Err(refusal) => {
+            // A failed write changes nothing: the exit code is the answer.
+            let _ = write_line(stderr, refusal.text());
+            return EXIT_REFUSED_TO_START;
+        }
+    };
+
+    let verdict = decide(&started.summary, read_capped(stdin));
+
+    // The audit trail first, so it exists even if nobody is listening to stdout any more.
+    log(&record(started.caller, &verdict));
+
+    let line = event_line(&Event::Finished(Outcome::Error(verdict.error)));
+    let _ = write_line(stdout, &line);
+    EXIT_ERROR_LINE
 }
 
 #[cfg(test)]
