@@ -7,4 +7,4 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-tidewise-names = { path = "../names" }
+tidewise-names = { version = "0.1.0", path = "../names" }
