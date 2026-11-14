@@ -11,6 +11,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// One JSON object on the helper's stdin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request {
     pub protocol_version: u32,
     pub action: Action,
@@ -30,6 +31,7 @@ pub enum Action {
 
 /// An install: what the user asked for, which providers they chose, and the list they confirmed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Install {
     /// The packages the user asked for.
     pub targets: Vec<PackageRef>,
@@ -42,12 +44,14 @@ pub struct Install {
 
 /// A full system update and the list the user confirmed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSystem {
     pub transaction: Vec<TransactionItem>,
 }
 
 /// A package in a repository: `extra/dbeaver`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageRef {
     pub repo: String,
     pub name: String,
@@ -55,6 +59,7 @@ pub struct PackageRef {
 
 /// The user's answer to a provider question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderChoice {
     /// The name that several packages provide (`java-runtime`).
     pub dependency: String,
@@ -64,6 +69,7 @@ pub struct ProviderChoice {
 
 /// One line of the confirmed list, as `pacman -S --print` reports it: repository, name, version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransactionItem {
     pub repo: String,
     pub name: String,
