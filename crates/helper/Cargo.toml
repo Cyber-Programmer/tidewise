@@ -1,0 +1,10 @@
+[package]
+name = "tidewise-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tidewise-helper-protocol = { version = "0.1.0", path = "../helper-protocol" }
