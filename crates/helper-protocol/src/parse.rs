@@ -1,6 +1,8 @@
 //! `parse_request`: the one door every request goes through (threat model T-01, T-07).
 
-use crate::{InvalidRequest, Request};
+use serde::Deserialize;
+
+use crate::{InvalidRequest, PROTOCOL_VERSION, Request, validate};
 
 /// Biggest request the helper reads, in bytes. Checked before any parsing.
 pub const MAX_REQUEST_BYTES: usize = 2 * 1024 * 1024;
@@ -19,11 +21,38 @@ pub enum ProtocolError {
     Invalid(InvalidRequest),
 }
 
+/// Only the version, read loosely (other keys ignored) to tell "an old or new app" from "garbage".
+#[derive(Deserialize)]
+struct VersionOnly {
+    protocol_version: u32,
+}
+
 /// Turns the bytes read from stdin into a validated request, or says why not.
 ///
-/// STUB (red commit): refuses everything as malformed.
-pub fn parse_request(_bytes: &[u8]) -> Result<Request, ProtocolError> {
-    Err(ProtocolError::Malformed)
+/// Order: size cap (before any parsing), strict JSON into the typed request (exactly one value, nothing after
+/// it, unknown and repeated keys refused, nesting bounded by serde_json's recursion limit), protocol version,
+/// then the allow-list. When the strict parse fails, a second loose read of just `protocol_version` decides
+/// between `VersionMismatch` and `Malformed`, so an app from another version gets the right message.
+pub fn parse_request(bytes: &[u8]) -> Result<Request, ProtocolError> {
+    if bytes.len() > MAX_REQUEST_BYTES {
+        return Err(ProtocolError::TooLarge);
+    }
+    let request: Request = match serde_json::from_slice(bytes) {
+        Ok(request) => request,
+        Err(_) => {
+            return Err(match serde_json::from_slice::<VersionOnly>(bytes) {
+                Ok(peek) if peek.protocol_version != PROTOCOL_VERSION => {
+                    ProtocolError::VersionMismatch
+                }
+                _ => ProtocolError::Malformed,
+            });
+        }
+    };
+    if request.protocol_version != PROTOCOL_VERSION {
+        return Err(ProtocolError::VersionMismatch);
+    }
+    validate(&request).map_err(ProtocolError::Invalid)?;
+    Ok(request)
 }
 
 #[cfg(test)]
@@ -161,12 +190,12 @@ mod tests {
     }
 
     #[test]
-    fn deep_nesting_is_malformed_and_does_not_overflow_the_stack() {
+    fn deep_nesting_is_refused_and_does_not_overflow_the_stack() {
         let deep = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
         for text in [
             deep.clone(),
             format!(r#"{{"protocol_version":1,"action":{deep}}}"#),
-            format!(r#"{{"protocol_version":2,"unknown":{deep}}}"#),
+            format!(r#"{{"protocol_version":1,"unknown":{deep}}}"#),
             format!(
                 r#"{{"protocol_version":1,"action":{{"update_system":{{"transaction":{deep}}}}}}}"#
             ),
@@ -176,15 +205,19 @@ mod tests {
     }
 
     #[test]
-    fn serde_jsons_nesting_limit_sits_between_100_and_200_levels() {
-        // Threat model open question 8: serde_json stops at 128 levels (believed, now pinned by this test).
-        // 100 levels are read (the version is then judged), 200 are refused as malformed.
-        let shallow = format!("{}{}", "[".repeat(100), "]".repeat(100));
-        let text = format!(r#"{{"protocol_version":2,"unknown":{shallow}}}"#);
-        assert_eq!(parse(&text), Err(ProtocolError::VersionMismatch));
-        let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
-        let text = format!(r#"{{"protocol_version":2,"unknown":{deep}}}"#);
-        assert_eq!(parse(&text), Err(ProtocolError::Malformed));
+    fn serde_json_does_not_stop_at_128_levels_but_skips_deep_values_without_recursion() {
+        // Threat model open question 8. I believed serde_json refuses nesting past 128 levels. Measured with
+        // serde_json 1.0.154: it does not. A deep value under an unknown key is skipped in a loop (no stack
+        // use; about 150 ms at the 1 million levels a 2 MiB request can hold), and the typed parse never
+        // recurses beyond the request's own shape, because it refuses an array where an object belongs.
+        // So what protects us is the byte cap plus the shape, not a depth limit. A request that says
+        // protocol_version 2 is therefore a VersionMismatch however deep its junk is.
+        let deep = format!("{}{}", "[".repeat(1_000_000), "]".repeat(1_000_000));
+        assert!(deep.len() + 64 < MAX_REQUEST_BYTES);
+        let v2 = format!(r#"{{"protocol_version":2,"unknown":{deep}}}"#);
+        assert_eq!(parse(&v2), Err(ProtocolError::VersionMismatch));
+        let v1 = format!(r#"{{"protocol_version":1,"unknown":{deep}}}"#);
+        assert_eq!(parse(&v1), Err(ProtocolError::Malformed));
     }
 
     #[test]
