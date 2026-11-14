@@ -323,12 +323,13 @@ mod tests {
     }
 
     #[test]
-    fn chosen_providers_are_listed_when_all_of_them_fit_and_left_out_when_not() {
-        // Walk the provider name length across the cap.
+    fn chosen_providers_are_listed_when_all_of_them_fit_and_counted_when_not() {
+        // Walk the provider name length across the cap. When the names do not fit, the summary still says
+        // that providers exist (5.2 follow-up: never drop them silently).
         for len in 1..=300 {
             let name = "b".repeat(len);
             let with = format!("install extra/a with extra/{name} (2 packages)");
-            let without = "install extra/a (2 packages)";
+            let counted = "install extra/a with 1 provider (2 packages)";
             let text = summary(&install(
                 vec![pkg("extra", "a")],
                 vec![choice("x", "extra", &name)],
@@ -337,28 +338,85 @@ mod tests {
             if with.len() <= MAX_SUMMARY_BYTES {
                 assert_eq!(text, with, "len {len}");
             } else {
-                assert_eq!(text, without, "len {len}");
+                assert_eq!(text, counted, "len {len}");
             }
         }
     }
 
     #[test]
-    fn providers_are_all_or_nothing() {
+    fn providers_are_all_or_nothing_and_the_count_says_how_many() {
         let providers: Vec<ProviderChoice> = (0..30)
             .map(|n| choice(&format!("d{n}"), "extra", &format!("provider-{n}")))
             .collect();
         let text = summary(&install(vec![pkg("extra", "a")], providers, 31));
-        assert_eq!(text, "install extra/a (31 packages)");
+        assert_eq!(text, "install extra/a with 30 providers (31 packages)");
     }
 
     #[test]
-    fn providers_are_left_out_when_the_targets_were_cut() {
+    fn providers_are_counted_when_the_targets_were_cut() {
         let targets: Vec<PackageRef> = (0..50)
             .map(|n| pkg("extra", &format!("package-with-a-long-name-{n:03}")))
             .collect();
         let text = summary(&install(targets, vec![choice("x", "extra", "p")], 60));
-        assert!(text.contains(" more (60 packages)"), "{text}");
-        assert!(!text.contains(" with "), "{text}");
+        assert!(
+            text.ends_with(" more with 1 provider (60 packages)"),
+            "{text}"
+        );
+        assert!(!text.contains("extra/p "), "{text}");
+    }
+
+    #[test]
+    fn with_providers_the_text_is_still_cut_to_the_cap_and_keeps_the_provider_count() {
+        // The room for " with N providers" is kept back while targets are added, so the cap holds and the
+        // count is never the part that gets cut.
+        for count in 1..=100 {
+            let targets: Vec<PackageRef> = (0..count)
+                .map(|n| pkg("extra", &format!("package-with-a-long-name-{n:03}")))
+                .collect();
+            let providers = vec![
+                choice("a", "extra", "p1"),
+                choice("b", "extra", "p2"),
+                choice("c", "extra", "p3"),
+            ];
+            let text = summary(&install(targets, providers, count + 3));
+            assert!(text.len() <= MAX_SUMMARY_BYTES, "count {count}: {text}");
+            assert!(
+                text.contains(" with extra/p1 extra/p2 extra/p3 (")
+                    || text.contains(" with 3 providers ("),
+                "count {count}: {text}"
+            );
+            if text.contains(" more") {
+                assert!(
+                    text.ends_with(&format!(" with 3 providers ({} packages)", count + 3)),
+                    "count {count}: {text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_huge_provider_list_is_counted_in_a_short_text() {
+        let providers: Vec<ProviderChoice> = (0..100_000)
+            .map(|n| choice("d", "extra", &format!("p{n}")))
+            .collect();
+        let text = summary(&install(vec![pkg("extra", "a")], providers, 5));
+        assert_eq!(text, "install extra/a with 100000 providers (5 packages)");
+    }
+
+    #[test]
+    fn two_cut_provider_lists_of_different_size_read_differently() {
+        let long = "q".repeat(120);
+        let one = install(
+            vec![pkg("extra", "a")],
+            vec![choice("x", "extra", &long)],
+            3,
+        );
+        let two = install(
+            vec![pkg("extra", "a")],
+            vec![choice("x", "extra", &long), choice("y", "extra", &long)],
+            3,
+        );
+        assert_ne!(summary(&one), summary(&two));
     }
 
     #[test]
