@@ -90,7 +90,8 @@ The rebuild exists so the human understands every part. For each task:
 ```
 crates/core             tidewise-core: scanning, sizes, live stats — no UI, no root
 crates/pacman           tidewise-pacman: read pacman data (installed, search, info, dry-runs) — no root
-crates/helper-protocol  (M3) request/response types shared by app and helper (serde)
+crates/names            tidewise-names: package/repo name allow-lists, shared by pacman and helper-protocol — no deps
+crates/helper-protocol  tidewise-helper-protocol: request/response types, validation, summary — serde, no root, no I/O
 crates/helper           (M3) tidewise-helper: validates and runs allow-listed jobs as root
 crates/app              tidewise-app: Slint UI + view models; binary `tidewise`; UI in crates/app/ui/*.slint
 packaging/aur           (M3) PKGBUILD (installs app, helper, polkit policy)
@@ -142,12 +143,13 @@ Details in `fuzz/README.md`.
 ```
 cargo fmt --manifest-path fuzz/Cargo.toml --check       # root fmt doesn't cover fuzz/
 cargo +nightly fuzz build
-mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu
+mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/request
 cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run si fuzz/corpus/si tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run qu fuzz/corpus/qu tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run request fuzz/corpus/request tests/fixtures/helper-protocol -- -max_total_time=600; echo "exit: $?"
 ```
 
 Clean run: ends with `Done N runs in 600 second(s)`, `exit: 0`, nothing in `fuzz/artifacts/`. A crash becomes a
