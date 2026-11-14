@@ -23,13 +23,44 @@ pub enum FdProblem {
 /// Accepts the standard three descriptors, plus (at most) the one descriptor that reading `/proc/self/fd` itself
 /// opened. That one is recognised by its target, `/proc/<our pid>/fd`. Reports the lowest offending number.
 pub fn check_fds(entries: &[FdEntry], own_pid: u32) -> Result<(), FdProblem> {
-    let _ = (entries, own_pid);
+    for standard in 0..=2 {
+        if !entries.iter().any(|(fd, _)| *fd == standard) {
+            return Err(FdProblem::Missing(standard));
+        }
+    }
+
+    let listing = format!("/proc/{own_pid}/fd");
+    let mut listing_seen = false;
+    let mut sorted: Vec<&FdEntry> = entries.iter().collect();
+    sorted.sort_by_key(|entry| entry.0);
+    for (fd, target) in sorted {
+        if *fd <= 2 {
+            continue;
+        }
+        if !listing_seen && *target == listing {
+            listing_seen = true;
+            continue;
+        }
+        return Err(FdProblem::Unexpected(*fd));
+    }
     Ok(())
 }
 
 /// Lists `/proc/self/fd`. A name that is not a number, or a link that cannot be read, is an error (fail closed).
 pub fn read_fd_entries() -> io::Result<Vec<FdEntry>> {
-    Ok(Vec::new())
+    let mut entries = Vec::new();
+    for item in std::fs::read_dir("/proc/self/fd")? {
+        let item = item?;
+        let fd: u32 = item
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse().ok())
+            .ok_or_else(|| io::Error::other("a name in /proc/self/fd is not a number"))?;
+        // A link that cannot be read is an error too: unknown is not "fine".
+        let target = std::fs::read_link(item.path())?;
+        entries.push((fd, target.to_string_lossy().into_owned()));
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
