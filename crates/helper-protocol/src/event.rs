@@ -72,6 +72,8 @@ pub enum ErrorKind {
     DatabaseLocked,
     /// pacman ran and failed; its words, cleaned and capped.
     PacmanFailed(Details),
+    /// The request was valid, but this helper does not do jobs yet (5.3a). Gone once 5.3b lands.
+    NotImplemented,
 }
 
 /// pacman's own words for a failure. Control characters (except a new line) and invisible direction marks
@@ -155,6 +157,9 @@ impl ErrorKind {
             Self::PacmanFailed(_) => {
                 "The package manager stopped with an error. The technical details show what it said."
             }
+            Self::NotImplemented => {
+                "This version of the helper cannot do that yet. Nothing was changed."
+            }
         }
     }
 }
@@ -215,6 +220,7 @@ mod tests {
             ErrorKind::SystemOutOfDate,
             ErrorKind::DatabaseLocked,
             ErrorKind::PacmanFailed(Details::from_raw("error: failed to commit transaction")),
+            ErrorKind::NotImplemented,
         ]
     }
 
@@ -266,6 +272,10 @@ mod tests {
                 invalid()
             )))),
             r#"{"finished":{"error":{"invalid":{"field":"targets","index":0,"reason":"bad_package_name"}}}}"#
+        );
+        assert_eq!(
+            event_line(&Event::Finished(Outcome::Error(ErrorKind::NotImplemented))),
+            r#"{"finished":{"error":"not_implemented"}}"#
         );
         assert_eq!(
             event_line(&Event::Finished(Outcome::Error(ErrorKind::PacmanFailed(
