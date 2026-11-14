@@ -7,7 +7,9 @@
 #
 # Rules this script keeps (docs/security/threat-model.md, tests/container/README.md):
 #  - rootless Podman only; never --privileged; refuses to run as root
-#  - the only host path inside the container is the test binary, read-only
+#  - the only host paths inside the container are the built test binaries and the built tidewise-helper
+#    (5.3a), each mounted read-only; nothing else from the host
+#  - each test binary runs in its own fresh container, so one test file cannot leave state for the next
 #  - the container has no network (--network=none)
 set -euo pipefail
 
@@ -35,26 +37,38 @@ image="localhost/tidewise-test:$inputs"
 echo "==> image $image (the first build needs network, later runs do not)"
 podman build --tag "$image" --file "$here/Containerfile" "$here"
 
-echo "==> building the test binary on the host"
+echo "==> building the helper and the test binaries on the host"
 build_log=$(mktemp)
 trap 'rm -f "$build_log"' EXIT
-if ! cargo test -p tidewise-container-tests --test smoke --no-run >"$build_log" 2>&1; then
+if ! cargo build -p tidewise-helper >"$build_log" 2>&1; then
     cat "$build_log" >&2
     exit 1
 fi
-binary=$(sed -n 's/^ *Executable tests\/smoke\.rs (\(.*\))$/\1/p' "$build_log")
-if [ -z "$binary" ]; then
-    echo "run.sh: could not find the test binary in cargo's output:" >&2
+helper=$(realpath "${CARGO_TARGET_DIR:-target}/debug/tidewise-helper")
+if ! cargo test -p tidewise-container-tests --no-run >"$build_log" 2>&1; then
     cat "$build_log" >&2
     exit 1
 fi
-binary=$(realpath "$binary")
+# One line per integration test file: "Executable tests/<name>.rs (<path>)".
+mapfile -t tests < <(sed -n 's/^ *Executable tests\/\([a-z_]*\)\.rs (\(.*\))$/\1 \2/p' "$build_log")
+if [ "${#tests[@]}" -eq 0 ]; then
+    echo "run.sh: could not find the test binaries in cargo's output:" >&2
+    cat "$build_log" >&2
+    exit 1
+fi
 
-echo "==> running inside the container (no network, binary mounted read-only)"
-exec podman run --rm \
-    --pull=never \
-    --network=none \
-    --security-opt=no-new-privileges \
-    --volume "$binary:/opt/tidewise/smoke:ro" \
-    "$image" \
-    /opt/tidewise/smoke --ignored --test-threads=1 "$@"
+status=0
+for entry in "${tests[@]}"; do
+    name=${entry%% *}
+    binary=$(realpath "${entry#* }")
+    echo "==> running $name inside a fresh container (no network, binaries mounted read-only)"
+    podman run --rm \
+        --pull=never \
+        --network=none \
+        --security-opt=no-new-privileges \
+        --volume "$binary:/opt/tidewise/$name:ro" \
+        --volume "$helper:/opt/tidewise/tidewise-helper:ro" \
+        "$image" \
+        "/opt/tidewise/$name" --ignored --test-threads=1 "$@" || status=$?
+done
+exit "$status"
