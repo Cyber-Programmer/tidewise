@@ -532,3 +532,34 @@ Next: 5.7 container harness (rootless Podman). You decide pkexec vs D-Bus, and r
 `--noconfirm` (open question 5), before the first install job.
 Blockers: none.
 Rules bent: no `(red)` commit (document only, allowed for docs). WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-14 — 5.7 Arch container test harness (rootless Podman)
+Done: first, your two decisions as docs: `docs/decisions/0005-helper-invocation.md` (pkexec + summary in argv that the
+helper checks; KDE evidence; 5.4 re-test with our own action; D-Bus fallback), golden rule 10 reworded in CLAUDE.md and
+PLAN.md (`--noconfirm` only for a verified transaction), threat model updated (section 3, open questions 1 and 5,
+T-02, T-04, source 14). Then `tests/container/` (workspace member `tidewise-container-tests`, no dependencies):
+- Guard (red, then green): `require_container_at(root)` needs BOTH `run/.containerenv` and
+  `srv/tidewise-test/tidewise-test.db.tar.gz` as regular files; `require_container()` returns `Result<(), GuardError>`
+  (`NotInContainer` / `NotOurImage`), no panic in library code. 8 unit tests run in `cargo test --all` on the host.
+- Smoke tests (`#[ignore]`): `pacman -S` of a dummy package then `pacman -Q`; and a package whose dependency comes along.
+  Red: both fail at the guard on the host (and `NotOurImage` in the plain base image). Green: `tests/container/run.sh`.
+- Image: `archlinux:base` pinned by digest `sha256:fcee73ea…` (20261108.0.623074), Arch Archive snapshot of that day,
+  three dummy packages built with makepkg, local repo via repo-add, lists refreshed once at build. `run.sh`: refuses
+  root, rootless only, `--network=none`, `--security-opt=no-new-privileges`, only the test binary mounted `:ro`.
+- Fixtures from the container in `tests/fixtures/pacman/container/` (dry run `-S --print`, not-found, third-party
+  `-Si`/`-Ss`, `-Q`/`-Qi` after an install with a dependency).
+- Real findings: pacman 7.1 works as container root, including its download sandbox with a `file://` repo; no
+  `CheckSpace`/pacman.conf change was needed. `-S --print` lists the dependency first (lib, then app) as `file://` URLs.
+  The image build first failed with `pasta ... /dev/net/tun: No such device`: the running kernel (7.2.9) was older than
+  the installed `linux` (7.3.4), so `tun` could not load; fixed by your reboot (noted in the README). `makepkg` wanted
+  `debugedit`; fixed with `options=('!debug' '!strip')` in the dummy PKGBUILDs. `userdel` prints a harmless
+  "mail spool not found" during the build.
+- Checked: host has no `tidewise-dummy-*` and no `tidewise-test` in pacman.conf; inside the container only `lo`, uid 0.
+  Two runs in a row both green (fresh container each time).
+Next: helper work in M3 (protocol, validation, polkit action with the 5.4 dialog re-test, PKGBUILD + namcap in 5.5),
+each helper test using this harness. A CI job for the container tests (GitHub's Ubuntu runners should have podman; not
+checked). Possible small follow-up: unit tests that the existing parsers read the new container fixtures.
+Blockers: none.
+Rules bent: no `(red)` commit for docs. `makepkg --nodeps` during the image build only (the lib is not in any
+repository yet). `SigLevel = Never` for the local test repository in the test image only. WBS sheet not touched by
+Claude (the human updates it).
