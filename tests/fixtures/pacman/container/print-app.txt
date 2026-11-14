@@ -1,0 +1,2 @@
+file:///srv/tidewise-test/tidewise-dummy-lib-1.0-1-any.pkg.tar.zst
+file:///srv/tidewise-test/tidewise-dummy-app-1.0-1-any.pkg.tar.zst
