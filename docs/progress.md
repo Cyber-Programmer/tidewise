@@ -606,3 +606,50 @@ Rules bent: no `(red)` commit for the hostile-input table (characterisation test
 Two red-commit tests were corrected, not weakened, in the green commit (serde_json depth). `Details` keeps a new line
 (the plan said all control characters) so multi-line pacman errors stay readable. WBS sheet not touched by Claude (the
 human updates it).
+
+## 2026-11-14 — 5.3a tidewise-helper: the gate (no pacman)
+Done: `crates/helper` (`tidewise-helper`), `#![forbid(unsafe_code)]`, no-panic lints plus a ban on `println!`/`eprintln!`/
+`dbg!` (clippy-denied; all output goes through `write_line`, whose error is handled). Only dependency:
+`tidewise-helper-protocol`; no new external crate. No pacman call, no child process.
+- Start order (each step refuses before the next): `/proc/self/fd` has only 0, 1, 2 and our own listing; effective uid
+  is 0 (`/proc/self/status`); `chdir("/")`; argv is exactly `[program, summary]`. A refusal = one fixed sentence on
+  stderr, exit 2, nothing on stdout, no journal entry, stdin never read. Then: stdin capped at 2 MiB + 1, `parse_request`,
+  recompute `summary()` and compare bytes with argv[1] (`SummaryMismatch`), one journal entry (native protocol over
+  `UnixDatagram`, no dependency, printable-ASCII values), one result line, exit 1. A valid request ends in
+  `NotImplemented`. Exit codes: 0 (unused), 1 result line with error, 2 refused to start.
+- Protocol: `summary()` says "with N providers" when provider names do not fit (5.2 follow-up); new
+  `ErrorKind::NotImplemented`.
+- Container: `run.sh` mounts the helper read-only (rule in CLAUDE.md and README updated) and runs each test file in a
+  fresh container. 12 helper tests as real root + a fake journald: not_implemented per fixture, wrong summary, 8 hostile
+  requests, wrong argv, inherited fd (via `flock`), hostile env, stdout/stderr on `/dev/full` or with the reader gone,
+  and "nothing changed" (`pacman -Q` + metadata of /etc, /usr, pacman dirs, /var/log, /root, /opt, /srv, /home, /boot,
+  /tmp; db.lck absent). The snapshot test was mutation-checked (a planted file under /etc makes it fail).
+- Tests: helper 84 unit + 7 not_root; protocol 73 unit + 12 hostile; container 12 + 2 smoke; whole workspace green
+  (fmt, clippy -D warnings, test --all, deny, release build). Fuzz `request`, 600 s: Done 8 120 963 runs, exit 0,
+  nothing in `fuzz/artifacts/request`.
+- Review: fresh subagent, `docs/security/reviews/5.3a-helper-gate.md`: no High/Medium. R-01 confirmed (see Next),
+  R-02 and R-03 fixed, R-04..R-06 already documented.
+- Real findings: (1) `LD_PRELOAD`/`LD_LIBRARY_PATH` cannot be defended by the helper (the loader acts before `main`);
+  pkexec drops them; T-08 corrected, re-check with real pkexec in 5.4. (2) Rust std reopens a closed fd 0/1/2 as
+  /dev/null, so "standard fd missing" cannot happen in the real binary. (3) pkexec 128 marks fds >= 3 close-on-exec
+  (source in threat model, source 16). (4) A user-namespace root (`unshare -r`) passes the root check (R-01).
+- Threat model: T-01, T-02, T-07, T-08, T-14, T-15 updated; questions 6 and 7 answered; 13 and 14 added.
+Next (5.3b, the jobs, own plan; decided, not built):
+- Lock held -> `DatabaseLocked`, never touch db.lck. Plain install refused if `pacman -Qu` has non-ignored updates.
+  The `--print` dry run must equal the confirmed transaction or `TransactionChanged`. Update flows sync ONCE (`-Sy`),
+  then `-Su --print` and `-Su` with no second sync. `--noconfirm` only after the dry run matched (rule 10).
+  `pacman -D --asdeps` for the chosen providers only (human approved), container test that `-Qi` shows "Installed as a
+  dependency".
+- **Read and validate the whole request before taking any lock, syncing or running pacman**: a caller that never
+  closes stdin keeps the helper waiting (harmless now, nothing is held).
+- umask: cite pacman's own `umask(0022)` by source line; container test with umask 077 and 000 checking installed file
+  modes; add `rustix` only if pacman does not set it. Also `env_clear` + `LC_ALL=C` and null stdin for children.
+- Decide question 13 (refuse to act if the journal entry cannot be written) and question 14 (require an identity
+  `/proc/self/uid_map`, or rely on pkexec alone).
+- 5.4: re-test the dialog with our own polkit action and with the real pkexec (env, fds). Check `Phase` against real
+  pacman output. Consider a fuzz target for `decide()`.
+Blockers: none.
+Rules bent: no `(red)` commit for the container tests (characterise behaviour built in the previous commits). Red tests
+that name a new variant would not compile, so the `NotImplemented` red test parses the wire line instead; one red test
+(journal line counting) was too strict and was corrected in its green commit (explained there), not weakened. WBS sheet
+not touched by Claude (the human updates it).
