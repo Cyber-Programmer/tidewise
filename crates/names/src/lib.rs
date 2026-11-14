@@ -1,10 +1,23 @@
-//! Package-name check shared by the `-Qq` and `-Qi` parsers.
+//! Package and repository name rules, shared by `tidewise-pacman` (read side) and, later, the helper.
+//!
+//! One copy of the allow-lists, no dependencies, no I/O. Library code must not panic, so clippy forbids
+//! `unwrap`, `expect`, indexing and `panic!` here (tests may still use them).
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )
+)]
 
 /// True if `name` is a legal pacman package name.
 ///
 /// Allow-list from `man PKGBUILD`, section `pkgname`: only ASCII letters and digits and the
 /// characters `@ . _ + -`, and it must not start with `-` or `.`.
-pub(crate) fn is_valid_package_name(name: &str) -> bool {
+pub fn is_valid_package_name(name: &str) -> bool {
     if name.is_empty() || name.starts_with(['-', '.']) {
         return false;
     }
@@ -17,7 +30,7 @@ pub(crate) fn is_valid_package_name(name: &str) -> bool {
 /// pacman's own rule (it comes from a `[section]` in pacman.conf, see the 4.3 notes): not empty, no `/`,
 /// and not `local` (that name is the installed-packages database). On top of that we refuse control
 /// characters, so nothing odd can reach the command line.
-pub(crate) fn is_valid_repo_name(repo: &str) -> bool {
+pub fn is_valid_repo_name(repo: &str) -> bool {
     !repo.is_empty()
         && !repo.contains('/')
         && repo != "local"

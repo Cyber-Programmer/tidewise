@@ -1,7 +1,7 @@
 //! Parser for `pacman -Qq`: one package name per line.
 
 use crate::ParseError;
-use crate::name::is_valid_package_name;
+use tidewise_names::is_valid_package_name;
 
 /// Parses the output of `LC_ALL=C pacman -Qq` into package names, in the order given.
 ///

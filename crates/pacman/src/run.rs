@@ -9,12 +9,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
     DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, PendingUpdate,
     SearchResult, SyncLists, parse_qi, parse_qu, parse_si, parse_ss,
 };
+use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";

@@ -15,7 +15,6 @@
 )]
 
 mod error;
-mod name;
 mod partial;
 mod qi;
 mod qq;

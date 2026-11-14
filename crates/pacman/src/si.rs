@@ -1,9 +1,9 @@
 //! Parser for `pacman -Si`: the details of packages in the repositories.
 
-use crate::name::{is_valid_package_name, is_valid_repo_name};
 use crate::record::{Record, split_records};
 use crate::size::parse_size;
 use crate::{ParseError, SearchResult};
+use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// A package to look up: the repository and the name, as a search result gives them.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

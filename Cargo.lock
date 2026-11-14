@@ -4251,8 +4251,15 @@ name = "tidewise-core"
 version = "0.1.0"
 
 [[package]]
+name = "tidewise-names"
+version = "0.1.0"
+
+[[package]]
 name = "tidewise-pacman"
 version = "0.1.0"
+dependencies = [
+ "tidewise-names",
+]
 
 [[package]]
 name = "tiny-skia"

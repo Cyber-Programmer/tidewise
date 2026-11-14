@@ -1,9 +1,9 @@
 //! Parser for `pacman -Qi`: records of `Key : value` lines, separated by blank lines.
 
 use crate::ParseError;
-use crate::name::is_valid_package_name;
 use crate::record::{Record, split_records};
 use crate::size::parse_size;
+use tidewise_names::is_valid_package_name;
 
 /// Why a package is on the system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
