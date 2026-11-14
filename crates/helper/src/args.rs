@@ -17,15 +17,24 @@ pub enum ArgsError {
 
 /// The summary argument as raw bytes: argv must be exactly `[program, summary]`.
 pub fn summary_arg(args: impl IntoIterator<Item = OsString>) -> Result<Vec<u8>, ArgsError> {
-    let _ = args.into_iter().count();
-    Err(ArgsError::WrongCount)
+    let mut args = args.into_iter().fuse();
+    let _program_name = args.next();
+    match (args.next(), args.next()) {
+        (Some(summary), None) => Ok(summary.into_vec()),
+        _ => Err(ArgsError::WrongCount),
+    }
 }
 
 /// The caller's user id from `PKEXEC_UID`, or `None` if it is missing or is not a plain decimal number
 /// (digits only, at most 10 of them, fitting in a `u32`). For the log only.
 pub fn caller_uid(value: Option<OsString>) -> Option<u32> {
-    let _ = value.map(OsStringExt::into_vec);
-    None
+    let bytes = value?.into_vec();
+    // `pkexec` writes the id with `%d`, so a real value is plain digits. Check the shape first (this also rules
+    // out a leading `+`, which `u32::from_str` would accept), then let the parser check the range.
+    if bytes.is_empty() || bytes.len() > 10 || !bytes.iter().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    String::from_utf8(bytes).ok()?.parse().ok()
 }
 
 #[cfg(test)]
