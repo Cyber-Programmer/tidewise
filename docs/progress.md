@@ -632,7 +632,7 @@ Done: `crates/helper` (`tidewise-helper`), `#![forbid(unsafe_code)]`, no-panic l
 - Real findings: (1) `LD_PRELOAD`/`LD_LIBRARY_PATH` cannot be defended by the helper (the loader acts before `main`);
   pkexec drops them; T-08 corrected, re-check with real pkexec in 5.4. (2) Rust std reopens a closed fd 0/1/2 as
   /dev/null, so "standard fd missing" cannot happen in the real binary. (3) pkexec 128 marks fds >= 3 close-on-exec
-  (source in threat model, source 16). (4) A user-namespace root (`unshare -r`) passes the root check (R-01).
+  (source in threat model, source 16). (4) A user-namespace root (`unshare -r`) passes the root check (R-01); accepted by the human (question 14).
 - Threat model: T-01, T-02, T-07, T-08, T-14, T-15 updated; questions 6 and 7 answered; 13 and 14 added.
 Next (5.3b, the jobs, own plan; decided, not built):
 - Lock held -> `DatabaseLocked`, never touch db.lck. Plain install refused if `pacman -Qu` has non-ignored updates.
@@ -644,8 +644,12 @@ Next (5.3b, the jobs, own plan; decided, not built):
   closes stdin keeps the helper waiting (harmless now, nothing is held).
 - umask: cite pacman's own `umask(0022)` by source line; container test with umask 077 and 000 checking installed file
   modes; add `rustix` only if pacman does not set it. Also `env_clear` + `LC_ALL=C` and null stdin for children.
-- Decide question 13 (refuse to act if the journal entry cannot be written) and question 14 (require an identity
-  `/proc/self/uid_map`, or rely on pkexec alone).
+- Question 13 decided (human, 14 Nov 2026): if the journal entry cannot be written the helper does NOT refuse
+  (pacman.log still records every package change); the `Finished` event says the audit entry could not be written,
+  fixed text, no details. Needs a protocol change: ask in 5.3b's plan.
+- Question 14 decided (human, 14 Nov 2026): rely on pkexec, no `/proc/self/uid_map` check. A user-namespace root has only
+  the caller's own powers (pacman would fail on permissions), and an identity-map check would also refuse in our
+  rootless Podman tests. Accepted, recorded in the threat model.
 - 5.4: re-test the dialog with our own polkit action and with the real pkexec (env, fds). Check `Phase` against real
   pacman output. Consider a fuzz target for `decide()`.
 Blockers: none.
