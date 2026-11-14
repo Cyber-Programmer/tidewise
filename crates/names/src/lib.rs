@@ -37,11 +37,16 @@ pub fn is_valid_repo_name(repo: &str) -> bool {
         && !repo.chars().any(char::is_control)
 }
 
+/// Longest repository name the helper accepts, in bytes.
+pub const MAX_HELPER_REPO_NAME_BYTES: usize = 64;
+
 /// True if `repo` may appear in a request to the helper: stricter than `is_valid_repo_name`.
 ///
-/// STUB (red commit): refuses everything until the real rule is written.
-pub fn is_helper_repo_name(_repo: &str) -> bool {
-    false
+/// The helper runs as root and puts repo names in the text pkexec shows, so it takes only the same ASCII set
+/// as package names (letters, digits and `@ . _ + -`, not starting with `-` or `.`), at most 64 bytes, and
+/// never `local`. That refuses look-alikes such as a Cyrillic "а" in `extrа`.
+pub fn is_helper_repo_name(repo: &str) -> bool {
+    repo.len() <= MAX_HELPER_REPO_NAME_BYTES && repo != "local" && is_valid_package_name(repo)
 }
 
 #[cfg(test)]
