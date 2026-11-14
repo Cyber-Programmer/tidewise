@@ -77,20 +77,42 @@ pub enum ErrorKind {
 /// pacman's own words for a failure. Control characters (except a new line) and invisible direction marks
 /// are removed, and the text is cut to `MAX_DETAILS_BYTES` at a character boundary. Also applied when an
 /// event is read back, so a `Details` value is always clean.
-///
-/// STUB (red commit): keeps the text as it is.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(from = "String")]
 pub struct Details(String);
 
 impl Details {
     pub fn from_raw(raw: &str) -> Self {
-        Self(raw.to_string())
+        let mut text = String::new();
+        for c in raw.chars() {
+            if is_unwanted(c) {
+                continue;
+            }
+            if text.len() + c.len_utf8() > MAX_DETAILS_BYTES {
+                break;
+            }
+            text.push(c);
+        }
+        Self(text)
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Control characters (a new line is fine), line and paragraph separators, and the invisible marks that can
+/// reorder or hide text (zero-width and direction controls, soft hyphen, byte order mark).
+fn is_unwanted(c: char) -> bool {
+    (c.is_control() && c != '\n')
+        || matches!(
+            c,
+            '\u{ad}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
+        )
 }
 
 impl From<String> for Details {
@@ -106,11 +128,34 @@ impl Serialize for Details {
 }
 
 impl ErrorKind {
-    /// The fixed plain-language text for the app to show. Same text whatever the request held.
-    ///
-    /// STUB (red commit): empty.
+    /// The fixed plain-language text for the app to show. Same text whatever the request held; the app puts
+    /// the technical words (`Details`) under "Technical details", never here.
     pub fn plain_text(&self) -> &'static str {
-        ""
+        match self {
+            Self::TooLarge => "The request was too big for the helper. Nothing was changed.",
+            Self::Malformed => "The helper could not read the request. Nothing was changed.",
+            Self::VersionMismatch => {
+                "Tidewise and its helper are different versions. Please reinstall Tidewise. Nothing was changed."
+            }
+            Self::Invalid(_) => {
+                "The helper refused the request because it was not allowed. Nothing was changed."
+            }
+            Self::SummaryMismatch => {
+                "The text shown in the password window did not match the request. Nothing was changed."
+            }
+            Self::TransactionChanged => {
+                "The packages to change are different from the list you reviewed. Nothing was changed. If the package lists were refreshed in the meantime, please finish with a full system update before installing anything."
+            }
+            Self::SystemOutOfDate => {
+                "Your system has updates waiting, so installing on its own is not safe. Update the system first. Nothing was changed."
+            }
+            Self::DatabaseLocked => {
+                "Another program is using the package database, for example another package manager. Wait until it is done, then try again."
+            }
+            Self::PacmanFailed(_) => {
+                "The package manager stopped with an error. The technical details show what it said."
+            }
+        }
     }
 }
 
@@ -138,11 +183,12 @@ pub fn event_line(event: &Event) -> String {
     serde_json::to_string(event).unwrap_or_default()
 }
 
-/// Reads one line of helper output.
-///
-/// STUB (red commit): reads nothing.
-pub fn parse_event(_line: &str) -> Result<Event, EventError> {
-    Err(EventError::Malformed)
+/// Reads one line of helper output: exactly one event, nothing after it, unknown keys refused.
+pub fn parse_event(line: &str) -> Result<Event, EventError> {
+    if line.len() > MAX_EVENT_LINE_BYTES {
+        return Err(EventError::TooLarge);
+    }
+    serde_json::from_str(line).map_err(|_| EventError::Malformed)
 }
 
 #[cfg(test)]
