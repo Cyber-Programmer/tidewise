@@ -10,15 +10,18 @@ packages, and with **no network**.
 your machine (normal user)            rootless Podman container (no network)
 ------------------------------        ----------------------------------------------
 tests/container/run.sh        --->    pinned archlinux:base image + Arch Archive snapshot
-  cargo builds the test binary        local repo /srv/tidewise-test (dummy packages)
-  podman run ... --volume bin:ro      the test binary, read-only, runs as the container's "root"
+  cargo builds the helper + tests     local repo /srv/tidewise-test (dummy packages)
+  podman run ... --volume bin:ro      the test binary and /opt/tidewise/tidewise-helper, both read-only;
+                                      the test runs as the container's "root"
                                       (= your normal user id on the host, see "Why rootless is safe")
 ```
 
 Rules the harness keeps:
 
 - Rootless Podman only. Never `--privileged`. `run.sh` refuses to run as root.
-- The only host path inside the container is the built test binary, mounted read-only.
+- The only host paths inside the container are the built test binary and the built `tidewise-helper` (from 5.3a on,
+  at `/opt/tidewise/tidewise-helper`), each mounted read-only. Each test file runs in its own fresh container, so state
+  one test file leaves behind (for example installed packages) cannot disturb the next.
 - `--network=none` at test time. The network is used only while the image is built (base image and the Arch Archive
   snapshot), once.
 - Every container test starts with `require_container()` (`src/lib.rs`). It says yes only if **both**
@@ -70,7 +73,7 @@ CI job comes in its own task.
 ## Refreshing the image
 
 Do it about once a month, or when `run.sh` fails with `GLIBC_x.y not found` (your machine's glibc is newer than the
-image's, and the test binary is built on your machine):
+image's, and the test binaries and the helper are built on your machine):
 
 1. `podman pull docker.io/library/archlinux:base`
 2. `podman image inspect docker.io/library/archlinux:base --format '{{.Digest}} {{.Labels}}'` for the new digest and the

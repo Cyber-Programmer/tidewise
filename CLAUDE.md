@@ -127,11 +127,11 @@ cargo build --release -p tidewise-app
 ### Container tests (rootless Podman; not part of "done" or CI yet)
 
 Anything that runs pacman for real, as root, runs only in the test container (`tests/container/README.md`; one-time
-setup there). Never on the host, never `--privileged`, never with a host mount except the built test binary, read-only.
+setup there). Never on the host, never `--privileged`, never with a host mount except the built test binaries and the `tidewise-helper` binary, each read-only.
 Every container test starts with `require_container()`; the tests are `#[ignore]`, so `cargo test --all` skips them.
 
 ```
-tests/container/run.sh                  # builds the image (cached) and the test binary, runs them with --network=none
+tests/container/run.sh                  # builds the image (cached), the helper and the test binaries; runs each test binary in its own container, --network=none
 ```
 
 ### Fuzzing (nightly only, local; not part of "done" or CI yet)
