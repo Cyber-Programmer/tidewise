@@ -5,7 +5,7 @@
 //! it is not a hash: it lists the targets (and, when they fit, the chosen providers), counts the confirmed
 //! list, and never shows versions. Package names only: argv is visible to every user in `ps`.
 
-use crate::Request;
+use crate::{Action, Install, PackageRef, Request};
 
 /// Longest summary, in bytes. Longer lists are cut with "and N more".
 pub const MAX_SUMMARY_BYTES: usize = 200;
@@ -13,9 +13,96 @@ pub const MAX_SUMMARY_BYTES: usize = 200;
 /// The text for `request`. Works on any request, validated or not: whatever it holds, the result is printable
 /// ASCII (anything else becomes `?`) and at most `MAX_SUMMARY_BYTES` long.
 ///
-/// STUB (red commit): returns nothing.
-pub fn summary(_request: &Request) -> String {
-    String::new()
+/// Shapes: `install a b with c (N packages)`, `update system (N packages)`,
+/// `update system and install a b with c (N packages)`. `N` is the length of the confirmed list. Targets are
+/// listed in request order while they fit; the rest become `and K more`. The chosen providers (`with ...`) are
+/// listed only when every target and every provider fits, otherwise none of them are.
+pub fn summary(request: &Request) -> String {
+    match &request.action {
+        Action::Install(install) => install_text("install", install),
+        Action::UpdateSystemAndInstall(install) => {
+            install_text("update system and install", install)
+        }
+        Action::UpdateSystem(update) => {
+            format!("update system{}", total(update.transaction.len()))
+        }
+    }
+}
+
+fn install_text(verb: &str, install: &Install) -> String {
+    let total = total(install.transaction.len());
+    let count = install.targets.len();
+
+    let mut text = String::from(verb);
+    let mut shown = 0;
+    for (index, target) in install.targets.iter().enumerate() {
+        let word = word(target);
+        let remaining = count - index - 1;
+        if text.len() + 1 + word.len() + tail(remaining, &total).len() > MAX_SUMMARY_BYTES {
+            break;
+        }
+        text.push(' ');
+        text.push_str(&word);
+        shown += 1;
+    }
+
+    if shown < count {
+        if shown == 0 {
+            text.push_str(" ...");
+        }
+        text.push_str(&tail(count - shown, &total));
+        return text;
+    }
+
+    // Every target is listed. Add the providers only if they all fit too.
+    let mut with = String::new();
+    if !install.providers.is_empty() {
+        with.push_str(" with");
+        for answer in &install.providers {
+            let word = word(&answer.chosen);
+            if text.len() + with.len() + 1 + word.len() + total.len() > MAX_SUMMARY_BYTES {
+                with.clear();
+                break;
+            }
+            with.push(' ');
+            with.push_str(&word);
+        }
+    }
+    text.push_str(&with);
+    text.push_str(&total);
+    text
+}
+
+/// ` (N packages)`, or ` (1 package)`.
+fn total(count: usize) -> String {
+    if count == 1 {
+        " (1 package)".to_string()
+    } else {
+        format!(" ({count} packages)")
+    }
+}
+
+/// What ends the text when `remaining` targets are not listed.
+fn tail(remaining: usize, total: &str) -> String {
+    if remaining == 0 {
+        total.to_string()
+    } else {
+        format!(" and {remaining} more{total}")
+    }
+}
+
+/// `repo/name`, as ASCII.
+fn word(package: &PackageRef) -> String {
+    format!("{}/{}", ascii(&package.repo), ascii(&package.name))
+}
+
+/// Printable ASCII only: every other character becomes `?`. Only the first `MAX_SUMMARY_BYTES` characters are
+/// looked at, so a 1 MB name costs no more than a short one.
+fn ascii(text: &str) -> String {
+    text.chars()
+        .take(MAX_SUMMARY_BYTES)
+        .map(|c| if (' '..='~').contains(&c) { c } else { '?' })
+        .collect()
 }
 
 #[cfg(test)]
