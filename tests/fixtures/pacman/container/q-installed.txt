@@ -1,0 +1,2 @@
+tidewise-dummy-app 1.0-1
+tidewise-dummy-lib 1.0-1

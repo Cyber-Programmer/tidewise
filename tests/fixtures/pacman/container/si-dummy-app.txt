@@ -1,0 +1,19 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-app
+Version         : 1.0-1
+Description     : Tidewise test package that depends on tidewise-dummy-lib
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-dummy-lib
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.42 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Sat Nov 14 08:16:46 2026
+Validated By    : SHA-256 Sum
+

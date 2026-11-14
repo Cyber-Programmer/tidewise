@@ -1,0 +1,14 @@
+extra/dummyhttp 1.1.3-1
+    Super simple HTTP server that replies a fixed body with a fixed response code
+extra/folks 0.15.12-2
+    Library to aggregates people into metacontacts
+extra/haskell-tagged 0.8.10-3
+    Haskell 98 phantom types to avoid unsafely passing dummy arguments
+extra/xf86-video-dummy 0.4.1-3 (xorg-drivers)
+    X.org dummy video driver
+tidewise-test/tidewise-dummy-app 1.0-1
+    Tidewise test package that depends on tidewise-dummy-lib
+tidewise-test/tidewise-dummy-hello 1.0-1
+    Tidewise test package with no dependencies
+tidewise-test/tidewise-dummy-lib 1.0-1
+    Tidewise test package used as a dependency
