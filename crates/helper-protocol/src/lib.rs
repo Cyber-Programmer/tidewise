@@ -16,9 +16,11 @@
     )
 )]
 
+mod parse;
 mod request;
 mod validate;
 
+pub use parse::{MAX_REQUEST_BYTES, ProtocolError, parse_request};
 pub use request::{
     Action, Install, PROTOCOL_VERSION, PackageRef, ProviderChoice, Request, TransactionItem,
     UpdateSystem,
