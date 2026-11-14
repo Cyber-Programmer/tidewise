@@ -1,0 +1,40 @@
+# The Tidewise test image: Arch Linux, a frozen package snapshot, and a tiny local repository of dummy packages.
+# Build it with tests/container/run.sh (see README.md). Network is needed ONLY while building; tests run with none.
+
+# Pinned by digest, so everyone gets the same bytes. This is the official image published 2026-11-08
+# (version 20261108.0.623074). To refresh it, see "Refreshing the image" in README.md.
+FROM docker.io/library/archlinux:base@sha256:fcee73ea1b96e236248f53a213f71276cc9072d9025b58bce9915e32f19963ae
+
+# Packages come from the Arch Linux Archive snapshot of the image's day, not from a live mirror, so a rebuild next
+# month still installs the same versions. Keep this date equal to the image date above.
+ARG ARCHIVE_DAY=2026/11/08
+
+COPY pkgs /tmp/pkgs
+
+# One RUN so no half-finished layer is kept. Steps:
+#  1. point pacman at the archive snapshot and do a FULL upgrade (-Syu, never -Sy alone: golden rule 4), plus
+#     fakeroot, which makepkg needs;
+#  2. build the dummy packages as an ordinary user (makepkg refuses root). --nodeps only here: tidewise-dummy-app
+#     needs tidewise-dummy-lib, which is not in any repository yet;
+#  3. make the local repository with repo-add, owned by root and readable by everyone (pacman's download user
+#     "alpm" must be able to read it);
+#  4. add the repository to pacman.conf and refresh the lists once, so tests can use a plain `pacman -S`;
+#  5. remove the build user, the sources and the package cache.
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DAY" > /etc/pacman.d/mirrorlist \
+ && pacman -Syu --noconfirm --needed fakeroot \
+ && useradd --create-home builder \
+ && mkdir -p /srv/tidewise-test \
+ && chown -R builder /tmp/pkgs /srv/tidewise-test \
+ && for dir in /tmp/pkgs/*/; do \
+      (cd "$dir" && runuser -u builder -- env PKGDEST=/srv/tidewise-test makepkg --nodeps --noconfirm); \
+    done \
+ && repo-add /srv/tidewise-test/tidewise-test.db.tar.gz /srv/tidewise-test/*.pkg.tar.zst \
+ && chown -R root:root /srv/tidewise-test \
+ && chmod -R a+rX /srv/tidewise-test \
+ && printf '\n[tidewise-test]\nSigLevel = Never\nServer = file:///srv/tidewise-test\n' >> /etc/pacman.conf \
+ && pacman -Sy \
+ && userdel --remove builder \
+ && rm -rf /tmp/pkgs /var/cache/pacman/pkg/*
+
+# SigLevel = Never applies to this one local repository only, in this test image only. The dummy packages are not
+# signed, and the real repositories keep the image's default signature checks.

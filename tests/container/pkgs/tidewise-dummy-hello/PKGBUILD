@@ -1,0 +1,15 @@
+# Dummy package for the Tidewise container tests. Contains one text file and nothing else.
+pkgname=tidewise-dummy-hello
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test package with no dependencies"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+# Nothing to strip or build debug packages from (this is why the image needs no debugedit or binutils).
+options=('!debug' '!strip')
+
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}
