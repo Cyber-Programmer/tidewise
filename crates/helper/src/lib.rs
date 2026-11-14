@@ -27,5 +27,6 @@
     )
 )]
 
+pub mod args;
 pub mod fds;
 pub mod uid;
