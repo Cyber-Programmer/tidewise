@@ -595,7 +595,7 @@ Next: 5.3 helper binary (needs your OK before any `crates/helper*` change).
   "Installed as a dependency" for them. `-D --asdeps` is a new allow-listed invocation: needs your explicit OK in 5.3.
 - **For M4 (your note 2):** the helper's `-Syu --print` refreshes the REAL lists first; a `TransactionChanged` refusal
   leaves "lists newer than packages". Wording covers it for now; settle with the private-copy decision before the
-  update flow (threat model question 12; I could not find that decision written down, please correct my wording).
+  update flow (threat model question 12; deferred to M4 by you on 13 Nov 2026, see the 4.5 entry above).
 - **For M4 (your repo-name note):** if a search result comes from a repo whose name the helper refuses (non-ASCII), the
   details panel must say plainly that Tidewise can't install from that repository, instead of showing an Install button
   that will fail.

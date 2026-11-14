@@ -265,9 +265,11 @@ STRIDE letters: **S**poofing, **T**ampering, **R**epudiation, **I**nformation di
     Today's mitigation is wording: the fixed text of `TransactionChanged` tells the user nothing was changed and to
     finish with a full system update (`a_changed_transaction_tells_the_user_to_finish_with_a_full_update`). It is
     tied to the **private-copy decision**: running the dry run against a private copy of the sync databases would
-    leave the real lists alone until the user confirms. **Not decided; I could not find that decision written down
-    in the repo, so this entry states only my understanding of it. The human should correct it and the M4 plan
-    should settle it before the update flow is built.** Also decides whether `SystemOutOfDate` (T-11) can ever be
+    leave the real lists alone until the user confirms. **Deferred to M4 by the human on 13 Nov 2026 (4.5, option A):
+    M4 decides the private-copy refresh as its own decision record (a `checkupdates`-style private DB folder with
+    `fakeroot`, `$XDG_CACHE_HOME` not `/tmp`, the download counted as network use under rule 11); see the "Next"
+    line of the 4.5 entry in `docs/progress.md` and the WBS 4.5 notes. It must be settled before the update flow is
+    built.** Also decides whether `SystemOutOfDate` (T-11) can ever be
     shown after a refused update.
 
 ## 7. Sources
