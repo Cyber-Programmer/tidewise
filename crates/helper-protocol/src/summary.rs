@@ -2,8 +2,8 @@
 //!
 //! The app puts this text in argv; the helper recomputes it from the request it validated and refuses on any
 //! difference. So the function is deterministic, ASCII only, and capped in length. It describes the request;
-//! it is not a hash: it lists the targets (and, when they fit, the chosen providers), counts the confirmed
-//! list, and never shows versions. Package names only: argv is visible to every user in `ps`.
+//! it is not a hash: it lists the targets, then the chosen providers (named when they all fit, otherwise only
+//! counted, never dropped silently), counts the confirmed list, and never shows versions. Package names only: argv is visible to every user in `ps`.
 
 use crate::{Action, Install, PackageRef, Request};
 
@@ -15,8 +15,9 @@ pub const MAX_SUMMARY_BYTES: usize = 200;
 ///
 /// Shapes: `install a b with c (N packages)`, `update system (N packages)`,
 /// `update system and install a b with c (N packages)`. `N` is the length of the confirmed list. Targets are
-/// listed in request order while they fit; the rest become `and K more`. The chosen providers (`with ...`) are
-/// listed only when every target and every provider fits, otherwise none of them are.
+/// listed in request order while they fit; the rest become `and K more`. The chosen providers are named
+/// (`with c d`) only when every target and every provider fits; otherwise they are counted
+/// (`with 2 providers`, `with 1 provider`), so a request that has providers always says so.
 pub fn summary(request: &Request) -> String {
     match &request.action {
         Action::Install(install) => install_text("install", install),
@@ -32,13 +33,17 @@ pub fn summary(request: &Request) -> String {
 fn install_text(verb: &str, install: &Install) -> String {
     let total = total(install.transaction.len());
     let count = install.targets.len();
+    // What says "providers exist" when their names do not fit. Its room is kept back while targets are added,
+    // so it is never the part that gets cut.
+    let counted = counted_providers(install.providers.len());
 
     let mut text = String::from(verb);
     let mut shown = 0;
     for (index, target) in install.targets.iter().enumerate() {
         let word = word(target);
         let remaining = count - index - 1;
-        if text.len() + 1 + word.len() + tail(remaining, &total).len() > MAX_SUMMARY_BYTES {
+        let ending = more(remaining).len() + counted.len() + total.len();
+        if text.len() + 1 + word.len() + ending > MAX_SUMMARY_BYTES {
             break;
         }
         text.push(' ');
@@ -50,18 +55,20 @@ fn install_text(verb: &str, install: &Install) -> String {
         if shown == 0 {
             text.push_str(" ...");
         }
-        text.push_str(&tail(count - shown, &total));
+        text.push_str(&more(count - shown));
+        text.push_str(&counted);
+        text.push_str(&total);
         return text;
     }
 
-    // Every target is listed. Add the providers only if they all fit too.
+    // Every target is listed. Name the providers if they all fit too, otherwise count them.
     let mut with = String::new();
     if !install.providers.is_empty() {
         with.push_str(" with");
         for answer in &install.providers {
             let word = word(&answer.chosen);
             if text.len() + with.len() + 1 + word.len() + total.len() > MAX_SUMMARY_BYTES {
-                with.clear();
+                with = counted.clone();
                 break;
             }
             with.push(' ');
@@ -82,12 +89,21 @@ fn total(count: usize) -> String {
     }
 }
 
-/// What ends the text when `remaining` targets are not listed.
-fn tail(remaining: usize, total: &str) -> String {
+/// ` and K more` when `remaining` targets are not listed, nothing otherwise.
+fn more(remaining: usize) -> String {
     if remaining == 0 {
-        total.to_string()
+        String::new()
     } else {
-        format!(" and {remaining} more{total}")
+        format!(" and {remaining} more")
+    }
+}
+
+/// ` with N providers` (or ` with 1 provider`), nothing when there are none.
+fn counted_providers(count: usize) -> String {
+    match count {
+        0 => String::new(),
+        1 => " with 1 provider".to_string(),
+        _ => format!(" with {count} providers"),
     }
 }
 
