@@ -21,8 +21,15 @@ pub enum InputError {
 /// Reads at most `MAX_REQUEST_BYTES + 1` bytes. Interrupted reads are retried by the standard library; any other
 /// read error is `ReadFailed`.
 pub fn read_capped(reader: impl Read) -> Result<Vec<u8>, InputError> {
-    let _ = reader;
-    Ok(Vec::new())
+    let limit = u64::try_from(MAX_REQUEST_BYTES)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    let mut bytes = Vec::new();
+    reader
+        .take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|_| InputError::ReadFailed)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
