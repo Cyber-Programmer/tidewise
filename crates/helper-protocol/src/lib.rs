@@ -17,8 +17,13 @@
 )]
 
 mod request;
+mod validate;
 
 pub use request::{
     Action, Install, PROTOCOL_VERSION, PackageRef, ProviderChoice, Request, TransactionItem,
     UpdateSystem,
+};
+pub use validate::{
+    Field, InvalidRequest, MAX_NAME_BYTES, MAX_PROVIDERS, MAX_TARGETS, MAX_TRANSACTION,
+    MAX_VERSION_BYTES, Reason, validate,
 };
