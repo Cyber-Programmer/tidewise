@@ -328,6 +328,13 @@ mod tests {
     }
 
     #[test]
+    fn the_not_implemented_line_is_a_known_event() {
+        // 5.3a: a valid request ends here, because the jobs arrive in 5.3b. The line must be one the app can read.
+        let line = r#"{"finished":{"error":"not_implemented"}}"#;
+        assert!(parse_event(line).is_ok(), "{line} was refused");
+    }
+
+    #[test]
     fn a_line_over_the_cap_is_too_large() {
         let line = " ".repeat(MAX_EVENT_LINE_BYTES + 1);
         assert_eq!(parse_event(&line), Err(EventError::TooLarge));
