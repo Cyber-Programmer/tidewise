@@ -11,7 +11,9 @@
 //! caller chose that did not pass validation. A failed send changes neither the outcome nor the exit code.
 
 use std::io;
+use std::os::unix::net::UnixDatagram;
 use std::path::Path;
+use std::time::Duration;
 
 use tidewise_helper_protocol::ErrorKind;
 
@@ -20,30 +22,82 @@ use crate::gate::Verdict;
 /// journald's native socket (`/run/systemd/journal/socket`).
 pub const JOURNAL_SOCKET: &str = "/run/systemd/journal/socket";
 
+/// Longest value written to the journal, in characters. Real summaries are at most 200 bytes.
+const MAX_VALUE_CHARS: usize = 512;
+
 /// The fixed code of an outcome, as it appears in the log (the same snake_case words as the wire format).
+/// No catch-all arm: a new `ErrorKind` will not compile here until it has a code.
 pub fn outcome_code(error: &ErrorKind) -> &'static str {
-    let _ = error;
-    ""
+    match error {
+        ErrorKind::TooLarge => "too_large",
+        ErrorKind::Malformed => "malformed",
+        ErrorKind::VersionMismatch => "version_mismatch",
+        ErrorKind::Invalid(_) => "invalid",
+        ErrorKind::SummaryMismatch => "summary_mismatch",
+        ErrorKind::TransactionChanged => "transaction_changed",
+        ErrorKind::SystemOutOfDate => "system_out_of_date",
+        ErrorKind::DatabaseLocked => "database_locked",
+        ErrorKind::PacmanFailed(_) => "pacman_failed",
+        ErrorKind::NotImplemented => "not_implemented",
+    }
 }
 
 /// The datagram for one request: `KEY=value\n` lines, all values printable ASCII.
 pub fn record(caller: Option<u32>, verdict: &Verdict) -> Vec<u8> {
-    let _ = (caller, verdict);
-    Vec::new()
+    let uid = caller.map_or_else(|| "unknown".to_string(), |uid| uid.to_string());
+    let code = outcome_code(&verdict.error);
+    // syslog levels: 6 = info (a valid request, nothing to do yet), 4 = warning (refused).
+    let priority = if matches!(verdict.error, ErrorKind::NotImplemented) {
+        "6"
+    } else {
+        "4"
+    };
+
+    let mut text = String::new();
+    add_field(&mut text, "SYSLOG_IDENTIFIER", "tidewise-helper");
+    add_field(&mut text, "PRIORITY", priority);
+    add_field(&mut text, "TIDEWISE_CALLER_UID", &uid);
+    add_field(&mut text, "TIDEWISE_OUTCOME", code);
+    let message = match &verdict.summary {
+        Some(summary) => {
+            add_field(&mut text, "TIDEWISE_SUMMARY", summary);
+            format!("uid {uid}: {code}: {summary}")
+        }
+        None => format!("uid {uid}: {code}"),
+    };
+    add_field(&mut text, "MESSAGE", &message);
+    text.into_bytes()
+}
+
+/// Appends `KEY=value\n`. The one place where a value enters the datagram, so the one place that cleans it.
+fn add_field(text: &mut String, key: &str, value: &str) {
+    text.push_str(key);
+    text.push('=');
+    text.extend(
+        value
+            .chars()
+            .take(MAX_VALUE_CHARS)
+            .map(|c| if (' '..='~').contains(&c) { c } else { '?' }),
+    );
+    text.push('\n');
 }
 
 /// Sends one datagram to `socket`. Gives up after two seconds rather than wait for a stuck journald.
 pub fn send(socket: &Path, datagram: &[u8]) -> io::Result<()> {
-    let _ = (socket, datagram);
-    Ok(())
+    let sender = UnixDatagram::unbound()?;
+    sender.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let sent = sender.send_to(datagram, socket)?;
+    if sent == datagram.len() {
+        Ok(())
+    } else {
+        Err(io::Error::other("the journal datagram was cut short"))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixDatagram;
     use std::path::PathBuf;
-    use std::time::Duration;
     use tidewise_helper_protocol::{Details, Field, InvalidRequest, Reason};
 
     fn verdict(error: ErrorKind, summary: Option<&str>) -> Verdict {
@@ -154,8 +208,16 @@ mod tests {
                     "{line:?}"
                 );
             }
-            assert_eq!(text.matches("MESSAGE=").count(), 1, "{text:?}");
-            assert_eq!(text.matches("PRIORITY=").count(), 1, "{text:?}");
+            // Text like "MESSAGE=evil" may survive inside a value (harmless: it is not at the start of a line),
+            // but exactly one line may have the key MESSAGE and exactly one the key PRIORITY.
+            for key in ["MESSAGE", "PRIORITY"] {
+                let prefix = format!("{key}=");
+                let starting = lines
+                    .iter()
+                    .filter(|line| line.starts_with(&prefix))
+                    .count();
+                assert_eq!(starting, 1, "{key} in {text:?}");
+            }
         }
     }
 
