@@ -29,5 +29,6 @@
 
 pub mod args;
 pub mod fds;
+pub mod gate;
 pub mod input;
 pub mod uid;
