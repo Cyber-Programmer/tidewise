@@ -407,6 +407,7 @@ mod tests {
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -427,6 +428,7 @@ mod tests {
             vec![
                 PacmanCommand::PendingUpdates,
                 PacmanCommand::DryRunInstall(names_of(&install)),
+                PacmanCommand::VerifyInstalled(vec![pkg("extra", "jre-openjdk")]),
                 PacmanCommand::RealInstall(names_of(&install)),
                 PacmanCommand::MarkAsDeps(vec![pkg("extra", "jre-openjdk")]),
                 PacmanCommand::VerifyInstalled(refs_of(&install.transaction)),
@@ -440,7 +442,7 @@ mod tests {
         let request = request(INSTALL);
         let mut fake = Fake::new(clean_install_script(&request));
         go(&request, &mut fake);
-        let PacmanCommand::RealInstall(names) = &fake.ran[2] else {
+        let PacmanCommand::RealInstall(names) = &fake.ran[3] else {
             panic!("third command is not the real install");
         };
         assert_eq!(
@@ -505,6 +507,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(&only_ignored),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -585,6 +588,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -644,6 +648,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             out(1, CONFLICT_OUT, CONFLICT_ERR),
             ok(""),
         ]);
@@ -677,6 +682,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             out(1, "", LOCK_ERR),
             ok(""),
         ]);
@@ -692,6 +698,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             out(1, "", ASDEPS_MISSING_ERR),
             ok(&installed_text(&items)),
@@ -706,6 +713,88 @@ mod tests {
             Some(PacmanCommand::VerifyInstalled(_))
         ));
         assert_eq!(notices(&events), vec![]);
+    }
+
+    #[test]
+    fn a_provider_the_user_already_has_is_not_marked_as_a_dependency() {
+        // Review R-02: marking an explicitly installed package as a dependency would hide it from the user's own list.
+        let request = request(INSTALL);
+        let install = the_install(&request);
+        let items = transaction_of(&request);
+        let mut fake = Fake::new(vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok("jre-openjdk 25.0.1.u8-1\n"), // the chosen provider is already installed
+            ok(REAL_INSTALL_OUT),
+            ok(&installed_text(&items)),
+        ]);
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
+        assert_eq!(
+            fake.ran,
+            vec![
+                PacmanCommand::PendingUpdates,
+                PacmanCommand::DryRunInstall(names_of(&install)),
+                PacmanCommand::VerifyInstalled(vec![pkg("extra", "jre-openjdk")]),
+                PacmanCommand::RealInstall(names_of(&install)),
+                PacmanCommand::VerifyInstalled(refs_of(&items)),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_providers_that_were_not_installed_are_marked() {
+        let mut request = request(INSTALL);
+        if let Action::Install(install) = &mut request.action {
+            install.providers.push(ProviderChoice {
+                dependency: "a-jdbc".to_string(),
+                chosen: pkg("extra", "dbeaver-jdbc"),
+            });
+        }
+        let items = transaction_of(&request);
+        let mut fake = Fake::new(vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok("jre-openjdk 25.0.1.u8-1\n"),
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            ok(&installed_text(&items)),
+        ]);
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
+        assert!(fake.ran.contains(&PacmanCommand::MarkAsDeps(vec![pkg(
+            "extra",
+            "dbeaver-jdbc"
+        )])));
+    }
+
+    #[test]
+    fn a_provider_check_that_cannot_be_read_marks_nothing_and_the_job_goes_on() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let timed_out = Ok(RunOutput {
+            exit: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: true,
+            truncated: false,
+        });
+        for check in [Err(RunnerError::Spawn), out(2, "", "error: x\n"), timed_out] {
+            let mut fake = Fake::new(vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                check,
+                ok(REAL_INSTALL_OUT),
+                ok(&installed_text(&items)),
+            ]);
+            assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
+            assert!(
+                !fake
+                    .ran
+                    .iter()
+                    .any(|c| matches!(c, PacmanCommand::MarkAsDeps(_))),
+                "{:?}",
+                fake.ran
+            );
+        }
     }
 
     #[test]
@@ -739,6 +828,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed),
@@ -761,14 +851,19 @@ mod tests {
             RunnerError::Io,
             RunnerError::WorkDir(WorkDirError::WrongMode),
         ] {
-            let mut fake = Fake::new(vec![out(1, "", ""), ok(&print_text(&items)), Err(error)]);
+            let mut fake = Fake::new(vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok(""),
+                Err(error),
+            ]);
             let (outcome, events) = go(&request, &mut fake);
             assert!(
                 matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
                 "{error:?}"
             );
             // pacman did not run, so there is nothing to check afterwards.
-            assert_eq!(fake.ran.len(), 3);
+            assert_eq!(fake.ran.len(), 4);
             assert_eq!(notices(&events), vec![]);
         }
     }
@@ -859,6 +954,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -869,6 +965,7 @@ mod tests {
             vec![
                 PacmanCommand::Sync,
                 PacmanCommand::DryRunUpdate(names_of(&install)),
+                PacmanCommand::VerifyInstalled(vec![pkg("extra", "vlc")]),
                 PacmanCommand::RealUpdate(names_of(&install)),
                 PacmanCommand::MarkAsDeps(vec![pkg("extra", "vlc")]),
                 PacmanCommand::VerifyInstalled(refs_of(&items)),
@@ -906,6 +1003,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             Err(RunnerError::Spawn),
         ]);
         let (outcome, _) = go(&request, &mut fake);

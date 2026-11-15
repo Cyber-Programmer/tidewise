@@ -88,6 +88,13 @@ pub fn is_lock_failure(stderr: &str) -> bool {
     })
 }
 
+/// The package names in the stdout of `pacman -Q -- <names>` (lines `name version`), in order. Lines that are not
+/// `name version` are ignored.
+pub fn installed_names(query_stdout: &str) -> Vec<String> {
+    let _ = query_stdout;
+    Vec::new()
+}
+
 /// How many items of `confirmed` are not installed at the confirmed version, judging by the stdout of
 /// `pacman -Q -- <names>` (lines `name version`; a name pacman does not know is only on stderr, so it is simply
 /// missing from stdout). Lines that are not `name version` are ignored.
@@ -234,6 +241,30 @@ mod tests {
         );
         let too_many = format!("{ok}extra/more 1-1\n");
         assert_eq!(parse_print(&too_many), Err(OutputError::TooMany));
+    }
+
+    #[test]
+    fn the_names_of_a_real_query_answer_are_read_in_order() {
+        assert_eq!(
+            installed_names(VERIFY_PARTIAL_OUT),
+            vec!["upd-pkg", "old-pkg"]
+        );
+        assert_eq!(installed_names(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn lines_that_are_not_name_and_version_give_no_name() {
+        for noise in [
+            "a\n",
+            "a 1-1 extra\n",
+            "error: package 'a' was not found\n",
+            "a  1-1\n",
+            " a 1-1\n",
+            "a 1-1\r\n",
+        ] {
+            assert_eq!(installed_names(noise), Vec::<String>::new(), "{noise:?}");
+        }
+        assert_eq!(installed_names("noise\na 1-1\nb 2-1\n"), vec!["a", "b"]);
     }
 
     #[test]

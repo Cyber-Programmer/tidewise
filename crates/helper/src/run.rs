@@ -401,6 +401,7 @@ mod tests {
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -541,6 +542,7 @@ mod tests {
         let script = vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&partial)),
