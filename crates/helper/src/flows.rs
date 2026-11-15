@@ -527,6 +527,37 @@ mod tests {
     }
 
     #[test]
+    fn an_update_list_that_failed_with_exit_1_is_a_failure_not_no_updates() {
+        // `pacman -Qu` exits 1 for "nothing to list" and also for errors; an error line decides (review R-03).
+        let request = request(INSTALL);
+        for stderr in [
+            "error: failed to read the database\n",
+            "warning: x\nerror: y\n",
+        ] {
+            let mut fake = Fake::new(vec![out(1, "", stderr)]);
+            let (outcome, _) = go(&request, &mut fake);
+            assert!(
+                matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{stderr}: {outcome:?}"
+            );
+            assert_eq!(fake.ran, vec![PacmanCommand::PendingUpdates], "{stderr}");
+        }
+    }
+
+    #[test]
+    fn exit_1_with_only_warnings_still_means_nothing_pending() {
+        let request = request(INSTALL);
+        let mut script = clean_install_script(&request);
+        script[0] = out(
+            1,
+            "",
+            "warning: database file for 'extra' does not exist (use '-Sy' to download)\n",
+        );
+        let mut fake = Fake::new(script);
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
+    }
+
+    #[test]
     fn a_dry_run_that_differs_is_a_changed_transaction_and_nothing_real_runs() {
         let request = request(INSTALL);
         let mut items = transaction_of(&request);
