@@ -1027,6 +1027,47 @@ mod tests {
     }
 
     #[test]
+    fn a_list_with_an_error_line_or_no_packages_is_not_a_clean_list() {
+        // R-02: exit 0 is not enough. libalpm skips a damaged entry with a message on stderr, and an empty list on a
+        // system that has pacman installed cannot be a complete one.
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let bad_lists = [
+            out(
+                0,
+                "a 1-1\nb 2-1\n",
+                "error: could not read the entry of c\n",
+            ),
+            out(0, "", ""),
+        ];
+        for bad in bad_lists {
+            let script = script_with_lists(&request, ok("a 1-1\nb 2-1\n"), bad.clone(), true);
+            let (result, _) = go_full(&request, &mut Fake::new(script));
+            assert_eq!(result.removal_check, RemovalCheck::Skipped, "{bad:?}");
+            let script =
+                script_with_lists(&request, bad.clone(), ok(&installed_text(&items)), false);
+            let (result, _) = go_full(&request, &mut Fake::new(script));
+            assert_eq!(result.removal_check, RemovalCheck::Skipped, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_real_run_that_failed_to_be_watched_skips_the_check_instead_of_not_running_it() {
+        // R-04: after pacman has started, an I/O error means it may have run. NotRun (no journal field) would hide that.
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let script = vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok("a 1-1\n"),
+            Err(RunnerError::Io),
+        ];
+        let (result, _) = go_full(&request, &mut Fake::new(script));
+        assert_ne!(result.outcome, Outcome::Ok);
+        assert_eq!(result.removal_check, RemovalCheck::Skipped);
+    }
+
+    #[test]
     fn no_real_run_means_no_removal_check() {
         // A held lock, a pending update, a changed list, and a pacman that could not even be started.
         let request = request(INSTALL);
