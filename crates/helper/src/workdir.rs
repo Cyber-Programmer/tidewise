@@ -55,6 +55,12 @@ pub fn process_is_alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{pid}")).exists()
 }
 
+/// The test the helper uses for leftovers: a process other than this one is alive. A file with our own pid cannot be a
+/// live helper's (we have not made any yet), so it is a leftover of an earlier helper whose pid was reused (review R-08).
+pub fn another_process_is_alive(pid: u32) -> bool {
+    process_is_alive(pid)
+}
+
 /// `tidewise-helper-<pid>-<serial>.<extension>`
 pub fn file_name(pid: u32, serial: u32, extension: &str) -> String {
     format!("tidewise-helper-{pid}-{serial}.{extension}")
@@ -303,6 +309,26 @@ mod tests {
     fn a_running_process_is_alive_and_an_impossible_id_is_not() {
         assert!(process_is_alive(std::process::id()));
         assert!(!process_is_alive(u32::MAX));
+    }
+
+    #[test]
+    fn our_own_pid_does_not_count_as_another_live_process() {
+        assert!(!another_process_is_alive(std::process::id()));
+        assert!(another_process_is_alive(1));
+        assert!(!another_process_is_alive(u32::MAX));
+    }
+
+    #[test]
+    fn a_leftover_with_our_own_pid_is_removed_so_a_reused_pid_cannot_block_the_job() {
+        let temp = Temp::new("reused-pid");
+        let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
+        let own = std::process::id();
+        for extension in ["out", "err"] {
+            fs::write(dir.path().join(file_name(own, 0, extension)), b"x").unwrap();
+        }
+        assert_eq!(dir.remove_leftovers(&another_process_is_alive), 2);
+        // ... and the first output files of this run can now be created.
+        assert!(dir.create_output_files(own, 0).is_ok());
     }
 
     #[test]
