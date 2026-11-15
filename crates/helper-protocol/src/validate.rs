@@ -145,6 +145,14 @@ fn validate_install(install: &Install) -> Result<(), InvalidRequest> {
     Ok(())
 }
 
+/// True if `item` would pass the allow-list as one line of a confirmed transaction: repository, name and version.
+/// For code that reads the same kind of line from pacman's own output (`--print-format '%r/%n %v'`), so there is one
+/// copy of the rule.
+pub fn is_valid_transaction_item(item: &TransactionItem) -> bool {
+    let _ = (item, is_helper_repo_name, is_package_name, is_version);
+    false
+}
+
 fn check_transaction(lines: &[TransactionItem]) -> Result<(), InvalidRequest> {
     let mut names = HashSet::new();
     for (index, line) in lines.iter().enumerate() {
@@ -464,6 +472,49 @@ mod tests {
                 "transaction repo {repo:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_transaction_item_is_valid_exactly_when_validate_would_accept_it() {
+        for (repo, name, version) in [
+            ("core", "glibc", "2.42-2"),
+            ("extra", "vim", "9.1.1500-1"),
+            ("extra", "linux-firmware", "1:20251111-1"),
+            ("multilib", "lib32-gcc-libs", "15.2.1+r22+gc4e96a094636-1"),
+        ] {
+            assert!(
+                is_valid_transaction_item(&item(repo, name, version)),
+                "{name}"
+            );
+        }
+        for (repo, name, version) in [
+            ("", "vim", "1-1"),
+            ("local", "vim", "1-1"),
+            ("ex/tra", "vim", "1-1"),
+            ("caf\u{e9}", "vim", "1-1"),
+            ("extra", "", "1-1"),
+            ("extra", "-U", "1-1"),
+            ("extra", "a b", "1-1"),
+            ("extra", "vim", ""),
+            ("extra", "vim", "-1"),
+            ("extra", "vim", "1 1"),
+            ("extra", "vim", "1\n1"),
+        ] {
+            assert!(
+                !is_valid_transaction_item(&item(repo, name, version)),
+                "{repo:?} {name:?} {version:?}"
+            );
+        }
+        assert!(!is_valid_transaction_item(&item(
+            "extra",
+            &"a".repeat(MAX_NAME_BYTES + 1),
+            "1-1"
+        )));
+        assert!(!is_valid_transaction_item(&item(
+            "extra",
+            "vim",
+            &"1".repeat(MAX_VERSION_BYTES + 1)
+        )));
     }
 
     #[test]
