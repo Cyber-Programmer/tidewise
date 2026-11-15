@@ -26,12 +26,35 @@ use crate::pacman_args::PacmanCommand;
 use crate::progress::ProgressTracker;
 use crate::runner::{RunOutput, Runner, RunnerError};
 
+/// Whether the "did any package disappear?" check ran. A check that did not run must never look like a clean pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemovalCheck {
+    /// No real run started, so there was nothing to compare (a refusal, or pacman could not be started).
+    #[default]
+    NotRun,
+    /// Both `pacman -Q` lists were read and compared.
+    Done,
+    /// A real run happened but one of the two lists could not be read, so nothing was compared.
+    Skipped,
+}
+
+/// How a job ended, and what the notices said (the same counts go to the journal).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobResult {
+    pub outcome: Outcome,
+    /// Confirmed items not installed at the confirmed version after the run.
+    pub not_installed: u32,
+    /// Packages that were installed before the real run and are gone after it.
+    pub removed: u32,
+    pub removal_check: RemovalCheck,
+}
+
 /// Runs the job the request asks for. Progress and notices go to `on_event`; the caller prints the final line.
 pub fn run_job(
     request: &Request,
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
-) -> Outcome {
+) -> JobResult {
     let outcome = match &request.action {
         Action::Install(install) => install_job(install, runner, on_event),
         Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
@@ -46,9 +69,15 @@ pub fn run_job(
             )
         }
     };
-    match outcome {
+    let outcome = match outcome {
         Ok(()) => Outcome::Ok,
         Err(kind) => Outcome::Error(kind),
+    };
+    JobResult {
+        outcome,
+        not_installed: 0,
+        removed: 0,
+        removal_check: RemovalCheck::NotRun,
     }
 }
 
@@ -398,10 +427,6 @@ mod tests {
         }
     }
 
-    fn refs_of(items: &[TransactionItem]) -> Vec<PackageRef> {
-        items.iter().map(|i| pkg(&i.repo, &i.name)).collect()
-    }
-
     /// Targets first, then the chosen providers (the order the helper must use).
     fn names_of(install: &Install) -> Vec<PackageRef> {
         let mut names = install.targets.clone();
@@ -416,10 +441,15 @@ mod tests {
         }
     }
 
-    fn go(request: &Request, fake: &mut Fake) -> (Outcome, Vec<Event>) {
+    fn go_full(request: &Request, fake: &mut Fake) -> (JobResult, Vec<Event>) {
         let mut events = Vec::new();
-        let outcome = run_job(request, fake, &mut |event| events.push(event));
-        (outcome, events)
+        let result = run_job(request, fake, &mut |event| events.push(event));
+        (result, events)
+    }
+
+    fn go(request: &Request, fake: &mut Fake) -> (Outcome, Vec<Event>) {
+        let (result, events) = go_full(request, fake);
+        (result.outcome, events)
     }
 
     fn notices(events: &[Event]) -> Vec<Notice> {
@@ -459,10 +489,10 @@ mod tests {
             vec![
                 PacmanCommand::PendingUpdates,
                 PacmanCommand::DryRunInstall(names_of(&install)),
-                PacmanCommand::VerifyInstalled(vec![pkg("extra", "jre-openjdk")]),
+                PacmanCommand::ListInstalled,
                 PacmanCommand::RealInstall(names_of(&install)),
                 PacmanCommand::MarkAsDeps(vec![pkg("extra", "jre-openjdk")]),
-                PacmanCommand::VerifyInstalled(refs_of(&install.transaction)),
+                PacmanCommand::ListInstalled,
             ]
         );
         assert_eq!(notices(&events), vec![]);
@@ -701,7 +731,7 @@ mod tests {
         );
         assert!(matches!(
             fake.ran.last(),
-            Some(PacmanCommand::VerifyInstalled(_))
+            Some(PacmanCommand::ListInstalled)
         ));
         assert_eq!(notices(&events), vec![Notice::PackagesNotInstalled(5)]);
     }
@@ -741,7 +771,7 @@ mod tests {
         assert!(details.as_str().contains("could not set install reason"));
         assert!(matches!(
             fake.ran.last(),
-            Some(PacmanCommand::VerifyInstalled(_))
+            Some(PacmanCommand::ListInstalled)
         ));
         assert_eq!(notices(&events), vec![]);
     }
@@ -765,9 +795,9 @@ mod tests {
             vec![
                 PacmanCommand::PendingUpdates,
                 PacmanCommand::DryRunInstall(names_of(&install)),
-                PacmanCommand::VerifyInstalled(vec![pkg("extra", "jre-openjdk")]),
+                PacmanCommand::ListInstalled,
                 PacmanCommand::RealInstall(names_of(&install)),
-                PacmanCommand::VerifyInstalled(refs_of(&items)),
+                PacmanCommand::ListInstalled,
             ]
         );
     }
@@ -828,6 +858,195 @@ mod tests {
         }
     }
 
+    /// The five answers of a clean install, with the lists you choose before and after the real run.
+    fn script_with_lists(
+        request: &Request,
+        before: Result<RunOutput, RunnerError>,
+        after: Result<RunOutput, RunnerError>,
+    ) -> Vec<Result<RunOutput, RunnerError>> {
+        let items = transaction_of(request);
+        vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            before,
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            after,
+        ]
+    }
+
+    #[test]
+    fn a_package_that_disappears_during_the_run_is_reported_and_counted() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let mut before = installed_text(&items);
+        before.push_str("old-one 1-1\nold-two 2-1\n");
+        let script = script_with_lists(&request, ok(&before), ok(&installed_text(&items)));
+        let (result, events) = go_full(&request, &mut Fake::new(script));
+        assert_eq!(result.outcome, Outcome::Ok);
+        assert_eq!((result.removed, result.not_installed), (2, 0));
+        assert_eq!(result.removal_check, RemovalCheck::Done);
+        assert_eq!(notices(&events), vec![Notice::PackagesRemoved(2)]);
+    }
+
+    #[test]
+    fn nothing_removed_is_a_done_check_without_a_notice() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let script = script_with_lists(
+            &request,
+            ok("other 1-1\n"),
+            ok(&format!("other 1-2\n{}", installed_text(&items))),
+        );
+        let (result, events) = go_full(&request, &mut Fake::new(script));
+        assert_eq!(
+            (result.removed, result.removal_check),
+            (0, RemovalCheck::Done)
+        );
+        assert_eq!(notices(&events), vec![]);
+    }
+
+    #[test]
+    fn both_notices_come_not_installed_first_then_removed() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let mut after = installed_text(&items);
+        after = after.replace("dbeaver 25.2.1-1\n", "");
+        let script = script_with_lists(&request, ok("gone 1-1\n"), ok(&after));
+        let (result, events) = go_full(&request, &mut Fake::new(script));
+        assert_eq!((result.not_installed, result.removed), (1, 1));
+        assert_eq!(
+            notices(&events),
+            vec![Notice::PackagesNotInstalled(1), Notice::PackagesRemoved(1)]
+        );
+        assert!(matches!(
+            events.last(),
+            Some(Event::Notice(Notice::PackagesRemoved(1)))
+        ));
+    }
+
+    #[test]
+    fn a_list_that_cannot_be_read_skips_the_check_and_says_so_without_changing_the_outcome() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let timed_out = Ok(RunOutput {
+            exit: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: true,
+            truncated: false,
+        });
+        let truncated = Ok(RunOutput {
+            exit: Some(0),
+            stdout: "a 1-1\n".into(),
+            stderr: String::new(),
+            timed_out: false,
+            truncated: true,
+        });
+        let unreadable = || {
+            vec![
+                Err(RunnerError::Spawn),
+                out(1, "a 1-1\n", "error: broken entry\n"),
+                out(2, "", "error: x\n"),
+                timed_out.clone(),
+                truncated.clone(),
+            ]
+        };
+        for bad in unreadable() {
+            // Before the real run:
+            let script = script_with_lists(&request, bad.clone(), ok(&installed_text(&items)));
+            let (result, events) = go_full(&request, &mut Fake::new(script));
+            assert_eq!(result.outcome, Outcome::Ok, "{bad:?}");
+            assert_eq!(
+                (result.removed, result.removal_check),
+                (0, RemovalCheck::Skipped),
+                "{bad:?}"
+            );
+            assert_eq!(notices(&events), vec![], "{bad:?}");
+            // After it:
+            let script = script_with_lists(&request, ok(&installed_text(&items)), bad.clone());
+            let (result, events) = go_full(&request, &mut Fake::new(script));
+            assert_eq!(result.outcome, Outcome::Ok, "{bad:?}");
+            assert_eq!(
+                (result.removed, result.removal_check),
+                (0, RemovalCheck::Skipped),
+                "{bad:?}"
+            );
+            assert_eq!(notices(&events), vec![], "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_list_that_failed_with_exit_1_is_not_a_partial_answer_to_trust() {
+        // `pacman -Q` with no names exits 1 only on an error, and still prints the packages it could read: a cut list
+        // would look like removals.
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let partial = out(1, "a 1-1\n", "error: could not read the entry of b\n");
+        let script = script_with_lists(&request, ok("a 1-1\nb 2-1\n"), partial);
+        let (result, events) = go_full(&request, &mut Fake::new(script));
+        let _ = items;
+        assert_eq!(
+            (result.removed, result.removal_check),
+            (0, RemovalCheck::Skipped)
+        );
+        assert_eq!(notices(&events), vec![]);
+    }
+
+    #[test]
+    fn no_real_run_means_no_removal_check() {
+        // A held lock, a pending update, a changed list, and a pacman that could not even be started.
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let mut locked = Fake::new(vec![]);
+        locked.lock = true;
+        let scripts: Vec<(Fake, &str)> = vec![
+            (locked, "lock"),
+            (Fake::new(vec![ok(QU_SAMPLE)]), "pending update"),
+            (
+                Fake::new(vec![out(1, "", ""), ok("extra/other 1-1\n")]),
+                "changed list",
+            ),
+            (
+                Fake::new(vec![
+                    out(1, "", ""),
+                    ok(&print_text(&items)),
+                    ok(""),
+                    Err(RunnerError::Spawn),
+                ]),
+                "no pacman",
+            ),
+        ];
+        for (mut fake, what) in scripts {
+            let (result, _) = go_full(&request, &mut fake);
+            assert_eq!(result.removal_check, RemovalCheck::NotRun, "{what}");
+            assert_eq!((result.removed, result.not_installed), (0, 0), "{what}");
+        }
+    }
+
+    #[test]
+    fn a_failed_real_run_is_still_checked_for_removals() {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let script = vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok("keep 1-1\nlost 1-1\n"),
+            out(1, CONFLICT_OUT, CONFLICT_ERR),
+            ok("keep 1-1\n"),
+        ];
+        let (result, events) = go_full(&request, &mut Fake::new(script));
+        assert!(matches!(
+            result.outcome,
+            Outcome::Error(ErrorKind::PacmanFailed(_))
+        ));
+        assert_eq!(
+            (result.removed, result.removal_check),
+            (1, RemovalCheck::Done)
+        );
+        assert!(notices(&events).contains(&Notice::PackagesRemoved(1)));
+    }
+
     #[test]
     fn without_chosen_providers_there_is_no_dependency_marking() {
         let mut request = request(INSTALL);
@@ -838,6 +1057,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(&installed_text(&items)),
         ]);
@@ -908,6 +1128,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(&installed_text(&items)),
         ]);
@@ -918,8 +1139,9 @@ mod tests {
             vec![
                 PacmanCommand::Sync,
                 PacmanCommand::DryRunUpdate(vec![]),
+                PacmanCommand::ListInstalled,
                 PacmanCommand::RealUpdate(vec![]),
-                PacmanCommand::VerifyInstalled(refs_of(&items)),
+                PacmanCommand::ListInstalled,
             ]
         );
         assert_eq!(
@@ -996,10 +1218,10 @@ mod tests {
             vec![
                 PacmanCommand::Sync,
                 PacmanCommand::DryRunUpdate(names_of(&install)),
-                PacmanCommand::VerifyInstalled(vec![pkg("extra", "vlc")]),
+                PacmanCommand::ListInstalled,
                 PacmanCommand::RealUpdate(names_of(&install)),
                 PacmanCommand::MarkAsDeps(vec![pkg("extra", "vlc")]),
-                PacmanCommand::VerifyInstalled(refs_of(&items)),
+                PacmanCommand::ListInstalled,
             ]
         );
     }
@@ -1017,6 +1239,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            ok(""),
             ok(REAL_INSTALL_OUT),
             ok(&partial),
         ]);
