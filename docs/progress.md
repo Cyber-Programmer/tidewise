@@ -716,3 +716,32 @@ Rules bent: no `(red)` commit for characterisation tests (container tests of pac
 tests parse a wire line instead (`Notice`, the removed `NotImplemented`). Three commit messages carried a wrong test count
 and were corrected before any push. One too-weak container test (hangup) was strengthened after the mutation check
 showed it. WBS sheet not touched by Claude (the human updates it).
+
+## 2026-11-15 — 5.3c Removal tripwire and "ok with notices"
+Done:
+- One `pacman -Q` list before and one after the real run replace the two `-Q -- <names>` reads (`ListInstalled` in,
+  `VerifyInstalled` out). From them: providers already installed, `Notice::PackagesRemoved(n)` for names that disappeared
+  (Q17), and the existing "not installed" count. A list that cannot be read gives a Skipped check.
+- Journal: `ok_with_notices` (PRIORITY 4) with `TIDEWISE_NOT_INSTALLED`, `TIDEWISE_REMOVED`, and
+  `TIDEWISE_REMOVAL_CHECK=skipped` when a check did not run (Q19b and your added rule). A clean ok is unchanged.
+- Review fixes (`docs/security/reviews/5.3c-helper-removals.md`, no High/Medium): R-02 (an `error:` line or an empty list
+  is not a clean list), R-03 (a failed read marks the output cut), R-04 (an I/O error after pacman started is Skipped),
+  R-05, R-06, R-07, R-08. R-01 is decided, not built: `Notice::RemovalCheckSkipped` comes in M4 with its UI text (Q20).
+- Q16 accepted for v0.1, Q19 stall accepted, Q18 measured (container test) and recorded for M4.
+- Tests: whole workspace 774 passed, 51 ignored (container tests); helper 242 unit. Container (real pacman as root):
+  helper 11, helper_jobs 22, pacman_prompts 11, smoke 2, all passed. Fuzz, 600 s each, exit 0: `request` 6 227 613 runs,
+  `output` 485 875 (rerun after the import fix). `fuzz/artifacts/` has no crash; `request` left one `slow-unit-*`
+  file (a slow input, not a crash; not investigated). fmt (also fuzz), clippy -D warnings, cargo test --all, cargo deny,
+  release build exit 0; helper tests also pass with fds 3 and 4 open.
+- Mutation checks (broken on purpose, the test failed, reverted): `removed_names` always empty; skipped recorded as Done;
+  `--ask 0`.
+Next:
+- Your decision needed: none open for 5.3c. Q15 (flag 64) and Q18's helper-side fix (M4) remain.
+- M4: add `Notice::RemovalCheckSkipped` with its UI text (Q20); the confirm screen shows the installed version for an
+  explicit target (Q18); explain a declined replacement and a stale `db.lck`.
+Blockers: none.
+Rules bent: no `(red)` commit for the container tests and dummy packages (characterisation). Red tests that name a new
+or removed enum variant parse a wire line instead. Two red flow tests had scripting bugs, fixed in the green commit and
+said so there. Old flow tests had empty lists as "no provider installed"; their data now has a `pacman` line (no
+assertion changed). Three red-commit messages had wrong counts and were corrected before any push. The WBS sheet is
+yours.
