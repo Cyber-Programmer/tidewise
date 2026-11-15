@@ -129,8 +129,15 @@ fn check_nothing_pending(runner: &mut dyn Runner) -> Step {
     let output = runner
         .run(&PacmanCommand::PendingUpdates, &mut |_| {})
         .map_err(runner_failure)?;
-    // `pacman -Qu` exits 1 when there is nothing to list.
-    if output.timed_out || output.truncated || !matches!(output.exit, Some(0) | Some(1)) {
+    // `pacman -Qu` exits 1 when there is nothing to list, and also for most errors: an "error:" line on stderr decides
+    // (a warning, for example about a database that was never synced, does not).
+    let has_error_line = output.stderr.lines().any(|line| line.starts_with("error:"));
+    let usable = match output.exit {
+        Some(0) => true,
+        Some(1) => !has_error_line,
+        _ => false,
+    };
+    if output.timed_out || output.truncated || !usable {
         return Err(failure_of(&output));
     }
     let updates = parse_qu(&output.stdout)
