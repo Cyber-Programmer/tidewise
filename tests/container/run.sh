@@ -30,8 +30,8 @@ if [ "$(podman info --format '{{.Host.Security.Rootless}}')" != "true" ]; then
 fi
 
 # The image tag is a hash of everything the image is built from, so changing the Containerfile or a PKGBUILD
-# builds a new image and an unchanged one is reused from podman's cache.
-inputs=$(cat "$here/Containerfile" "$here"/pkgs/*/PKGBUILD | sha256sum | cut -c1-12)
+# builds a new image and an unchanged one is reused from podman's cache (every file of pkgs/ and pkgs-later/ counts).
+inputs=$( (cat "$here/Containerfile"; find "$here/pkgs" "$here/pkgs-later" -type f | sort | xargs cat) | sha256sum | cut -c1-12)
 image="localhost/tidewise-test:$inputs"
 
 echo "==> image $image (the first build needs network, later runs do not)"

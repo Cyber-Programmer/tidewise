@@ -1,0 +1,6 @@
+# Slow on purpose, so a test can interrupt the helper in the middle of a transaction.
+post_install() {
+  touch /tmp/tidewise-slow-b-started
+  sleep 3
+  touch /tmp/tidewise-slow-b-done
+}

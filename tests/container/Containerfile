@@ -10,6 +10,7 @@ FROM docker.io/library/archlinux:base@sha256:fcee73ea1b96e236248f53a213f71276cc9
 ARG ARCHIVE_DAY=2026/11/08
 
 COPY pkgs /tmp/pkgs
+COPY pkgs-later /tmp/pkgs-later
 
 # One RUN so no half-finished layer is kept. Steps:
 #  1. point pacman at the archive snapshot and do a FULL upgrade (-Syu, never -Sy alone: golden rule 4), plus
@@ -20,21 +21,27 @@ COPY pkgs /tmp/pkgs
 #     "alpm" must be able to read it);
 #  4. add the repository to pacman.conf and refresh the lists once, so tests can use a plain `pacman -S`;
 #  5. remove the build user, the sources and the package cache.
+# Step 2 also builds the packages in pkgs-later/ (newer versions and a package that replaces another) into
+# /srv/tidewise-later. They are NOT in the repository database: a test adds one with `repo-add` (and `pacman -Sy`) to
+# make an update or a replacement appear at test time, offline.
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DAY" > /etc/pacman.d/mirrorlist \
  && pacman -Syu --noconfirm --needed fakeroot \
  && useradd --create-home builder \
- && mkdir -p /srv/tidewise-test \
- && chown -R builder /tmp/pkgs /srv/tidewise-test \
+ && mkdir -p /srv/tidewise-test /srv/tidewise-later \
+ && chown -R builder /tmp/pkgs /tmp/pkgs-later /srv/tidewise-test /srv/tidewise-later \
  && for dir in /tmp/pkgs/*/; do \
       (cd "$dir" && runuser -u builder -- env PKGDEST=/srv/tidewise-test makepkg --nodeps --noconfirm); \
     done \
+ && for dir in /tmp/pkgs-later/*/; do \
+      (cd "$dir" && runuser -u builder -- env PKGDEST=/srv/tidewise-later makepkg --nodeps --noconfirm); \
+    done \
  && repo-add /srv/tidewise-test/tidewise-test.db.tar.gz /srv/tidewise-test/*.pkg.tar.zst \
- && chown -R root:root /srv/tidewise-test \
- && chmod -R a+rX /srv/tidewise-test \
+ && chown -R root:root /srv/tidewise-test /srv/tidewise-later \
+ && chmod -R a+rX /srv/tidewise-test /srv/tidewise-later \
  && printf '\n[tidewise-test]\nSigLevel = Never\nServer = file:///srv/tidewise-test\n' >> /etc/pacman.conf \
  && pacman -Sy \
  && userdel --remove builder \
- && rm -rf /tmp/pkgs /var/cache/pacman/pkg/*
+ && rm -rf /tmp/pkgs /tmp/pkgs-later /var/cache/pacman/pkg/*
 
 # SigLevel = Never applies to this one local repository only, in this test image only. The dummy packages are not
 # signed, and the real repositories keep the image's default signature checks.

@@ -1,0 +1,7 @@
+# Reports what an install scriptlet sees: its environment, its umask, and a command found through PATH.
+post_install() {
+  uname -s > /tmp/tidewise-scriptlet-uname
+  command -v uname > /tmp/tidewise-scriptlet-uname-path
+  env | sort > /tmp/tidewise-scriptlet-env
+  umask > /tmp/tidewise-scriptlet-umask
+}

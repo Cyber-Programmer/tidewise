@@ -1,0 +1,14 @@
+# Dummy package for the Tidewise container tests (WBS 5.3b). Contains one text file and nothing else.
+pkgname=tidewise-dummy-new
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test package that replaces tidewise-dummy-old"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+replaces=('tidewise-dummy-old')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

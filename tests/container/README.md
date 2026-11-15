@@ -66,8 +66,16 @@ CI job comes in its own task.
 - Packages from the **Arch Linux Archive snapshot** of the same day, not a live mirror
   (<https://wiki.archlinux.org/title/Arch_Linux_Archive>), so a rebuild gives the same versions.
 - `/srv/tidewise-test`: a local repository `[tidewise-test]` (`SigLevel = Never`, for this repository in this image
-  only) with three dummy packages built from `pkgs/*/PKGBUILD` by `makepkg` and indexed with `repo-add`:
-  `tidewise-dummy-hello`, `tidewise-dummy-lib`, and `tidewise-dummy-app` (depends on the lib).
+  only) with dummy packages built from `pkgs/*/PKGBUILD` by `makepkg` and indexed with `repo-add`:
+  `tidewise-dummy-hello`, `tidewise-dummy-lib`, `tidewise-dummy-app` (depends on the lib), and, for the helper's jobs
+  (5.3b): `-prov-a` and `-prov-b` (both provide `tidewise-virtual`), `-needs-virtual` (depends on it), `-conf-x` and
+  `-conf-y` (conflict with each other), `-upd` 1.0, `-old`, `-scriptlet` (its install script reports its environment,
+  umask and a command found through `PATH` into `/tmp/tidewise-scriptlet-*`), and `-slow-a` / `-slow-b` (install
+  scripts that sleep 3 seconds and leave `/tmp/tidewise-slow-*-started|done` markers).
+- `/srv/tidewise-later`: packages built from `pkgs-later/` that are **not** in the repository database: `tidewise-dummy-upd`
+  2.0 (a newer version of the one in the repository) and `tidewise-dummy-new` (replaces `tidewise-dummy-old`). A test
+  copies one into `/srv/tidewise-test`, runs `repo-add` and `pacman -Sy`, and an update or a pending replacement
+  exists, with no network.
 - The package lists were refreshed once at build time, so tests use a plain `pacman -S` (never `-Sy`: golden rule 4).
 
 ## Refreshing the image
