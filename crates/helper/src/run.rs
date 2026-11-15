@@ -178,10 +178,13 @@ pub fn run(
 
             let outcome = match make_runner() {
                 Err(kind) => Outcome::Error(kind),
-                Ok(mut runner) => run_job(&request, &mut *runner, &mut |event| {
-                    // A failed write changes nothing: the job goes on and the exit code is the answer.
-                    let _ = write_line(stdout, &event_line(&event));
-                }),
+                Ok(mut runner) => {
+                    run_job(&request, &mut *runner, &mut |event| {
+                        // A failed write changes nothing: the job goes on and the exit code is the answer.
+                        let _ = write_line(stdout, &event_line(&event));
+                    })
+                    .outcome
+                }
             };
 
             let finished_written = log(&record(
