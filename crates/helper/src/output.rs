@@ -88,7 +88,7 @@ pub fn is_lock_failure(stderr: &str) -> bool {
     })
 }
 
-/// The package names in the stdout of `pacman -Q -- <names>` (lines `name version`), in order. Lines that are not
+/// The package names in the stdout of `pacman -Q` (lines `name version`), in order. Lines that are not
 /// `name version` are ignored.
 pub fn installed_names(query_stdout: &str) -> Vec<String> {
     query_pairs(query_stdout)
@@ -120,7 +120,7 @@ fn query_pairs(query_stdout: &str) -> impl Iterator<Item = (&str, &str)> {
 }
 
 /// How many items of `confirmed` are not installed at the confirmed version, judging by the stdout of
-/// `pacman -Q -- <names>` (lines `name version`; a name pacman does not know is only on stderr, so it is simply
+/// `pacman -Q` (lines `name version`; a name pacman does not know is only on stderr, so it is simply
 /// missing from stdout). Lines that are not `name version` are ignored.
 pub fn count_not_installed(confirmed: &[TransactionItem], query_stdout: &str) -> u32 {
     let installed: HashSet<(&str, &str)> = query_pairs(query_stdout).collect();
