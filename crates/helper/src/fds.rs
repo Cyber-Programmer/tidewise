@@ -1,4 +1,4 @@
-//! Step 1: which file descriptors did we inherit? (threat T-08, open question 6)
+//! Step 2: which file descriptors did we inherit? (threat T-08, open question 6)
 //!
 //! `pkexec` (polkit 128, `src/programs/pkexec.c`, `fdwalk_close_on_exec (3)`) marks every descriptor from 3 up as
 //! close-on-exec before it starts us, so through `pkexec` only 0, 1 and 2 are open. It does not check that 0, 1 and 2
