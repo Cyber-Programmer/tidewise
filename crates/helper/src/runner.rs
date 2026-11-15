@@ -122,6 +122,7 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::DryRunInstall(_)
         | PacmanCommand::DryRunUpdate(_)
         | PacmanCommand::VerifyInstalled(_) => Some(READ_TIMEOUT),
+        PacmanCommand::ListInstalled => None,
         PacmanCommand::Sync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
@@ -385,6 +386,7 @@ mod tests {
             PacmanCommand::DryRunInstall(list.clone()),
             PacmanCommand::DryRunUpdate(vec![]),
             PacmanCommand::VerifyInstalled(list.clone()),
+            PacmanCommand::ListInstalled,
         ] {
             assert_eq!(timeout_for(&command), Some(READ_TIMEOUT), "{command:?}");
         }

@@ -35,6 +35,9 @@ pub enum PacmanCommand {
     MarkAsDeps(Vec<PackageRef>),
     /// `pacman -Q -- ...`: which of these are installed, and at which version (a read).
     VerifyInstalled(Vec<PackageRef>),
+    /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
+    /// run: the difference shows what disappeared.
+    ListInstalled,
 }
 
 /// Why no command line was built. A code only; the offending text is never repeated.
@@ -77,6 +80,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::VerifyInstalled(packages) => {
             build(&["-Q"], &[], name_only(packages)?, Names::Required)
         }
+        PacmanCommand::ListInstalled => Ok(Vec::new()),
     }
 }
 
@@ -177,6 +181,7 @@ mod tests {
             PacmanCommand::RealUpdate(vec![]),
             PacmanCommand::MarkAsDeps(two()),
             PacmanCommand::VerifyInstalled(two()),
+            PacmanCommand::ListInstalled,
         ]
     }
 
@@ -259,6 +264,8 @@ mod tests {
                 PacmanCommand::VerifyInstalled(two()),
                 strings(&["-Q", "--", "dbeaver", "jre-openjdk"]),
             ),
+            // The whole installed list: fixed argv, no names at all.
+            (PacmanCommand::ListInstalled, strings(&["-Q"])),
         ];
         for (command, expected) in cases {
             assert_eq!(args(&command), Ok(expected), "{command:?}");
@@ -312,6 +319,7 @@ mod tests {
             let names_given = !matches!(
                 command,
                 PacmanCommand::PendingUpdates
+                    | PacmanCommand::ListInstalled
                     | PacmanCommand::Sync
                     | PacmanCommand::DryRunUpdate(_)
                     | PacmanCommand::RealUpdate(_)
