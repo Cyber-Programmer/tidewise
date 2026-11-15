@@ -37,5 +37,6 @@ pub mod output;
 pub mod pacman_args;
 pub mod progress;
 pub mod run;
+pub mod runner;
 pub mod uid;
 pub mod workdir;
