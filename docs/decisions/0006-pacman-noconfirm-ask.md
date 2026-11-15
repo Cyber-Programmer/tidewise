@@ -79,6 +79,9 @@ conflict).
 - **Post-check:** after every real run `pacman -Q` of each confirmed item; the count that is not installed at the
   confirmed version is reported as a `Notice` just before the final line. A declined replacement, which `--print` keeps
   listing, is the case it exists for.
+  (5.3c: the check is now one `pacman -Q` list taken right before the real run and one right after it. From the two the
+  helper also reports the names that disappeared, `Notice::PackagesRemoved`, a tripwire for the day something other
+  than `--ask 66` removes a package; a list that cannot be read makes the journal say `TIDEWISE_REMOVAL_CHECK=skipped`.)
 
 ## Consequences
 
