@@ -436,3 +436,62 @@ fn sigterm_in_the_middle_of_a_commit_kills_pacman_and_leaves_the_lock() {
     );
     let _ = fs::remove_file(LOCK);
 }
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_explicit_target_older_than_the_installed_version_is_a_silent_downgrade_until_it_happens() {
+    assert_inside_the_test_container();
+    reset_world();
+    // The installed package (2.0) is newer than the repository's (1.0): a local or testing build, say.
+    let installed = pacman(&[
+        "-U",
+        "--noconfirm",
+        &format!("{LATER_DIR}/tidewise-dummy-upd-2.0-1-any.pkg.tar.zst"),
+    ]);
+    assert!(installed.status.success());
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("2.0-1")
+    );
+
+    // Nothing warns beforehand: -Qu lists nothing, and the dry run prints just the repository version, exit 0, no stderr.
+    let pending = pacman(&["-Qu"]);
+    assert!(pending.stdout.is_empty() && pending.stderr.is_empty());
+    let dry = pacman(&[
+        "-S",
+        "--print",
+        "--print-format",
+        "%r/%n %v",
+        "--",
+        &qualified("upd"),
+    ]);
+    assert!(dry.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&dry.stdout),
+        format!("{REPO}/tidewise-dummy-upd 1.0-1\n")
+    );
+    assert!(
+        dry.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+
+    // The real run goes ahead (exit 0) and says so only on stderr, and as a "downgrading" line on stdout.
+    let real = pacman(&["-S", "--noconfirm", "--ask", "66", "--", &qualified("upd")]);
+    assert!(real.status.success());
+    assert!(
+        String::from_utf8_lossy(&real.stderr)
+            .contains("warning: downgrading package tidewise-dummy-upd (2.0-1 => 1.0-1)"),
+        "{}",
+        String::from_utf8_lossy(&real.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&real.stdout)
+            .lines()
+            .any(|l| l == "downgrading tidewise-dummy-upd...")
+    );
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("1.0-1")
+    );
+}
