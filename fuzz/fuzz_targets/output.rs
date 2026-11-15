@@ -2,7 +2,8 @@
 
 use libfuzzer_sys::fuzz_target;
 use tidewise_helper::output::{
-    count_not_installed, is_lock_failure, parse_print, same_transaction,
+    count_not_installed, installed_names, is_lock_failure, parse_print, removed_names,
+    same_transaction,
 };
 use tidewise_helper_protocol::{MAX_TRANSACTION, TransactionItem, is_valid_transaction_item};
 
