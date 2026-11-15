@@ -4,8 +4,8 @@
 //! stdout, stderr and a log function. Nothing here touches the real system, so every branch is a unit test.
 //!
 //! Order of the start checks, each one refusing before the next is looked at:
-//! 1. only the expected file descriptors are open (`fds`)
-//! 2. the effective user id is 0 (`uid`)
+//! 1. the effective user id is 0 (`uid`)
+//! 2. only the expected file descriptors are open (`fds`)
 //! 3. the working directory is `/` (done by `main`; the result is passed in, and moving to `/` is harmless even when
 //!    a later check refuses)
 //! 4. argv is exactly the program name and one summary (`args`)
@@ -113,13 +113,16 @@ struct Started {
 
 /// The four start checks, in order. The first one that fails decides.
 fn start(facts: Facts) -> Result<Started, StartRefusal> {
-    let entries = facts.fds.map_err(|_| StartRefusal::CannotCheckFds)?;
-    check_fds(&entries, facts.own_pid).map_err(|_| StartRefusal::UnexpectedFd)?;
-
+    // Root first: for someone who started the helper by hand, "must be started as root" is the useful message, and
+    // a caller's extra descriptors (a CI runner hands out some) must not hide it. Both checks refuse before
+    // anything is done, so the order does not change what the helper allows.
     let status = facts.status.map_err(|_| StartRefusal::CannotCheckUser)?;
     if !is_root(&status) {
         return Err(StartRefusal::NotRoot);
     }
+
+    let entries = facts.fds.map_err(|_| StartRefusal::CannotCheckFds)?;
+    check_fds(&entries, facts.own_pid).map_err(|_| StartRefusal::UnexpectedFd)?;
 
     facts
         .chdir

@@ -1,4 +1,4 @@
-//! Step 2: are we root? (threat T-01)
+//! Step 1: are we root? (threat T-01)
 //!
 //! Safe Rust's standard library has no `geteuid`, so the effective user id is read from the `Uid:` line of
 //! `/proc/self/status` (`proc(5)`: four numbers, real, effective, saved set-user-ID, file-system). The parsing is a
