@@ -103,6 +103,15 @@ fn a_clean_install_runs_and_leaves_one_package_two_journal_entries_and_a_tidy_wo
             ("TIDEWISE_SUMMARY", &summary),
         ],
     );
+    // A clean ok carries no notes: a check that passed is not announced.
+    for field in [
+        "NOT_INSTALLED",
+        "REMOVED",
+        "REMOVAL_CHECK",
+        "ok_with_notices",
+    ] {
+        assert!(!entries[1].contains(field), "{}", entries[1]);
+    }
 
     // The work folder exists, is root's and 0700, and the run's files are gone.
     assert_eq!(mode_of(WORK_DIR), 0o700);
@@ -227,7 +236,7 @@ fn an_update_and_an_install_in_one_request_do_both() {
 fn a_pending_replacement_is_declined_and_reported_as_a_notice_not_an_error() {
     assert_inside_the_test_container();
     reset_world();
-    let _journal = FakeJournal::start(); // with a journal, the only notice is the one about the packages
+    let journal = FakeJournal::start(); // with a journal, the only notice is the one about the packages
     install_directly(&["tidewise-dummy-old"]);
     add_newer("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
     // The dry run lists the replacing package (and says nothing about the removal), so that is the confirmed list.
@@ -247,6 +256,111 @@ fn a_pending_replacement_is_declined_and_reported_as_a_notice_not_an_error() {
         Some("1.0-1")
     );
     assert_eq!(installed_version("tidewise-dummy-new"), None);
+
+    // The journal does not call that a clean ok (5.3c): the same fact, one line, with its count.
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 2);
+    assert_fields(
+        &entries[1],
+        &[
+            ("PRIORITY", "4"),
+            ("TIDEWISE_OUTCOME", "ok_with_notices"),
+            ("TIDEWISE_NOT_INSTALLED", "1"),
+        ],
+    );
+    assert!(
+        entries[1].contains("(1 not installed, 0 removed)"),
+        "{}",
+        entries[1]
+    );
+    assert!(
+        !entries[1].contains("REMOVAL_CHECK"),
+        "the check ran: {}",
+        entries[1]
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_package_that_disappears_during_the_run_is_reported_as_removed() {
+    assert_inside_the_test_container();
+    reset_world();
+    let journal = FakeJournal::start();
+    // The victim is installed. Installing the remover makes the victim vanish from `pacman -Q` (its install script
+    // deletes the victim's database entry): something other than the request removed a package.
+    install_directly(&["tidewise-dummy-victim"]);
+    let (request, summary) = install_one("remover");
+
+    let ran = run(&summary, request.as_bytes());
+    assert_eq!(ran.status.code(), Some(0), "{}", ran.stdout);
+    let lines = ran.lines();
+    let n = lines.len();
+    assert_eq!(lines[n - 2], "{\"notice\":{\"packages_removed\":1}}");
+    assert_eq!(lines[n - 1], OK_LINE);
+    assert_eq!(
+        installed_version("tidewise-dummy-remover").as_deref(),
+        Some("1.0-1")
+    );
+    assert_eq!(installed_version("tidewise-dummy-victim"), None);
+
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 2);
+    assert_fields(
+        &entries[1],
+        &[
+            ("PRIORITY", "4"),
+            ("TIDEWISE_STAGE", "finished"),
+            ("TIDEWISE_OUTCOME", "ok_with_notices"),
+            ("TIDEWISE_REMOVED", "1"),
+        ],
+    );
+    assert!(
+        entries[1].contains("(0 not installed, 1 removed)"),
+        "{}",
+        entries[1]
+    );
+    assert!(!entries[1].contains("REMOVAL_CHECK"), "{}", entries[1]);
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_removal_check_that_cannot_read_the_list_is_logged_as_skipped_never_as_a_clean_ok() {
+    assert_inside_the_test_container();
+    reset_world();
+    let journal = FakeJournal::start();
+    // The breaker's install script removes the database's version file, so the second `pacman -Q` fails (exit 255).
+    let (request, summary) = install_one("breaker");
+    let ran = run(&summary, request.as_bytes());
+    // The test puts the file back before anything else needs pacman.
+    fs::copy(
+        "/tmp/tidewise-db-version-backup",
+        "/var/lib/pacman/local/ALPM_DB_VERSION",
+    )
+    .unwrap();
+
+    // The job itself went fine and says so; there is nothing to report as a notice (the list could not be read) ...
+    assert_ok(&ran);
+    assert!(!ran.stdout.contains("notice"), "{}", ran.stdout);
+    assert_eq!(
+        installed_version("tidewise-dummy-breaker").as_deref(),
+        Some("1.0-1")
+    );
+    // ... but the journal does not call it a clean pass.
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 2);
+    assert_fields(
+        &entries[1],
+        &[
+            ("PRIORITY", "4"),
+            ("TIDEWISE_OUTCOME", "ok_with_notices"),
+            ("TIDEWISE_REMOVAL_CHECK", "skipped"),
+        ],
+    );
+    assert!(
+        entries[1].contains("removal check skipped"),
+        "{}",
+        entries[1]
+    );
 }
 
 // ---- ways a job stops -----------------------------------------------------------------------------------

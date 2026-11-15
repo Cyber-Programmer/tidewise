@@ -303,6 +303,13 @@ pub fn local_repository_only() {
 /// repository database, no dummy packages installed, no markers, no work folder. Call it first in every job test.
 pub fn reset_world() {
     let _ = fs::remove_file("/var/lib/pacman/db.lck");
+    // tidewise-dummy-breaker's install script removes the database's version file (keeping a copy); put it back, or
+    // every pacman command after it fails.
+    let version_file = "/var/lib/pacman/local/ALPM_DB_VERSION";
+    let version_backup = "/tmp/tidewise-db-version-backup";
+    if !Path::new(version_file).exists() && Path::new(version_backup).exists() {
+        let _ = fs::copy(version_backup, version_file);
+    }
     local_repository_only();
     if !Path::new(ORIGINAL_DB).exists() {
         fs::copy(format!("{REPO_DIR}/tidewise-test.db.tar.gz"), ORIGINAL_DB).unwrap();
