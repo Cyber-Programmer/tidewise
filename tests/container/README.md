@@ -72,6 +72,9 @@ CI job comes in its own task.
   `-conf-y` (conflict with each other), `-upd` 1.0, `-old`, `-scriptlet` (its install script reports its environment,
   umask and a command found through `PATH` into `/tmp/tidewise-scriptlet-*`), and `-slow-a` / `-slow-b` (install
   scripts that sleep 3 seconds and leave `/tmp/tidewise-slow-*-started|done` markers).
+  For the removal check (5.3c): `-victim`, `-remover` (its install script deletes the victim's database entry, so the
+  victim vanishes from `pacman -Q`) and `-breaker` (its install script removes `ALPM_DB_VERSION`, so the next `pacman -Q`
+  fails with exit 255 until the test puts the file back from `/tmp/tidewise-db-version-backup`).
 - `/srv/tidewise-later`: packages built from `pkgs-later/` that are **not** in the repository database: `tidewise-dummy-upd`
   2.0 (a newer version of the one in the repository) and `tidewise-dummy-new` (replaces `tidewise-dummy-old`). A test
   copies one into `/srv/tidewise-test`, runs `repo-add` and `pacman -Sy`, and an update or a pending replacement

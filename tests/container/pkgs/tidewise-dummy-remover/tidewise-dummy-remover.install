@@ -1,0 +1,5 @@
+# Simulates "something other than the request removed a package": after this script the package below is no longer
+# in `pacman -Q`, which is all the helper's removal check can see (a hook that removes a package would look the same).
+post_install() {
+  rm -rf /var/lib/pacman/local/tidewise-dummy-victim-1.0-1
+}
