@@ -80,7 +80,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::VerifyInstalled(packages) => {
             build(&["-Q"], &[], name_only(packages)?, Names::Required)
         }
-        PacmanCommand::ListInstalled => Ok(Vec::new()),
+        PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
 
