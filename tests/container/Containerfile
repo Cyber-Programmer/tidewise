@@ -14,7 +14,8 @@ COPY pkgs-later /tmp/pkgs-later
 
 # One RUN so no half-finished layer is kept. Steps:
 #  1. point pacman at the archive snapshot and do a FULL upgrade (-Syu, never -Sy alone: golden rule 4), plus
-#     fakeroot, which makepkg needs;
+#     fakeroot, which makepkg needs, and polkit and libxml2, which the polkit policy test needs (5.4: polkitd,
+#     pkaction, and xmllint to check the policy against polkit's DTD);
 #  2. build the dummy packages as an ordinary user (makepkg refuses root). --nodeps only here: tidewise-dummy-app
 #     needs tidewise-dummy-lib, which is not in any repository yet;
 #  3. make the local repository with repo-add, owned by root and readable by everyone (pacman's download user
@@ -25,7 +26,7 @@ COPY pkgs-later /tmp/pkgs-later
 # /srv/tidewise-later. They are NOT in the repository database: a test adds one with `repo-add` (and `pacman -Sy`) to
 # make an update or a replacement appear at test time, offline.
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DAY" > /etc/pacman.d/mirrorlist \
- && pacman -Syu --noconfirm --needed fakeroot \
+ && pacman -Syu --noconfirm --needed fakeroot polkit libxml2 \
  && useradd --create-home builder \
  && mkdir -p /srv/tidewise-test /srv/tidewise-later \
  && chown -R builder /tmp/pkgs /tmp/pkgs-later /srv/tidewise-test /srv/tidewise-later \
