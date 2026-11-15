@@ -15,12 +15,12 @@
 
 /// Sets the umask to 022 and returns the previous one.
 pub fn set_umask_022() -> u32 {
-    0
+    rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o022)).bits()
 }
 
 /// The only environment variables pacman gets.
 pub fn pacman_environment() -> Vec<(&'static str, &'static str)> {
-    Vec::new()
+    vec![("PATH", "/usr/bin"), ("LC_ALL", "C")]
 }
 
 #[cfg(test)]
