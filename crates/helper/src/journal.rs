@@ -36,7 +36,6 @@ pub fn outcome_code(error: &ErrorKind) -> &'static str {
         ErrorKind::SystemOutOfDate => "system_out_of_date",
         ErrorKind::DatabaseLocked => "database_locked",
         ErrorKind::PacmanFailed(_) => "pacman_failed",
-        ErrorKind::NotImplemented => "not_implemented",
     }
 }
 
@@ -145,7 +144,6 @@ mod tests {
             ErrorKind::SystemOutOfDate,
             ErrorKind::DatabaseLocked,
             ErrorKind::PacmanFailed(Details::from_raw("error: x")),
-            ErrorKind::NotImplemented,
         ]
     }
 
