@@ -4255,6 +4255,7 @@ name = "tidewise-helper"
 version = "0.1.0"
 dependencies = [
  "tidewise-helper-protocol",
+ "tidewise-names",
 ]
 
 [[package]]
