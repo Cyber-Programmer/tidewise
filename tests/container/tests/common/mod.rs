@@ -274,7 +274,8 @@ pub fn differences(
 
 // ---- the container's world: reset, newer packages -------------------------------------------------------
 
-const ORIGINAL_DB: &str = "/tmp/tidewise-test-db.original";
+// Not named tidewise-*: reset_world removes every /tmp/tidewise-* marker, and this backup must survive it.
+const ORIGINAL_DB: &str = "/tmp/original-test-repo.db";
 const LATER_FILES: [&str; 2] = [
     "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-new-1.0-1-any.pkg.tar.zst",
@@ -311,7 +312,13 @@ pub fn reset_world() {
     }
     fs::copy(ORIGINAL_DB, format!("{REPO_DIR}/tidewise-test.db.tar.gz")).unwrap();
     // -yy: refresh even if the database looks unchanged (its time may be the same second as the last one).
-    let _ = pacman(&["-Syy"]);
+    let refreshed = pacman(&["-Syy"]);
+    assert!(
+        refreshed.status.success(),
+        "reset: pacman -Syy failed: {}{}",
+        String::from_utf8_lossy(&refreshed.stdout),
+        String::from_utf8_lossy(&refreshed.stderr)
+    );
 
     let installed: Vec<String> = pacman_stdout(&["-Qq"])
         .lines()
@@ -373,10 +380,14 @@ pub struct Item {
     pub version: String,
 }
 
-/// What `pacman <args> --print --print-format '%r/%n %v'` lists: the confirmed list the app would show.
-pub fn confirmed(args: &[&str]) -> Vec<Item> {
-    let mut full = args.to_vec();
-    full.extend(["--print", "--print-format", "%r/%n %v"]);
+/// What `pacman <operation> --print --print-format '%r/%n %v' -- <names>` lists: the confirmed list the app would
+/// show. `operation` is `-S` or `-Su`; `names` are `repo/name` targets (none for a plain system update).
+pub fn confirmed(operation: &str, names: &[&str]) -> Vec<Item> {
+    let mut full = vec![operation, "--print", "--print-format", "%r/%n %v"];
+    if !names.is_empty() {
+        full.push("--");
+        full.extend_from_slice(names);
+    }
     let text = pacman_stdout(&full);
     text.lines()
         .map(|line| {
@@ -494,3 +505,65 @@ pub fn update_and_install_request(
 
 /// The repository name pacman prints for the test repository.
 pub const REPO: &str = "tidewise-test";
+
+// ---- more ways to start the helper ----------------------------------------------------------------------
+
+/// Starts a job without waiting for it: stdout is a pipe the caller may drop, and the helper may lead its own process
+/// group (so a test can signal exactly the helper's group). Returns the child and the thread that feeds the request.
+pub fn spawn_job(
+    summary: &str,
+    request: &str,
+    own_group: bool,
+) -> (Child, std::thread::JoinHandle<()>) {
+    use std::os::unix::process::CommandExt;
+    let mut command = Command::new(HELPER);
+    command
+        .arg(summary)
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if own_group {
+        command.process_group(0);
+    }
+    let mut child = command.spawn().unwrap();
+    let writer = feed(&mut child, request.as_bytes());
+    (child, writer)
+}
+
+/// Runs the helper with the given umask (`"077"`, `"000"`). The standard library cannot set a child's umask without
+/// `unsafe`, so this test-only helper goes through a shell; the product never does.
+pub fn run_under_umask(mask: &str, summary: &str, stdin: &[u8]) -> Ran {
+    let mut child = Command::new("/usr/bin/bash")
+        .args([
+            "-c",
+            "umask \"$1\" && exec \"$2\" \"$3\"",
+            "bash",
+            mask,
+            HELPER,
+            summary,
+        ])
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let writer = feed(&mut child, stdin);
+    let output = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    Ran {
+        status: output.status,
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
+    }
+}
+
+/// The permission bits of `path` (not following a symlink).
+pub fn mode_of(path: &str) -> u32 {
+    fs::symlink_metadata(path).unwrap().mode() & 0o7777
+}
+
+pub fn pacman_log() -> String {
+    fs::read_to_string("/var/log/pacman.log").unwrap_or_default()
+}
