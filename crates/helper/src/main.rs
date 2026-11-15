@@ -17,12 +17,16 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use tidewise_helper::env::set_umask_022;
 use tidewise_helper::fds::read_fd_entries;
 use tidewise_helper::journal::{JOURNAL_SOCKET, send};
 use tidewise_helper::run::{Facts, run};
 use tidewise_helper::uid::read_status;
 
 fn main() -> ExitCode {
+    // Before anything is created: pkexec passes on the caller's umask and pacman does not fix it (see env.rs).
+    set_umask_022();
+
     // The only things read from the process. The environment is read for one variable, PKEXEC_UID, and nothing
     // else. `chdir("/")` happens here, before the root check inside `run`: it only changes our own working
     // directory, so it is harmless even when a later check refuses.
