@@ -670,3 +670,49 @@ descriptors 3 and 4 leaked from the shell, and `tests/container/run.sh` (helper 
 Also (already committed earlier, `2f42433`): decisions on question 13 (journal down: do not refuse; 5.3b's `Finished`
 event says the audit entry could not be written, fixed text) and question 14 (rely on pkexec, no uid_map check).
 Next: unchanged (5.3b). Blockers: none. Rules bent: none.
+
+## 2026-11-15 — 5.3b tidewise-helper: the jobs (install, update, update + install)
+Done: the helper now runs real pacman as root, in the container-tested order you decided.
+- Flows: install = look at db.lck, `-Qu` (a pending non-ignored update -> SystemOutOfDate; an `error:` line at exit 1 is a
+  failure), dry run `-S --print` must equal the confirmed list (sorted multiset, else TransactionChanged), pre-check of
+  the chosen providers, real `-S --noconfirm --ask 66`, `-D --asdeps` only for providers that were not installed,
+  post-check. Update (and update + install) = lock look, `-Sy` ONCE, dry run `-Su`, real `-Su` (no second sync), same
+  tail. The whole request is validated before the work folder, the lock look or any pacman.
+- Your additions: post-check after every real run (`pacman -Q` of each confirmed item; the count not installed at the
+  confirmed version is a `Notice`, count only, before the final line); output files in `/run/tidewise-helper/` (created
+  0700, verified real directory, not a symlink, root, 0700, refused otherwise; files O_EXCL 0600; at start only the
+  helper's own leftovers of dead processes are removed). Decided with you: `--ask 66`, `rustix`, `tidewise-pacman`
+  parser, `NotImplemented` removed, Q13 (journal down: `audit_entry_not_written` notice, never refuse), Q14.
+- pacman is run as `/usr/bin/pacman`, args after `--`, stdin null, env exactly `PATH=/usr/bin` + `LC_ALL=C`, umask 022
+  set first thing in `main`, output in files (never pipes), own process group, 120 s timeout for reads and dry runs only.
+- Protocol: `Event::Notice` (two kinds), `NotImplemented` removed, `is_valid_transaction_item`. Journal: two entries
+  (accepted before any pacman command, finished with the outcome).
+- Tests: helper 216 unit + 8 not_root + 2 file_changes; protocol 78 unit + 12 hostile; whole workspace 747 passed;
+  container (real pacman as root): helper 11, helper_jobs 20, pacman_prompts 10, smoke 2. Fuzz, 600 s each, all exit 0
+  with no artifacts: `request` 7 874 330 runs, `output` 2 375 129, `progress` 23 518 803. fmt, clippy -D warnings,
+  cargo test --all, cargo deny, release build all exit 0, also with fds 3 and 4 leaked.
+- Mutation checks (helper broken on purpose, the matching test failed, reverted): `--ask 0`, no `umask`, no
+  `process_group(0)`, a lock removal (both `file_changes` tests).
+- Real findings: (1) `--noconfirm` removes a package on a pending replacement and `--print` does not show it; `--ask 66`
+  declines it (flags 1, 2, 4 run; flag 64 NOT run offline, source only). (2) `--print` notices neither a conflict nor a
+  held lock. (3) SIGPIPE kills pacman and leaves `db.lck`; SIGHUP mid-commit stops it after one package with exit 0;
+  SIGTERM kills it and leaves the lock: hence files + own process group. (4) pacman does not fix the umask: the cache file
+  was 600 under 077 and 666 under 000. (5) `rustix::process::umask` needs the `fs` feature as well as `process`. (6)
+  Arch's GitLab blocks bots: pacman source read in Debian's copy, no line numbers (decision 0006).
+- Review: fresh subagent, `docs/security/reviews/5.3b-helper-jobs.md`: no High/Medium; R-02, R-03, R-07, R-08 fixed;
+  the rest recorded as threat-model questions 17 to 19.
+- Docs: decision 0006; threat model T-04 to T-15, T-17, T-18 updated, T-22 and T-23 new, questions 11 answered, 15 to 19 new.
+Next:
+- Your decisions: Q16 (a signal sent to the helper itself kills it; pacman finishes, `-D --asdeps` is skipped; a crate
+  could ignore the signals), Q17 (a removal tripwire needs a new Notice kind), Q18 (explicit target can be a downgrade),
+  Q19 (stalled stdout reader, half-success logged as ok, unbounded work files, name length in `args()`), Q15 (flag 64
+  could be proven with a local keyserver).
+- M4: a declined replacement stays pending (`-Su --print` keeps listing it): explain it in the UI. A stale `db.lck`
+  after a killed pacman: explain, never remove. Q12 (private-copy refresh before the update flow) still applies.
+- 5.4: re-check env, fds and the dialog with the real pkexec and our polkit action; consider fuzzing `decide()`.
+Blockers: none.
+Rules bent: no `(red)` commit for characterisation tests (container tests of pacman and of the helper, the source guard
+`file_changes`) and for the container image packages. Red tests that name a new variant would not compile, so two red
+tests parse a wire line instead (`Notice`, the removed `NotImplemented`). Three commit messages carried a wrong test count
+and were corrected before any push. One too-weak container test (hangup) was strengthened after the mutation check
+showed it. WBS sheet not touched by Claude (the human updates it).
