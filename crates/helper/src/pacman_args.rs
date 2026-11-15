@@ -48,8 +48,101 @@ pub enum ArgsRefused {
 
 /// The argument list (without the program name) for `command`.
 pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
-    let _ = (command, is_helper_repo_name, is_valid_package_name);
-    Ok(Vec::new())
+    let dry_run = ["--print", "--print-format", "%r/%n %v"];
+    let real = ["--noconfirm", "--ask", "66"];
+    match command {
+        PacmanCommand::PendingUpdates => Ok(fixed(&["-Qu"])),
+        PacmanCommand::Sync => Ok(fixed(&["-Sy"])),
+        PacmanCommand::DryRunInstall(packages) => {
+            build(&["-S"], &dry_run, repo_and_name(packages)?, Names::Required)
+        }
+        PacmanCommand::DryRunUpdate(packages) => build(
+            &["-Su"],
+            &dry_run,
+            repo_and_name(packages)?,
+            Names::Optional,
+        ),
+        PacmanCommand::RealInstall(packages) => {
+            build(&["-S"], &real, repo_and_name(packages)?, Names::Required)
+        }
+        PacmanCommand::RealUpdate(packages) => {
+            build(&["-Su"], &real, repo_and_name(packages)?, Names::Optional)
+        }
+        PacmanCommand::MarkAsDeps(packages) => build(
+            &["-D"],
+            &["--asdeps"],
+            name_only(packages)?,
+            Names::Required,
+        ),
+        PacmanCommand::VerifyInstalled(packages) => {
+            build(&["-Q"], &[], name_only(packages)?, Names::Required)
+        }
+    }
+}
+
+/// Whether a command may run without any package.
+#[derive(Clone, Copy)]
+enum Names {
+    Required,
+    Optional,
+}
+
+fn fixed(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|part| part.to_string()).collect()
+}
+
+/// `operation`, then the fixed options, then (if there are names) `--` and the names.
+fn build(
+    operation: &[&str],
+    options: &[&str],
+    names: Vec<String>,
+    needs: Names,
+) -> Result<Vec<String>, ArgsRefused> {
+    if names.is_empty() {
+        return match needs {
+            Names::Required => Err(ArgsRefused::NoTargets),
+            Names::Optional => Ok([operation, options]
+                .concat()
+                .iter()
+                .map(|p| p.to_string())
+                .collect()),
+        };
+    }
+    let mut built = fixed(operation);
+    built.extend(fixed(options));
+    built.push("--".to_string());
+    built.extend(names);
+    Ok(built)
+}
+
+/// Both parts must pass the allow-lists; the first bad one refuses everything (never "cleaned").
+fn checked(packages: &[PackageRef]) -> Result<(), ArgsRefused> {
+    let all_good = packages
+        .iter()
+        .all(|package| is_helper_repo_name(&package.repo) && is_valid_package_name(&package.name));
+    if all_good {
+        Ok(())
+    } else {
+        Err(ArgsRefused::BadName)
+    }
+}
+
+/// `repo/name`, for `-S` (pins the repository the user confirmed).
+fn repo_and_name(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
+    checked(packages)?;
+    Ok(packages
+        .iter()
+        .map(|package| format!("{}/{}", package.repo, package.name))
+        .collect())
+}
+
+/// `name`, for `-D` and `-Q` (they take installed package names).
+fn name_only(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
+    checked(packages)?;
+    Ok(packages
+        .iter()
+        .map(|package| package.name.clone())
+        .collect())
 }
 
 #[cfg(test)]
