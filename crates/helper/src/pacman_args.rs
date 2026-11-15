@@ -318,6 +318,10 @@ mod tests {
                 assert!(built.contains(&"--".to_string()), "{command:?}");
                 assert!(!after.is_empty(), "{command:?}");
             }
+            // Reads that take no names carry no `--` at all (R-05): `-Q` must stay a fixed argv.
+            if matches!(command, PacmanCommand::ListInstalled) {
+                assert!(!built.contains(&"--".to_string()), "{command:?}");
+            }
         }
     }
 
