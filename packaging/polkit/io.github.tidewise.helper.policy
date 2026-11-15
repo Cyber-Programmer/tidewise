@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD polkit Policy Configuration 1.0//EN" "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  The one polkit action of Tidewise (WBS 5.4; threat model T-01, T-02, T-03; decision 0005).
+
+  The app starts the helper with:  pkexec /usr/lib/tidewise/tidewise-helper "<summary>"
+  The request itself goes to the helper on stdin, which polkit never sees. The only text that can show the user what
+  they are approving is the summary in argv, and pkexec offers it to this message as $(command_line).
+  The helper recomputes the summary from the validated request and refuses on any difference, so a caller who
+  lies in argv gains nothing (pkexec(1): do not use command_line for security checks, and we do not).
+
+  Why each line is the way it is:
+  - exec.path is the real path of the helper. pkexec resolves the program with realpath() and compares it to this
+    text exactly; a miss falls back to the stock action, whose dialog does not show this message.
+  - The message uses $(command_line), not cmdline_short: pkexec cuts cmdline_short to 80 characters.
+  - allow_any and allow_inactive are no: no remote or inactive session may start the helper.
+  - allow_active is auth_admin, never the "keep" variant: one password per confirmed transaction (golden rule 6),
+    and no retained authorization for another process to ride.
+  - No allow_gui (the helper needs no DISPLAY), no exec.argv1 (the summary differs every time), no translations
+    and no polkit .rules file (JavaScript) anywhere in the package.
+  Checked by crates/helper/tests/polkit_policy.rs, and against polkit's DTD by tests/container/tests/polkit.rs.
+-->
+<policyconfig>
+  <vendor>Tidewise</vendor>
+  <vendor_url>https://github.com/Cyber-Programmer/tidewise</vendor_url>
+  <action id="io.github.tidewise.helper">
+    <description>Install or update software with Tidewise</description>
+    <message>Tidewise needs an administrator password to make this change: $(command_line)</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/tidewise/tidewise-helper</annotate>
+  </action>
+</policyconfig>
