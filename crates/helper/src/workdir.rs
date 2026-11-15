@@ -58,7 +58,7 @@ pub fn process_is_alive(pid: u32) -> bool {
 /// The test the helper uses for leftovers: a process other than this one is alive. A file with our own pid cannot be a
 /// live helper's (we have not made any yet), so it is a leftover of an earlier helper whose pid was reused (review R-08).
 pub fn another_process_is_alive(pid: u32) -> bool {
-    process_is_alive(pid)
+    pid != std::process::id() && process_is_alive(pid)
 }
 
 /// `tidewise-helper-<pid>-<serial>.<extension>`
