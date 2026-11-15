@@ -149,8 +149,7 @@ fn validate_install(install: &Install) -> Result<(), InvalidRequest> {
 /// For code that reads the same kind of line from pacman's own output (`--print-format '%r/%n %v'`), so there is one
 /// copy of the rule.
 pub fn is_valid_transaction_item(item: &TransactionItem) -> bool {
-    let _ = (item, is_helper_repo_name, is_package_name, is_version);
-    false
+    is_helper_repo_name(&item.repo) && is_package_name(&item.name) && is_version(&item.version)
 }
 
 fn check_transaction(lines: &[TransactionItem]) -> Result<(), InvalidRequest> {
