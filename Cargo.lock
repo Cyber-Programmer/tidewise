@@ -4254,6 +4254,7 @@ version = "0.1.0"
 name = "tidewise-helper"
 version = "0.1.0"
 dependencies = [
+ "rustix 1.1.6",
  "tidewise-helper-protocol",
  "tidewise-names",
 ]
