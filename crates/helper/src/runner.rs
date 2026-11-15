@@ -14,10 +14,15 @@
 //!
 //! Timeouts only on reads and dry runs (they hold no lock, T-17). A real transaction is never killed here.
 
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-use crate::pacman_args::{ArgsRefused, PacmanCommand};
+use crate::env::pacman_environment;
+use crate::pacman_args::{ArgsRefused, PACMAN, PacmanCommand, args};
 use crate::workdir::{WorkDir, WorkDirError};
 
 /// Dry runs and reads that take longer than this are killed.
@@ -84,19 +89,55 @@ impl LineBuffer {
 
     /// Feeds a chunk; calls `on_line` for every complete line (without the `\n`).
     pub fn push(&mut self, chunk: &[u8], on_line: &mut dyn FnMut(&str)) {
-        let _ = (chunk, on_line, &self.partial, MAX_LINE_BYTES);
+        for &byte in chunk {
+            if byte == b'\n' {
+                self.emit(on_line);
+            } else {
+                self.partial.push(byte);
+                // A line that never ends must not grow without limit: hand it over in pieces.
+                if self.partial.len() >= MAX_LINE_BYTES {
+                    self.emit(on_line);
+                }
+            }
+        }
     }
 
     /// The last line, if the stream ended without a `\n`.
     pub fn finish(&mut self, on_line: &mut dyn FnMut(&str)) {
-        let _ = on_line;
+        if !self.partial.is_empty() {
+            self.emit(on_line);
+        }
+    }
+
+    fn emit(&mut self, on_line: &mut dyn FnMut(&str)) {
+        on_line(&String::from_utf8_lossy(&self.partial));
+        self.partial.clear();
     }
 }
 
 /// The time limit of a command: reads and dry runs have one, real transactions never.
 pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
-    let _ = command;
-    None
+    match command {
+        PacmanCommand::PendingUpdates
+        | PacmanCommand::DryRunInstall(_)
+        | PacmanCommand::DryRunUpdate(_)
+        | PacmanCommand::VerifyInstalled(_) => Some(READ_TIMEOUT),
+        PacmanCommand::Sync
+        | PacmanCommand::RealInstall(_)
+        | PacmanCommand::RealUpdate(_)
+        | PacmanCommand::MarkAsDeps(_) => None,
+    }
+}
+
+/// Removes the run's two files when it ends, however it ends.
+struct Cleanup(Vec<PathBuf>);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 /// Runs the real pacman.
@@ -117,11 +158,11 @@ impl PacmanRunner {
         PacmanRunner {
             workdir,
             serial: 0,
-            program: PathBuf::new(),
-            read_timeout: Duration::ZERO,
-            stdout_cap: 0,
-            stderr_cap: 0,
-            lock_path: PathBuf::new(),
+            program: PathBuf::from(PACMAN),
+            read_timeout: READ_TIMEOUT,
+            stdout_cap: STDOUT_CAP,
+            stderr_cap: STDERR_CAP,
+            lock_path: PathBuf::from(DATABASE_LOCK),
         }
     }
 
@@ -129,20 +170,111 @@ impl PacmanRunner {
     fn run_program(
         &mut self,
         program: &Path,
-        args: &[String],
+        arguments: &[String],
         timeout: Option<Duration>,
         on_stdout_line: &mut dyn FnMut(&str),
     ) -> Result<RunOutput, RunnerError> {
-        let _ = (
-            program,
-            args,
-            timeout,
-            on_stdout_line,
-            &self.workdir,
-            self.serial,
-        );
-        Err(RunnerError::Io)
+        let serial = self.serial;
+        self.serial = self.serial.wrapping_add(1);
+        let files = self
+            .workdir
+            .create_output_files(std::process::id(), serial)
+            .map_err(RunnerError::WorkDir)?;
+        let _cleanup = Cleanup(vec![files.out_path.clone(), files.err_path.clone()]);
+        let mut stdout_reader = File::open(&files.out_path).map_err(|_| RunnerError::Io)?;
+
+        let mut child = Command::new(program)
+            .args(arguments)
+            .env_clear()
+            .envs(pacman_environment())
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(files.out))
+            .stderr(Stdio::from(files.err))
+            .process_group(0)
+            .spawn()
+            .map_err(|_| RunnerError::Spawn)?;
+
+        let mut capture = Capture::new(self.stdout_cap);
+        let started = Instant::now();
+        let mut timed_out = false;
+        // Once pacman is running, this loop never gives up on it: a read problem is treated as "nothing more for now",
+        // and only the time limit of a read or dry run ends a run early.
+        let status = loop {
+            capture.drain(&mut stdout_reader, on_stdout_line);
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {}
+                Err(_) => return Err(RunnerError::Io),
+            }
+            if timeout.is_some_and(|limit| started.elapsed() >= limit) {
+                let _ = child.kill();
+                timed_out = true;
+                break child.wait().map_err(|_| RunnerError::Io)?;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        capture.drain(&mut stdout_reader, on_stdout_line);
+        capture.lines.finish(on_stdout_line);
+
+        let stderr = read_capped(&files.err_path, self.stderr_cap);
+        Ok(RunOutput {
+            exit: if timed_out { None } else { status.code() },
+            stdout: String::from_utf8_lossy(&capture.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            timed_out,
+            truncated: capture.truncated,
+        })
     }
+}
+
+/// What has been read from the stdout file so far.
+struct Capture {
+    stdout: Vec<u8>,
+    truncated: bool,
+    cap: usize,
+    lines: LineBuffer,
+}
+
+impl Capture {
+    fn new(cap: usize) -> Self {
+        Capture {
+            stdout: Vec::new(),
+            truncated: false,
+            cap,
+            lines: LineBuffer::new(),
+        }
+    }
+
+    /// Reads everything the file holds now (up to its current end). A read error counts as the end for now.
+    fn drain(&mut self, reader: &mut File, on_line: &mut dyn FnMut(&str)) {
+        let mut buffer = [0u8; 16 * 1024];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => {
+                    let chunk = buffer.get(..n).unwrap_or(&[]);
+                    let room = self.cap.saturating_sub(self.stdout.len());
+                    if chunk.len() > room {
+                        self.truncated = true;
+                    }
+                    self.stdout
+                        .extend_from_slice(chunk.get(..room.min(chunk.len())).unwrap_or(&[]));
+                    self.lines.push(chunk, on_line);
+                }
+            }
+        }
+    }
+}
+
+/// The first `cap` bytes of a file (whatever can be read).
+fn read_capped(path: &Path, cap: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    if let Ok(file) = File::open(path) {
+        let _ = file
+            .take(u64::try_from(cap).unwrap_or(u64::MAX))
+            .read_to_end(&mut bytes);
+    }
+    bytes
 }
 
 impl Runner for PacmanRunner {
@@ -151,13 +283,17 @@ impl Runner for PacmanRunner {
         command: &PacmanCommand,
         on_stdout_line: &mut dyn FnMut(&str),
     ) -> Result<RunOutput, RunnerError> {
-        let _ = (command, on_stdout_line, &self.program, self.read_timeout);
-        Err(RunnerError::Io)
+        let arguments = args(command).map_err(RunnerError::Args)?;
+        let timeout = timeout_for(command).map(|_| self.read_timeout);
+        let program = self.program.clone();
+        self.run_program(&program, &arguments, timeout, on_stdout_line)
     }
 
     fn database_lock_present(&self) -> bool {
-        let _ = (&self.lock_path, self.stdout_cap, self.stderr_cap);
-        false
+        match fs::symlink_metadata(&self.lock_path) {
+            Ok(_) => true,
+            Err(error) => error.kind() != io::ErrorKind::NotFound,
+        }
     }
 }
 
