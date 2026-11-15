@@ -81,16 +81,24 @@ pub fn finished_code(outcome: &Outcome) -> &'static str {
 /// helper recomputed from a request that passed validation.
 pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u8> {
     let uid = caller.map_or_else(|| "unknown".to_string(), |uid| uid.to_string());
-    // syslog levels: 6 = info (accepted, or finished fine), 4 = warning (a refusal or a failure).
-    let (priority, stage_name, code) = match stage {
-        Stage::Accepted => ("6", "accepted", None),
-        Stage::Finished(outcome, _notes) => {
-            let priority = if matches!(outcome, Outcome::Ok) {
-                "6"
+    // syslog levels: 6 = info (accepted, or a clean finish), 4 = warning (a refusal, a failure, or an ok that came
+    // with something to read or with a check that did not run).
+    let (priority, stage_name, code, notes) = match stage {
+        Stage::Accepted => ("6", "accepted", None, Notes::default()),
+        Stage::Finished(outcome, notes) => {
+            let ok_with_notices = matches!(outcome, Outcome::Ok) && notes.any();
+            let clean_ok = matches!(outcome, Outcome::Ok) && !notes.any();
+            let code = if ok_with_notices {
+                "ok_with_notices"
             } else {
-                "4"
+                finished_code(outcome)
             };
-            (priority, "finished", Some(finished_code(outcome)))
+            (
+                if clean_ok { "6" } else { "4" },
+                "finished",
+                Some(code),
+                notes,
+            )
         }
     };
 
@@ -102,7 +110,34 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
     if let Some(code) = code {
         add_field(&mut text, "TIDEWISE_OUTCOME", code);
     }
-    let label = code.unwrap_or("accepted");
+    if notes.not_installed > 0 {
+        add_field(
+            &mut text,
+            "TIDEWISE_NOT_INSTALLED",
+            &notes.not_installed.to_string(),
+        );
+    }
+    if notes.removed > 0 {
+        add_field(&mut text, "TIDEWISE_REMOVED", &notes.removed.to_string());
+    }
+    if notes.removal_check_skipped {
+        add_field(&mut text, "TIDEWISE_REMOVAL_CHECK", "skipped");
+    }
+
+    let label = match code {
+        Some("ok_with_notices") => format!(
+            "ok with notices ({} not installed, {} removed{})",
+            notes.not_installed,
+            notes.removed,
+            if notes.removal_check_skipped {
+                ", removal check skipped"
+            } else {
+                ""
+            }
+        ),
+        Some(code) => code.to_string(),
+        None => "accepted".to_string(),
+    };
     let message = match summary {
         Some(summary) => {
             add_field(&mut text, "TIDEWISE_SUMMARY", summary);
