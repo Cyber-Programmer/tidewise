@@ -52,4 +52,37 @@ fuzz_target!(|data: &[u8]| {
     }];
     assert!(count_not_installed(&confirmed, text) <= 1);
     let _ = is_lock_failure(text);
+
+    // The `pacman -Q` snapshots (5.3c): the same text as a "before" list, and as an "after" list with some lines gone.
+    let names = installed_names(text);
+    assert!(
+        removed_names(text, text).is_empty(),
+        "a list differs from itself"
+    );
+    let thinned: String = text
+        .split('\n')
+        .enumerate()
+        .filter(|(index, _)| index % 3 != 0)
+        .map(|(_, line)| format!("{line}\n"))
+        .collect();
+    let removed = removed_names(text, &thinned);
+    let still_there = installed_names(&thinned);
+    for name in &removed {
+        assert!(names.contains(name), "removed a name that was never listed");
+        assert!(
+            !still_there.contains(name),
+            "removed a name that is still listed"
+        );
+    }
+    let mut unique = removed.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), removed.len(), "a name reported twice");
+    // Against an empty list everything that was listed is removed, each name once.
+    let mut everything = names.clone();
+    everything.sort_unstable();
+    everything.dedup();
+    let mut gone = removed_names(text, "");
+    gone.sort_unstable();
+    assert_eq!(gone, everything);
 });
