@@ -13,9 +13,16 @@
 //! between) is reported as a `Notice`, count only. Nothing here removes, creates or fixes `db.lck`: it is only looked
 //! at, and pacman's own advice about it is never shown (golden rule 9).
 
-use tidewise_helper_protocol::{Action, ErrorKind, Event, Install, Outcome, Request};
+use tidewise_helper_protocol::{
+    Action, Details, ErrorKind, Event, Install, Notice, Outcome, PackageRef, Request,
+    TransactionItem,
+};
+use tidewise_pacman::{InstallDecision, install_decision, parse_qu};
 
-use crate::runner::Runner;
+use crate::output::{count_not_installed, is_lock_failure, parse_print, same_transaction};
+use crate::pacman_args::PacmanCommand;
+use crate::progress::ProgressTracker;
+use crate::runner::{RunOutput, Runner, RunnerError};
 
 /// Runs the job the request asks for. Progress and notices go to `on_event`; the caller prints the final line.
 pub fn run_job(
@@ -23,15 +30,262 @@ pub fn run_job(
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
 ) -> Outcome {
-    let _ = (
-        request,
+    let outcome = match &request.action {
+        Action::Install(install) => install_job(install, runner, on_event),
+        Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
+        Action::UpdateSystemAndInstall(install) => {
+            let providers = providers_of(install);
+            update_job(
+                &install.transaction,
+                &names_of(install),
+                &providers,
+                runner,
+                on_event,
+            )
+        }
+    };
+    match outcome {
+        Ok(()) => Outcome::Ok,
+        Err(kind) => Outcome::Error(kind),
+    }
+}
+
+/// `Err` is the reason the job stopped; the caller turns it into the final line.
+type Step = Result<(), ErrorKind>;
+
+fn install_job(
+    install: &Install,
+    runner: &mut dyn Runner,
+    on_event: &mut dyn FnMut(Event),
+) -> Step {
+    check_lock(runner)?;
+    check_nothing_pending(runner)?;
+    let names = names_of(install);
+    dry_run(
+        runner,
+        PacmanCommand::DryRunInstall(names.clone()),
+        &install.transaction,
+    )?;
+
+    let mut tracker = ProgressTracker::new(total_of(&install.transaction));
+    real_run_and_after(
         runner,
         on_event,
-        Action::UpdateSystem,
-        ErrorKind::Malformed,
-    );
-    let _: Option<Install> = None;
-    Outcome::Ok
+        &mut tracker,
+        PacmanCommand::RealInstall(names),
+        &install.transaction,
+        &providers_of(install),
+    )
+}
+
+/// `names` is empty for a plain system update.
+fn update_job(
+    transaction: &[TransactionItem],
+    names: &[PackageRef],
+    providers: &[PackageRef],
+    runner: &mut dyn Runner,
+    on_event: &mut dyn FnMut(Event),
+) -> Step {
+    check_lock(runner)?;
+    let mut tracker = ProgressTracker::new(total_of(transaction));
+
+    // The one and only sync of the job. The full update that follows is what makes it safe (golden rule 4).
+    let synced = runner
+        .run(&PacmanCommand::Sync, &mut |line| {
+            forward(&mut tracker, on_event, line)
+        })
+        .map_err(runner_failure)?;
+    if synced.exit != Some(0) || synced.timed_out {
+        return Err(failure_of(&synced));
+    }
+
+    dry_run(
+        runner,
+        PacmanCommand::DryRunUpdate(names.to_vec()),
+        transaction,
+    )?;
+    real_run_and_after(
+        runner,
+        on_event,
+        &mut tracker,
+        PacmanCommand::RealUpdate(names.to_vec()),
+        transaction,
+        providers,
+    )
+}
+
+/// The lock is only looked at. pacman's own advice about it (to remove the file) is never shown.
+fn check_lock(runner: &dyn Runner) -> Step {
+    if runner.database_lock_present() {
+        Err(ErrorKind::DatabaseLocked)
+    } else {
+        Ok(())
+    }
+}
+
+/// A plain install while updates are pending would be a partial upgrade (golden rule 4). Updates held back by
+/// `IgnorePkg` do not count: a full update would not install them either.
+fn check_nothing_pending(runner: &mut dyn Runner) -> Step {
+    let output = runner
+        .run(&PacmanCommand::PendingUpdates, &mut |_| {})
+        .map_err(runner_failure)?;
+    // `pacman -Qu` exits 1 when there is nothing to list.
+    if output.timed_out || output.truncated || !matches!(output.exit, Some(0) | Some(1)) {
+        return Err(failure_of(&output));
+    }
+    let updates = parse_qu(&output.stdout)
+        .map_err(|_| failed("pacman's list of updates could not be read."))?;
+    match install_decision(&updates) {
+        InstallDecision::Allowed { .. } => Ok(()),
+        InstallDecision::MustUpdateSystem { .. } => Err(ErrorKind::SystemOutOfDate),
+    }
+}
+
+/// The dry run must give exactly the list the user confirmed (T-09).
+fn dry_run(runner: &mut dyn Runner, command: PacmanCommand, confirmed: &[TransactionItem]) -> Step {
+    let output = runner.run(&command, &mut |_| {}).map_err(runner_failure)?;
+    if output.timed_out {
+        return Err(failure_of(&output));
+    }
+    if output.truncated {
+        return Err(failed("pacman printed more than the helper reads."));
+    }
+    if output.exit != Some(0) {
+        // A target that is no longer in the repositories means the lists changed since the user looked.
+        if output
+            .stderr
+            .lines()
+            .any(|line| line.starts_with("error: target not found: "))
+        {
+            return Err(ErrorKind::TransactionChanged);
+        }
+        return Err(failure_of(&output));
+    }
+    let found =
+        parse_print(&output.stdout).map_err(|_| failed("pacman's dry run could not be read."))?;
+    if same_transaction(confirmed, &found) {
+        Ok(())
+    } else {
+        Err(ErrorKind::TransactionChanged)
+    }
+}
+
+/// The real transaction, then `-D --asdeps` for the chosen providers, then the post-check.
+fn real_run_and_after(
+    runner: &mut dyn Runner,
+    on_event: &mut dyn FnMut(Event),
+    tracker: &mut ProgressTracker,
+    real: PacmanCommand,
+    transaction: &[TransactionItem],
+    providers: &[PackageRef],
+) -> Step {
+    let output = runner
+        .run(&real, &mut |line| forward(tracker, on_event, line))
+        // pacman did not run at all: there is nothing to check afterwards.
+        .map_err(runner_failure)?;
+
+    let mut stopped: Option<ErrorKind> = None;
+    if output.exit != Some(0) || output.timed_out {
+        stopped = Some(failure_of(&output));
+    } else if !providers.is_empty() {
+        match runner.run(&PacmanCommand::MarkAsDeps(providers.to_vec()), &mut |_| {}) {
+            Ok(marked) if marked.exit == Some(0) && !marked.timed_out => {}
+            Ok(marked) => stopped = Some(failure_of(&marked)),
+            Err(error) => stopped = Some(runner_failure(error)),
+        }
+    }
+
+    post_check(runner, on_event, transaction);
+    match stopped {
+        Some(kind) => Err(kind),
+        None => Ok(()),
+    }
+}
+
+/// After every real run: is each confirmed item installed at the confirmed version? A count of the ones that are not
+/// goes out as a notice. If the check itself cannot run there is nothing to report.
+fn post_check(
+    runner: &mut dyn Runner,
+    on_event: &mut dyn FnMut(Event),
+    transaction: &[TransactionItem],
+) {
+    let items: Vec<PackageRef> = transaction
+        .iter()
+        .map(|item| PackageRef {
+            repo: item.repo.clone(),
+            name: item.name.clone(),
+        })
+        .collect();
+    // `pacman -Q` exits 1 when a name is unknown but still prints the others, so the exit status is not looked at.
+    let Ok(output) = runner.run(&PacmanCommand::VerifyInstalled(items), &mut |_| {}) else {
+        return;
+    };
+    if output.timed_out || output.truncated {
+        return;
+    }
+    let missing = count_not_installed(transaction, &output.stdout);
+    if missing > 0 {
+        on_event(Event::Notice(Notice::PackagesNotInstalled(missing)));
+    }
+}
+
+fn forward(tracker: &mut ProgressTracker, on_event: &mut dyn FnMut(Event), line: &str) {
+    if let Some(progress) = tracker.line(line) {
+        on_event(Event::Progress(progress));
+    }
+}
+
+/// What the user asked for, then the providers they chose: the order pacman is given.
+fn names_of(install: &Install) -> Vec<PackageRef> {
+    let mut names = install.targets.clone();
+    names.extend(providers_of(install));
+    names
+}
+
+fn providers_of(install: &Install) -> Vec<PackageRef> {
+    install
+        .providers
+        .iter()
+        .map(|answer| answer.chosen.clone())
+        .collect()
+}
+
+fn total_of(transaction: &[TransactionItem]) -> u32 {
+    u32::try_from(transaction.len()).unwrap_or(u32::MAX)
+}
+
+/// Why a pacman run that did not succeed stopped. A held lock has its own fixed text; anything else carries pacman's
+/// own words from stderr (cleaned and capped by `Details`).
+fn failure_of(output: &RunOutput) -> ErrorKind {
+    if output.timed_out {
+        return failed("pacman was stopped because it took too long.");
+    }
+    if is_lock_failure(&output.stderr) {
+        return ErrorKind::DatabaseLocked;
+    }
+    if output.stderr.trim().is_empty() {
+        return match output.exit {
+            Some(code) => failed(&format!(
+                "pacman stopped without a message (exit status {code})."
+            )),
+            None => failed("pacman was stopped by a signal."),
+        };
+    }
+    ErrorKind::PacmanFailed(Details::from_raw(&output.stderr))
+}
+
+/// The helper could not run pacman at all. Fixed texts.
+fn runner_failure(error: RunnerError) -> ErrorKind {
+    failed(match error {
+        RunnerError::Args(_) => "the helper could not build a pacman command.",
+        RunnerError::WorkDir(_) => "the helper's work folder could not be used.",
+        RunnerError::Spawn => "pacman could not be started.",
+        RunnerError::Io => "the helper could not read pacman's output.",
+    })
+}
+
+fn failed(text: &str) -> ErrorKind {
+    ErrorKind::PacmanFailed(Details::from_raw(text))
 }
 
 #[cfg(test)]
