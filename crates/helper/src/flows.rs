@@ -20,7 +20,8 @@ use tidewise_helper_protocol::{
 use tidewise_pacman::{InstallDecision, install_decision, parse_qu};
 
 use crate::output::{
-    count_not_installed, installed_names, is_lock_failure, parse_print, same_transaction,
+    count_not_installed, installed_names, is_lock_failure, parse_print, removed_names,
+    same_transaction,
 };
 use crate::pacman_args::PacmanCommand;
 use crate::progress::ProgressTracker;
@@ -55,7 +56,7 @@ pub fn run_job(
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
 ) -> JobResult {
-    let outcome = match &request.action {
+    let (step, counts) = match &request.action {
         Action::Install(install) => install_job(install, runner, on_event),
         Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
         Action::UpdateSystemAndInstall(install) => {
@@ -69,34 +70,46 @@ pub fn run_job(
             )
         }
     };
-    let outcome = match outcome {
-        Ok(()) => Outcome::Ok,
-        Err(kind) => Outcome::Error(kind),
-    };
     JobResult {
-        outcome,
-        not_installed: 0,
-        removed: 0,
-        removal_check: RemovalCheck::NotRun,
+        outcome: match step {
+            Ok(()) => Outcome::Ok,
+            Err(kind) => Outcome::Error(kind),
+        },
+        not_installed: counts.not_installed,
+        removed: counts.removed,
+        removal_check: counts.removal_check,
     }
 }
 
 /// `Err` is the reason the job stopped; the caller turns it into the final line.
 type Step = Result<(), ErrorKind>;
 
+/// What the two `pacman -Q` lists said about the real run.
+#[derive(Default)]
+struct Counts {
+    not_installed: u32,
+    removed: u32,
+    removal_check: RemovalCheck,
+}
+
 fn install_job(
     install: &Install,
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
-) -> Step {
-    check_lock(runner)?;
-    check_nothing_pending(runner)?;
+) -> (Step, Counts) {
     let names = names_of(install);
-    dry_run(
-        runner,
-        PacmanCommand::DryRunInstall(names.clone()),
-        &install.transaction,
-    )?;
+    let before_the_real_run = (|| -> Step {
+        check_lock(runner)?;
+        check_nothing_pending(runner)?;
+        dry_run(
+            runner,
+            PacmanCommand::DryRunInstall(names.clone()),
+            &install.transaction,
+        )
+    })();
+    if let Err(kind) = before_the_real_run {
+        return (Err(kind), Counts::default());
+    }
 
     let mut tracker = ProgressTracker::new(total_of(&install.transaction));
     real_run_and_after(
@@ -116,25 +129,30 @@ fn update_job(
     providers: &[PackageRef],
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
-) -> Step {
-    check_lock(runner)?;
+) -> (Step, Counts) {
+    if let Err(kind) = check_lock(runner) {
+        return (Err(kind), Counts::default());
+    }
     let mut tracker = ProgressTracker::new(total_of(transaction));
 
     // The one and only sync of the job. The full update that follows is what makes it safe (golden rule 4).
-    let synced = runner
-        .run(&PacmanCommand::Sync, &mut |line| {
-            forward(&mut tracker, on_event, line)
-        })
-        .map_err(runner_failure)?;
+    let synced = match runner.run(&PacmanCommand::Sync, &mut |line| {
+        forward(&mut tracker, on_event, line)
+    }) {
+        Ok(output) => output,
+        Err(error) => return (Err(runner_failure(error)), Counts::default()),
+    };
     if synced.exit != Some(0) || synced.timed_out {
-        return Err(failure_of(&synced));
+        return (Err(failure_of(&synced)), Counts::default());
     }
 
-    dry_run(
+    if let Err(kind) = dry_run(
         runner,
         PacmanCommand::DryRunUpdate(names.to_vec()),
         transaction,
-    )?;
+    ) {
+        return (Err(kind), Counts::default());
+    }
     real_run_and_after(
         runner,
         on_event,
@@ -208,7 +226,8 @@ fn dry_run(runner: &mut dyn Runner, command: PacmanCommand, confirmed: &[Transac
     }
 }
 
-/// The real transaction, then `-D --asdeps` for the chosen providers, then the post-check.
+/// The real transaction between two `pacman -Q` lists, then `-D --asdeps` for the chosen providers that were not
+/// installed, then the comparison of the lists.
 fn real_run_and_after(
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
@@ -216,14 +235,29 @@ fn real_run_and_after(
     real: PacmanCommand,
     transaction: &[TransactionItem],
     providers: &[PackageRef],
-) -> Step {
-    // Which chosen providers are not installed yet: only those may be marked as dependencies afterwards.
-    let to_mark = providers_not_installed(runner, providers);
+) -> (Step, Counts) {
+    // What is installed right before the real run. It tells which chosen providers are already there (only the others
+    // may be marked as dependencies afterwards: marking one the user installed by hand would hide it from their own
+    // list) and is the baseline for "did anything disappear?".
+    let before = read_installed_list(runner);
+    let to_mark: Vec<PackageRef> = match &before {
+        Some(list) => {
+            let installed = installed_names(list);
+            providers
+                .iter()
+                .filter(|provider| !installed.contains(&provider.name))
+                .cloned()
+                .collect()
+        }
+        // Cannot tell: mark nothing (cosmetic) rather than demote a package.
+        None => Vec::new(),
+    };
 
-    let output = runner
-        .run(&real, &mut |line| forward(tracker, on_event, line))
-        // pacman did not run at all: there is nothing to check afterwards.
-        .map_err(runner_failure)?;
+    let output = match runner.run(&real, &mut |line| forward(tracker, on_event, line)) {
+        Ok(output) => output,
+        // pacman did not run at all: there is nothing to compare afterwards.
+        Err(error) => return (Err(runner_failure(error)), Counts::default()),
+    };
 
     let mut stopped: Option<ErrorKind> = None;
     if output.exit != Some(0) || output.timed_out {
@@ -236,64 +270,56 @@ fn real_run_and_after(
         }
     }
 
-    post_check(runner, on_event, transaction);
-    match stopped {
-        Some(kind) => Err(kind),
-        None => Ok(()),
+    let after = read_installed_list(runner);
+    let counts = compare_lists(on_event, transaction, before.as_deref(), after.as_deref());
+    (stopped.map_or(Ok(()), Err), counts)
+}
+
+/// `pacman -Q`: every installed package. The text is returned only if the list is complete: exit 0, not cut off, no
+/// timeout. With no names `pacman -Q` exits 1 only on an error and still prints what it could read, and a cut list would
+/// look like removals, so exit 1 is not trusted.
+fn read_installed_list(runner: &mut dyn Runner) -> Option<String> {
+    let output = runner
+        .run(&PacmanCommand::ListInstalled, &mut |_| {})
+        .ok()?;
+    if output.exit == Some(0) && !output.timed_out && !output.truncated {
+        Some(output.stdout)
+    } else {
+        None
     }
 }
 
-/// The chosen providers that are not installed now (`pacman -Q`, a read). A provider the user already has stays as it is:
-/// marking it as a dependency would hide a package they installed by hand. If the answer cannot be read, nothing is
-/// marked (cosmetic), because the alternative is to demote a package.
-fn providers_not_installed(runner: &mut dyn Runner, providers: &[PackageRef]) -> Vec<PackageRef> {
-    if providers.is_empty() {
-        return Vec::new();
-    }
-    let Ok(output) = runner.run(
-        &PacmanCommand::VerifyInstalled(providers.to_vec()),
-        &mut |_| {},
-    ) else {
-        return Vec::new();
-    };
-    // `pacman -Q` exits 1 when a name is unknown but still prints the others, so only a timeout or a cut-off answer
-    // makes it unreadable.
-    if output.timed_out || output.truncated || !matches!(output.exit, Some(0) | Some(1)) {
-        return Vec::new();
-    }
-    let installed = installed_names(&output.stdout);
-    providers
-        .iter()
-        .filter(|provider| !installed.contains(&provider.name))
-        .cloned()
-        .collect()
-}
-
-/// After every real run: is each confirmed item installed at the confirmed version? A count of the ones that are not
-/// goes out as a notice. If the check itself cannot run there is nothing to report.
-fn post_check(
-    runner: &mut dyn Runner,
+/// After every real run, from the two lists: how many confirmed items are not installed at the confirmed version (a
+/// declined replacement, a change by another package manager), and how many installed packages disappeared (nothing in
+/// the request removes anything, so that is a tripwire). Each count above zero goes out as a notice, count only. If a
+/// list could not be read the thing it feeds is not reported and, for removals, the check is marked Skipped, so a check
+/// that did not run is never mistaken for a clean pass.
+fn compare_lists(
     on_event: &mut dyn FnMut(Event),
     transaction: &[TransactionItem],
-) {
-    let items: Vec<PackageRef> = transaction
-        .iter()
-        .map(|item| PackageRef {
-            repo: item.repo.clone(),
-            name: item.name.clone(),
-        })
-        .collect();
-    // `pacman -Q` exits 1 when a name is unknown but still prints the others, so the exit status is not looked at.
-    let Ok(output) = runner.run(&PacmanCommand::VerifyInstalled(items), &mut |_| {}) else {
-        return;
-    };
-    if output.timed_out || output.truncated {
-        return;
+    before: Option<&str>,
+    after: Option<&str>,
+) -> Counts {
+    let mut counts = Counts::default();
+    if let Some(after) = after {
+        let missing = count_not_installed(transaction, after);
+        if missing > 0 {
+            on_event(Event::Notice(Notice::PackagesNotInstalled(missing)));
+            counts.not_installed = missing;
+        }
     }
-    let missing = count_not_installed(transaction, &output.stdout);
-    if missing > 0 {
-        on_event(Event::Notice(Notice::PackagesNotInstalled(missing)));
+    match (before, after) {
+        (Some(before), Some(after)) => {
+            counts.removal_check = RemovalCheck::Done;
+            let removed = u32::try_from(removed_names(before, after).len()).unwrap_or(u32::MAX);
+            if removed > 0 {
+                on_event(Event::Notice(Notice::PackagesRemoved(removed)));
+                counts.removed = removed;
+            }
+        }
+        _ => counts.removal_check = RemovalCheck::Skipped,
     }
+    counts
 }
 
 fn forward(tracker: &mut ProgressTracker, on_event: &mut dyn FnMut(Event), line: &str) {
@@ -858,30 +884,34 @@ mod tests {
         }
     }
 
-    /// The five answers of a clean install, with the lists you choose before and after the real run.
+    /// The answers of a clean install, with the lists you choose before and after the real run. `marks_providers` says
+    /// whether the helper will run `-D --asdeps` (it does only for a provider that the before-list does not show).
     fn script_with_lists(
         request: &Request,
         before: Result<RunOutput, RunnerError>,
         after: Result<RunOutput, RunnerError>,
+        marks_providers: bool,
     ) -> Vec<Result<RunOutput, RunnerError>> {
         let items = transaction_of(request);
-        vec![
+        let mut script = vec![
             out(1, "", ""),
             ok(&print_text(&items)),
             before,
             ok(REAL_INSTALL_OUT),
-            ok(""),
-            after,
-        ]
+        ];
+        if marks_providers {
+            script.push(ok(""));
+        }
+        script.push(after);
+        script
     }
 
     #[test]
     fn a_package_that_disappears_during_the_run_is_reported_and_counted() {
         let request = request(INSTALL);
         let items = transaction_of(&request);
-        let mut before = installed_text(&items);
-        before.push_str("old-one 1-1\nold-two 2-1\n");
-        let script = script_with_lists(&request, ok(&before), ok(&installed_text(&items)));
+        let before = "old-one 1-1\nold-two 2-1\n".to_string();
+        let script = script_with_lists(&request, ok(&before), ok(&installed_text(&items)), true);
         let (result, events) = go_full(&request, &mut Fake::new(script));
         assert_eq!(result.outcome, Outcome::Ok);
         assert_eq!((result.removed, result.not_installed), (2, 0));
@@ -897,6 +927,7 @@ mod tests {
             &request,
             ok("other 1-1\n"),
             ok(&format!("other 1-2\n{}", installed_text(&items))),
+            true,
         );
         let (result, events) = go_full(&request, &mut Fake::new(script));
         assert_eq!(
@@ -912,7 +943,7 @@ mod tests {
         let items = transaction_of(&request);
         let mut after = installed_text(&items);
         after = after.replace("dbeaver 25.2.1-1\n", "");
-        let script = script_with_lists(&request, ok("gone 1-1\n"), ok(&after));
+        let script = script_with_lists(&request, ok("gone 1-1\n"), ok(&after), true);
         let (result, events) = go_full(&request, &mut Fake::new(script));
         assert_eq!((result.not_installed, result.removed), (1, 1));
         assert_eq!(
@@ -954,7 +985,8 @@ mod tests {
         };
         for bad in unreadable() {
             // Before the real run:
-            let script = script_with_lists(&request, bad.clone(), ok(&installed_text(&items)));
+            let script =
+                script_with_lists(&request, bad.clone(), ok(&installed_text(&items)), false);
             let (result, events) = go_full(&request, &mut Fake::new(script));
             assert_eq!(result.outcome, Outcome::Ok, "{bad:?}");
             assert_eq!(
@@ -964,7 +996,8 @@ mod tests {
             );
             assert_eq!(notices(&events), vec![], "{bad:?}");
             // After it:
-            let script = script_with_lists(&request, ok(&installed_text(&items)), bad.clone());
+            let script =
+                script_with_lists(&request, ok(&installed_text(&items)), bad.clone(), false);
             let (result, events) = go_full(&request, &mut Fake::new(script));
             assert_eq!(result.outcome, Outcome::Ok, "{bad:?}");
             assert_eq!(
@@ -983,7 +1016,7 @@ mod tests {
         let request = request(INSTALL);
         let items = transaction_of(&request);
         let partial = out(1, "a 1-1\n", "error: could not read the entry of b\n");
-        let script = script_with_lists(&request, ok("a 1-1\nb 2-1\n"), partial);
+        let script = script_with_lists(&request, ok("a 1-1\nb 2-1\n"), partial, true);
         let (result, events) = go_full(&request, &mut Fake::new(script));
         let _ = items;
         assert_eq!(
