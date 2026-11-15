@@ -255,8 +255,19 @@ fn real_run_and_after(
 
     let output = match runner.run(&real, &mut |line| forward(tracker, on_event, line)) {
         Ok(output) => output,
-        // pacman did not run at all: there is nothing to compare afterwards.
-        Err(error) => return (Err(runner_failure(error)), Counts::default()),
+        // pacman could not be started: there is nothing to compare afterwards. An I/O error while watching it is
+        // different (R-04): pacman may have run, so the check is Skipped and the journal says so.
+        Err(error) => {
+            let counts = if matches!(error, RunnerError::Io) {
+                Counts {
+                    removal_check: RemovalCheck::Skipped,
+                    ..Counts::default()
+                }
+            } else {
+                Counts::default()
+            };
+            return (Err(runner_failure(error)), counts);
+        }
     };
 
     let mut stopped: Option<ErrorKind> = None;
@@ -282,11 +293,15 @@ fn read_installed_list(runner: &mut dyn Runner) -> Option<String> {
     let output = runner
         .run(&PacmanCommand::ListInstalled, &mut |_| {})
         .ok()?;
-    if output.exit == Some(0) && !output.timed_out && !output.truncated {
-        Some(output.stdout)
-    } else {
-        None
-    }
+    // R-02: exit 0 can hide a skipped, damaged entry (libalpm says so on stderr), and a list with no package at all
+    // cannot be a complete one.
+    let has_error_line = output.stderr.lines().any(|line| line.starts_with("error:"));
+    let complete = output.exit == Some(0)
+        && !output.timed_out
+        && !output.truncated
+        && !has_error_line
+        && !installed_names(&output.stdout).is_empty();
+    if complete { Some(output.stdout) } else { None }
 }
 
 /// After every real run, from the two lists: how many confirmed items are not installed at the confirmed version (a
@@ -440,9 +455,9 @@ mod tests {
     }
 
     fn installed_text(items: &[TransactionItem]) -> String {
-        items
-            .iter()
-            .map(|i| format!("{} {}\n", i.name, i.version))
+        // Every real system has pacman in its list, and an empty list is never taken as a complete one (R-02).
+        std::iter::once("pacman 7.1.0-1\n".to_string())
+            .chain(items.iter().map(|i| format!("{} {}\n", i.name, i.version)))
             .collect()
     }
 
@@ -494,7 +509,7 @@ mod tests {
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""), // the providers are not installed yet
+            ok("pacman 7.1.0-1\n"), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -594,7 +609,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(&only_ignored),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -675,7 +690,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -735,9 +750,9 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             out(1, CONFLICT_OUT, CONFLICT_ERR),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
         ]);
         let (outcome, events) = go(&request, &mut fake);
         let Outcome::Error(ErrorKind::PacmanFailed(details)) = outcome else {
@@ -785,7 +800,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             out(1, "", ASDEPS_MISSING_ERR),
             ok(&installed_text(&items)),
@@ -1131,7 +1146,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(&installed_text(&items)),
         ]);
@@ -1153,7 +1168,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed),
@@ -1202,7 +1217,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(&installed_text(&items)),
         ]);
@@ -1281,7 +1296,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -1310,10 +1325,11 @@ mod tests {
             .skip(1)
             .map(|i| format!("{} {}\n", i.name, i.version))
             .collect::<String>();
+        let partial = format!("pacman 7.1.0-1\n{partial}");
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(&partial),
         ]);
