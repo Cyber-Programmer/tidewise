@@ -121,7 +121,6 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         PacmanCommand::PendingUpdates
         | PacmanCommand::DryRunInstall(_)
         | PacmanCommand::DryRunUpdate(_)
-        | PacmanCommand::VerifyInstalled(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
         PacmanCommand::Sync
         | PacmanCommand::RealInstall(_)
@@ -385,7 +384,6 @@ mod tests {
             PacmanCommand::PendingUpdates,
             PacmanCommand::DryRunInstall(list.clone()),
             PacmanCommand::DryRunUpdate(vec![]),
-            PacmanCommand::VerifyInstalled(list.clone()),
             PacmanCommand::ListInstalled,
         ] {
             assert_eq!(timeout_for(&command), Some(READ_TIMEOUT), "{command:?}");
@@ -623,12 +621,9 @@ mod tests {
             .unwrap();
         assert_eq!(out.stdout, "-Qu\n");
         let out = runner
-            .run(
-                &PacmanCommand::VerifyInstalled(vec![pkg("extra", "vim")]),
-                &mut |_| {},
-            )
+            .run(&PacmanCommand::ListInstalled, &mut |_| {})
             .unwrap();
-        assert_eq!(out.stdout, "-Q -- vim\n");
+        assert_eq!(out.stdout, "-Q\n");
     }
 
     #[test]

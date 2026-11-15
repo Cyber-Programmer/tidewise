@@ -33,8 +33,6 @@ pub enum PacmanCommand {
     RealUpdate(Vec<PackageRef>),
     /// `pacman -D --asdeps -- ...`: mark these (the chosen providers) as installed as dependencies.
     MarkAsDeps(Vec<PackageRef>),
-    /// `pacman -Q -- ...`: which of these are installed, and at which version (a read).
-    VerifyInstalled(Vec<PackageRef>),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
     /// run: the difference shows what disappeared.
     ListInstalled,
@@ -77,9 +75,6 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             name_only(packages)?,
             Names::Required,
         ),
-        PacmanCommand::VerifyInstalled(packages) => {
-            build(&["-Q"], &[], name_only(packages)?, Names::Required)
-        }
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
@@ -140,7 +135,7 @@ fn repo_and_name(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
         .collect())
 }
 
-/// `name`, for `-D` and `-Q` (they take installed package names).
+/// `name`, for `-D` (it takes installed package names).
 fn name_only(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
     checked(packages)?;
     Ok(packages
@@ -180,7 +175,6 @@ mod tests {
             PacmanCommand::RealUpdate(two()),
             PacmanCommand::RealUpdate(vec![]),
             PacmanCommand::MarkAsDeps(two()),
-            PacmanCommand::VerifyInstalled(two()),
             PacmanCommand::ListInstalled,
         ]
     }
@@ -259,10 +253,6 @@ mod tests {
                 // -D and -Q take plain names, not repo/name.
                 PacmanCommand::MarkAsDeps(two()),
                 strings(&["-D", "--asdeps", "--", "dbeaver", "jre-openjdk"]),
-            ),
-            (
-                PacmanCommand::VerifyInstalled(two()),
-                strings(&["-Q", "--", "dbeaver", "jre-openjdk"]),
             ),
             // The whole installed list: fixed argv, no names at all.
             (PacmanCommand::ListInstalled, strings(&["-Q"])),
@@ -435,7 +425,6 @@ mod tests {
             PacmanCommand::RealInstall(vec![package.clone()]),
             PacmanCommand::RealUpdate(vec![package.clone()]),
             PacmanCommand::MarkAsDeps(vec![package.clone()]),
-            PacmanCommand::VerifyInstalled(vec![package]),
         ]
     }
 
@@ -509,7 +498,6 @@ mod tests {
             PacmanCommand::DryRunInstall(vec![]),
             PacmanCommand::RealInstall(vec![]),
             PacmanCommand::MarkAsDeps(vec![]),
-            PacmanCommand::VerifyInstalled(vec![]),
         ] {
             assert_eq!(args(&command), Err(ArgsRefused::NoTargets), "{command:?}");
         }
