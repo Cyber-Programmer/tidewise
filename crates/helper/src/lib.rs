@@ -28,6 +28,7 @@
 )]
 
 pub mod args;
+pub mod env;
 pub mod fds;
 pub mod gate;
 pub mod input;
