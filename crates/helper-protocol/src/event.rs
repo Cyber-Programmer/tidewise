@@ -371,10 +371,11 @@ mod tests {
     }
 
     #[test]
-    fn the_not_implemented_line_is_a_known_event() {
-        // 5.3a: a valid request ends here, because the jobs arrive in 5.3b. The line must be one the app can read.
+    fn the_not_implemented_line_is_no_longer_known() {
+        // 5.3a had this result because there were no jobs; 5.3b runs them and removes it. An old helper's line is
+        // refused, not guessed at.
         let line = r#"{"finished":{"error":"not_implemented"}}"#;
-        assert!(parse_event(line).is_ok(), "{line} was refused");
+        assert_eq!(parse_event(line), Err(EventError::Malformed));
     }
 
     #[test]
