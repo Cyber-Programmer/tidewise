@@ -1,6 +1,7 @@
 # Makes the next `pacman -Q` fail ("database is incorrect version", exit 255), so the helper's second list cannot be read.
 # The test puts the file back from the copy in /tmp.
 post_install() {
-  cp /var/lib/pacman/local/ALPM_DB_VERSION /tmp/tidewise-db-version-backup
+  # Without a backup the test could not put the file back: stop before removing it (R-07).
+  cp /var/lib/pacman/local/ALPM_DB_VERSION /tmp/tidewise-db-version-backup || return 1
   rm /var/lib/pacman/local/ALPM_DB_VERSION
 }

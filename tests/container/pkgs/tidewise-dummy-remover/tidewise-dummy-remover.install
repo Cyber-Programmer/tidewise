@@ -2,4 +2,6 @@
 # in `pacman -Q`, which is all the helper's removal check can see (a hook that removes a package would look the same).
 post_install() {
   rm -rf /var/lib/pacman/local/tidewise-dummy-victim-1.0-1
+  # Its file goes too, so a second run in the same container does not hit "exists in filesystem" (R-07).
+  rm -f /usr/share/tidewise-test/tidewise-dummy-victim.txt
 }
