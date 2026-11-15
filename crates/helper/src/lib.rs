@@ -39,5 +39,7 @@ pub mod pacman_args;
 pub mod progress;
 pub mod run;
 pub mod runner;
+#[cfg(test)]
+pub(crate) mod testing;
 pub mod uid;
 pub mod workdir;
