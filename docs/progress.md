@@ -611,8 +611,9 @@ human updates it).
 Done: `crates/helper` (`tidewise-helper`), `#![forbid(unsafe_code)]`, no-panic lints plus a ban on `println!`/`eprintln!`/
 `dbg!` (clippy-denied; all output goes through `write_line`, whose error is handled). Only dependency:
 `tidewise-helper-protocol`; no new external crate. No pacman call, no child process.
-- Start order (each step refuses before the next): `/proc/self/fd` has only 0, 1, 2 and our own listing; effective uid
-  is 0 (`/proc/self/status`); `chdir("/")`; argv is exactly `[program, summary]`. A refusal = one fixed sentence on
+- Start order (each step refuses before the next; root first since 15 Nov, see the CI fix below): effective uid is 0
+  (`/proc/self/status`); `/proc/self/fd` has only 0, 1, 2 and our own listing; `chdir("/")`; argv is exactly
+  `[program, summary]`. A refusal = one fixed sentence on
   stderr, exit 2, nothing on stdout, no journal entry, stdin never read. Then: stdin capped at 2 MiB + 1, `parse_request`,
   recompute `summary()` and compare bytes with argv[1] (`SummaryMismatch`), one journal entry (native protocol over
   `UnixDatagram`, no dependency, printable-ASCII values), one result line, exit 1. A valid request ends in
@@ -657,3 +658,15 @@ Rules bent: no `(red)` commit for the container tests (characterise behaviour bu
 that name a new variant would not compile, so the `NotImplemented` red test parses the wire line instead; one red test
 (journal line counting) was too strict and was corrected in its green commit (explained there), not weakened. WBS sheet
 not touched by Claude (the human updates it).
+
+### 2026-11-15 — 5.3a CI fix: root is checked first
+Done: CI ("fmt, clippy, test") failed 3 tests in `crates/helper/tests/not_root.rs`: the GitHub runner gives the test
+process extra inherited descriptors, so the helper, started as a normal user, refused with "unexpected open files" before
+the not-root check. Reproduced locally (`exec 3</dev/null; cargo test -p tidewise-helper --test not_root`: 3 failures).
+My tests had only passed because my shell had no extra descriptors. Fix (your decision): order is now effective uid,
+descriptors, chdir, argv; nothing acts before all pass, so security is unchanged. Red first: a real-binary test through
+`flock(1)` (leaks fd 3) and the order unit test; then the fix. Threat model T-08 updated. All gates green, also with
+descriptors 3 and 4 leaked from the shell, and `tests/container/run.sh` (helper 12, smoke 2).
+Also (already committed earlier, `2f42433`): decisions on question 13 (journal down: do not refuse; 5.3b's `Finished`
+event says the audit entry could not be written, fixed text) and question 14 (rely on pkexec, no uid_map check).
+Next: unchanged (5.3b). Blockers: none. Rules bent: none.
