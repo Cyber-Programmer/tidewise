@@ -10,13 +10,16 @@
 //!    a later check refuses)
 //! 4. argv is exactly the program name and one summary (`args`)
 //!
-//! Only then is stdin read (`input`, capped), the request decided (`gate`), one journal entry written (`journal`)
-//! and one result line printed. A refusal to start prints one fixed sentence on **stderr**, nothing on stdout, writes
-//! no journal entry, and never reads stdin.
+//! Only then is stdin read (`input`, capped) and the request decided (`gate`). A refused request gets one journal
+//! entry and one result line. An accepted one gets a journal entry (before any pacman command), a runner (made only
+//! now), the job (`flows`) with its progress and notice lines on stdout, a second journal entry with the outcome, and
+//! the final line. If either entry could not be written, one notice says so just before the final line: a journal that
+//! is down never stops a job (pacman's own log still records every package change). A refusal to start prints one
+//! fixed sentence on **stderr**, nothing on stdout, writes no journal entry, and never reads stdin.
 //!
 //! Exit codes:
-//! - `0` the job finished (not used in 5.3a: there are no jobs)
-//! - `1` a result line with an error was printed on stdout (the request was refused or is not implemented yet)
+//! - `0` the job finished: the final line is `{"finished":"ok"}`
+//! - `1` a final line with an error was printed on stdout (the request was refused, or the job stopped)
 //! - `2` refused to start (see `StartRefusal`); `pkexec` itself uses 126 and 127 (`pkexec(1)`)
 //!
 //! Output never goes through `println!` and friends: they panic when stdout or stderr is closed or full. `write_line`
@@ -26,17 +29,18 @@
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 
-use tidewise_helper_protocol::{ErrorKind, Event, Outcome, event_line};
+use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, event_line};
 
 use crate::args::{caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
-use crate::gate::{Decision, Verdict, decide};
+use crate::flows::run_job;
+use crate::gate::{Decision, decide};
 use crate::input::read_capped;
 use crate::journal::{Stage, record};
 use crate::runner::Runner;
 use crate::uid::is_root;
 
-/// The job finished. Unused until 5.3b.
+/// The job finished.
 pub const EXIT_OK: u8 = 0;
 /// A result line with an error was printed.
 pub const EXIT_ERROR_LINE: u8 = 1;
@@ -148,7 +152,6 @@ pub fn run(
     log: &mut dyn FnMut(&[u8]) -> bool,
     make_runner: MakeRunner,
 ) -> u8 {
-    let _ = make_runner;
     let started = match start(facts) {
         Ok(started) => started,
         Err(refusal) => {
@@ -158,26 +161,53 @@ pub fn run(
         }
     };
 
-    // Until the jobs are wired in (next commits) a valid request still ends as "not implemented".
-    let verdict = match decide(&started.summary, read_capped(stdin)) {
-        Decision::Refused(verdict) => verdict,
-        Decision::Accepted { summary, .. } => Verdict {
-            error: ErrorKind::NotImplemented,
-            summary: Some(summary),
-        },
-    };
+    match decide(&started.summary, read_capped(stdin)) {
+        Decision::Refused(verdict) => {
+            let outcome = Outcome::Error(verdict.error);
+            // The audit trail first, so it exists even if nobody is listening to stdout any more.
+            let written = log(&record(
+                started.caller,
+                Stage::Finished(&outcome),
+                verdict.summary.as_deref(),
+            ));
+            finish(stdout, &outcome, !written)
+        }
+        Decision::Accepted { request, summary } => {
+            // Before any pacman command, so a helper that is killed later still left a trace that a job began.
+            let accepted_written = log(&record(started.caller, Stage::Accepted, Some(&summary)));
 
-    // The audit trail first, so it exists even if nobody is listening to stdout any more.
-    let finished = Outcome::Error(verdict.error.clone());
-    let _ = log(&record(
-        started.caller,
-        Stage::Finished(&finished),
-        verdict.summary.as_deref(),
-    ));
+            let outcome = match make_runner() {
+                Err(kind) => Outcome::Error(kind),
+                Ok(mut runner) => run_job(&request, &mut *runner, &mut |event| {
+                    // A failed write changes nothing: the job goes on and the exit code is the answer.
+                    let _ = write_line(stdout, &event_line(&event));
+                }),
+            };
 
-    let line = event_line(&Event::Finished(Outcome::Error(verdict.error)));
-    let _ = write_line(stdout, &line);
-    EXIT_ERROR_LINE
+            let finished_written = log(&record(
+                started.caller,
+                Stage::Finished(&outcome),
+                Some(&summary),
+            ));
+            finish(stdout, &outcome, !(accepted_written && finished_written))
+        }
+    }
+}
+
+/// The last lines: a notice if an audit entry could not be written (a failed journal never stops a job, the app is
+/// told instead), then the final line. Returns the exit code.
+fn finish(stdout: &mut impl Write, outcome: &Outcome, audit_failed: bool) -> u8 {
+    if audit_failed {
+        let _ = write_line(
+            stdout,
+            &event_line(&Event::Notice(Notice::AuditEntryNotWritten)),
+        );
+    }
+    let _ = write_line(stdout, &event_line(&Event::Finished(outcome.clone())));
+    match outcome {
+        Outcome::Ok => EXIT_OK,
+        Outcome::Error(_) => EXIT_ERROR_LINE,
+    }
 }
 
 #[cfg(test)]
