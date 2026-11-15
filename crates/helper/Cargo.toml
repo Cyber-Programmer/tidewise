@@ -8,3 +8,4 @@ publish.workspace = true
 
 [dependencies]
 tidewise-helper-protocol = { version = "0.1.0", path = "../helper-protocol" }
+tidewise-names = { version = "0.1.0", path = "../names" }
