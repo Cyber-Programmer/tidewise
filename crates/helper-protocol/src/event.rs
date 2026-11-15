@@ -19,8 +19,39 @@ pub const MAX_EVENT_LINE_BYTES: usize = 16 * 1024;
 pub enum Event {
     /// Something is happening.
     Progress(Progress),
+    /// Something the user should know did not go as planned. Comes before `Finished`.
+    Notice(Notice),
     /// The last line: it worked, or why not.
     Finished(Outcome),
+}
+
+/// Things worth telling the user that are not the final result. Fixed texts, only a count as data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Notice {
+    /// The helper could not write its entry in the system journal. The job went on (the package manager's own
+    /// log still records every change).
+    AuditEntryNotWritten,
+    /// After the run, this many packages of the confirmed list are not installed at the confirmed version
+    /// (for example a replacement that was declined, or a change by another package manager in between).
+    PackagesNotInstalled(u32),
+}
+
+impl Notice {
+    /// The fixed plain-language text for the app to show. The only data in it is the count.
+    pub fn plain_text(&self) -> String {
+        match self {
+            Self::AuditEntryNotWritten => {
+                "The helper could not write its entry in the system journal. The package manager's own log still records every change.".to_string()
+            }
+            Self::PackagesNotInstalled(1) => {
+                "1 package from your list was not installed.".to_string()
+            }
+            Self::PackagesNotInstalled(count) => {
+                format!("{count} packages from your list were not installed.")
+            }
+        }
+    }
 }
 
 /// How far along one phase is.
@@ -238,6 +269,8 @@ mod tests {
                 total: 5,
             }));
         }
+        events.push(Event::Notice(Notice::AuditEntryNotWritten));
+        events.push(Event::Notice(Notice::PackagesNotInstalled(3)));
         events.extend(
             all_error_kinds()
                 .into_iter()
@@ -353,6 +386,61 @@ mod tests {
         ] {
             assert!(parse_event(line).is_ok(), "{line} was refused");
         }
+    }
+
+    #[test]
+    fn the_notice_lines_look_like_this() {
+        assert_eq!(
+            event_line(&Event::Notice(Notice::AuditEntryNotWritten)),
+            r#"{"notice":"audit_entry_not_written"}"#
+        );
+        assert_eq!(
+            event_line(&Event::Notice(Notice::PackagesNotInstalled(3))),
+            r#"{"notice":{"packages_not_installed":3}}"#
+        );
+    }
+
+    #[test]
+    fn bad_notice_lines_are_refused() {
+        for line in [
+            r#"{"notice":"nothing"}"#,
+            r#"{"notice":{"packages_not_installed":-1}}"#,
+            r#"{"notice":{"packages_not_installed":4294967296}}"#,
+            r#"{"notice":{"packages_not_installed":"3"}}"#,
+            r#"{"notice":{"packages_not_installed":3,"names":["a"]}}"#,
+            r#"{"notice":"audit_entry_not_written","more":1}"#,
+        ] {
+            assert_eq!(parse_event(line), Err(EventError::Malformed), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_notice_has_a_fixed_text_and_the_only_data_is_the_count() {
+        assert_eq!(
+            Notice::PackagesNotInstalled(1).plain_text(),
+            "1 package from your list was not installed."
+        );
+        assert_eq!(
+            Notice::PackagesNotInstalled(0).plain_text(),
+            "0 packages from your list were not installed."
+        );
+        assert_eq!(
+            Notice::PackagesNotInstalled(u32::MAX).plain_text(),
+            "4294967295 packages from your list were not installed."
+        );
+        for notice in [
+            Notice::AuditEntryNotWritten,
+            Notice::PackagesNotInstalled(7),
+        ] {
+            let text = notice.plain_text();
+            assert!(text.bytes().all(|b| (0x20..=0x7e).contains(&b)), "{text}");
+            assert!(text.ends_with('.'), "{text}");
+            assert!(!text.contains('/'), "no paths in {text}");
+        }
+        assert_ne!(
+            Notice::AuditEntryNotWritten.plain_text(),
+            Notice::PackagesNotInstalled(1).plain_text()
+        );
     }
 
     #[test]
