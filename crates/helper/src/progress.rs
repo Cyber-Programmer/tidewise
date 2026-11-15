@@ -22,9 +22,8 @@ pub struct ProgressTracker {
 impl ProgressTracker {
     /// `total` is the number of lines of the confirmed transaction; counters are clamped to it.
     pub fn new(total: u32) -> Self {
-        let _ = total;
         ProgressTracker {
-            total: 0,
+            total,
             phase: None,
             current: 0,
         }
@@ -32,9 +31,89 @@ impl ProgressTracker {
 
     /// The event this line causes, if any: a new phase, or the counter of the phase going up by one.
     pub fn line(&mut self, line: &str) -> Option<Progress> {
-        let _ = (line, self.total, self.phase, self.current);
-        None
+        if let Some(phase) = heading(line) {
+            // Only forward: a scriptlet printing an old heading later cannot rewind the progress.
+            if self.phase.is_none_or(|now| rank(phase) > rank(now)) {
+                self.phase = Some(phase);
+                self.current = 0;
+                return Some(self.event(phase));
+            }
+            return None;
+        }
+        match self.phase {
+            Some(Phase::Downloading) if is_download_line(line) => self.count(Phase::Downloading),
+            Some(Phase::Installing) if is_package_line(line) => self.count(Phase::Installing),
+            _ => None,
+        }
     }
+
+    /// One more done in `phase`, unless the confirmed total is already reached.
+    fn count(&mut self, phase: Phase) -> Option<Progress> {
+        if self.current >= self.total {
+            return None;
+        }
+        self.current += 1;
+        Some(self.event(phase))
+    }
+
+    fn event(&self, phase: Phase) -> Progress {
+        Progress {
+            phase,
+            current: self.current,
+            total: self.total,
+        }
+    }
+}
+
+fn rank(phase: Phase) -> u8 {
+    match phase {
+        Phase::Checking => 1,
+        Phase::Downloading => 2,
+        Phase::Installing => 3,
+        Phase::Hooks => 4,
+    }
+}
+
+/// The phase a whole-line heading starts. Exact lines only (as printed in the container).
+fn heading(line: &str) -> Option<Phase> {
+    match line {
+        ":: Synchronizing package databases..."
+        | ":: Starting full system upgrade..."
+        | "resolving dependencies..." => Some(Phase::Checking),
+        ":: Retrieving packages..." => Some(Phase::Downloading),
+        ":: Processing package changes..." => Some(Phase::Installing),
+        ":: Running post-transaction hooks..." => Some(Phase::Hooks),
+        _ => None,
+    }
+}
+
+/// A word with no space or other white space in it, and not empty.
+fn is_word(text: &str) -> bool {
+    !text.is_empty() && !text.chars().any(char::is_whitespace)
+}
+
+/// ` <file> downloading...`
+fn is_download_line(line: &str) -> bool {
+    line.strip_prefix(' ')
+        .and_then(|rest| rest.strip_suffix(" downloading..."))
+        .is_some_and(is_word)
+}
+
+/// `installing <name>...` and the other verbs pacman prints for one package.
+fn is_package_line(line: &str) -> bool {
+    [
+        "installing ",
+        "upgrading ",
+        "downgrading ",
+        "reinstalling ",
+        "removing ",
+    ]
+    .iter()
+    .any(|verb| {
+        line.strip_prefix(verb)
+            .and_then(|rest| rest.strip_suffix("..."))
+            .is_some_and(is_word)
+    })
 }
 
 #[cfg(test)]
