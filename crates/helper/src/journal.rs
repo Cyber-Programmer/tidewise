@@ -321,7 +321,11 @@ mod tests {
     #[test]
     fn the_raw_request_and_the_argv_text_never_reach_the_entry() {
         let request = r#"{"protocol_version":1,"action":{"update_system":{"transaction":[{"repo":"core","name":"SECRET-PATH/etc/shadow","version":"1-1"}]}}}"#;
-        let verdict = crate::gate::decide(b"SECRET-ARGV", Ok(request.as_bytes().to_vec()));
+        let crate::gate::Decision::Refused(verdict) =
+            crate::gate::decide(b"SECRET-ARGV", Ok(request.as_bytes().to_vec()))
+        else {
+            panic!("the request should have been refused");
+        };
         let outcome = Outcome::Error(verdict.error.clone());
         let datagram = text(&record(
             Some(1000),

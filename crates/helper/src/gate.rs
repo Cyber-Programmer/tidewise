@@ -5,53 +5,43 @@
 //! request that passed is compared with the summary, so an attacker cannot learn anything from the summary check
 //! about a request that was not valid.
 //!
-//! In 5.3a a valid request with the right summary ends in `NotImplemented`: there are no jobs yet.
+//! A request that is valid and whose summary matches is accepted and handed on (with the summary the helper
+//! computed); anything else is refused with the reason.
 
-use tidewise_helper_protocol::{ErrorKind, parse_request, summary};
+use tidewise_helper_protocol::{ErrorKind, Request, parse_request, summary};
 
 use crate::input::InputError;
 
-/// What the gate decided, and what may go in the log about it.
+/// Why a request goes no further, and what may go in the log about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
-    /// Why the request goes no further. (In 5.3a every verdict is an error; 5.3b adds the success case.)
+    /// The reason.
     pub error: ErrorKind,
     /// The summary the helper **recomputed** from a request that passed validation. `None` when the request did not
     /// pass. Never the argv text and never anything from the raw request.
     pub summary: Option<String>,
 }
 
-/// Decides what to do with a request.
-pub fn decide(summary_arg: &[u8], input: Result<Vec<u8>, InputError>) -> Verdict {
-    // A request that could not be read is treated like one that could not be understood.
-    let Ok(bytes) = input else {
-        return refused(ErrorKind::Malformed);
-    };
-    let request = match parse_request(&bytes) {
-        Ok(request) => request,
-        Err(error) => return refused(ErrorKind::from(error)),
-    };
-
-    // Only a request that passed validation is compared with argv. The text we compare against is the one we
-    // compute ourselves; argv is never used for anything else.
-    let expected = summary(&request);
-    let error = if expected.as_bytes() == summary_arg {
-        ErrorKind::NotImplemented
-    } else {
-        ErrorKind::SummaryMismatch
-    };
-    Verdict {
-        error,
-        summary: Some(expected),
-    }
+/// What the gate decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    /// Valid, and the summary in argv is the one the helper computes: the job may run.
+    Accepted {
+        request: Request,
+        /// The recomputed summary (for the log).
+        summary: String,
+    },
+    /// Refused, with the reason.
+    Refused(Verdict),
 }
 
-/// A verdict for a request that did not pass validation: no summary, nothing from the request.
-fn refused(error: ErrorKind) -> Verdict {
-    Verdict {
-        error,
+/// Decides what to do with a request.
+pub fn decide(summary_arg: &[u8], input: Result<Vec<u8>, InputError>) -> Decision {
+    let _ = (summary_arg, input, parse_request, summary);
+    Decision::Refused(Verdict {
+        error: ErrorKind::Malformed,
         summary: None,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -68,24 +58,32 @@ mod tests {
     const UPDATE_SUMMARY: &str = "update system (3 packages)";
     const BOTH_SUMMARY: &str = "update system and install extra/vlc (2 packages)";
 
-    fn run(summary_arg: &str, request: &str) -> Verdict {
+    fn run(summary_arg: &str, request: &str) -> Decision {
         decide(summary_arg.as_bytes(), Ok(request.as_bytes().to_vec()))
+    }
+
+    /// The reason of a refusal; the test fails if the request was accepted.
+    fn refused(decision: Decision) -> Verdict {
+        match decision {
+            Decision::Refused(verdict) => verdict,
+            Decision::Accepted { .. } => panic!("the request was accepted"),
+        }
     }
 
     // ---- the good path ----------------------------------------------------------------------------------
 
     #[test]
-    fn each_sample_request_with_its_own_summary_ends_in_not_implemented() {
-        for (request, text) in [
+    fn each_sample_request_with_its_own_summary_is_accepted_with_the_request_and_the_summary() {
+        for (text, summary) in [
             (INSTALL, INSTALL_SUMMARY),
             (UPDATE, UPDATE_SUMMARY),
             (BOTH, BOTH_SUMMARY),
         ] {
             assert_eq!(
-                run(text, request),
-                Verdict {
-                    error: ErrorKind::NotImplemented,
-                    summary: Some(text.to_string())
+                run(summary, text),
+                Decision::Accepted {
+                    request: parse_request(text.as_bytes()).unwrap(),
+                    summary: summary.to_string()
                 }
             );
         }
@@ -113,7 +111,7 @@ mod tests {
         ];
         for text in wrong {
             assert_eq!(
-                run(text, UPDATE),
+                refused(run(text, UPDATE)),
                 Verdict {
                     error: ErrorKind::SummaryMismatch,
                     summary: Some(UPDATE_SUMMARY.to_string())
@@ -125,13 +123,13 @@ mod tests {
 
     #[test]
     fn a_summary_that_is_not_text_is_a_mismatch() {
-        let verdict = decide(&[0xff, 0xfe, 0x00], Ok(UPDATE.as_bytes().to_vec()));
+        let verdict = refused(decide(&[0xff, 0xfe, 0x00], Ok(UPDATE.as_bytes().to_vec())));
         assert_eq!(verdict.error, ErrorKind::SummaryMismatch);
     }
 
     #[test]
     fn the_log_gets_the_recomputed_summary_never_the_argv_text() {
-        let verdict = run("SECRET-ARGV-TEXT", UPDATE);
+        let verdict = refused(run("SECRET-ARGV-TEXT", UPDATE));
         assert_eq!(verdict.summary.as_deref(), Some(UPDATE_SUMMARY));
         assert!(!format!("{verdict:?}").contains("SECRET"));
     }
@@ -156,11 +154,11 @@ mod tests {
             (v2.into_bytes(), ErrorKind::VersionMismatch),
         ];
         for (bytes, expected) in cases {
-            let verdict = decide(UPDATE_SUMMARY.as_bytes(), Ok(bytes));
+            let verdict = refused(decide(UPDATE_SUMMARY.as_bytes(), Ok(bytes)));
             assert_eq!(verdict.error, expected);
             assert_eq!(verdict.summary, None);
         }
-        let verdict = run(UPDATE_SUMMARY, &force);
+        let verdict = refused(run(UPDATE_SUMMARY, &force));
         assert!(
             matches!(verdict.error, ErrorKind::Invalid(_)),
             "{verdict:?}"
@@ -170,7 +168,10 @@ mod tests {
 
     #[test]
     fn a_read_failure_is_a_malformed_request() {
-        let verdict = decide(UPDATE_SUMMARY.as_bytes(), Err(InputError::ReadFailed));
+        let verdict = refused(decide(
+            UPDATE_SUMMARY.as_bytes(),
+            Err(InputError::ReadFailed),
+        ));
         assert_eq!(
             verdict,
             Verdict {
@@ -186,14 +187,15 @@ mod tests {
         // did not (and cannot be used to probe it).
         let force = UPDATE.replace("\"name\":\"glibc\"", "\"name\":\"--force\"");
         for bad in [b"{".to_vec(), too_big(), force.into_bytes()] {
-            let answers: Vec<Verdict> = ["", "anything", UPDATE_SUMMARY, INSTALL_SUMMARY]
+            let answers: Vec<Decision> = ["", "anything", UPDATE_SUMMARY, INSTALL_SUMMARY]
                 .iter()
                 .map(|arg| decide(arg.as_bytes(), Ok(bad.clone())))
                 .collect();
             assert!(answers.windows(2).all(|pair| pair[0] == pair[1]));
-            assert!(!matches!(
-                answers[0].error,
-                ErrorKind::SummaryMismatch | ErrorKind::NotImplemented
+            assert!(matches!(
+                &answers[0],
+                Decision::Refused(Verdict { error, .. })
+                    if !matches!(error, ErrorKind::SummaryMismatch)
             ));
         }
     }
@@ -201,7 +203,7 @@ mod tests {
     #[test]
     fn nothing_from_the_request_reaches_the_verdict_text() {
         let hostile = UPDATE.replace("\"name\":\"glibc\"", "\"name\":\"SECRET-PATH/etc/shadow\"");
-        let verdict = run(UPDATE_SUMMARY, &hostile);
+        let verdict = refused(run(UPDATE_SUMMARY, &hostile));
         assert!(matches!(verdict.error, ErrorKind::Invalid(_)));
         assert!(!format!("{verdict:?}").contains("SECRET"));
     }
@@ -218,7 +220,7 @@ mod tests {
             "",
         ] {
             let request = UPDATE.replace("\"name\":\"glibc\"", &format!("\"name\":{name:?}"));
-            let verdict = run(UPDATE_SUMMARY, &request);
+            let verdict = refused(run(UPDATE_SUMMARY, &request));
             assert!(
                 matches!(verdict.error, ErrorKind::Invalid(_)),
                 "{name:?}: {verdict:?}"
