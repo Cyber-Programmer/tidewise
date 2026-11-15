@@ -35,6 +35,10 @@ pub enum Notice {
     /// After the run, this many packages of the confirmed list are not installed at the confirmed version
     /// (for example a replacement that was declined, or a change by another package manager in between).
     PackagesNotInstalled(u32),
+    /// After the run, this many packages that were installed before it are gone. Nothing in the request asks for a
+    /// removal and `--ask 66` declines the ones pacman would do by itself, so this is a tripwire: something else
+    /// removed them (a hook, a script, a pacman default that changed).
+    PackagesRemoved(u32),
 }
 
 impl Notice {
@@ -50,6 +54,8 @@ impl Notice {
             Self::PackagesNotInstalled(count) => {
                 format!("{count} packages from your list were not installed.")
             }
+            Self::PackagesRemoved(1) => "1 package was removed.".to_string(),
+            Self::PackagesRemoved(count) => format!("{count} packages were removed."),
         }
     }
 }
@@ -265,6 +271,7 @@ mod tests {
         }
         events.push(Event::Notice(Notice::AuditEntryNotWritten));
         events.push(Event::Notice(Notice::PackagesNotInstalled(3)));
+        events.push(Event::Notice(Notice::PackagesRemoved(2)));
         events.extend(
             all_error_kinds()
                 .into_iter()
@@ -396,6 +403,10 @@ mod tests {
             event_line(&Event::Notice(Notice::PackagesNotInstalled(3))),
             r#"{"notice":{"packages_not_installed":3}}"#
         );
+        assert_eq!(
+            event_line(&Event::Notice(Notice::PackagesRemoved(2))),
+            r#"{"notice":{"packages_removed":2}}"#
+        );
     }
 
     #[test]
@@ -406,6 +417,10 @@ mod tests {
             r#"{"notice":{"packages_not_installed":4294967296}}"#,
             r#"{"notice":{"packages_not_installed":"3"}}"#,
             r#"{"notice":{"packages_not_installed":3,"names":["a"]}}"#,
+            r#"{"notice":{"packages_removed":-1}}"#,
+            r#"{"notice":{"packages_removed":4294967296}}"#,
+            r#"{"notice":{"packages_removed":"2"}}"#,
+            r#"{"notice":{"packages_removed":2,"names":["vim"]}}"#,
             r#"{"notice":"audit_entry_not_written","more":1}"#,
         ] {
             assert_eq!(parse_event(line), Err(EventError::Malformed), "{line}");
@@ -426,9 +441,22 @@ mod tests {
             Notice::PackagesNotInstalled(u32::MAX).plain_text(),
             "4294967295 packages from your list were not installed."
         );
+        assert_eq!(
+            Notice::PackagesRemoved(1).plain_text(),
+            "1 package was removed."
+        );
+        assert_eq!(
+            Notice::PackagesRemoved(0).plain_text(),
+            "0 packages were removed."
+        );
+        assert_eq!(
+            Notice::PackagesRemoved(u32::MAX).plain_text(),
+            "4294967295 packages were removed."
+        );
         for notice in [
             Notice::AuditEntryNotWritten,
             Notice::PackagesNotInstalled(7),
+            Notice::PackagesRemoved(7),
         ] {
             let text = notice.plain_text();
             assert!(text.bytes().all(|b| (0x20..=0x7e).contains(&b)), "{text}");
