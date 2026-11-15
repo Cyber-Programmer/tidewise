@@ -345,6 +345,17 @@ mod tests {
     }
 
     #[test]
+    fn the_notice_lines_are_known_events() {
+        // 5.3b: a notice comes before the final line when something the user should know did not go as listed.
+        for line in [
+            r#"{"notice":"audit_entry_not_written"}"#,
+            r#"{"notice":{"packages_not_installed":3}}"#,
+        ] {
+            assert!(parse_event(line).is_ok(), "{line} was refused");
+        }
+    }
+
+    #[test]
     fn a_line_over_the_cap_is_too_large() {
         let line = " ".repeat(MAX_EVENT_LINE_BYTES + 1);
         assert_eq!(parse_event(&line), Err(EventError::TooLarge));
