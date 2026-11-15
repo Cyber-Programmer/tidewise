@@ -380,6 +380,13 @@ mod tests {
     }
 
     #[test]
+    fn the_removed_notice_line_is_a_known_event() {
+        // 5.3c: packages that disappeared during a job. The app must be able to read the line.
+        let line = r#"{"notice":{"packages_removed":2}}"#;
+        assert!(parse_event(line).is_ok(), "{line} was refused");
+    }
+
+    #[test]
     fn the_notice_lines_look_like_this() {
         assert_eq!(
             event_line(&Event::Notice(Notice::AuditEntryNotWritten)),
