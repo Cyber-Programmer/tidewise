@@ -13,7 +13,9 @@
 //! named exactly `tidewise-helper-<pid>-<n>.out` or `.err`, and only when no process with that id is alive (another
 //! helper running at the same time keeps its files). Nothing else in the folder is touched.
 
-use std::fs::File;
+use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::io;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 /// The folder the real helper uses.
@@ -50,8 +52,7 @@ pub struct OutputFiles {
 /// True if a process with this id exists (`/proc/<pid>`). A recycled id counts as alive: the cleanup then keeps a file it
 /// could have removed, which is the safe way round.
 pub fn process_is_alive(pid: u32) -> bool {
-    let _ = pid;
-    false
+    Path::new(&format!("/proc/{pid}")).exists()
 }
 
 /// `tidewise-helper-<pid>-<serial>.<extension>`
@@ -62,8 +63,33 @@ pub fn file_name(pid: u32, serial: u32, extension: &str) -> String {
 impl WorkDir {
     /// Creates `path` (mode 0700) if it is missing, then verifies it: a real directory, owned by `owner_uid`, mode 0700.
     pub fn open(path: &Path, owner_uid: u32) -> Result<WorkDir, WorkDirError> {
-        let _ = (path, owner_uid);
-        Err(WorkDirError::Io)
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                match DirBuilder::new().mode(0o700).create(path) {
+                    Ok(()) => {}
+                    // Someone made it between our look and our create: verify what is there below.
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                    Err(_) => return Err(WorkDirError::Io),
+                }
+            }
+            Err(_) => return Err(WorkDirError::Io),
+        }
+
+        // symlink_metadata does not follow a symlink, so a symlink is not a directory here.
+        let meta = fs::symlink_metadata(path).map_err(|_| WorkDirError::Io)?;
+        if !meta.file_type().is_dir() {
+            return Err(WorkDirError::NotADirectory);
+        }
+        if meta.uid() != owner_uid {
+            return Err(WorkDirError::WrongOwner);
+        }
+        if meta.mode() & 0o7777 != 0o700 {
+            return Err(WorkDirError::WrongMode);
+        }
+        Ok(WorkDir {
+            path: path.to_path_buf(),
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -72,14 +98,69 @@ impl WorkDir {
 
     /// Removes leftover files of the helper's own name pattern whose process is gone. Returns how many.
     pub fn remove_leftovers(&self, process_is_alive: &dyn Fn(u32) -> bool) -> u32 {
-        let _ = process_is_alive;
-        0
+        let Ok(entries) = fs::read_dir(&self.path) else {
+            return 0;
+        };
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            let Some(pid) = entry.file_name().to_str().and_then(pid_of_our_file) else {
+                continue;
+            };
+            // DirEntry::file_type does not follow symlinks: only a regular file is ever removed.
+            let is_regular_file = entry.file_type().is_ok_and(|kind| kind.is_file());
+            if is_regular_file && !process_is_alive(pid) && fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
     }
 
     /// Creates both output files of a run (mode 0600, refused if either name already exists).
     pub fn create_output_files(&self, pid: u32, serial: u32) -> Result<OutputFiles, WorkDirError> {
-        let _ = (pid, serial);
-        Err(WorkDirError::Io)
+        let out_path = self.path.join(file_name(pid, serial, "out"));
+        let err_path = self.path.join(file_name(pid, serial, "err"));
+        let out = create_new(&out_path)?;
+        let err = match create_new(&err_path) {
+            Ok(file) => file,
+            Err(error) => {
+                // Never leave half a pair behind.
+                let _ = fs::remove_file(&out_path);
+                return Err(error);
+            }
+        };
+        Ok(OutputFiles {
+            out_path,
+            err_path,
+            out,
+            err,
+        })
+    }
+}
+
+/// `O_CREAT|O_EXCL`, mode 0600: an existing path (a symlink too) is refused, never opened or followed.
+fn create_new(path: &Path) -> Result<File, WorkDirError> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|_| WorkDirError::Io)
+}
+
+/// The process id in `tidewise-helper-<pid>-<n>.out|.err`, and only for exactly that shape: digits only, at most ten.
+fn pid_of_our_file(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix("tidewise-helper-")?;
+    let rest = rest
+        .strip_suffix(".out")
+        .or_else(|| rest.strip_suffix(".err"))?;
+    let (pid, serial) = rest.split_once('-')?;
+    let is_number = |text: &str| {
+        !text.is_empty() && text.len() <= 10 && text.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    if is_number(pid) && is_number(serial) {
+        pid.parse().ok()
+    } else {
+        None
     }
 }
 
