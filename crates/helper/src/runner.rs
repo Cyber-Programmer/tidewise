@@ -245,12 +245,17 @@ impl Capture {
         }
     }
 
-    /// Reads everything the file holds now (up to its current end). A read error counts as the end for now.
+    /// Reads everything the file holds now (up to its current end). A read error stops the reading and marks the output as cut.
     fn drain(&mut self, reader: &mut impl Read, on_line: &mut dyn FnMut(&str)) {
         let mut buffer = [0u8; 16 * 1024];
         loop {
             match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => return,
+                Ok(0) => return,
+                // A failed read is not the end of the output (R-03): mark it cut, so a short list is never trusted.
+                Err(_) => {
+                    self.truncated = true;
+                    return;
+                }
                 Ok(n) => {
                     let chunk = buffer.get(..n).unwrap_or(&[]);
                     let room = self.cap.saturating_sub(self.stdout.len());
