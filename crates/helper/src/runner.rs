@@ -246,7 +246,7 @@ impl Capture {
     }
 
     /// Reads everything the file holds now (up to its current end). A read error counts as the end for now.
-    fn drain(&mut self, reader: &mut File, on_line: &mut dyn FnMut(&str)) {
+    fn drain(&mut self, reader: &mut impl Read, on_line: &mut dyn FnMut(&str)) {
         let mut buffer = [0u8; 16 * 1024];
         loop {
             match reader.read(&mut buffer) {
