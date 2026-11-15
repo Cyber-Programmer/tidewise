@@ -398,9 +398,8 @@ mod tests {
     }
 
     fn installed_text(items: &[TransactionItem]) -> String {
-        items
-            .iter()
-            .map(|i| format!("{} {}\n", i.name, i.version))
+        std::iter::once("pacman 7.1.0-1\n".to_string())
+            .chain(items.iter().map(|i| format!("{} {}\n", i.name, i.version)))
             .collect()
     }
 
@@ -410,7 +409,7 @@ mod tests {
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""), // the providers are not installed yet
+            ok("pacman 7.1.0-1\n"), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
@@ -551,7 +550,7 @@ mod tests {
         let script = vec![
             out(1, "", ""),
             ok(&print_text(&items)),
-            ok(""),
+            ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&partial)),
