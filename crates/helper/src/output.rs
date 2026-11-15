@@ -4,7 +4,9 @@
 //! container). Nothing here runs anything. pacman's output is outside data, so the parsers are strict and total: a line
 //! that is not exactly the expected shape is an error, never a guess, and nothing from the text is copied into an error.
 
-use tidewise_helper_protocol::TransactionItem;
+use std::collections::HashSet;
+
+use tidewise_helper_protocol::{MAX_TRANSACTION, TransactionItem, is_valid_transaction_item};
 
 /// Why pacman's output could not be used. A code only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,37 +19,97 @@ pub enum OutputError {
 
 /// The lines of `pacman -S|-Su --print --print-format '%r/%n %v'`, in the order pacman printed them.
 pub fn parse_print(stdout: &str) -> Result<Vec<TransactionItem>, OutputError> {
-    let _ = stdout;
-    Err(OutputError::Malformed)
+    if stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = stdout.strip_suffix('\n').unwrap_or(stdout);
+    let mut items = Vec::new();
+    for line in body.split('\n') {
+        if items.len() >= MAX_TRANSACTION {
+            return Err(OutputError::TooMany);
+        }
+        items.push(parse_print_line(line)?);
+    }
+    Ok(items)
+}
+
+/// `repo/name version`, nothing else: one space, one slash, and the same allow-lists as a confirmed line.
+fn parse_print_line(line: &str) -> Result<TransactionItem, OutputError> {
+    let (spec, version) = line.split_once(' ').ok_or(OutputError::Malformed)?;
+    let (repo, name) = spec.split_once('/').ok_or(OutputError::Malformed)?;
+    let item = TransactionItem {
+        repo: repo.to_string(),
+        name: name.to_string(),
+        version: version.to_string(),
+    };
+    if is_valid_transaction_item(&item) {
+        Ok(item)
+    } else {
+        Err(OutputError::Malformed)
+    }
 }
 
 /// True if the two lists hold the same lines, in any order (the same package at another version is a different
 /// line). Pacman's order is the order of resolution, which the confirmed list also came from, but a different order
 /// of the same packages is not a different transaction, so it is not refused.
 pub fn same_transaction(confirmed: &[TransactionItem], found: &[TransactionItem]) -> bool {
-    let _ = (confirmed, found);
-    false
+    fn sorted(items: &[TransactionItem]) -> Vec<(&str, &str, &str)> {
+        let mut keys: Vec<(&str, &str, &str)> = items
+            .iter()
+            .map(|item| {
+                (
+                    item.repo.as_str(),
+                    item.name.as_str(),
+                    item.version.as_str(),
+                )
+            })
+            .collect();
+        keys.sort_unstable();
+        keys
+    }
+    sorted(confirmed) == sorted(found)
 }
+
+/// The three messages pacman prints when it cannot take the database lock (`-S`, `-D`, `-Sy`), as seen in the
+/// container.
+const LOCK_MESSAGES: [&str; 3] = [
+    "error: failed to init transaction (unable to lock database)",
+    "error: could not lock database",
+    "error: failed to synchronize all databases (unable to lock database)",
+];
 
 /// True if pacman's error text says the database is locked. Only a line that starts with one of the three exact
 /// messages counts (seen in the container): text of a package's own scriptlet that merely mentions it does not.
 pub fn is_lock_failure(stderr: &str) -> bool {
-    let _ = stderr;
-    false
+    stderr.lines().any(|line| {
+        LOCK_MESSAGES
+            .iter()
+            .any(|message| line.starts_with(message))
+    })
 }
 
 /// How many items of `confirmed` are not installed at the confirmed version, judging by the stdout of
 /// `pacman -Q -- <names>` (lines `name version`; a name pacman does not know is only on stderr, so it is simply
 /// missing from stdout). Lines that are not `name version` are ignored.
 pub fn count_not_installed(confirmed: &[TransactionItem], query_stdout: &str) -> u32 {
-    let _ = (confirmed, query_stdout);
-    0
+    // Split on \n only: str::lines() would also accept \r\n, which pacman never prints.
+    let installed: HashSet<(&str, &str)> = query_stdout
+        .split('\n')
+        .filter_map(|line| line.split_once(' '))
+        .filter(|(name, version)| {
+            !name.is_empty() && !version.is_empty() && !version.chars().any(char::is_whitespace)
+        })
+        .collect();
+    let missing = confirmed
+        .iter()
+        .filter(|item| !installed.contains(&(item.name.as_str(), item.version.as_str())))
+        .count();
+    u32::try_from(missing).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tidewise_helper_protocol::MAX_TRANSACTION;
 
     const PRINT_INSTALL: &str =
         include_str!("../../../tests/fixtures/helper-jobs/print-install.out");
