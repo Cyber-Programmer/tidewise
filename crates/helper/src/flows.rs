@@ -274,11 +274,19 @@ fn failure_of(output: &RunOutput) -> ErrorKind {
     ErrorKind::PacmanFailed(Details::from_raw(&output.stderr))
 }
 
+/// The work folder could not be used, so no job was started. A fixed text.
+pub fn work_folder_unusable() -> ErrorKind {
+    failed("the helper's work folder could not be used.")
+}
+
 /// The helper could not run pacman at all. Fixed texts.
 fn runner_failure(error: RunnerError) -> ErrorKind {
+    if matches!(error, RunnerError::WorkDir(_)) {
+        return work_folder_unusable();
+    }
     failed(match error {
         RunnerError::Args(_) => "the helper could not build a pacman command.",
-        RunnerError::WorkDir(_) => "the helper's work folder could not be used.",
+        RunnerError::WorkDir(_) => "",
         RunnerError::Spawn => "pacman could not be started.",
         RunnerError::Io => "the helper could not read pacman's output.",
     })
@@ -867,6 +875,18 @@ mod tests {
             panic!("expected PacmanFailed");
         };
         assert_eq!(details, Details::from_raw("pacman could not be started."));
+    }
+
+    #[test]
+    fn an_unusable_work_folder_has_one_fixed_text_everywhere() {
+        let expected = ErrorKind::PacmanFailed(Details::from_raw(
+            "the helper's work folder could not be used.",
+        ));
+        assert_eq!(work_folder_unusable(), expected);
+        assert_eq!(
+            runner_failure(RunnerError::WorkDir(WorkDirError::WrongMode)),
+            expected
+        );
     }
 
     #[test]
