@@ -45,8 +45,28 @@ pub enum Stage<'a> {
     /// The request passed every check. Written before any pacman command, so a helper that is killed later still left
     /// a trace that a transaction began.
     Accepted,
-    /// The end: the result the final line will carry (a refused request has only this entry).
-    Finished(&'a Outcome),
+    /// The end: the result the final line will carry (a refused request has only this entry), and what the notices
+    /// said about the run.
+    Finished(&'a Outcome, Notes),
+}
+
+/// What a job's notices said, for the journal: a clean `ok` and an `ok` that came with something to read must never look
+/// alike, and a check that did not run must never look like a check that passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Notes {
+    /// Confirmed items not installed at the confirmed version after the run.
+    pub not_installed: u32,
+    /// Packages that were installed before the real run and are gone after it.
+    pub removed: u32,
+    /// The "did a package disappear?" check could not run (a `pacman -Q` list could not be read).
+    pub removal_check_skipped: bool,
+}
+
+impl Notes {
+    /// True if there is anything to say.
+    pub fn any(&self) -> bool {
+        self.not_installed > 0 || self.removed > 0 || self.removal_check_skipped
+    }
 }
 
 /// The fixed code of a final result: `ok`, or the code of the error.
@@ -64,7 +84,7 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
     // syslog levels: 6 = info (accepted, or finished fine), 4 = warning (a refusal or a failure).
     let (priority, stage_name, code) = match stage {
         Stage::Accepted => ("6", "accepted", None),
-        Stage::Finished(outcome) => {
+        Stage::Finished(outcome, _notes) => {
             let priority = if matches!(outcome, Outcome::Ok) {
                 "6"
             } else {
@@ -175,7 +195,7 @@ mod tests {
     fn the_exact_text_of_a_successful_finish() {
         let datagram = record(
             Some(1000),
-            Stage::Finished(&Outcome::Ok),
+            Stage::Finished(&Outcome::Ok, Notes::default()),
             Some("update system (3 packages)"),
         );
         assert_eq!(
@@ -190,12 +210,129 @@ mod tests {
         );
     }
 
+    fn notes(not_installed: u32, removed: u32, skipped: bool) -> Notes {
+        Notes {
+            not_installed,
+            removed,
+            removal_check_skipped: skipped,
+        }
+    }
+
+    fn finish_with(outcome: &Outcome, notes: Notes) -> String {
+        text(&record(
+            Some(1000),
+            Stage::Finished(outcome, notes),
+            Some("update system (3 packages)"),
+        ))
+    }
+
+    #[test]
+    fn an_ok_with_packages_not_installed_says_ok_with_notices_and_is_a_warning() {
+        assert_eq!(
+            finish_with(&Outcome::Ok, notes(1, 0, false)),
+            "SYSLOG_IDENTIFIER=tidewise-helper\n\
+             PRIORITY=4\n\
+             TIDEWISE_CALLER_UID=1000\n\
+             TIDEWISE_STAGE=finished\n\
+             TIDEWISE_OUTCOME=ok_with_notices\n\
+             TIDEWISE_NOT_INSTALLED=1\n\
+             TIDEWISE_SUMMARY=update system (3 packages)\n\
+             MESSAGE=uid 1000: ok with notices (1 not installed, 0 removed): update system (3 packages)\n"
+        );
+    }
+
+    #[test]
+    fn an_ok_with_removed_packages_says_how_many() {
+        assert_eq!(
+            finish_with(&Outcome::Ok, notes(0, 2, false)),
+            "SYSLOG_IDENTIFIER=tidewise-helper\n\
+             PRIORITY=4\n\
+             TIDEWISE_CALLER_UID=1000\n\
+             TIDEWISE_STAGE=finished\n\
+             TIDEWISE_OUTCOME=ok_with_notices\n\
+             TIDEWISE_REMOVED=2\n\
+             TIDEWISE_SUMMARY=update system (3 packages)\n\
+             MESSAGE=uid 1000: ok with notices (0 not installed, 2 removed): update system (3 packages)\n"
+        );
+    }
+
+    #[test]
+    fn a_check_that_did_not_run_is_never_logged_like_a_clean_pass() {
+        // The human's rule for 5.3c: a skipped removal check is visible, and an otherwise ok result is a warning.
+        assert_eq!(
+            finish_with(&Outcome::Ok, notes(0, 0, true)),
+            "SYSLOG_IDENTIFIER=tidewise-helper\n\
+             PRIORITY=4\n\
+             TIDEWISE_CALLER_UID=1000\n\
+             TIDEWISE_STAGE=finished\n\
+             TIDEWISE_OUTCOME=ok_with_notices\n\
+             TIDEWISE_REMOVAL_CHECK=skipped\n\
+             TIDEWISE_SUMMARY=update system (3 packages)\n\
+             MESSAGE=uid 1000: ok with notices (0 not installed, 0 removed, removal check skipped): update system (3 packages)\n"
+        );
+    }
+
+    #[test]
+    fn all_three_notes_come_in_a_fixed_order() {
+        let entry = finish_with(&Outcome::Ok, notes(3, 4, true));
+        assert!(
+            entry.contains(
+                "TIDEWISE_OUTCOME=ok_with_notices\nTIDEWISE_NOT_INSTALLED=3\nTIDEWISE_REMOVED=4\nTIDEWISE_REMOVAL_CHECK=skipped\nTIDEWISE_SUMMARY="
+            ),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("(3 not installed, 4 removed, removal check skipped)"),
+            "{entry}"
+        );
+    }
+
+    #[test]
+    fn a_clean_ok_is_exactly_what_it_was_and_has_no_notes_fields() {
+        let entry = finish_with(&Outcome::Ok, Notes::default());
+        for field in [
+            "NOT_INSTALLED",
+            "REMOVED",
+            "REMOVAL_CHECK",
+            "ok_with_notices",
+        ] {
+            assert!(!entry.contains(field), "{entry}");
+        }
+        assert!(
+            entry.contains("PRIORITY=6\n") && entry.contains("TIDEWISE_OUTCOME=ok\n"),
+            "{entry}"
+        );
+        assert!(!Notes::default().any());
+    }
+
+    #[test]
+    fn an_error_keeps_its_own_code_and_gets_the_notes_as_fields() {
+        let outcome = Outcome::Error(ErrorKind::Malformed);
+        let entry = finish_with(&outcome, notes(5, 0, true));
+        assert!(entry.contains("TIDEWISE_OUTCOME=malformed\nTIDEWISE_NOT_INSTALLED=5\nTIDEWISE_REMOVAL_CHECK=skipped\n"), "{entry}");
+        assert!(entry.contains("PRIORITY=4\n"), "{entry}");
+        assert!(
+            entry.contains("MESSAGE=uid 1000: malformed: update system (3 packages)\n"),
+            "{entry}"
+        );
+        assert!(!entry.contains("ok_with_notices"), "{entry}");
+    }
+
+    #[test]
+    fn a_big_count_is_just_a_number() {
+        let entry = finish_with(&Outcome::Ok, notes(u32::MAX, u32::MAX, false));
+        assert!(
+            entry.contains("TIDEWISE_NOT_INSTALLED=4294967295\nTIDEWISE_REMOVED=4294967295\n"),
+            "{entry}"
+        );
+    }
+
     #[test]
     fn a_refusal_is_a_warning_and_an_unknown_caller_says_unknown() {
         let outcome = finished(ErrorKind::SummaryMismatch);
         let datagram = record(
             None,
-            Stage::Finished(&outcome),
+            Stage::Finished(&outcome, Notes::default()),
             Some("update system (1 package)"),
         );
         assert_eq!(
@@ -213,7 +350,7 @@ mod tests {
     #[test]
     fn a_request_that_did_not_pass_validation_has_no_summary_line() {
         let outcome = finished(ErrorKind::Malformed);
-        let datagram = record(Some(0), Stage::Finished(&outcome), None);
+        let datagram = record(Some(0), Stage::Finished(&outcome, Notes::default()), None);
         assert_eq!(
             text(&datagram),
             "SYSLOG_IDENTIFIER=tidewise-helper\n\
@@ -233,12 +370,20 @@ mod tests {
         for kind in all_error_kinds() {
             let outcome = finished(kind);
             cases.push((
-                record(Some(1000), Stage::Finished(&outcome), Some(hostile)),
+                record(
+                    Some(1000),
+                    Stage::Finished(&outcome, Notes::default()),
+                    Some(hostile),
+                ),
                 7,
             ));
         }
         cases.push((
-            record(Some(1000), Stage::Finished(&Outcome::Ok), Some(hostile)),
+            record(
+                Some(1000),
+                Stage::Finished(&Outcome::Ok, Notes::default()),
+                Some(hostile),
+            ),
             7,
         ));
         for (datagram, expected_lines) in cases {
@@ -285,7 +430,7 @@ mod tests {
             stages.push((finished(kind), "PRIORITY=4\n"));
         }
         for (outcome, expected) in stages {
-            let datagram = record(Some(1), Stage::Finished(&outcome), None);
+            let datagram = record(Some(1), Stage::Finished(&outcome, Notes::default()), None);
             assert!(text(&datagram).contains(expected), "{outcome:?}");
         }
         assert!(text(&record(Some(1), Stage::Accepted, None)).contains("PRIORITY=6\n"));
@@ -327,7 +472,7 @@ mod tests {
         let outcome = Outcome::Error(verdict.error.clone());
         let datagram = text(&record(
             Some(1000),
-            Stage::Finished(&outcome),
+            Stage::Finished(&outcome, Notes::default()),
             verdict.summary.as_deref(),
         ));
         assert!(!datagram.contains("SECRET"), "{datagram}");

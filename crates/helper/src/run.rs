@@ -36,7 +36,7 @@ use crate::fds::{FdEntry, check_fds};
 use crate::flows::run_job;
 use crate::gate::{Decision, decide};
 use crate::input::read_capped;
-use crate::journal::{Stage, record};
+use crate::journal::{Notes, Stage, record};
 use crate::runner::Runner;
 use crate::uid::is_root;
 
@@ -167,7 +167,7 @@ pub fn run(
             // The audit trail first, so it exists even if nobody is listening to stdout any more.
             let written = log(&record(
                 started.caller,
-                Stage::Finished(&outcome),
+                Stage::Finished(&outcome, Notes::default()),
                 verdict.summary.as_deref(),
             ));
             finish(stdout, &outcome, !written)
@@ -189,7 +189,7 @@ pub fn run(
 
             let finished_written = log(&record(
                 started.caller,
-                Stage::Finished(&outcome),
+                Stage::Finished(&outcome, Notes::default()),
                 Some(&summary),
             ));
             finish(stdout, &outcome, !(accepted_written && finished_written))
@@ -559,6 +559,104 @@ mod tests {
             "{\"notice\":{\"packages_not_installed\":1}}"
         );
         assert_eq!(printed[n - 1], "{\"finished\":\"ok\"}");
+        // The journal does not call that a clean ok.
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=ok_with_notices\nTIDEWISE_NOT_INSTALLED=1\n"),
+            "{finished}"
+        );
+        assert!(finished.contains("PRIORITY=4\n"), "{finished}");
+    }
+
+    /// A clean install with the lists you choose before and after the real run (the provider is not in the first list,
+    /// so the helper marks it as a dependency and the `-D` answer is used).
+    fn lists_script(
+        before: Result<RunOutput, RunnerError>,
+        after: Result<RunOutput, RunnerError>,
+    ) -> Script {
+        let items = install_items();
+        vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            before,
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            after,
+        ]
+    }
+
+    #[test]
+    fn a_removal_is_a_notice_and_the_journal_says_ok_with_notices() {
+        let items = install_items();
+        let script = lists_script(
+            ok("gone 1-1\nstays 1-1\n"),
+            ok(&format!("stays 1-1\n{}", installed_text(&items))),
+        );
+        let outcome = go_job(good_facts(INSTALL_SUMMARY), INSTALL.as_bytes(), script);
+        assert_eq!(outcome.code, EXIT_OK);
+        let printed = lines(&outcome);
+        let n = printed.len();
+        assert_eq!(printed[n - 2], "{\"notice\":{\"packages_removed\":1}}");
+        assert_eq!(printed[n - 1], "{\"finished\":\"ok\"}");
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=ok_with_notices\nTIDEWISE_REMOVED=1\n"),
+            "{finished}"
+        );
+        assert!(
+            finished.contains("(0 not installed, 1 removed)"),
+            "{finished}"
+        );
+        assert!(finished.contains("PRIORITY=4\n"), "{finished}");
+    }
+
+    #[test]
+    fn a_removal_check_that_could_not_run_is_logged_as_skipped_and_the_result_is_still_ok() {
+        for after in [out(1, "a 1-1\n", "error: x\n"), Err(RunnerError::Spawn)] {
+            let script = lists_script(ok(""), after);
+            let outcome = go_job(good_facts(INSTALL_SUMMARY), INSTALL.as_bytes(), script);
+            assert_eq!(outcome.code, EXIT_OK);
+            assert_eq!(lines(&outcome).last(), Some(&"{\"finished\":\"ok\"}"));
+            assert!(!outcome.stdout.contains("notice"), "{}", outcome.stdout);
+            let finished = log_text(&outcome, 1);
+            assert!(
+                finished
+                    .contains("TIDEWISE_OUTCOME=ok_with_notices\nTIDEWISE_REMOVAL_CHECK=skipped\n"),
+                "{finished}"
+            );
+            assert!(finished.contains("PRIORITY=4\n"), "{finished}");
+        }
+    }
+
+    #[test]
+    fn a_clean_job_logs_a_plain_ok_with_no_notes() {
+        let outcome = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
+        let finished = log_text(&outcome, 1);
+        for field in [
+            "NOT_INSTALLED",
+            "REMOVED",
+            "REMOVAL_CHECK",
+            "ok_with_notices",
+        ] {
+            assert!(!finished.contains(field), "{finished}");
+        }
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=ok\n") && finished.contains("PRIORITY=6\n"),
+            "{finished}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_has_no_notes() {
+        let outcome = go(good_facts("update system (9 packages)"), UPDATE.as_bytes());
+        let entry = only_log(&outcome);
+        for field in ["NOT_INSTALLED", "REMOVED", "REMOVAL_CHECK"] {
+            assert!(!entry.contains(field), "{entry}");
+        }
     }
 
     #[test]
