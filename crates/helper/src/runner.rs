@@ -561,6 +561,26 @@ mod tests {
     }
 
     #[test]
+    fn a_read_error_while_capturing_marks_the_output_as_cut() {
+        // R-03: a failed read is not "the end of the output"; a short list would look like removals.
+        struct FailsAfterSomeBytes(bool);
+        impl Read for FailsAfterSomeBytes {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    return Err(std::io::Error::other("EIO"));
+                }
+                self.0 = true;
+                buffer[..4].copy_from_slice(b"a 1\n");
+                Ok(4)
+            }
+        }
+        let mut capture = Capture::new(1000);
+        capture.drain(&mut FailsAfterSomeBytes(false), &mut |_| {});
+        assert_eq!(capture.stdout, b"a 1\n");
+        assert!(capture.truncated);
+    }
+
+    #[test]
     fn small_output_is_not_marked_truncated() {
         let temp = Temp::new("small");
         let mut runner = runner_in(&temp);
