@@ -33,6 +33,7 @@ use crate::fds::{FdEntry, check_fds};
 use crate::gate::{Decision, Verdict, decide};
 use crate::input::read_capped;
 use crate::journal::{Stage, record};
+use crate::runner::Runner;
 use crate::uid::is_root;
 
 /// The job finished. Unused until 5.3b.
@@ -135,14 +136,19 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
     })
 }
 
-/// Runs the whole start and returns the exit code.
+/// Makes the runner for a job, only after a request was accepted (so a refused request never touches the work folder).
+pub type MakeRunner<'a> = &'a mut dyn FnMut() -> Result<Box<dyn Runner>, ErrorKind>;
+
+/// Runs the whole start and returns the exit code. `log` returns whether the entry was written.
 pub fn run(
     facts: Facts,
     stdin: impl Read,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
-    log: &mut dyn FnMut(&[u8]),
+    log: &mut dyn FnMut(&[u8]) -> bool,
+    make_runner: MakeRunner,
 ) -> u8 {
+    let _ = make_runner;
     let started = match start(facts) {
         Ok(started) => started,
         Err(refusal) => {
@@ -163,7 +169,7 @@ pub fn run(
 
     // The audit trail first, so it exists even if nobody is listening to stdout any more.
     let finished = Outcome::Error(verdict.error.clone());
-    log(&record(
+    let _ = log(&record(
         started.caller,
         Stage::Finished(&finished),
         verdict.summary.as_deref(),
@@ -177,13 +183,22 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::{RunOutput, RunnerError};
+    use crate::testing::{Fake, ok, out};
+    use std::cell::{Cell, RefCell};
     use std::io::Cursor;
-    use tidewise_helper_protocol::{ErrorKind, Event, MAX_REQUEST_BYTES, Outcome, parse_event};
+    use std::rc::Rc;
+    use tidewise_helper_protocol::{
+        Action, Details, MAX_REQUEST_BYTES, TransactionItem, parse_event, parse_request,
+    };
 
     const UPDATE: &str = include_str!("../../../tests/fixtures/helper-protocol/update-system.json");
     const UPDATE_SUMMARY: &str = "update system (3 packages)";
 
-    const NOT_IMPLEMENTED_LINE: &str = "{\"finished\":{\"error\":\"not_implemented\"}}\n";
+    const INSTALL: &str = include_str!("../../../tests/fixtures/helper-protocol/install.json");
+    const INSTALL_SUMMARY: &str = "install extra/dbeaver with extra/jre-openjdk (5 packages)";
+    const REAL_INSTALL_OUT: &str =
+        include_str!("../../../tests/fixtures/helper-jobs/real-install-two.out");
 
     fn std_fds() -> Vec<FdEntry> {
         vec![
@@ -214,12 +229,15 @@ mod tests {
         stderr: String,
         logged: Vec<Vec<u8>>,
         stdin_touched: bool,
+        runners_made: u32,
+        /// "journal", "runner" and "out" (one per line printed), in the order they happened.
+        order: Vec<&'static str>,
     }
 
     /// stdin that remembers whether anyone read from it.
     struct Watched<'a> {
         inner: Cursor<Vec<u8>>,
-        touched: &'a std::cell::Cell<bool>,
+        touched: &'a Cell<bool>,
     }
 
     impl Read for Watched<'_> {
@@ -229,25 +247,92 @@ mod tests {
         }
     }
 
-    fn go(facts: Facts, stdin: &[u8]) -> Outcome1 {
-        let touched = std::cell::Cell::new(false);
+    /// stdout that keeps what was written and notes each write in the shared order.
+    struct Recorder {
+        order: Rc<RefCell<Vec<&'static str>>>,
+        bytes: Vec<u8>,
+    }
+
+    impl Write for Recorder {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.order.borrow_mut().push("out");
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    type Script = Vec<Result<RunOutput, RunnerError>>;
+
+    /// A runner factory that hands out a fake with this script.
+    fn fake(script: Script) -> impl FnMut() -> Result<Box<dyn Runner>, ErrorKind> {
+        move || Ok(Box::new(Fake::new(script.clone())) as Box<dyn Runner>)
+    }
+
+    /// Everything wired with fakes. Journal entries from number `journal_fails_from` on report "not written".
+    fn go_with(
+        facts: Facts,
+        stdin: &[u8],
+        make: &mut dyn FnMut() -> Result<Box<dyn Runner>, ErrorKind>,
+        journal_fails_from: usize,
+    ) -> Outcome1 {
+        let touched = Cell::new(false);
         let reader = Watched {
             inner: Cursor::new(stdin.to_vec()),
             touched: &touched,
         };
-        let mut stdout = Vec::new();
+        let order = Rc::new(RefCell::new(Vec::new()));
+        let mut stdout = Recorder {
+            order: order.clone(),
+            bytes: Vec::new(),
+        };
         let mut stderr = Vec::new();
         let mut logged: Vec<Vec<u8>> = Vec::new();
-        let code = run(facts, reader, &mut stdout, &mut stderr, &mut |datagram| {
-            logged.push(datagram.to_vec())
-        });
+        let mut runners_made = 0u32;
+        let log_order = order.clone();
+        let make_order = order.clone();
+        let code = {
+            let mut log = |datagram: &[u8]| -> bool {
+                log_order.borrow_mut().push("journal");
+                logged.push(datagram.to_vec());
+                logged.len() <= journal_fails_from
+            };
+            let mut counted = || {
+                runners_made += 1;
+                make_order.borrow_mut().push("runner");
+                make()
+            };
+            run(
+                facts,
+                reader,
+                &mut stdout,
+                &mut stderr,
+                &mut log,
+                &mut counted,
+            )
+        };
+        let order = order.borrow().clone();
         Outcome1 {
             code,
-            stdout: String::from_utf8(stdout).unwrap(),
+            stdout: String::from_utf8(stdout.bytes).unwrap(),
             stderr: String::from_utf8(stderr).unwrap(),
             logged,
             stdin_touched: touched.get(),
+            runners_made,
+            order,
         }
+    }
+
+    /// For requests that must be refused: a runner is available but must never be asked for.
+    fn go(facts: Facts, stdin: &[u8]) -> Outcome1 {
+        go_with(facts, stdin, &mut fake(Vec::new()), usize::MAX)
+    }
+
+    /// For requests that run a job: the fake pacman answers with `script`.
+    fn go_job(facts: Facts, stdin: &[u8], script: Script) -> Outcome1 {
+        go_with(facts, stdin, &mut fake(script), usize::MAX)
     }
 
     fn only_log(outcome: &Outcome1) -> String {
@@ -255,33 +340,257 @@ mod tests {
         String::from_utf8(outcome.logged[0].clone()).unwrap()
     }
 
+    fn log_text(outcome: &Outcome1, index: usize) -> String {
+        String::from_utf8(outcome.logged[index].clone()).unwrap()
+    }
+
+    fn install_items() -> Vec<TransactionItem> {
+        match parse_request(INSTALL.as_bytes()).unwrap().action {
+            Action::Install(install) => install.transaction,
+            _ => panic!("the fixture is an install"),
+        }
+    }
+
+    fn print_text(items: &[TransactionItem]) -> String {
+        items
+            .iter()
+            .map(|i| format!("{}/{} {}\n", i.repo, i.name, i.version))
+            .collect()
+    }
+
+    fn installed_text(items: &[TransactionItem]) -> String {
+        items
+            .iter()
+            .map(|i| format!("{} {}\n", i.name, i.version))
+            .collect()
+    }
+
+    /// The answers of pacman to a clean install of the fixture: -Qu, dry run, real run, -D, -Q.
+    fn clean_install_script() -> Script {
+        let items = install_items();
+        vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            ok(&installed_text(&items)),
+        ]
+    }
+
+    fn lines(outcome: &Outcome1) -> Vec<&str> {
+        outcome
+            .stdout
+            .split_inclusive('\n')
+            .map(|l| l.trim_end())
+            .collect()
+    }
+
     // ---- a request that gets through the start ----------------------------------------------------------
 
     #[test]
-    fn a_valid_request_prints_one_not_implemented_line_and_logs_once() {
-        let outcome = go(good_facts(UPDATE_SUMMARY), UPDATE.as_bytes());
-        assert_eq!(outcome.code, EXIT_ERROR_LINE);
-        assert_eq!(outcome.stdout, NOT_IMPLEMENTED_LINE);
+    fn a_valid_install_prints_progress_then_one_ok_line_and_logs_twice() {
+        let outcome = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
+        assert_eq!(outcome.code, EXIT_OK);
         assert_eq!(outcome.stderr, "");
-        let log = only_log(&outcome);
-        assert!(log.contains("TIDEWISE_CALLER_UID=1000\n"), "{log}");
-        assert!(log.contains("TIDEWISE_OUTCOME=not_implemented\n"), "{log}");
+        let printed = lines(&outcome);
+        assert!(printed.len() >= 3, "{printed:?}");
+        assert!(printed[0].starts_with("{\"progress\":"), "{printed:?}");
+        assert_eq!(printed.last(), Some(&"{\"finished\":\"ok\"}"));
+
+        assert_eq!(outcome.logged.len(), 2);
+        let accepted = log_text(&outcome, 0);
+        assert!(accepted.contains("TIDEWISE_STAGE=accepted\n"), "{accepted}");
         assert!(
-            log.contains("TIDEWISE_SUMMARY=update system (3 packages)\n"),
-            "{log}"
+            accepted.contains("TIDEWISE_CALLER_UID=1000\n"),
+            "{accepted}"
+        );
+        assert!(
+            accepted.contains(&format!("TIDEWISE_SUMMARY={INSTALL_SUMMARY}\n")),
+            "{accepted}"
+        );
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_STAGE=finished\nTIDEWISE_OUTCOME=ok\n"),
+            "{finished}"
+        );
+        assert!(finished.contains("PRIORITY=6\n"), "{finished}");
+    }
+
+    #[test]
+    fn every_stdout_line_is_one_event_and_the_last_is_the_only_finished() {
+        let outcome = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
+        let events: Vec<Event> = lines(&outcome)
+            .iter()
+            .map(|line| parse_event(line).unwrap_or_else(|e| panic!("{e:?}: {line}")))
+            .collect();
+        let finished = events
+            .iter()
+            .filter(|e| matches!(e, Event::Finished(_)))
+            .count();
+        assert_eq!(finished, 1);
+        assert_eq!(events.last(), Some(&Event::Finished(Outcome::Ok)));
+        assert!(!events.iter().any(|e| matches!(e, Event::Notice(_))));
+    }
+
+    #[test]
+    fn refusals_never_make_a_runner_and_have_one_finished_entry() {
+        let too_big = vec![b' '; MAX_REQUEST_BYTES + 5000];
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("update system (9 packages)", UPDATE.as_bytes().to_vec()),
+            (UPDATE_SUMMARY, b"{".to_vec()),
+            (UPDATE_SUMMARY, Vec::new()),
+            (UPDATE_SUMMARY, too_big),
+        ];
+        for (summary, stdin) in cases {
+            let outcome = go(good_facts(summary), &stdin);
+            assert_eq!(outcome.runners_made, 0, "{summary}");
+            assert_eq!(outcome.code, EXIT_ERROR_LINE);
+            let entry = only_log(&outcome);
+            assert!(entry.contains("TIDEWISE_STAGE=finished\n"), "{entry}");
+            assert_eq!(lines(&outcome).len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_job_that_fails_is_one_error_line_exit_1_and_two_entries() {
+        // The dry run lists something else than the confirmed list.
+        let script = vec![out(1, "", ""), ok("extra/other 1-1\n")];
+        let outcome = go_job(good_facts(INSTALL_SUMMARY), INSTALL.as_bytes(), script);
+        assert_eq!(outcome.code, EXIT_ERROR_LINE);
+        assert_eq!(
+            lines(&outcome),
+            vec!["{\"finished\":{\"error\":\"transaction_changed\"}}"]
+        );
+        assert_eq!(outcome.logged.len(), 2);
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=transaction_changed\n"),
+            "{finished}"
+        );
+        assert!(finished.contains("PRIORITY=4\n"), "{finished}");
+    }
+
+    #[test]
+    fn a_runner_that_cannot_be_made_is_a_finished_error_after_the_accepted_entry() {
+        let mut make = || -> Result<Box<dyn Runner>, ErrorKind> {
+            Err(ErrorKind::PacmanFailed(Details::from_raw(
+                "the helper's work folder could not be used.",
+            )))
+        };
+        let outcome = go_with(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            &mut make,
+            usize::MAX,
+        );
+        assert_eq!(outcome.code, EXIT_ERROR_LINE);
+        let printed = lines(&outcome);
+        assert_eq!(printed.len(), 1);
+        assert!(
+            printed[0].starts_with("{\"finished\":{\"error\":{\"pacman_failed\":"),
+            "{printed:?}"
+        );
+        assert_eq!(outcome.runners_made, 1);
+        assert_eq!(outcome.logged.len(), 2);
+        assert!(log_text(&outcome, 1).contains("TIDEWISE_OUTCOME=pacman_failed\n"));
+    }
+
+    #[test]
+    fn a_notice_for_missing_packages_comes_right_before_the_final_line() {
+        let items = install_items();
+        let mut partial = items.clone();
+        partial.pop();
+        let script = vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            ok(&installed_text(&partial)),
+        ];
+        let outcome = go_job(good_facts(INSTALL_SUMMARY), INSTALL.as_bytes(), script);
+        assert_eq!(outcome.code, EXIT_OK);
+        let printed = lines(&outcome);
+        let n = printed.len();
+        assert_eq!(
+            printed[n - 2],
+            "{\"notice\":{\"packages_not_installed\":1}}"
+        );
+        assert_eq!(printed[n - 1], "{\"finished\":\"ok\"}");
+    }
+
+    #[test]
+    fn a_journal_that_cannot_be_written_adds_one_notice_and_changes_nothing_else() {
+        let notice = "{\"notice\":\"audit_entry_not_written\"}";
+        // Every entry fails: the job still runs and ends the same way.
+        let mut make = fake(clean_install_script());
+        let job = go_with(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            &mut make,
+            0,
+        );
+        assert_eq!(job.code, EXIT_OK);
+        assert_eq!(job.runners_made, 1);
+        let printed = lines(&job);
+        let n = printed.len();
+        assert_eq!(
+            (printed[n - 2], printed[n - 1]),
+            (notice, "{\"finished\":\"ok\"}")
+        );
+        assert_eq!(
+            printed.iter().filter(|l| **l == notice).count(),
+            1,
+            "one notice, not one per entry"
+        );
+
+        // A refusal with a journal that is down says so too.
+        let refused = go_with(
+            good_facts("update system (9 packages)"),
+            UPDATE.as_bytes(),
+            &mut fake(vec![]),
+            0,
+        );
+        assert_eq!(refused.code, EXIT_ERROR_LINE);
+        assert_eq!(
+            lines(&refused),
+            vec![notice, "{\"finished\":{\"error\":\"summary_mismatch\"}}"]
         );
     }
 
     #[test]
-    fn stdout_holds_exactly_one_event_line_and_nothing_else() {
-        let outcome = go(good_facts(UPDATE_SUMMARY), UPDATE.as_bytes());
-        let lines: Vec<&str> = outcome.stdout.split_inclusive('\n').collect();
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].ends_with('\n'));
-        assert_eq!(
-            parse_event(lines[0].trim_end()),
-            Ok(Event::Finished(Outcome::Error(ErrorKind::NotImplemented)))
+    fn only_the_second_entry_failing_also_gives_the_notice() {
+        let mut make = fake(clean_install_script());
+        let outcome = go_with(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            &mut make,
+            1,
         );
+        let printed = lines(&outcome);
+        let n = printed.len();
+        assert_eq!(printed[n - 2], "{\"notice\":\"audit_entry_not_written\"}");
+        assert_eq!(outcome.code, EXIT_OK);
+    }
+
+    #[test]
+    fn the_accepted_entry_comes_before_the_runner_and_the_finished_entry_before_the_final_line() {
+        let outcome = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
+        assert_eq!(&outcome.order[..2], &["journal", "runner"]);
+        let n = outcome.order.len();
+        assert_eq!(&outcome.order[n - 2..], &["journal", "out"]);
+        assert_eq!(outcome.order.iter().filter(|e| **e == "journal").count(), 2);
     }
 
     #[test]
@@ -324,26 +633,32 @@ mod tests {
     }
 
     #[test]
-    fn a_hostile_pkexec_uid_is_logged_as_unknown() {
-        let mut facts = good_facts(UPDATE_SUMMARY);
+    fn a_hostile_pkexec_uid_is_logged_as_unknown_in_both_entries() {
+        let mut facts = good_facts(INSTALL_SUMMARY);
         facts.pkexec_uid = Some(OsString::from("0\nMESSAGE=pwned"));
-        let outcome = go(facts, UPDATE.as_bytes());
-        let log = only_log(&outcome);
-        assert!(log.contains("TIDEWISE_CALLER_UID=unknown\n"), "{log}");
-        assert!(!log.contains("pwned"), "{log}");
-        assert_eq!(outcome.stdout, NOT_IMPLEMENTED_LINE);
+        let outcome = go_job(facts, INSTALL.as_bytes(), clean_install_script());
+        assert_eq!(outcome.logged.len(), 2);
+        for index in 0..2 {
+            let entry = log_text(&outcome, index);
+            assert!(entry.contains("TIDEWISE_CALLER_UID=unknown\n"), "{entry}");
+            assert!(!entry.contains("pwned"), "{entry}");
+        }
+        assert_eq!(lines(&outcome).last(), Some(&"{\"finished\":\"ok\"}"));
     }
 
     #[test]
     fn the_callers_identity_never_changes_the_answer() {
+        let baseline = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
         for uid in [None, Some("0"), Some("1000"), Some("x"), Some("4294967295")] {
-            let mut facts = good_facts(UPDATE_SUMMARY);
+            let mut facts = good_facts(INSTALL_SUMMARY);
             facts.pkexec_uid = uid.map(OsString::from);
-            assert_eq!(
-                go(facts, UPDATE.as_bytes()).stdout,
-                NOT_IMPLEMENTED_LINE,
-                "{uid:?}"
-            );
+            let outcome = go_job(facts, INSTALL.as_bytes(), clean_install_script());
+            assert_eq!(outcome.stdout, baseline.stdout, "{uid:?}");
+            assert_eq!(outcome.code, EXIT_OK, "{uid:?}");
         }
     }
 
@@ -359,6 +674,7 @@ mod tests {
             "{expected:?}"
         );
         assert!(outcome.logged.is_empty(), "{expected:?}: no journal entry");
+        assert_eq!(outcome.runners_made, 0, "{expected:?}: no runner");
         assert!(
             !outcome.stdin_touched,
             "{expected:?}: stdin must not be read"
@@ -546,32 +862,38 @@ mod tests {
         assert!(write_line(&mut FailsOnFlush, "x").is_err());
     }
 
-    fn run_with_stdout(stdout: &mut impl Write) -> (u8, Vec<Vec<u8>>) {
+    /// A whole clean install with this stdout; the journal and the runner are fakes.
+    fn job_with_stdout(stdout: &mut impl Write) -> (u8, Vec<Vec<u8>>) {
         let mut logged = Vec::new();
+        let mut make = fake(clean_install_script());
         let code = run(
-            good_facts(UPDATE_SUMMARY),
-            Cursor::new(UPDATE.as_bytes().to_vec()),
+            good_facts(INSTALL_SUMMARY),
+            Cursor::new(INSTALL.as_bytes().to_vec()),
             stdout,
             &mut Vec::new(),
-            &mut |datagram| logged.push(datagram.to_vec()),
+            &mut |datagram| {
+                logged.push(datagram.to_vec());
+                true
+            },
+            &mut make,
         );
         (code, logged)
     }
 
     #[test]
-    fn a_stdout_that_cannot_be_written_still_gives_exit_1_and_the_journal_entry() {
+    fn a_stdout_that_cannot_be_written_changes_neither_the_job_nor_the_exit_code_nor_the_journal() {
         for kind in [
             io::ErrorKind::BrokenPipe,
             io::ErrorKind::StorageFull,
             io::ErrorKind::WriteZero,
         ] {
-            let (code, logged) = run_with_stdout(&mut Failing(kind));
-            assert_eq!(code, EXIT_ERROR_LINE, "{kind:?}");
-            assert_eq!(logged.len(), 1, "{kind:?}");
+            let (code, logged) = job_with_stdout(&mut Failing(kind));
+            assert_eq!(code, EXIT_OK, "{kind:?}");
+            assert_eq!(logged.len(), 2, "{kind:?}");
         }
-        let (code, logged) = run_with_stdout(&mut FailsOnFlush);
-        assert_eq!(code, EXIT_ERROR_LINE);
-        assert_eq!(logged.len(), 1);
+        let (code, logged) = job_with_stdout(&mut FailsOnFlush);
+        assert_eq!(code, EXIT_OK);
+        assert_eq!(logged.len(), 2);
     }
 
     #[test]
@@ -580,41 +902,20 @@ mod tests {
             let mut facts = good_facts(UPDATE_SUMMARY);
             facts.status = Ok("Uid:\t1000\t1000\t1000\t1000\n".to_string());
             let mut logged = Vec::new();
+            let mut make = fake(vec![]);
             let code = run(
                 facts,
                 Cursor::new(Vec::new()),
                 &mut Vec::new(),
                 &mut Failing(kind),
-                &mut |datagram| logged.push(datagram.to_vec()),
+                &mut |datagram| {
+                    logged.push(datagram.to_vec());
+                    true
+                },
+                &mut make,
             );
             assert_eq!(code, EXIT_REFUSED_TO_START, "{kind:?}");
             assert!(logged.is_empty());
         }
-    }
-
-    #[test]
-    fn the_journal_entry_is_written_before_the_result_line_is_printed() {
-        // If printing hangs or the app goes away, the audit trail already exists.
-        struct Recorder<'a>(&'a std::cell::RefCell<Vec<&'static str>>);
-        impl Write for Recorder<'_> {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                self.0.borrow_mut().push("stdout");
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        let events = std::cell::RefCell::new(Vec::new());
-        let mut stdout = Recorder(&events);
-        run(
-            good_facts(UPDATE_SUMMARY),
-            Cursor::new(UPDATE.as_bytes().to_vec()),
-            &mut stdout,
-            &mut Vec::new(),
-            &mut |_| events.borrow_mut().push("journal"),
-        );
-        assert_eq!(events.borrow().first(), Some(&"journal"));
-        assert!(events.borrow().contains(&"stdout"));
     }
 }

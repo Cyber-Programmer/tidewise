@@ -21,7 +21,9 @@ use tidewise_helper::env::set_umask_022;
 use tidewise_helper::fds::read_fd_entries;
 use tidewise_helper::journal::{JOURNAL_SOCKET, send};
 use tidewise_helper::run::{Facts, run};
+use tidewise_helper::runner::Runner;
 use tidewise_helper::uid::read_status;
+use tidewise_helper_protocol::ErrorKind;
 
 fn main() -> ExitCode {
     // Before anything is created: pkexec passes on the caller's umask and pacman does not fix it (see env.rs).
@@ -40,9 +42,9 @@ fn main() -> ExitCode {
     };
 
     // A journal that cannot be reached changes neither the outcome nor the exit code (threat model T-14).
-    let mut log = |datagram: &[u8]| {
-        let _ = send(Path::new(JOURNAL_SOCKET), datagram);
-    };
+    let mut log = |datagram: &[u8]| send(Path::new(JOURNAL_SOCKET), datagram).is_ok();
+    let mut make_runner =
+        || -> Result<Box<dyn Runner>, ErrorKind> { Err(ErrorKind::NotImplemented) };
 
     let code = run(
         facts,
@@ -50,6 +52,7 @@ fn main() -> ExitCode {
         &mut std::io::stdout().lock(),
         &mut std::io::stderr().lock(),
         &mut log,
+        &mut make_runner,
     );
     ExitCode::from(code)
 }
