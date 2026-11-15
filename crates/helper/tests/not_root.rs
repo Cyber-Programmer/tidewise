@@ -79,6 +79,41 @@ fn as_an_ordinary_user_it_refuses_with_one_sentence_on_stderr_and_exit_2() {
     );
 }
 
+/// `flock(1)` opens its lock file and runs the command with that descriptor still open, so the helper starts with a
+/// descriptor 3 it did not expect (the same trick as the container test; no shell). Skips if flock is not installed.
+#[test]
+fn an_extra_open_file_still_gets_the_not_root_message() {
+    if running_as_root() {
+        return;
+    }
+    let Some(flock) = ["/usr/bin/flock", "/usr/sbin/flock"]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).exists())
+    else {
+        eprintln!("skipped: flock is not installed");
+        return;
+    };
+    let lock =
+        std::env::temp_dir().join(format!("tidewise-helper-extra-fd-{}", std::process::id()));
+    let output = Command::new(flock)
+        .arg(&lock)
+        .arg(HELPER)
+        .arg(SUMMARY)
+        .env_clear()
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&lock);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.stdout, b"");
+    // Not "unexpected open files": being started by hand as a normal user is the useful thing to say.
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        expected_sentence()
+    );
+}
+
 #[test]
 fn the_not_root_check_comes_before_the_argument_check() {
     if running_as_root() {

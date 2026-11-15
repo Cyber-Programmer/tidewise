@@ -397,23 +397,49 @@ mod tests {
 
     #[test]
     fn the_checks_run_in_the_documented_order() {
-        // Everything wrong at once: the first check in the list is the one that speaks.
+        // Order: effective uid, descriptors, working directory, argv. With several things wrong at once, the
+        // first check in that list is the one that speaks. "Not root" comes first because it is the useful message
+        // for someone who started the helper by hand (and a CI runner can hand a test process extra descriptors).
+        let extra_fd = || {
+            let mut fds = std_fds();
+            fds.push((9, "/etc/shadow".to_string()));
+            Ok(fds)
+        };
+        let not_root = || Ok("Uid:\t1\t1\t1\t1\n".to_string());
+
         let mut all_wrong = good_facts(UPDATE_SUMMARY);
-        all_wrong.fds = Ok(vec![
-            (0, "x".to_string()),
-            (1, "x".to_string()),
-            (2, "x".to_string()),
-            (9, "x".to_string()),
-        ]);
-        all_wrong.status = Ok("Uid:\t1\t1\t1\t1\n".to_string());
+        all_wrong.fds = extra_fd();
+        all_wrong.status = not_root();
         all_wrong.chdir = Err(io::Error::other("x"));
         all_wrong.args = vec![];
-        refused(all_wrong, StartRefusal::UnexpectedFd);
+        refused(all_wrong, StartRefusal::NotRoot);
 
-        let mut not_root_and_bad_args = good_facts(UPDATE_SUMMARY);
-        not_root_and_bad_args.status = Ok("Uid:\t1\t1\t1\t1\n".to_string());
-        not_root_and_bad_args.args = vec![];
-        refused(not_root_and_bad_args, StartRefusal::NotRoot);
+        let mut extra_fd_not_root = good_facts(UPDATE_SUMMARY);
+        extra_fd_not_root.fds = extra_fd();
+        extra_fd_not_root.status = not_root();
+        refused(extra_fd_not_root, StartRefusal::NotRoot);
+
+        let mut unreadable_fds_not_root = good_facts(UPDATE_SUMMARY);
+        unreadable_fds_not_root.fds = Err(io::Error::other("x"));
+        unreadable_fds_not_root.status = not_root();
+        refused(unreadable_fds_not_root, StartRefusal::NotRoot);
+
+        let mut not_root_bad_args = good_facts(UPDATE_SUMMARY);
+        not_root_bad_args.status = not_root();
+        not_root_bad_args.args = vec![];
+        refused(not_root_bad_args, StartRefusal::NotRoot);
+
+        let mut unreadable_status_extra_fd = good_facts(UPDATE_SUMMARY);
+        unreadable_status_extra_fd.status = Err(io::Error::other("x"));
+        unreadable_status_extra_fd.fds = extra_fd();
+        refused(unreadable_status_extra_fd, StartRefusal::CannotCheckUser);
+
+        // As root: descriptors, then the working directory, then argv.
+        let mut root_all_wrong = good_facts(UPDATE_SUMMARY);
+        root_all_wrong.fds = extra_fd();
+        root_all_wrong.chdir = Err(io::Error::other("x"));
+        root_all_wrong.args = vec![];
+        refused(root_all_wrong, StartRefusal::UnexpectedFd);
 
         let mut chdir_and_bad_args = good_facts(UPDATE_SUMMARY);
         chdir_and_bad_args.chdir = Err(io::Error::other("x"));
