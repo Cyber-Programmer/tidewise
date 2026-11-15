@@ -96,6 +96,14 @@ pub fn installed_names(query_stdout: &str) -> Vec<String> {
         .collect()
 }
 
+/// The names that are in the `pacman -Q` list taken before a run but not in the one taken after it, in the order of the
+/// first list, each once. A version that changed is not a removal; a new package is not either. The caller must have
+/// checked that both lists are complete (see `flows`): a cut-off list would look like a removal.
+pub fn removed_names(before_stdout: &str, after_stdout: &str) -> Vec<String> {
+    let _ = (before_stdout, after_stdout);
+    vec!["stub".to_string()]
+}
+
 /// The `name version` lines of a `pacman -Q` answer. Split on `\n` only: str::lines() would also accept `\r\n`, which
 /// pacman never prints. A line is one name, one space and one version without white space.
 fn query_pairs(query_stdout: &str) -> impl Iterator<Item = (&str, &str)> {
@@ -246,6 +254,59 @@ mod tests {
         );
         let too_many = format!("{ok}extra/more 1-1\n");
         assert_eq!(parse_print(&too_many), Err(OutputError::TooMany));
+    }
+
+    #[test]
+    fn nothing_removed_when_the_lists_are_the_same_or_only_versions_and_new_packages_differ() {
+        let before = "a 1-1\nb 2-1\nc 3-1\n";
+        assert_eq!(removed_names(before, before), Vec::<String>::new());
+        assert_eq!(
+            removed_names(before, "a 1-2\nb 2-9\nc 4-1\n"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            removed_names(before, "d 1-1\nc 3-1\nb 2-1\na 1-1\n"),
+            Vec::<String>::new()
+        );
+        assert_eq!(removed_names("", "a 1-1\n"), Vec::<String>::new());
+        assert_eq!(removed_names("", ""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_package_that_disappears_is_named_in_the_order_of_the_first_list() {
+        assert_eq!(
+            removed_names("a 1-1\nb 2-1\nc 3-1\n", "a 1-1\nc 3-1\n"),
+            vec!["b"]
+        );
+        assert_eq!(
+            removed_names("a 1-1\nb 2-1\nc 3-1\n", "b 2-1\n"),
+            vec!["a", "c"]
+        );
+        assert_eq!(removed_names("a 1-1\nb 2-1\n", ""), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn a_name_listed_twice_before_is_one_removal() {
+        assert_eq!(removed_names("a 1-1\na 1-1\nb 2-1\n", "b 2-1\n"), vec!["a"]);
+    }
+
+    #[test]
+    fn noise_lines_in_either_list_are_not_packages() {
+        let before = "error: x\na 1-1\nsomething else entirely\nb  2-1\n";
+        let after = "error: y\na 1-1\n";
+        assert_eq!(removed_names(before, after), Vec::<String>::new());
+        assert_eq!(removed_names("a 1-1\nb 2-1\n", "noise\nb 2-1\n"), vec!["a"]);
+    }
+
+    #[test]
+    fn two_big_lists_are_compared_without_trouble() {
+        let before: String = (0..MAX_TRANSACTION)
+            .map(|n| format!("p{n} 1-1\n"))
+            .collect();
+        let after: String = (2..MAX_TRANSACTION)
+            .map(|n| format!("p{n} 1-2\n"))
+            .collect();
+        assert_eq!(removed_names(&before, &after), vec!["p0", "p1"]);
     }
 
     #[test]
