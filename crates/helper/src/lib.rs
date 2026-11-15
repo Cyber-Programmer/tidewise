@@ -38,3 +38,4 @@ pub mod pacman_args;
 pub mod progress;
 pub mod run;
 pub mod uid;
+pub mod workdir;
