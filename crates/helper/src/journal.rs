@@ -61,8 +61,38 @@ pub fn finished_code(outcome: &Outcome) -> &'static str {
 /// The datagram for one entry: `KEY=value\n` lines, all values printable ASCII. `summary` is only ever the summary the
 /// helper recomputed from a request that passed validation.
 pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u8> {
-    let _ = (caller, stage, summary);
-    Vec::new()
+    let uid = caller.map_or_else(|| "unknown".to_string(), |uid| uid.to_string());
+    // syslog levels: 6 = info (accepted, or finished fine), 4 = warning (a refusal or a failure).
+    let (priority, stage_name, code) = match stage {
+        Stage::Accepted => ("6", "accepted", None),
+        Stage::Finished(outcome) => {
+            let priority = if matches!(outcome, Outcome::Ok) {
+                "6"
+            } else {
+                "4"
+            };
+            (priority, "finished", Some(finished_code(outcome)))
+        }
+    };
+
+    let mut text = String::new();
+    add_field(&mut text, "SYSLOG_IDENTIFIER", "tidewise-helper");
+    add_field(&mut text, "PRIORITY", priority);
+    add_field(&mut text, "TIDEWISE_CALLER_UID", &uid);
+    add_field(&mut text, "TIDEWISE_STAGE", stage_name);
+    if let Some(code) = code {
+        add_field(&mut text, "TIDEWISE_OUTCOME", code);
+    }
+    let label = code.unwrap_or("accepted");
+    let message = match summary {
+        Some(summary) => {
+            add_field(&mut text, "TIDEWISE_SUMMARY", summary);
+            format!("uid {uid}: {label}: {summary}")
+        }
+        None => format!("uid {uid}: {label}"),
+    };
+    add_field(&mut text, "MESSAGE", &message);
+    text.into_bytes()
 }
 
 /// Appends `KEY=value\n`. The one place where a value enters the datagram, so the one place that cleans it.
