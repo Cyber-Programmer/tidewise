@@ -33,7 +33,7 @@ use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, event_line};
 
 use crate::args::{caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
-use crate::flows::run_job;
+use crate::flows::{RemovalCheck, run_job};
 use crate::gate::{Decision, decide};
 use crate::input::read_capped;
 use crate::journal::{Notes, Stage, record};
@@ -176,20 +176,26 @@ pub fn run(
             // Before any pacman command, so a helper that is killed later still left a trace that a job began.
             let accepted_written = log(&record(started.caller, Stage::Accepted, Some(&summary)));
 
-            let outcome = match make_runner() {
-                Err(kind) => Outcome::Error(kind),
+            let (outcome, notes) = match make_runner() {
+                Err(kind) => (Outcome::Error(kind), Notes::default()),
                 Ok(mut runner) => {
-                    run_job(&request, &mut *runner, &mut |event| {
+                    let result = run_job(&request, &mut *runner, &mut |event| {
                         // A failed write changes nothing: the job goes on and the exit code is the answer.
                         let _ = write_line(stdout, &event_line(&event));
-                    })
-                    .outcome
+                    });
+                    // What the notices said goes to the journal too, and a check that did not run is said so there.
+                    let notes = Notes {
+                        not_installed: result.not_installed,
+                        removed: result.removed,
+                        removal_check_skipped: result.removal_check == RemovalCheck::Skipped,
+                    };
+                    (result.outcome, notes)
                 }
             };
 
             let finished_written = log(&record(
                 started.caller,
-                Stage::Finished(&outcome, Notes::default()),
+                Stage::Finished(&outcome, notes),
                 Some(&summary),
             ));
             finish(stdout, &outcome, !(accepted_written && finished_written))
