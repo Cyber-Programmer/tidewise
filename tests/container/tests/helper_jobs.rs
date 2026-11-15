@@ -470,6 +470,10 @@ fn an_install_script_sees_exactly_path_and_lc_all_and_a_command_from_path_works(
         .collect();
     assert!(env.lines().any(|l| l == "PATH=/usr/bin"), "{env}");
     assert!(env.lines().any(|l| l == "LC_ALL=C"), "{env}");
+    assert!(
+        env.lines().any(|l| l == "PWD=/"),
+        "the scriptlet runs in /: {env}"
+    );
     for key in &keys {
         // Only what we set, plus what pacman and the shell add themselves.
         assert!(
@@ -660,6 +664,53 @@ fn a_hangup_that_kills_the_helper_mid_install_does_not_stop_pacman() {
         0,
         "the next job removed them"
     );
+}
+
+// ---- two helpers at once (T-12) -------------------------------------------------------------------------
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_second_helper_while_the_first_installs_is_database_locked_and_leaves_the_first_alone() {
+    assert_inside_the_test_container();
+    reset_world();
+    let journal = FakeJournal::start();
+    let (first_request, first_summary) = install_one("slow-a");
+    let (second_request, second_summary) = install_one("hello");
+    let (mut first, first_writer) = spawn_job(&first_summary, &first_request, false);
+    assert!(
+        wait_for_file("/tmp/tidewise-slow-a-started", Duration::from_secs(30)),
+        "the first install never started"
+    );
+    assert!(
+        Path::new(LOCK).exists(),
+        "pacman holds the lock while the script runs"
+    );
+    let first_files = fs::read_dir(WORK_DIR).unwrap().count();
+    assert_eq!(first_files, 2, "the first helper's output files");
+
+    // The second helper starts now: it sees the lock, stops, and does not touch the first one's files (its process is alive).
+    let second = run(&second_summary, second_request.as_bytes());
+    finished_with(&second, "database_locked");
+    assert_eq!(
+        fs::read_dir(WORK_DIR).unwrap().count(),
+        first_files,
+        "the live helper's files must stay"
+    );
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
+
+    // The first one finishes normally and the database is consistent.
+    let status =
+        wait_up_to(&mut first, Duration::from_secs(60)).expect("the first helper did not finish");
+    first_writer.join().unwrap();
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(
+        installed_version("tidewise-dummy-slow-a").as_deref(),
+        Some("1.0-1")
+    );
+    assert!(!Path::new(LOCK).exists());
+    assert_eq!(fs::read_dir(WORK_DIR).unwrap().count(), 0);
+    // Four entries: accepted + finished for each.
+    assert_eq!(journal.datagrams().len(), 4);
 }
 
 // ---- output that cannot be written and a journal that is down -------------------------------------------
