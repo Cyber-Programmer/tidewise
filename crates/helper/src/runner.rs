@@ -121,8 +121,8 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         PacmanCommand::PendingUpdates
         | PacmanCommand::DryRunInstall(_)
         | PacmanCommand::DryRunUpdate(_)
-        | PacmanCommand::VerifyInstalled(_) => Some(READ_TIMEOUT),
-        PacmanCommand::ListInstalled => None,
+        | PacmanCommand::VerifyInstalled(_)
+        | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
         PacmanCommand::Sync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)

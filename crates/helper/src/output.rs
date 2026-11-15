@@ -100,8 +100,12 @@ pub fn installed_names(query_stdout: &str) -> Vec<String> {
 /// first list, each once. A version that changed is not a removal; a new package is not either. The caller must have
 /// checked that both lists are complete (see `flows`): a cut-off list would look like a removal.
 pub fn removed_names(before_stdout: &str, after_stdout: &str) -> Vec<String> {
-    let _ = (before_stdout, after_stdout);
-    vec!["stub".to_string()]
+    let still_there: HashSet<String> = installed_names(after_stdout).into_iter().collect();
+    let mut seen = HashSet::new();
+    installed_names(before_stdout)
+        .into_iter()
+        .filter(|name| !still_there.contains(name) && seen.insert(name.clone()))
+        .collect()
 }
 
 /// The `name version` lines of a `pacman -Q` answer. Split on `\n` only: str::lines() would also accept `\r\n`, which
