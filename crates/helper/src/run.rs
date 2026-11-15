@@ -26,11 +26,11 @@
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 
-use tidewise_helper_protocol::{Event, Outcome, event_line};
+use tidewise_helper_protocol::{ErrorKind, Event, Outcome, event_line};
 
 use crate::args::{caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
-use crate::gate::decide;
+use crate::gate::{Decision, Verdict, decide};
 use crate::input::read_capped;
 use crate::journal::{Stage, record};
 use crate::uid::is_root;
@@ -152,7 +152,14 @@ pub fn run(
         }
     };
 
-    let verdict = decide(&started.summary, read_capped(stdin));
+    // Until the jobs are wired in (next commits) a valid request still ends as "not implemented".
+    let verdict = match decide(&started.summary, read_capped(stdin)) {
+        Decision::Refused(verdict) => verdict,
+        Decision::Accepted { summary, .. } => Verdict {
+            error: ErrorKind::NotImplemented,
+            summary: Some(summary),
+        },
+    };
 
     // The audit trail first, so it exists even if nobody is listening to stdout any more.
     let finished = Outcome::Error(verdict.error.clone());
