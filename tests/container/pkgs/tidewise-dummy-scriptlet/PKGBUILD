@@ -1,0 +1,14 @@
+# Dummy package for the Tidewise container tests (WBS 5.3b). Contains one text file and nothing else.
+pkgname=tidewise-dummy-scriptlet
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test package whose install script reports its environment"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+install=tidewise-dummy-scriptlet.install
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}
