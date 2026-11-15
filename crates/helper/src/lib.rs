@@ -33,6 +33,7 @@ pub mod fds;
 pub mod gate;
 pub mod input;
 pub mod journal;
+pub mod output;
 pub mod pacman_args;
 pub mod run;
 pub mod uid;
