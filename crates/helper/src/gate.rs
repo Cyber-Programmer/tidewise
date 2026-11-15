@@ -37,9 +37,35 @@ pub enum Decision {
 
 /// Decides what to do with a request.
 pub fn decide(summary_arg: &[u8], input: Result<Vec<u8>, InputError>) -> Decision {
-    let _ = (summary_arg, input, parse_request, summary);
+    // A request that could not be read is treated like one that could not be understood.
+    let Ok(bytes) = input else {
+        return refused(ErrorKind::Malformed);
+    };
+    let request = match parse_request(&bytes) {
+        Ok(request) => request,
+        Err(error) => return refused(ErrorKind::from(error)),
+    };
+
+    // Only a request that passed validation is compared with argv. The text we compare against is the one we
+    // compute ourselves; argv is never used for anything else.
+    let expected = summary(&request);
+    if expected.as_bytes() == summary_arg {
+        Decision::Accepted {
+            request,
+            summary: expected,
+        }
+    } else {
+        Decision::Refused(Verdict {
+            error: ErrorKind::SummaryMismatch,
+            summary: Some(expected),
+        })
+    }
+}
+
+/// A refusal for a request that did not pass validation: no summary, nothing from the request.
+fn refused(error: ErrorKind) -> Decision {
     Decision::Refused(Verdict {
-        error: ErrorKind::Malformed,
+        error,
         summary: None,
     })
 }
