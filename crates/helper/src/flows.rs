@@ -19,7 +19,9 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{InstallDecision, install_decision, parse_qu};
 
-use crate::output::{count_not_installed, is_lock_failure, parse_print, same_transaction};
+use crate::output::{
+    count_not_installed, installed_names, is_lock_failure, parse_print, same_transaction,
+};
 use crate::pacman_args::PacmanCommand;
 use crate::progress::ProgressTracker;
 use crate::runner::{RunOutput, Runner, RunnerError};
@@ -186,6 +188,9 @@ fn real_run_and_after(
     transaction: &[TransactionItem],
     providers: &[PackageRef],
 ) -> Step {
+    // Which chosen providers are not installed yet: only those may be marked as dependencies afterwards.
+    let to_mark = providers_not_installed(runner, providers);
+
     let output = runner
         .run(&real, &mut |line| forward(tracker, on_event, line))
         // pacman did not run at all: there is nothing to check afterwards.
@@ -194,8 +199,8 @@ fn real_run_and_after(
     let mut stopped: Option<ErrorKind> = None;
     if output.exit != Some(0) || output.timed_out {
         stopped = Some(failure_of(&output));
-    } else if !providers.is_empty() {
-        match runner.run(&PacmanCommand::MarkAsDeps(providers.to_vec()), &mut |_| {}) {
+    } else if !to_mark.is_empty() {
+        match runner.run(&PacmanCommand::MarkAsDeps(to_mark), &mut |_| {}) {
             Ok(marked) if marked.exit == Some(0) && !marked.timed_out => {}
             Ok(marked) => stopped = Some(failure_of(&marked)),
             Err(error) => stopped = Some(runner_failure(error)),
@@ -207,6 +212,32 @@ fn real_run_and_after(
         Some(kind) => Err(kind),
         None => Ok(()),
     }
+}
+
+/// The chosen providers that are not installed now (`pacman -Q`, a read). A provider the user already has stays as it is:
+/// marking it as a dependency would hide a package they installed by hand. If the answer cannot be read, nothing is
+/// marked (cosmetic), because the alternative is to demote a package.
+fn providers_not_installed(runner: &mut dyn Runner, providers: &[PackageRef]) -> Vec<PackageRef> {
+    if providers.is_empty() {
+        return Vec::new();
+    }
+    let Ok(output) = runner.run(
+        &PacmanCommand::VerifyInstalled(providers.to_vec()),
+        &mut |_| {},
+    ) else {
+        return Vec::new();
+    };
+    // `pacman -Q` exits 1 when a name is unknown but still prints the others, so only a timeout or a cut-off answer
+    // makes it unreadable.
+    if output.timed_out || output.truncated || !matches!(output.exit, Some(0) | Some(1)) {
+        return Vec::new();
+    }
+    let installed = installed_names(&output.stdout);
+    providers
+        .iter()
+        .filter(|provider| !installed.contains(&provider.name))
+        .cloned()
+        .collect()
 }
 
 /// After every real run: is each confirmed item installed at the confirmed version? A count of the ones that are not

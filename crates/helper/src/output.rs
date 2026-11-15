@@ -91,22 +91,27 @@ pub fn is_lock_failure(stderr: &str) -> bool {
 /// The package names in the stdout of `pacman -Q -- <names>` (lines `name version`), in order. Lines that are not
 /// `name version` are ignored.
 pub fn installed_names(query_stdout: &str) -> Vec<String> {
-    let _ = query_stdout;
-    Vec::new()
+    query_pairs(query_stdout)
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// The `name version` lines of a `pacman -Q` answer. Split on `\n` only: str::lines() would also accept `\r\n`, which
+/// pacman never prints. A line is one name, one space and one version without white space.
+fn query_pairs(query_stdout: &str) -> impl Iterator<Item = (&str, &str)> {
+    query_stdout
+        .split('\n')
+        .filter_map(|line| line.split_once(' '))
+        .filter(|(name, version)| {
+            !name.is_empty() && !version.is_empty() && !version.chars().any(char::is_whitespace)
+        })
 }
 
 /// How many items of `confirmed` are not installed at the confirmed version, judging by the stdout of
 /// `pacman -Q -- <names>` (lines `name version`; a name pacman does not know is only on stderr, so it is simply
 /// missing from stdout). Lines that are not `name version` are ignored.
 pub fn count_not_installed(confirmed: &[TransactionItem], query_stdout: &str) -> u32 {
-    // Split on \n only: str::lines() would also accept \r\n, which pacman never prints.
-    let installed: HashSet<(&str, &str)> = query_stdout
-        .split('\n')
-        .filter_map(|line| line.split_once(' '))
-        .filter(|(name, version)| {
-            !name.is_empty() && !version.is_empty() && !version.chars().any(char::is_whitespace)
-        })
-        .collect();
+    let installed: HashSet<(&str, &str)> = query_pairs(query_stdout).collect();
     let missing = confirmed
         .iter()
         .filter(|item| !installed.contains(&(item.name.as_str(), item.version.as_str())))
