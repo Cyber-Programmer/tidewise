@@ -144,6 +144,36 @@ fn a_chosen_provider_is_installed_as_a_dependency_and_the_target_is_not() {
 
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_provider_the_user_already_installed_by_hand_stays_explicit() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-prov-b"]);
+    assert_eq!(
+        install_reason("tidewise-dummy-prov-b"),
+        "Explicitly installed"
+    );
+    let names = [qualified("needs-virtual"), qualified("prov-b")];
+    let items = confirmed("-S", &[&names[0], &names[1]]);
+    let (request, summary) = install_request(
+        &[(REPO, "tidewise-dummy-needs-virtual")],
+        &[("tidewise-virtual", REPO, "tidewise-dummy-prov-b")],
+        &items,
+    );
+
+    assert_ok(&run(&summary, request.as_bytes()));
+    assert_eq!(
+        installed_version("tidewise-dummy-needs-virtual").as_deref(),
+        Some("1.0-1")
+    );
+    // The user's own package was not demoted to "installed as a dependency" (review R-02).
+    assert_eq!(
+        install_reason("tidewise-dummy-prov-b"),
+        "Explicitly installed"
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_system_update_updates_the_package_and_syncs_exactly_once() {
     assert_inside_the_test_container();
     reset_world();
