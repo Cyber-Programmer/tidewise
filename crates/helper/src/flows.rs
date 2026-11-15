@@ -293,8 +293,8 @@ mod tests {
     use super::*;
     use crate::pacman_args::PacmanCommand;
     use crate::runner::{RunOutput, RunnerError};
+    use crate::testing::{Fake, ok, out};
     use crate::workdir::WorkDirError;
-    use std::collections::VecDeque;
     use tidewise_helper_protocol::{
         Details, Notice, PackageRef, Phase, ProviderChoice, TransactionItem, parse_request,
     };
@@ -317,58 +317,6 @@ mod tests {
         include_str!("../../../tests/fixtures/helper-jobs/print-not-found.err");
     const ASDEPS_MISSING_ERR: &str =
         include_str!("../../../tests/fixtures/helper-jobs/asdeps-missing.err");
-
-    // ---- a scripted runner --------------------------------------------------------------------------------
-
-    /// Answers each command with the next scripted result and remembers what was run.
-    struct Fake {
-        lock: bool,
-        script: VecDeque<Result<RunOutput, RunnerError>>,
-        ran: Vec<PacmanCommand>,
-    }
-
-    impl Fake {
-        fn new(script: Vec<Result<RunOutput, RunnerError>>) -> Fake {
-            Fake {
-                lock: false,
-                script: script.into(),
-                ran: Vec::new(),
-            }
-        }
-    }
-
-    impl Runner for Fake {
-        fn run(
-            &mut self,
-            command: &PacmanCommand,
-            on_stdout_line: &mut dyn FnMut(&str),
-        ) -> Result<RunOutput, RunnerError> {
-            self.ran.push(command.clone());
-            let answer = self.script.pop_front().unwrap_or(Err(RunnerError::Io))?;
-            for line in answer.stdout.split('\n') {
-                on_stdout_line(line);
-            }
-            Ok(answer)
-        }
-
-        fn database_lock_present(&self) -> bool {
-            self.lock
-        }
-    }
-
-    fn out(exit: i32, stdout: &str, stderr: &str) -> Result<RunOutput, RunnerError> {
-        Ok(RunOutput {
-            exit: Some(exit),
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
-            timed_out: false,
-            truncated: false,
-        })
-    }
-
-    fn ok(stdout: &str) -> Result<RunOutput, RunnerError> {
-        out(0, stdout, "")
-    }
 
     fn request(text: &str) -> Request {
         parse_request(text.as_bytes()).unwrap()
