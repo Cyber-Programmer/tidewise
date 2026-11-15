@@ -92,8 +92,8 @@ crates/core             tidewise-core: scanning, sizes, live stats — no UI, no
 crates/pacman           tidewise-pacman: read pacman data (installed, search, info, dry-runs) — no root
 crates/names            tidewise-names: package/repo name allow-lists, shared by pacman and helper-protocol — no deps
 crates/helper-protocol  tidewise-helper-protocol: request/response types, validation, summary — serde, no root, no I/O
-crates/helper           tidewise-helper: the root binary. 5.3a = the gate only (start checks, summary check, journal;
-                        no pacman call yet); 5.3b = the allow-listed jobs
+crates/helper           tidewise-helper: the root binary: start checks, request gate, the jobs (install, update, update +
+                        install) that run pacman, the journal. Root code: container tests only
 crates/app              tidewise-app: Slint UI + view models; binary `tidewise`; UI in crates/app/ui/*.slint
 packaging/aur           (M3) PKGBUILD (installs app, helper, polkit policy)
 packaging/polkit        (M3) io.github.tidewise.helper.policy
