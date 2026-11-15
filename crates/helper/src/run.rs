@@ -32,7 +32,7 @@ use crate::args::{caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
 use crate::gate::decide;
 use crate::input::read_capped;
-use crate::journal::record;
+use crate::journal::{Stage, record};
 use crate::uid::is_root;
 
 /// The job finished. Unused until 5.3b.
@@ -155,7 +155,12 @@ pub fn run(
     let verdict = decide(&started.summary, read_capped(stdin));
 
     // The audit trail first, so it exists even if nobody is listening to stdout any more.
-    log(&record(started.caller, &verdict));
+    let finished = Outcome::Error(verdict.error.clone());
+    log(&record(
+        started.caller,
+        Stage::Finished(&finished),
+        verdict.summary.as_deref(),
+    ));
 
     let line = event_line(&Event::Finished(Outcome::Error(verdict.error)));
     let _ = write_line(stdout, &line);
