@@ -34,5 +34,5 @@ pub use request::{
 pub use summary::{MAX_SUMMARY_BYTES, summary};
 pub use validate::{
     Field, InvalidRequest, MAX_NAME_BYTES, MAX_PROVIDERS, MAX_TARGETS, MAX_TRANSACTION,
-    MAX_VERSION_BYTES, Reason, validate,
+    MAX_VERSION_BYTES, Reason, is_valid_transaction_item, validate,
 };
