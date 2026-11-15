@@ -35,5 +35,6 @@ pub mod input;
 pub mod journal;
 pub mod output;
 pub mod pacman_args;
+pub mod progress;
 pub mod run;
 pub mod uid;
