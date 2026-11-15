@@ -30,6 +30,7 @@
 pub mod args;
 pub mod env;
 pub mod fds;
+pub mod flows;
 pub mod gate;
 pub mod input;
 pub mod journal;
