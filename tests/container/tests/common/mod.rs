@@ -593,6 +593,9 @@ pub const POLICY_PATH: &str = "/usr/share/polkit-1/actions/io.github.tidewise.he
 pub struct Polkit {
     bus: Child,
     polkitd: Child,
+    /// True when this value wrote the policy file (`start`), so it removes it again; false when a package put it
+    /// there (`start_installed`), and then the file is none of its business.
+    owns_policy: bool,
 }
 
 impl Polkit {
@@ -600,7 +603,21 @@ impl Polkit {
     pub fn start(policy: &str) -> Polkit {
         assert_inside_the_test_container();
         fs::write(POLICY_PATH, policy).unwrap();
+        Polkit::launch(true)
+    }
 
+    /// Starts the bus and polkitd with the policy file that is already there (5.5: the one the built package
+    /// installed). Nothing is written, and the file is left alone on drop.
+    pub fn start_installed() -> Polkit {
+        assert_inside_the_test_container();
+        assert!(
+            Path::new(POLICY_PATH).is_file(),
+            "the policy file is not installed: {POLICY_PATH}"
+        );
+        Polkit::launch(false)
+    }
+
+    fn launch(owns_policy: bool) -> Polkit {
         fs::create_dir_all("/run/dbus").unwrap();
         let bus = Command::new("/usr/bin/dbus-daemon")
             .args(["--system", "--nofork", "--nopidfile"])
@@ -617,7 +634,11 @@ impl Polkit {
             .stdin(Stdio::null())
             .spawn()
             .expect("could not start polkitd");
-        let started = Polkit { bus, polkitd };
+        let started = Polkit {
+            bus,
+            polkitd,
+            owns_policy,
+        };
         // Listing every action succeeds only when polkitd has taken its name on the bus.
         wait_for(|| {
             let listing = Command::new("/usr/bin/pkaction")
@@ -637,7 +658,9 @@ impl Drop for Polkit {
         let _ = self.polkitd.wait();
         let _ = self.bus.kill();
         let _ = self.bus.wait();
-        let _ = fs::remove_file(POLICY_PATH);
+        if self.owns_policy {
+            let _ = fs::remove_file(POLICY_PATH);
+        }
         let _ = fs::remove_file("/run/dbus/system_bus_socket");
     }
 }

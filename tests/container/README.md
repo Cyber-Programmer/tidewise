@@ -20,7 +20,8 @@ Rules the harness keeps:
 
 - Rootless Podman only. Never `--privileged`. `run.sh` refuses to run as root.
 - The only host paths inside the container are the built test binary and the built `tidewise-helper` (from 5.3a on,
-  at `/opt/tidewise/tidewise-helper`), each mounted read-only. Each test file runs in its own fresh container, so state
+  at `/opt/tidewise/tidewise-helper`), each mounted read-only. (The package image is built from `git archive` of HEAD,
+  copied into the image build, not mounted.) Each test file runs in its own fresh container, so state
   one test file leaves behind (for example installed packages) cannot disturb the next.
 - `--network=none` at test time. The network is used only while the image is built (base image and the Arch Archive
   snapshot), once.
@@ -80,6 +81,36 @@ CI job comes in its own task.
   copies one into `/srv/tidewise-test`, runs `repo-add` and `pacman -Sy`, and an update or a pending replacement
   exists, with no network.
 - The package lists were refreshed once at build time, so tests use a plain `pacman -S` (never `-Sy`: golden rule 4).
+
+## The package image (5.5)
+
+`tests/container/tests/package.rs` tests the real package, so it runs in a second image, `localhost/tidewise-package-test`
+(`Containerfile.package`), built on top of the test image above:
+
+1. `run.sh` makes a tarball of `git archive` of **HEAD** (prefix `tidewise-<pkgver>/`, `gzip -n`, so the same commit gives
+   the same bytes) and takes `PKGBUILD` and `.SRCINFO` from HEAD. It warns when the working tree has uncommitted changes:
+   the package is HEAD, not your files. Commit before you run it.
+2. **Build stage** (a clean pinned Arch from the same Archive snapshot): `base-devel`, `rust` and the recipe's own `depends`
+   and `makedepends` are installed, then `makepkg` runs as the ordinary user `builder`: `build()`, `check()` (the whole
+   workspace's tests, in release mode) and `package()`. The release build takes about 15 minutes; podman caches the stage,
+   so it is rebuilt only when HEAD's tarball, the recipe or `Containerfile.package` changes.
+3. **Test stage**: the test image, plus the package, `binutils`, `namcap`, `desktop-file-utils` and the package's runtime
+   dependencies. No Rust toolchain.
+
+Needs network **only while building** (the Archive snapshot, and crates.io for `cargo build --locked`); the tests run with
+`--network=none`. The pacman calls of this file that run while the image is built use `--disable-download-timeout`,
+because the Arch Archive server is sometimes slow ("Operation too slow", seen on every attempt on 16 Nov 2026); it is
+never used at test time. If a build fails with that error anyway, run it again later.
+
+```
+tests/container/run.sh package          # build the package image if HEAD changed, run only the package tests
+tests/container/run.sh                  # everything (the package image is built too)
+tests/container/run.sh polkit           # a filter that does not say "package" does not build or run the package image
+```
+
+The tests install the package with `pacman -U`, check owners, modes, no setuid, no RPATH/RUNPATH, `ldd`, `namcap`
+(only the accepted lines in `ACCEPTED_NAMCAP`, each with its reason), `.SRCINFO` against `makepkg --printsrcinfo`, polkitd
+with the policy **the package** installed, a real `pkexec` job through the installed helper, and `pacman -R`.
 
 ## Refreshing the image
 

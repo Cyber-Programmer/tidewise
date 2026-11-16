@@ -1,0 +1,57 @@
+# The package test image (WBS 5.5): builds the Tidewise package with makepkg, as an ordinary user, and puts the result
+# into the test image, so tests/container/tests/package.rs can install it with `pacman -U`, check it and remove it.
+# Built by tests/container/run.sh, which makes the build context: a tarball of `git archive` of HEAD, and the PKGBUILD
+# and .SRCINFO from HEAD. Network is needed ONLY while building (the Arch Archive snapshot, and crates.io for
+# `cargo build --locked`); the tests run with none.
+
+# BASE is the test image's tag, given by run.sh. An ARG used in a FROM must come before the first FROM.
+ARG BASE
+
+# Stage 1: build. A clean pinned Arch (the same image and day as Containerfile), so the build sees exactly the
+# packages the recipe declares and nothing else. Keep the digest and ARCHIVE_DAY equal to Containerfile's.
+FROM docker.io/library/archlinux:base@sha256:fcee73ea1b96e236248f53a213f71276cc9072d9025b58bce9915e32f19963ae AS build
+ARG ARCHIVE_DAY=2026/11/08
+
+# --disable-download-timeout is used only on the pacman calls of this file, which run while the image is BUILT (two
+# here, two in the test stage below): the Arch Archive server is slow at times and pacman gives up on a download that
+# moves less than 1 byte per second for 10 seconds ("Operation too slow", seen on every build attempt on 16 Nov 2026).
+# It is never used in the helper, in the tests, or in anything that runs at test time.
+# A full upgrade (-Syu, never -Sy alone: golden rule 4), then `rust` (it provides `cargo`, the recipe's makedepends)
+# and base-devel (makepkg's own tools, which the PKGBUILD guidelines assume are installed).
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DAY" > /etc/pacman.d/mirrorlist \
+ && pacman -Syu --disable-download-timeout --noconfirm --needed base-devel rust \
+ && useradd --create-home builder
+
+COPY --chown=builder:builder PKGBUILD .SRCINFO tidewise-*.tar.gz /home/builder/pkg/
+
+# The recipe's own depends and makedepends, read by the builder user (never by root), are installed with `pacman -S`
+# (against the freshly upgraded lists). makepkg then checks them again and builds without sudo.
+RUN runuser -u builder -- bash -c 'cd /home/builder/pkg && . ./PKGBUILD && printf "%s\n" "${depends[@]}" "${makedepends[@]}"' \
+      > /tmp/recipe-deps \
+ && pacman -S --disable-download-timeout --noconfirm --needed - < /tmp/recipe-deps
+
+# makepkg runs build(), check() (the whole workspace's tests, in release mode) and package(). Everything it makes goes
+# to /home/builder/out, with what it printed for .SRCINFO and the versions of the tools, as evidence.
+USER builder
+WORKDIR /home/builder/pkg
+RUN mkdir /home/builder/out \
+ && PKGDEST=/home/builder/out makepkg --noconfirm
+# A separate step, so a mistake here does not throw away the (long) build above. makepkg is part of the `pacman`
+# package, so that is the name `pacman -Q` knows.
+RUN makepkg --printsrcinfo > /home/builder/out/printsrcinfo \
+ && pacman -Q rust pacman > /home/builder/out/build-versions
+
+# Stage 2: the test image. The existing test image (real pacman, polkitd, the local dummy repository), the built
+# package, the recipe, and the check tools: binutils (readelf), namcap and desktop-file-utils (desktop-file-validate).
+# No Rust toolchain here. The package's own runtime dependencies are installed too (read from its .PKGINFO), so the
+# test's `pacman -U` needs no network; `namcap` and `ldd` (in the tests) judge whether that list is complete.
+FROM ${BASE}
+COPY --from=build /home/builder/out /srv/tidewise-pkg
+COPY PKGBUILD .SRCINFO /srv/tidewise-pkg/
+# (--disable-download-timeout: image build time only, the slow Arch Archive server; see the top of this file.)
+RUN pacman -S --disable-download-timeout --noconfirm --needed binutils namcap desktop-file-utils \
+ && bsdtar -xOf /srv/tidewise-pkg/tidewise-[0-9]*-x86_64.pkg.tar.zst .PKGINFO \
+      | sed -n 's/^depend = \([^<>=]*\).*/\1/p' \
+      | pacman -S --disable-download-timeout --noconfirm --needed - \
+ && chmod -R a+rX /srv/tidewise-pkg \
+ && rm -f /var/cache/pacman/pkg/*
