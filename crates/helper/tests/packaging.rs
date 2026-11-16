@@ -512,6 +512,10 @@ fn skip_problem(source: &[String], sums: &[String], release_build: bool) -> Opti
     }
     for (item, sum) in source.iter().zip(sums) {
         if sum != "SKIP" {
+            // Anything else must look like a sha256 sum: 64 hex digits (review R-04 of 5.5).
+            if sum.len() != 64 || !sum.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some("a checksum is neither SKIP nor 64 hex digits");
+            }
             continue;
         }
         if item.contains("://") {
