@@ -16,6 +16,11 @@
 //! The tests share one container (one test file = one container), run one after the other, and each one installs the
 //! package itself and removes it again, so none depends on the order.
 //!
+//! What these tests do NOT prove (review R-07 of 5.5): pkexec runs as root in the container, and polkitd authorizes root
+//! whatever the action, so the real-pkexec tests show that the installed helper runs and is accepted, not that pkexec
+//! matched OUR action (that is `exec.path` matching the real path, from polkit's source, plus `pkaction` listing it);
+//! and no test starts the window (the container has no display; the manual check is in the plan, for M4).
+//!
 //! `/run/tidewise-helper` is not owned by the package: the helper creates it when it first runs (root, mode 0700,
 //! under the root-owned `/run`, which is a tmpfs). `pacman -R` leaves it, empty; it is gone at the next boot, and
 //! nothing in it is readable by anyone else. The human decided (16 Nov 2026) not to add a removal script for it.
@@ -226,6 +231,38 @@ fn package_srcinfo_is_what_makepkg_prints() {
         committed, printed,
         "packaging/aur/.SRCINFO is not what `makepkg --printsrcinfo` prints"
     );
+}
+
+#[test]
+#[ignore = "runs only in the package image: tests/container/run.sh package"]
+fn package_has_no_install_script_and_declares_no_provides_replaces_conflicts_or_backup() {
+    // An install script (`.INSTALL`) would run as root at `pacman -U`, outside the helper's allow-list, and a
+    // `provides`, `replaces` or `conflict` could change what pacman does with other packages (review R-02 of 5.5).
+    assert_inside_the_test_container();
+    let file = package_file();
+    let listing = run("/usr/bin/bsdtar", &["-tf", &file]);
+    assert_eq!(listing.code, Some(0), "{}", listing.stderr);
+    for name in listing.stdout.lines() {
+        assert!(
+            matches!(name, ".PKGINFO" | ".BUILDINFO" | ".MTREE") || name.starts_with("usr/"),
+            "an unexpected entry in the package: {name}"
+        );
+    }
+    let info = run("/usr/bin/bsdtar", &["-xOf", &file, ".PKGINFO"]);
+    assert_eq!(info.code, Some(0), "{}", info.stderr);
+    assert!(
+        info.stdout.contains("pkgname = tidewise"),
+        "{}",
+        info.stdout
+    );
+    for line in info.stdout.lines() {
+        for forbidden in ["provides", "replaces", "conflict", "backup", "install"] {
+            assert!(
+                !line.starts_with(forbidden),
+                "the package declares `{forbidden}`: {line}"
+            );
+        }
+    }
 }
 
 #[test]
