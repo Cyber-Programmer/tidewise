@@ -5,6 +5,7 @@
 - Decided by: Bahauddin Hassan (human), 2026-11-13
 - Task: WBS 5.1 (threat model, section 3 and threat T-02); recorded while starting 5.7.
 - Updated: 2026-11-16, WBS 5.4: the re-test with our own policy action passed on KDE (section "5.4 re-test"). The decision stands.
+- Updated: 2026-11-16, WBS 5.4b: the helper now refuses unless `argv[0]` is exactly the installed path (caveat below).
 
 ## Context
 
@@ -67,9 +68,12 @@ and shows argv only because the message says `$(command_line)` (polkit 128, sour
   (the summary does not match), but the user has been asked for a password. This is the spoofing and fatigue risk of
   T-02 and T-16, not a privilege gain. Whether the agents render markup, and what a very long or multi-line argv does,
   is untested (threat model, open question 21).
-- **argv[0] is part of `command_line` and the caller can dress it up** with a symlink to the helper; the helper ignores
-  it today. Making the helper require the exact path would make the whole dialog of an accepted request
-  fixed-sentence + fixed-path + recomputed-summary. Proposed, not decided (open question 22).
+- **argv[0] is part of `command_line` and the caller can dress it up** with a symlink to the helper: pkexec gives the
+  program `argv[0]` as typed (only a name found through `PATH` becomes absolute; measured in the test container and
+  from polkit 128's source). **Built in 5.4b (the human's decision, 16 Nov 2026):** the helper starts only when
+  `argv[0]` is exactly `/usr/lib/tidewise/tidewise-helper`, byte for byte, so the whole dialog of an accepted request
+  is fixed-sentence + fixed-path + recomputed-summary. It runs after authentication, so it cannot stop a dressed-up
+  prompt (`argv[1]`, question 21), only a real transaction under one; and `argv[0]` is no identity check.
 - argv is visible to every user in `ps`. The summary must contain nothing secret (package names only).
 - The summary shown can be long (many packages); the summary function must have a length rule decided with the
   protocol (for example "install dbeaver and 11 more"), tested against the dialog's truncation.
@@ -82,4 +86,8 @@ and shows argv only because the message says `$(command_line)` (polkit 128, sour
 - Threat T-02's proof becomes: the unit test "argv summary ≠ summary derived from JSON → refused" plus the 5.4 dialog
   check with our action (done on KDE, see above).
 - The policy must keep `$(command_line)` in its message and must not use `cmdline_short`; `polkit_policy.rs` checks it.
+- The installed path is fixed in three places that a test ties together: the policy's `exec.path`, the helper's
+  `HELPER_PATH`, and (5.5) the package. **M4's launcher must call pkexec with exactly
+  `/usr/lib/tidewise/tidewise-helper`**; a `/lib/...` or `/usr/local/...` spelling is refused by design, and a helper
+  run from `target/` has no pkexec route (the container tests pass the name with `arg0`).
 - Threat model §3 is updated to say "decided, see this record".
