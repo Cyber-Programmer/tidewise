@@ -31,7 +31,7 @@ use std::io::{self, Read, Write};
 
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, event_line};
 
-use crate::args::{caller_uid, summary_arg};
+use crate::args::{ArgsError, caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
 use crate::flows::{RemovalCheck, run_job};
 use crate::gate::{Decision, decide};
@@ -137,7 +137,10 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
         .chdir
         .map_err(|_| StartRefusal::CannotChangeDirectory)?;
 
-    let summary = summary_arg(facts.args).map_err(|_| StartRefusal::BadArguments)?;
+    let summary = summary_arg(facts.args).map_err(|error| match error {
+        ArgsError::WrongCount => StartRefusal::BadArguments,
+        ArgsError::WrongProgramPath => StartRefusal::WrongProgramPath,
+    })?;
     Ok(Started {
         summary,
         caller: caller_uid(facts.pkexec_uid),
