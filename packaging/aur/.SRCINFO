@@ -12,6 +12,7 @@ pkgbase = tidewise
 	depends = gcc-libs
 	depends = fontconfig
 	depends = libxkbcommon
+	options = !debug
 	source = tidewise-0.1.0.tar.gz
 	sha256sums = SKIP
 

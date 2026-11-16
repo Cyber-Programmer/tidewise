@@ -46,6 +46,9 @@ license=('GPL-3.0-or-later')
 # libraries the binaries load at run time.
 depends=('pacman' 'polkit' 'glibc' 'gcc-libs' 'fontconfig' 'libxkbcommon')
 makedepends=('cargo')
+# The release profile has no debug info, so makepkg's tidewise-debug package would be empty.
+# Proper debug info and a debug package: an M10 idea (docs/PLAN.md).
+options=('!debug')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
