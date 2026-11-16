@@ -77,6 +77,19 @@ pub enum StartRefusal {
 }
 
 impl StartRefusal {
+    /// The fixed code of this refusal, as it appears in the journal when one is written.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::CannotCheckFds => "cannot_check_fds",
+            Self::UnexpectedFd => "unexpected_fd",
+            Self::CannotCheckUser => "cannot_check_user",
+            Self::NotRoot => "not_root",
+            Self::CannotChangeDirectory => "cannot_change_directory",
+            Self::BadArguments => "bad_arguments",
+            Self::WrongProgramPath => "wrong_program_path",
+        }
+    }
+
     /// The sentence printed on stderr.
     pub fn text(self) -> &'static str {
         match self {
@@ -818,7 +831,26 @@ mod tests {
             format!("{}\n", expected.text()),
             "{expected:?}"
         );
-        assert!(outcome.logged.is_empty(), "{expected:?}: no journal entry");
+        // Refusals before the root check stay silent (anyone can start the helper by hand); every later one writes
+        // one entry: a fixed code, a warning, the caller's id, never argv text (question 27).
+        if matches!(
+            expected,
+            StartRefusal::CannotCheckUser | StartRefusal::NotRoot
+        ) {
+            assert!(outcome.logged.is_empty(), "{expected:?}: no journal entry");
+        } else {
+            let entry = only_log(&outcome);
+            for line in [
+                "SYSLOG_IDENTIFIER=tidewise-helper\n".to_string(),
+                "PRIORITY=4\n".to_string(),
+                "TIDEWISE_CALLER_UID=1000\n".to_string(),
+                "TIDEWISE_STAGE=start_refused\n".to_string(),
+                format!("TIDEWISE_OUTCOME={}\n", expected.code()),
+            ] {
+                assert!(entry.contains(&line), "{expected:?}: {line:?} in {entry}");
+            }
+            assert!(!entry.contains("TIDEWISE_SUMMARY"), "{expected:?}: {entry}");
+        }
         assert_eq!(outcome.runners_made, 0, "{expected:?}: no runner");
         assert!(
             !outcome.stdin_touched,
@@ -905,7 +937,65 @@ mod tests {
         facts.args[0] = OsString::from("SECRET-PROGRAM");
         let outcome = go(facts, UPDATE.as_bytes());
         assert!(!outcome.stderr.contains("SECRET"));
-        assert!(outcome.logged.is_empty());
+        assert!(!only_log(&outcome).contains("SECRET"));
+    }
+
+    #[test]
+    fn a_start_refusal_entry_never_holds_argv_text_or_a_hostile_caller_id() {
+        let mut facts = good_facts(UPDATE_SUMMARY);
+        facts.args = vec![
+            OsString::from("SECRET-PROGRAM\nTIDEWISE_OUTCOME=ok"),
+            OsString::from("SECRET-SUMMARY"),
+        ];
+        facts.pkexec_uid = Some(OsString::from("SECRET-UID\nPRIORITY=0"));
+        let outcome = go(facts, b"SECRET-STDIN");
+        let entry = only_log(&outcome);
+        assert!(entry.contains("TIDEWISE_CALLER_UID=unknown\n"), "{entry}");
+        assert!(
+            entry.contains("TIDEWISE_OUTCOME=wrong_program_path\n"),
+            "{entry}"
+        );
+        assert!(!entry.contains("SECRET"), "{entry}");
+        assert_eq!(entry.matches("PRIORITY=").count(), 1, "{entry}");
+        assert_eq!(entry.matches("TIDEWISE_OUTCOME=").count(), 1, "{entry}");
+    }
+
+    #[test]
+    fn a_journal_that_cannot_be_written_changes_nothing_for_a_refused_start() {
+        let mut facts = good_facts(UPDATE_SUMMARY);
+        facts.args[0] = OsString::from("helper");
+        let outcome = go_with(facts, UPDATE.as_bytes(), &mut fake(Vec::new()), 0);
+        assert_eq!(outcome.code, EXIT_REFUSED_TO_START);
+        assert_eq!(outcome.stdout, "");
+        assert_eq!(
+            outcome.stderr,
+            format!("{}\n", StartRefusal::WrongProgramPath.text())
+        );
+        assert_eq!(outcome.logged.len(), 1, "the write was tried once");
+    }
+
+    #[test]
+    fn the_start_refusal_codes_are_fixed_snake_case_words_and_different() {
+        let all = [
+            StartRefusal::CannotCheckFds,
+            StartRefusal::UnexpectedFd,
+            StartRefusal::CannotCheckUser,
+            StartRefusal::NotRoot,
+            StartRefusal::CannotChangeDirectory,
+            StartRefusal::BadArguments,
+            StartRefusal::WrongProgramPath,
+        ];
+        for (i, a) in all.iter().enumerate() {
+            let code = a.code();
+            assert!(!code.is_empty());
+            assert!(
+                code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+                "{code}"
+            );
+            for b in all.iter().skip(i + 1) {
+                assert_ne!(code, b.code());
+            }
+        }
     }
 
     #[test]
