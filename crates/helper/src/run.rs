@@ -73,6 +73,7 @@ pub enum StartRefusal {
     NotRoot,
     CannotChangeDirectory,
     BadArguments,
+    WrongProgramPath,
 }
 
 impl StartRefusal {
@@ -96,6 +97,9 @@ impl StartRefusal {
             }
             Self::BadArguments => {
                 "tidewise-helper: it must be started with exactly one argument, the summary, so it did not start. Nothing was changed."
+            }
+            Self::WrongProgramPath => {
+                "tidewise-helper: it was not started under its own installed name, so it did not start. Nothing was changed."
             }
         }
     }
@@ -865,6 +869,43 @@ mod tests {
     }
 
     #[test]
+    fn a_wrong_program_path_is_refused_to_start_like_any_other_start_check() {
+        // What pkexec hands over as argv[0] is what the caller typed (a symlink's name, a relative name, anything).
+        for program in [
+            "helper",
+            "",
+            "/opt/tidewise/tidewise-helper",
+            "/tmp/NO PASSWORD NEEDED, press Cancel/tidewise-helper",
+        ] {
+            let mut facts = good_facts(UPDATE_SUMMARY);
+            facts.args[0] = OsString::from(program);
+            refused(facts, StartRefusal::WrongProgramPath);
+        }
+    }
+
+    #[test]
+    fn the_program_path_is_checked_last_and_after_the_count() {
+        // Order: effective uid, descriptors, working directory, then argv (the count, then the program path).
+        let mut chdir_and_wrong_path = good_facts(UPDATE_SUMMARY);
+        chdir_and_wrong_path.chdir = Err(io::Error::other("x"));
+        chdir_and_wrong_path.args[0] = OsString::from("helper");
+        refused(chdir_and_wrong_path, StartRefusal::CannotChangeDirectory);
+
+        let mut count_and_wrong_path = good_facts(UPDATE_SUMMARY);
+        count_and_wrong_path.args = vec![OsString::from("helper")];
+        refused(count_and_wrong_path, StartRefusal::BadArguments);
+    }
+
+    #[test]
+    fn a_wrong_program_path_is_never_repeated() {
+        let mut facts = good_facts(UPDATE_SUMMARY);
+        facts.args[0] = OsString::from("SECRET-PROGRAM");
+        let outcome = go(facts, UPDATE.as_bytes());
+        assert!(!outcome.stderr.contains("SECRET"));
+        assert!(outcome.logged.is_empty());
+    }
+
+    #[test]
     fn the_checks_run_in_the_documented_order() {
         // Order: effective uid, descriptors, working directory, argv. With several things wrong at once, the
         // first check in that list is the one that speaks. "Not root" comes first because it is the useful message
@@ -935,6 +976,7 @@ mod tests {
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
             StartRefusal::BadArguments,
+            StartRefusal::WrongProgramPath,
         ];
         for (i, a) in all.iter().enumerate() {
             let text = a.text();

@@ -11,6 +11,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use tidewise_helper::args::HELPER_PATH;
+
 const POLICY_NAME: &str = "io.github.tidewise.helper.policy";
 
 fn packaging() -> PathBuf {
@@ -176,4 +178,15 @@ fn the_dialog_message_shows_the_command_line() {
     assert_eq!(messages.len(), 1, "one message, no translations");
     assert!(messages[0].contains("$(command_line)"), "{}", messages[0]);
     assert!(!messages[0].contains("cmdline_short"));
+}
+
+#[test]
+fn the_policy_names_exactly_the_path_the_helper_insists_on() {
+    // The helper refuses unless argv[0] is HELPER_PATH, and pkexec matches the policy by the real path of the
+    // program. If the two differ, either the helper refuses every request or pkexec falls back to the stock action.
+    let xml = policy();
+    assert_eq!(
+        annotations(&xml, "org.freedesktop.policykit.exec.path"),
+        vec![HELPER_PATH.to_string()]
+    );
 }

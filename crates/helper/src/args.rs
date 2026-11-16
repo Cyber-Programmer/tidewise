@@ -8,11 +8,17 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 
+/// The one path the helper is installed at, and the path of the polkit action (`exec.path`). `pkexec` hands the
+/// program the name it was typed with, so this is what `argv[0]` must be (threat model, question 22).
+pub const HELPER_PATH: &str = "/usr/lib/tidewise/tidewise-helper";
+
 /// Why argv is not acceptable. A code only; nothing from argv is repeated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgsError {
     /// Not exactly the program name plus one argument.
     WrongCount,
+    /// The program name is not exactly `HELPER_PATH`.
+    WrongProgramPath,
 }
 
 /// The summary argument as raw bytes: argv must be exactly `[program, summary]`.
@@ -70,16 +76,19 @@ mod tests {
 
     #[test]
     fn only_the_program_name_is_refused() {
-        assert_eq!(summary_arg(argv(&["helper"])), Err(ArgsError::WrongCount));
+        assert_eq!(
+            summary_arg(argv(&[HELPER_PATH])),
+            Err(ArgsError::WrongCount)
+        );
     }
 
     #[test]
     fn two_or_more_arguments_are_refused() {
         for args in [
-            argv(&["helper", "a", "b"]),
-            argv(&["helper", "a", ""]),
-            argv(&["helper", "--help", "update system (1 package)"]),
-            argv(&["helper", "a", "b", "c", "d"]),
+            argv(&[HELPER_PATH, "a", "b"]),
+            argv(&[HELPER_PATH, "a", ""]),
+            argv(&[HELPER_PATH, "--help", "update system (1 package)"]),
+            argv(&[HELPER_PATH, "a", "b", "c", "d"]),
         ] {
             assert_eq!(summary_arg(args), Err(ArgsError::WrongCount));
         }
@@ -87,7 +96,7 @@ mod tests {
 
     #[test]
     fn an_empty_summary_is_returned_as_it_is_the_comparison_refuses_it_later() {
-        assert_eq!(summary_arg(argv(&["helper", ""])), Ok(Vec::new()));
+        assert_eq!(summary_arg(argv(&[HELPER_PATH, ""])), Ok(Vec::new()));
     }
 
     #[test]
@@ -95,7 +104,7 @@ mod tests {
         // It is never parsed as an option; the only use is the byte comparison.
         for text in ["--root=/x", "-U", "--", "--force", "-Syu"] {
             assert_eq!(
-                summary_arg(argv(&["helper", text])),
+                summary_arg(argv(&[HELPER_PATH, text])),
                 Ok(text.as_bytes().to_vec())
             );
         }
@@ -104,17 +113,75 @@ mod tests {
     #[test]
     fn bytes_that_are_not_utf8_come_through_untouched() {
         let raw = vec![0xff, b'a', 0xc0, 0x80, 0x00, b'z'];
-        let args = vec![os("helper"), OsString::from_vec(raw.clone())];
+        let args = vec![os(HELPER_PATH), OsString::from_vec(raw.clone())];
         assert_eq!(summary_arg(args), Ok(raw));
     }
 
     #[test]
     fn a_new_line_and_other_control_characters_are_kept_for_the_comparison_to_refuse() {
-        let args = argv(&["helper", "update system (1 package)\nMESSAGE=x"]);
+        let args = argv(&[HELPER_PATH, "update system (1 package)\nMESSAGE=x"]);
         assert_eq!(
             summary_arg(args),
             Ok(b"update system (1 package)\nMESSAGE=x".to_vec())
         );
+    }
+
+    #[test]
+    fn the_program_name_must_be_exactly_the_helpers_path() {
+        // pkexec passes argv[0] as it was typed (only a PATH lookup becomes absolute), so a symlink's name, a relative
+        // name or any other spelling reaches the helper as it is. Only the fixed path is accepted (question 22).
+        let wrong: [&[u8]; 14] = [
+            b"helper",
+            b"tidewise-helper",
+            b"",
+            b"/usr/lib/tidewise/tidewise-helper/",
+            b"/usr/lib/tidewise/./tidewise-helper",
+            b"//usr/lib/tidewise/tidewise-helper",
+            b"/usr/lib/tidewise/tidewise-helper ",
+            b"/usr/lib/tidewise/tidewise-helper\n",
+            b"/usr/lib/tidewise/tidewise-helper\0",
+            b"/usr/lib/tidewise/Tidewise-helper",
+            b"/opt/tidewise/tidewise-helper",
+            b"/tmp/NO PASSWORD NEEDED, press Cancel/tidewise-helper",
+            b"/tmp/x/../../usr/lib/tidewise/tidewise-helper",
+            b"/usr/lib/tidewise/tidewise-helper\xff",
+        ];
+        for program in wrong {
+            let args = vec![
+                OsString::from_vec(program.to_vec()),
+                os("update system (1 package)"),
+            ];
+            assert_eq!(
+                summary_arg(args),
+                Err(ArgsError::WrongProgramPath),
+                "{:?}",
+                String::from_utf8_lossy(program)
+            );
+        }
+    }
+
+    #[test]
+    fn the_exact_path_is_accepted() {
+        assert_eq!(
+            summary_arg(argv(&["/usr/lib/tidewise/tidewise-helper", "x"])),
+            Ok(b"x".to_vec())
+        );
+    }
+
+    #[test]
+    fn a_wrong_count_is_reported_as_a_count_error_even_with_a_wrong_name() {
+        // The shape comes first: with no argument, or too many, the name is not looked at.
+        assert_eq!(summary_arg(argv(&["helper"])), Err(ArgsError::WrongCount));
+        assert_eq!(
+            summary_arg(argv(&["helper", "a", "b"])),
+            Err(ArgsError::WrongCount)
+        );
+        assert_eq!(summary_arg(Vec::new()), Err(ArgsError::WrongCount));
+    }
+
+    #[test]
+    fn the_helpers_path_is_the_one_in_the_policy_and_the_package() {
+        assert_eq!(HELPER_PATH, "/usr/lib/tidewise/tidewise-helper");
     }
 
     // ---- caller_uid -------------------------------------------------------------------------------------
