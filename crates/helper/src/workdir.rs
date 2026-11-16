@@ -34,7 +34,20 @@ pub enum WorkDirError {
     Io,
 }
 
-/// A verified work folder.
+/// A verified work folder: in production, only ever `/run/tidewise-helper` (`WorkDir::open_default`). A constructor for
+/// any other folder exists only in the test builds, so outside them no other folder can be made into a `WorkDir`:
+///
+/// ```compile_fail
+/// use tidewise_helper::workdir::WorkDir;
+/// let _ = WorkDir::open(std::path::Path::new("/tmp/anywhere"), 0);
+/// ```
+///
+/// and the one way to get one compiles:
+///
+/// ```no_run
+/// use tidewise_helper::workdir::WorkDir;
+/// let _dir = WorkDir::open_default();
+/// ```
 #[derive(Debug)]
 pub struct WorkDir {
     path: PathBuf,
