@@ -745,3 +745,66 @@ or removed enum variant parse a wire line instead. Two red flow tests had script
 said so there. Old flow tests had empty lists as "no provider installed"; their data now has a `pacman` line (no
 assertion changed). Three red-commit messages had wrong counts and were corrected before any push. The WBS sheet is
 yours.
+
+## 2026-11-16 — 5.4 Polkit policy, one deletion point, clippy ban
+Done:
+- `packaging/polkit/io.github.tidewise.helper.policy`: one action, `allow_any` `no`, `allow_inactive` `no`, `allow_active`
+  `auth_admin` (never `_keep`), `exec.path` `/usr/lib/tidewise/tidewise-helper`, message ending `$(command_line)`, no
+  `.rules` file. Tests: `crates/helper/tests/polkit_policy.rs` (8, red commit first, plus a later hardening with two
+  mutation checks) and container `tests/container/tests/polkit.rs` (4: DTD valid, a broken copy fails, real polkitd on a
+  private bus lists the action with the agreed defaults, an action under another id leaves ours "not found"; mutation
+  check with `auth_admin_keep` failed it). The test image gained `polkit` and `libxml2`.
+- **Dialog check, by hand, 15 Nov 2026 (you, KDE Plasma agent)** with a TEST action of the same message and `exec.path`
+  `/usr/bin/true`: the summary is shown whole, a 192-byte one wrapped over four lines, nothing cut. Decision 0005 stands
+  (recorded in 0005, T-02, question 2). From polkit 128's source: a custom message replaces pkexec's text (`polkit.message`
+  is set only for the stock action) and shows argv only because it says `$(command_line)`; `cmdline_short` is cut to 80.
+- The `WorkDir` rule: in non-test code a `WorkDir` can only be opened with `WorkDir::open_default()` (`/run/tidewise-helper`,
+  owner root); `open(path, uid)` is `#[cfg(test)]`. Proved by a `compile_fail` doctest, a source guard
+  (`tests/work_folder.rs`, 4 tests) and a mutation check. `removal.rs`: `remove_work_file(&WorkDir, &Path)`, 12 tests, the
+  helper's only deletion; `runner.rs` and `workdir.rs` call it. One `TempDir` per crate for unit tests.
+- `clippy.toml` bans `Command::new`, `fs::remove_file`, `remove_dir`, `remove_dir_all`; exceptions are
+  `#[expect(clippy::disallowed_methods, reason)]` on single functions (list in ENGINEERING.md §2) and one crate-wide allow
+  in `tests/container`. Proof: a deliberate `Command::new` plus `remove_dir` in `crates/core` and a deliberate
+  `remove_file` plus `remove_dir_all` in the helper's `flows.rs` each failed clippy and were reverted; an unfulfilled
+  expectation fails too.
+- Review (fresh subagent): `docs/security/reviews/5.4-polkit.md`, no High, two Medium. R-01 (my comment over-claimed the
+  hand check) and R-07 (policy test gaps) fixed; R-02, R-03, R-04, R-05, R-06, R-08 recorded as threat-model questions 21
+  to 25; R-08's claim of `auth_admin_keep` for the stock action is wrong on this machine (it is `auth_admin`), corrected.
+- Tests: whole workspace 800 passed, 55 ignored (container tests); helper 254 unit (12 new in `removal.rs`). Container
+  (real polkitd, real pacman as root, `--network=none`): helper 11, helper_jobs 22, pacman_prompts 11, polkit 4, smoke 2, all
+  passed, last run on the clippy-ban commit (the two commits after it are a test file and a comment). fmt (also fuzz),
+  clippy -D warnings (every crate rechecked), cargo test --all, cargo deny, release build all exit 0. Fuzz not run:
+  no parser changed.
+- Mutation checks (broken on purpose, the matching test failed, reverted): `open` made public (guard and doctest), spelling
+  check in `removal.rs` removed (6 tests), `symlink_metadata` replaced by `metadata` (1 test), policy `auth_admin_keep`
+  (container test), an `imply` annotation and a translated message (policy test).
+- Real findings: (1) polkitd runs in the rootless `--network=none` container with a hand-started `dbus-daemon --system`;
+  `pkaction` asks it (harmless dbus "Activated service ... Permission denied" noise from polling before polkitd has its
+  name). (2) **clippy answers from its cache after `clippy.toml` changes** and says "Finished" with no errors; touch the
+  sources, use `--keep-going`. (3) `file_changes.rs` read `testing.rs` as production code (the `#[cfg(test)]` is on the `mod`
+  line in `lib.rs`); both guards now skip files declared under `#[cfg(test)]`, no production line left the list.
+  (4) The stock `exec` action here is `auth_admin` everywhere, not `auth_admin_keep`.
+Next:
+- Your decisions: Q22 (helper requires argv[0] to be the exact helper path; touches `crates/helper`), Q24 (widen the ban list
+  to `rustix::fs::unlink` and friends? narrow the `run_program` and `not_root.rs` exceptions?), Q25 (cheap guard fixes). If
+  you agree, one line for CLAUDE.md "Known traps": a new or changed `clippy.toml` is not read until the sources change
+  (`touch` them or `cargo clean -p <crate>`).
+- Optional hand test for Q21 and the symlink case of Q22 (a TEST action again; `/usr/bin/true` as root does nothing; cancel at
+  each dialog): install the same test policy as before,
+  `sudo install -m 0644 -o root -g root /tmp/claude-1000/-home-bahauddin-Documents-Creative-Chaos-OpenSource-tidewise/8f3f84bc-9a2b-4e1c-8ff5-d9eb9de5e3c7/scratchpad/io.github.tidewise.test-dialog.policy /usr/share/polkit-1/actions/io.github.tidewise.test-dialog.policy`, then
+  `pkexec /usr/bin/true '<b>bold</b> &amp; "no password needed"'`; `pkexec /usr/bin/true $'one\ntwo\nthree'`;
+  `pkexec /usr/bin/true "$(head -c 20000 /dev/zero | tr '\0' x)"`; `pkexec /usr/bin/true '$(user) $(program)'`; and the
+  symlink: `d=$(mktemp -d); mkdir "$d/NO PASSWORD IS NEEDED, press Cancel"; ln -s /usr/bin/true "$d/NO PASSWORD IS NEEDED, press Cancel/true"; pkexec "$d/NO PASSWORD IS NEEDED, press Cancel/true" "install extra/dbeaver (2 packages)"; rm -r "$d"`;
+  remove the policy again with `sudo rm /usr/share/polkit-1/actions/io.github.tidewise.test-dialog.policy`. Note whether
+  bold or `&` is interpreted, whether four newlines show, whether the buttons stay reachable, and whether the symlink's
+  words appear in the title.
+- 5.5: install the helper at exactly the annotated real path and test it (Q23); the permission test (T-03); then with the
+  installed package check env, file descriptors and the dialog under the real pkexec and our action (the one 5.4 item left
+  from the 5.3c note).
+Blockers: none.
+Rules bent: the dialog check is manual (a real agent cannot be driven by a test); recorded here, in 0005 and in T-02. No
+`(red)` commit for the container tests (characterisation), for the policy-test hardening (starts green, two mutation checks)
+and for `clippy.toml` (the proof is the deliberate violations above). The `removal.rs` red commit has a stub that always
+refuses, so the tests fail on assertions. `TempDir` was consolidated before `removal.rs` (the removal tests need it).
+Both source guards were changed to skip `#[cfg(test)]` module files (not a weakening: no production line left the list).
+`#[expect]` instead of the `#[allow]` you wrote (stricter). The WBS sheet is yours.
