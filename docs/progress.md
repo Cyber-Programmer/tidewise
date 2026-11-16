@@ -829,15 +829,21 @@ Done:
 - **Q25 (it was small):** `work_folder.rs` checks `src/` has no subfolders and that only unit tests follow a file's first
   `#[cfg(test)]` (an `impl WorkDir {` only directly after a marker); four mutations caught. CLAUDE.md has the clippy-cache trap.
 - Review (fresh subagent, `docs/security/reviews/5.4b-argv0.md`): no High or Medium. R-03 and R-04 fixed; R-01 (`std::fs::rename`
-  not banned) and R-02 (a refused start is not journaled) are your questions 26 and 27; R-05 and R-06 noted. Threat model, 0005 and
-  the 5.4 review table updated.
-- Tests: whole workspace 810 passed, 59 ignored (container tests); helper 261 unit, `polkit_policy` 9, `work_folder` 6. Container
-  (real polkitd, real pkexec and pacman as root, `--network=none`): helper 11, helper_jobs 22, pacman_prompts 11, polkit 8,
-  smoke 2, all passed (last run before two test-only commits). fmt, clippy -D warnings (every crate rechecked), cargo test
+  not banned) and R-02 (a refused start is not journaled) were your questions 26 and 27, decided the same day and built (below);
+  R-05 and R-06 noted. Threat model, 0005 and the 5.4 review table updated.
+- **Q26:** `clippy.toml` bans `std::fs::rename` too; nothing called it; a deliberate call in `crates/core` failed clippy.
+- **Q27:** a start refusal after the root check (cannot check the descriptors, unexpected descriptor, working directory, argument
+  count, program name) writes one journal entry: `PRIORITY=4`, `TIDEWISE_CALLER_UID`, `TIDEWISE_STAGE=start_refused`, a fixed
+  `TIDEWISE_OUTCOME` code, never argv text (`Stage::StartRefused` holds a `&'static str`); the two refusals before the root check
+  stay silent. Red tests first (nine failed on assertions), two mutation checks, and a container test with the real pkexec: a
+  symlinked start leaves exactly one entry that holds nothing the caller typed.
+- Tests: whole workspace 815 passed, 60 ignored (container tests); helper 266 unit, `polkit_policy` 9, `work_folder` 6. Container
+  (real polkitd, real pkexec and pacman as root, `--network=none`): helper 11, helper_jobs 22, pacman_prompts 11, polkit 9,
+  smoke 2, all passed (the full run was before the container test of the symlink journal entry, which was run on its own
+  and mutation-checked). fmt, clippy -D warnings (every crate rechecked), cargo test
   --all, cargo deny, release build exit 0. Fuzz not run: no parser changed and no fuzz target uses the argv API.
 Next:
-- Your decisions: Q26 (ban `std::fs::rename` too: recommended, costs nothing), Q27 (one fixed journal line for a wrong
-  program name?).
+- Nothing is waiting for your decision.
 - Backlog for 5.6 (your decision): the hostile-argv hand test on KDE (commands in the 5.4 entry above); a hostile `argv[1]` is
   still shown in the dialog after the fixed path.
 - 5.5: install the helper at exactly `/usr/lib/tidewise/tidewise-helper` and test that its real path equals the policy's
@@ -847,4 +853,6 @@ Blockers: none.
 Rules bent: no `(red)` commit for the container tests (their behaviour was built and unit-tested in the two commits before),
 for the guard tests (they start green, mutation-checked) and for the clippy ban (proof by deliberate violations). The
 `StartRefusal::WrongProgramPath` variant is new where the plan said to reuse `BadArguments` (its sentence would mislead; local,
-not protocol). `#[expect]` instead of `#[allow]`, as in 5.4. The WBS sheet is yours.
+not protocol). `#[expect]` instead of `#[allow]`, as in 5.4. Q27 is applied to all five post-root refusals, not only the three
+examples you named (your rule was "after the root check"). Four container tests that pinned "a refusal to start is not logged"
+were changed on purpose and now assert the entry. The WBS sheet is yours.
