@@ -64,17 +64,27 @@ fn scalar(text: &str, name: &str) -> Option<String> {
         .map(|value| value.trim_matches(['\'', '"']).to_string())
 }
 
-/// `name=(a b c)` on one line: the words without their quotes. The recipe keeps every array on one line on purpose
-/// (and no item has a space in it), so this small reader is enough; a multi-line array is a failure, not a guess.
+/// `name=(a b c)`: the words without their quotes. The array may be wrapped over several lines (the next lines
+/// are read up to the one that ends in `)`). No item has a space in it, so splitting on spaces is enough.
 fn array(text: &str, name: &str) -> Vec<String> {
     let prefix = format!("{name}=(");
-    let line = code_lines(text)
-        .into_iter()
-        .find(|line| line.starts_with(&prefix))
+    let lines = code_lines(text);
+    let start = lines
+        .iter()
+        .position(|line| line.starts_with(&prefix))
         .unwrap_or_else(|| panic!("the PKGBUILD has no `{name}=(...)` line"));
-    let inside = line[prefix.len()..]
+    let mut joined = String::new();
+    for line in &lines[start..] {
+        joined.push_str(line);
+        joined.push(' ');
+        if line.ends_with(')') {
+            break;
+        }
+    }
+    let inside = joined[prefix.len()..]
+        .trim_end()
         .strip_suffix(')')
-        .unwrap_or_else(|| panic!("`{name}=(` must be one line ending in `)`: {line}"));
+        .unwrap_or_else(|| panic!("`{name}=(` is never closed with `)`"));
     inside
         .split_whitespace()
         .map(|word| word.trim_matches(['\'', '"']).to_string())
@@ -328,6 +338,33 @@ fn the_empty_debug_package_is_turned_off() {
     // The release profile has no debug info, so makepkg's `tidewise-debug` package would be empty (it printed
     // "No debugging symbols" for both binaries). Proper debug info and a debug package: an M10 idea.
     assert_eq!(array(&pkgbuild(), "options"), ["!debug"]);
+}
+
+#[test]
+fn the_depends_are_the_list_derived_from_the_built_package() {
+    // Derived in 5.5 from the package built in the container, not guessed (evidence in docs/progress.md):
+    //  - linked in (readelf NEEDED, ldd, namcap): glibc (libc, libm, the loader), libgcc (libgcc_s; NOT gcc-libs,
+    //    which Rust does not need and which only reaches libgcc through its own dependencies), fontconfig;
+    //  - loaded at run time (names found in the app binary, not NEEDED): libxkbcommon, wayland (libwayland-client,
+    //    libwayland-egl), libx11, libxcb, libxi, libxkbcommon-x11. The human decided they are depends, not optdepends:
+    //    without one set of them the window cannot open;
+    //  - programs the package runs: pacman (the helper), polkit (pkexec, polkitd, the policy).
+    assert_eq!(
+        array(&pkgbuild(), "depends"),
+        [
+            "pacman",
+            "polkit",
+            "glibc",
+            "libgcc",
+            "fontconfig",
+            "libxkbcommon",
+            "wayland",
+            "libx11",
+            "libxcb",
+            "libxi",
+            "libxkbcommon-x11",
+        ]
+    );
 }
 
 // ---- how it is built ----------------------------------------------------------------------------------------
