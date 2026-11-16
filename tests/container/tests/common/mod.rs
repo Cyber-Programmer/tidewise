@@ -583,3 +583,112 @@ pub fn mode_of(path: &str) -> u32 {
 pub fn pacman_log() -> String {
     fs::read_to_string("/var/log/pacman.log").unwrap_or_default()
 }
+
+// ---- polkitd and the real pkexec (moved here from polkit.rs in 5.5, so package.rs can use them) ----------
+
+/// The polkit policy file's installed path.
+pub const POLICY_PATH: &str = "/usr/share/polkit-1/actions/io.github.tidewise.helper.policy";
+
+/// A system bus and a polkitd with the policy installed. Everything is stopped, and the file removed, on drop.
+pub struct Polkit {
+    bus: Child,
+    polkitd: Child,
+}
+
+impl Polkit {
+    /// Installs `policy`, starts the bus and polkitd, and waits until pkaction can list actions.
+    pub fn start(policy: &str) -> Polkit {
+        assert_inside_the_test_container();
+        fs::write(POLICY_PATH, policy).unwrap();
+
+        fs::create_dir_all("/run/dbus").unwrap();
+        let bus = Command::new("/usr/bin/dbus-daemon")
+            .args(["--system", "--nofork", "--nopidfile"])
+            .env_clear()
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("could not start dbus-daemon");
+        wait_for(|| Path::new("/run/dbus/system_bus_socket").exists());
+
+        let polkitd = Command::new("/usr/lib/polkit-1/polkitd")
+            .arg("--no-debug")
+            .env_clear()
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("could not start polkitd");
+        let started = Polkit { bus, polkitd };
+        // Listing every action succeeds only when polkitd has taken its name on the bus.
+        wait_for(|| {
+            let listing = Command::new("/usr/bin/pkaction")
+                .env_clear()
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .output();
+            listing.is_ok_and(|listing| listing.status.success() && !listing.stdout.is_empty())
+        });
+        started
+    }
+}
+
+impl Drop for Polkit {
+    fn drop(&mut self) {
+        let _ = self.polkitd.kill();
+        let _ = self.polkitd.wait();
+        let _ = self.bus.kill();
+        let _ = self.bus.wait();
+        let _ = fs::remove_file(POLICY_PATH);
+        let _ = fs::remove_file("/run/dbus/system_bus_socket");
+    }
+}
+
+/// Polls `ready` for up to 15 seconds.
+pub fn wait_for(ready: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !ready() {
+        assert!(Instant::now() < deadline, "not ready after 15 seconds");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+pub struct Piped {
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// `pkexec <program> <args>` as root, with an empty environment (plus `PATH` when given), the request on stdin.
+pub fn pkexec(program: &str, args: &[&str], path: Option<&str>, stdin: &[u8]) -> Piped {
+    // Through `timeout`: the test binary is process 1 of the container, and pkexec refuses to serve a parent that is
+    // process 1 ("Refusing to render service to dead parents", exit 127). `timeout` is a real parent in between, and
+    // a limit in case something waits for an agent that is not there.
+    let mut command = Command::new("/usr/bin/timeout");
+    command
+        .args(["60", "/usr/bin/pkexec"])
+        .arg(program)
+        .args(args)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    let mut child = command.spawn().expect("could not start pkexec");
+    let writer = feed(&mut child, stdin);
+    let output = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    Piped {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+/// An install of one dummy package and the summary for it, from the list `pacman --print` gives right now.
+pub fn install_hello() -> (String, String) {
+    let items = confirmed("-S", &[&format!("{REPO}/tidewise-dummy-hello")]);
+    install_request(&[(REPO, "tidewise-dummy-hello")], &[], &items)
+}
