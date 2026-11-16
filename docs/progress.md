@@ -856,3 +856,51 @@ for the guard tests (they start green, mutation-checked) and for the clippy ban 
 not protocol). `#[expect]` instead of `#[allow]`, as in 5.4. Q27 is applied to all five post-root refusals, not only the three
 examples you named (your rule was "after the root check"). Four container tests that pinned "a refusal to start is not logged"
 were changed on purpose and now assert the entry. The WBS sheet is yours.
+
+## 2026-11-16 — 5.5 PKGBUILD skeleton
+Done:
+- **The package.** `packaging/aur/PKGBUILD` (+ `.SRCINFO`, `packaging/desktop/io.github.tidewise.desktop`): builds as an ordinary user and
+  installs, all root:root: `/usr/bin/tidewise` 0755, the helper at exactly `/usr/lib/tidewise/tidewise-helper` 0755 (not setuid), the polkit
+  policy 0644, the desktop entry 0644, the LICENSE 0644. `package()` is only `install -Dm` lines plus one check. `build()` is
+  `cargo build --release --locked`, `check()` is `cargo test --release --locked` (the Rust package guidelines as the local `arch-wiki-docs`
+  20261101-1 gives them: only a Portuguese translation of 2020 is in that snapshot; the live wiki blocks bots, so CLAUDE.md has a trap
+  line). `pkgver` is written in the PKGBUILD and tied to the workspace version by a test. `options=('!debug')` (the debug package was empty;
+  a proper one is an M10 idea). `source` is a local `git archive` tarball with `sha256sums=('SKIP')`: a **release blocker** (threat model Q28),
+  guarded by `packaging.rs` (SKIP refused in a release build and next to a download; a checksum must be 64 hex), CI on `v*` tags is for you to decide in M4.
+- **depends, derived and not guessed** (but see the correction): pacman, polkit, glibc, libgcc (not gcc-libs), fontconfig, libxkbcommon, wayland,
+  libx11, libxcb, libxi, libxkbcommon-x11, libglvnd, libxcursor, libxrender. Linked in: `readelf` NEEDED, `ldd`, namcap (glibc, libgcc, fontconfig).
+  Loaded at run time (names found in the binary, invisible to `ldd` and namcap): the rest. Your decisions: the window-system libraries are depends,
+  not optdepends. **Correction:** my first search used a regex with a `\b` anchor that missed five names, and I wrote "no GL/EGL name was found"
+  (wrong); the review found it, I confirmed it, you added libglvnd, libxcursor and libxrender, and a container test now checks every versioned
+  library name in both binaries against what the declared depends install (it failed on the old image naming exactly those four).
+- **Tests.** `crates/helper/tests/packaging.rs`: 23 text checks (paths and modes built from `HELPER_PATH`, `package()` shape, no setuid or chmod,
+  no rpath, version, depends list, `.SRCINFO` agreement, release guard, recipe shapes, build-hash check, desktop entry). Container
+  (`tests/container/tests/package.rs`, 11 tests; makepkg in a clean Arch, `pacman -U` as root, `--network=none`): files, owners, exact modes, nothing
+  setuid or writable on any path or parent up to `/`, helper real path, no RPATH/RUNPATH, `ldd`, `desktop-file-validate`, namcap (only 13 accepted lines,
+  each with its reason), `.SRCINFO` equals `makepkg --printsrcinfo`, no install script or `provides`/`replaces`/`conflict`/`backup`, library names,
+  polkitd with the policy **the package** installed, real pkexec through the installed helper (dummy-repo job), `pacman -R` leaves nothing
+  (`/run/tidewise-helper` stays, empty, root, 0700: your decision). `Polkit` and `pkexec` moved to `common/` (refactor commit, 9 polkit tests before and after).
+- **Mutation checks, by hand.** Recipe: setuid mode, another path, `SKIP` next to a URL, an rpath flag, a `chmod`, six shape violations, four build-hash
+  violations, each caught. Package (repacked in a throwaway container): setuid helper fails 2 tests, helper behind a symlinked `/usr/lib/tidewise` fails 4,
+  an added `.INSTALL` and an added `provides` each fail the scriptlet test.
+- **Review** (fresh subagent, `docs/security/reviews/5.5-package.md`): no High. R-01 (Medium, the missed libraries) and R-02 (Medium, no look at install
+  scripts) fixed; R-03 and R-05 fixed (R-05 with your design: sha256 recorded at the end of `build()`, checked at the start of `package()`); R-04 and R-07 in part;
+  R-06 1 and 2 fixed, 3 accepted. Threat model: T-03 done for the package, Q23 closed, Q28 to Q30 new.
+- **Harness.** `Containerfile.package` + `run.sh`: the package is built from `git archive` of HEAD in a clean pinned Arch (`run.sh` refuses when `packaging/`, `Cargo.*`,
+  `LICENSE` or the Containerfile are uncommitted), the test stage adds the package, binutils, namcap and desktop-file-utils. First build about 15 minutes, cached
+  after. `--disable-download-timeout` on the pacman calls that run while the image is **built** (the Arch Archive server stalled on every attempt, "Operation too slow"); never at test time.
+- Tests: whole workspace 838 passed, 0 failed, 71 ignored (60 + 11 container tests); fmt, clippy -D warnings, `cargo deny`, release build exit 0. Container (real polkitd,
+  pkexec and pacman as root, `--network=none`), full run: helper 11, helper_jobs 22, pacman_prompts 11, polkit 9, smoke 2 passed; package 11 passed (10 in the full run,
+  then the 11th, namcap, after its accepted list gained the three new libraries: run against the same image). The package image is built from `c96a30f`; the later commits
+  are a test list and docs. Fuzz not run: no parser of outside data changed.
+Next:
+- **M4 manual check (yours, first install on a real machine):** start the installed `tidewise` under a Wayland session and under X11 and confirm the window opens
+  (no test can; threat model Q29, PLAN.md). The app will need to call pkexec with exactly `/usr/lib/tidewise/tidewise-helper`.
+- Before v0.1: the real source URL and checksum, CI on tags (Q28), the Maintainer tag and licence header (Q30). Namcap's one remaining recipe warning is the missing Maintainer tag.
+- 5.6: the hostile-argv hand test on KDE (backlog from 5.4b), unchanged.
+Blockers: none.
+Rules bent: no `(red)` commit for the container tests, the harness and the namcap list (characterisation; the library-name test has red evidence from the old image instead). `.SRCINFO` is hand-written
+(makepkg was not run on the host: a `makepkg --printsrcinfo` attempt was refused by the settings, not retried); the container test compares it with makepkg's output. Two tests in the red commits had gaps
+(a `\` line continuation, `$pkgname` expansion, a missing allowed key): fixed in the green commits, no assertion weakened. `--disable-download-timeout` at image-build time (your OK). The LICENSE is installed although the
+guidelines say GPL-3.0-or-later needs none (your request). `crates/helper/tests/packaging.rs` is a test file in an ask-first crate (in the plan you approved). Read-only `pacman -Qo/-Qi` queries ran on the host for library owners; nothing was
+installed or changed there. The WBS sheet is yours.
