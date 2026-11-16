@@ -37,6 +37,7 @@ pub mod journal;
 pub mod output;
 pub mod pacman_args;
 pub mod progress;
+pub mod removal;
 pub mod run;
 pub mod runner;
 #[cfg(test)]
