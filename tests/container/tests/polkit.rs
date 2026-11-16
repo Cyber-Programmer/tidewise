@@ -18,6 +18,8 @@
 //!    agent, a hostile argv in a dialog (threat model, open question 21, backlog for 5.6).
 //!  - which action pkexec picked. As root, pkexec is authorized whatever the action, and polkitd's log does not name
 //!    it. That pkexec matches `exec.path` by the real path, exactly, is from polkit's source (`find_action_for_path`).
+//!    So the pkexec tests below would pass just the same if pkexec had fallen back to the stock action: they show what
+//!    `argv[0]` the helper receives and what it does with it, and must not be cited for the action match.
 //!  - pkexec's authentication of an ordinary user, and `allow_active` (the container has no logind session, so
 //!    "active" is never true here). The policy's text is what is checked.
 //!  - the package that installs the helper at its path with the right owner: WBS 5.5. Here the test copies it.
