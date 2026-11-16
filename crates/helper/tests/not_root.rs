@@ -4,13 +4,6 @@
 //! These tests need to be *not* root. They skip (with a message) when run as root, for example inside the container,
 //! where `tests/container/tests/helper.rs` covers the root cases.
 
-// The ban in clippy.toml is for the product. This file starts the real helper binary (and flock) as a child process
-// and removes its own lock file in the temp folder: that is what it is for.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "a test that starts the helper binary and cleans up its own temp file"
-)]
-
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -32,6 +25,10 @@ fn running_as_root() -> bool {
     root
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "starts the helper binary under test, as an ordinary user, with an argument list and no shell"
+)]
 fn helper(args: &[&str]) -> Command {
     let mut command = Command::new(HELPER);
     command.args(args).env_clear();
@@ -89,6 +86,10 @@ fn as_an_ordinary_user_it_refuses_with_one_sentence_on_stderr_and_exit_2() {
 /// `flock(1)` opens its lock file and runs the command with that descriptor still open, so the helper starts with a
 /// descriptor 3 it did not expect (the same trick as the container test; no shell). Skips if flock is not installed.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "starts flock to hand the helper an extra descriptor, and removes the test's own lock file in the temp folder"
+)]
 fn an_extra_open_file_still_gets_the_not_root_message() {
     if running_as_root() {
         return;

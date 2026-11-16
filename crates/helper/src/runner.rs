@@ -130,6 +130,23 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
     }
 }
 
+/// The command for one run: the program, its arguments as a list (no shell), a cleared environment plus exactly the
+/// fixed one, and no stdin. The helper's one place that starts a program; `run_program` adds the output files, the
+/// process group and the spawn.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the one place the helper starts a program: absolute path, argument list, cleared environment, no shell (golden rule 3)"
+)]
+fn pacman_command(program: &Path, arguments: &[String]) -> Command {
+    let mut command = Command::new(program);
+    command
+        .args(arguments)
+        .env_clear()
+        .envs(pacman_environment())
+        .stdin(Stdio::null());
+    command
+}
+
 /// Removes the run's two files when it ends, however it ends. Through `removal.rs`, the helper's one way to delete.
 struct Cleanup<'a> {
     dir: &'a WorkDir,
@@ -171,10 +188,6 @@ impl PacmanRunner {
     }
 
     /// The program and its arguments, with an optional time limit. `run` calls this with pacman.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the one place the helper starts a program: absolute path, argument list, cleared environment, no shell (golden rule 3)"
-    )]
     fn run_program(
         &mut self,
         program: &Path,
@@ -194,11 +207,7 @@ impl PacmanRunner {
         };
         let mut stdout_reader = File::open(&files.out_path).map_err(|_| RunnerError::Io)?;
 
-        let mut child = Command::new(program)
-            .args(arguments)
-            .env_clear()
-            .envs(pacman_environment())
-            .stdin(Stdio::null())
+        let mut child = pacman_command(program, arguments)
             .stdout(Stdio::from(files.out))
             .stderr(Stdio::from(files.err))
             .process_group(0)
