@@ -1,7 +1,22 @@
 //! The helper's only way to delete a file (WBS 5.4; golden rule 7; threats T-03, T-17, T-20).
 //!
-//! STUB for the red commit: it always refuses, so the tests below fail on their assertions. The real function follows.
+//! `remove_work_file` removes one thing: a regular file that sits directly in the helper's work folder,
+//! `/run/tidewise-helper`. It takes the `WorkDir`, the proof that the folder is the verified one (in production
+//! `WorkDir` can only be made for that folder: see `workdir.rs` and `tests/work_folder.rs`). Everything else is refused:
+//!  - a path that is not directly inside the folder, judged by how it is spelled and before the file system is
+//!    touched at all: another folder, a subfolder, a relative path, any `..`, the folder itself;
+//!  - a symlink, a directory, a socket or anything else that is not a regular file. The file is looked at with
+//!    `symlink_metadata`, which never follows a link.
+//!
+//! The helper deletes nothing anywhere else: `clippy.toml` forbids `std::fs::remove_file`, `remove_dir` and
+//! `remove_dir_all` in the whole workspace, and this is the one place in the helper that is allowed to call
+//! `remove_file`. Never the pacman lock `db.lck` (golden rule 9): that is not in this folder.
+//!
+//! Between the look and the removal someone could swap the file, but only root can write in the folder (it is
+//! root-owned, mode 0700, checked when it is opened). Even then `remove_file` unlinks a symlink instead of following
+//! it, and it fails on a directory.
 
+use std::fs;
 use std::path::Path;
 
 use crate::workdir::WorkDir;
@@ -18,8 +33,20 @@ pub enum RemovalError {
 }
 
 /// Removes one regular file that sits directly in the work folder.
-pub fn remove_work_file(_dir: &WorkDir, _path: &Path) -> Result<(), RemovalError> {
-    Err(RemovalError::Io)
+pub fn remove_work_file(dir: &WorkDir, path: &Path) -> Result<(), RemovalError> {
+    // Judged by spelling alone, before any look at the disk: `..` has no file name, and the parent must be exactly
+    // the folder (so `folder/sub/../file` and `folder/../file` are outside).
+    let name = path.file_name().ok_or(RemovalError::OutsideFolder)?;
+    if path.parent() != Some(dir.path()) {
+        return Err(RemovalError::OutsideFolder);
+    }
+    // From here on the helper's own spelling is used, never the caller's (a trailing slash would make a look follow a link).
+    let target = dir.path().join(name);
+    let meta = fs::symlink_metadata(&target).map_err(|_| RemovalError::Io)?;
+    if !meta.file_type().is_file() {
+        return Err(RemovalError::NotARegularFile);
+    }
+    fs::remove_file(&target).map_err(|_| RemovalError::Io)
 }
 
 #[cfg(test)]
