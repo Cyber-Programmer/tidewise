@@ -1,21 +1,22 @@
 # Fuzzing the pacman parsers and the helper protocol
 
-Eight cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`), `ss` (`parse_ss`), `si` (`parse_si`), `qu` (`parse_qu`)
+Nine cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`), `ss` (`parse_ss`), `si` (`parse_si`), `qu` (`parse_qu`)
 and `request` (`tidewise-helper-protocol`: `parse_request`, `validate`, `summary`, `parse_event`, `Details::from_raw`),
-`output` (`tidewise-helper`: `parse_print`, `same_transaction`, `is_lock_failure`, `count_not_installed`, the parsers of pacman's output as the root helper reads it) and `progress` (`tidewise-helper`: `ProgressTracker`). They only call
+`output` (`tidewise-helper`: `parse_print`, `same_transaction`, `is_lock_failure`, `count_not_installed`, the parsers of pacman's output as the root helper reads it), `progress` (`tidewise-helper`: `ProgressTracker`) and `gate` (`tidewise-helper`: `summary_arg`, `caller_uid` and `decide`: what the caller chooses besides the request, argv and `PKEXEC_UID`). They only call
 parsers and pure functions on bytes or text; they never run pacman or touch the system. Needs **nightly**, used only through `cargo +nightly`
 (the default toolchain stays stable). `fuzz/` is its own workspace, so the root fmt/clippy/test/deny and CI do
 not see it.
 
 Seeds: `tests/fixtures/pacman/` is used directly as the read-only seed folder (no copies, so they can't drift);
 `request` uses `tests/fixtures/helper-protocol/` (three valid requests); `output` and `progress` use
-`tests/fixtures/helper-jobs/` (real saved pacman output; for `progress` the first byte is the confirmed total).
+`tests/fixtures/helper-jobs/` (real saved pacman output; for `progress` the first byte is the confirmed total); `gate` uses
+`tests/fixtures/helper-gate/` (byte 0 = length of the argv text, byte 1 = length of the id text, then the argv text, the id text and the request).
 New inputs libFuzzer finds go to `fuzz/corpus/<target>/`; crashes go to `fuzz/artifacts/<target>/`.
 Both are gitignored.
 
 Run from the repo root (10 minutes each):
 
-    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress
+    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress fuzz/corpus/gate
     cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
@@ -24,6 +25,7 @@ Run from the repo root (10 minutes each):
     cargo +nightly fuzz run request fuzz/corpus/request tests/fixtures/helper-protocol -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run output fuzz/corpus/output tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run progress fuzz/corpus/progress tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"
+    cargo +nightly fuzz run gate fuzz/corpus/gate tests/fixtures/helper-gate -- -max_total_time=600; echo "exit: $?"
 
 No crashes: the output ends with `Done <N> runs in 600 second(s)`, `exit: 0`, and `fuzz/artifacts/` has
 nothing in it. A crash prints `panicked at …` or `deadly signal`, then `Test unit written to
