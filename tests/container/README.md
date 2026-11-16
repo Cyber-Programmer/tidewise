@@ -113,7 +113,7 @@ The tests install the package with `pacman -U`, check owners, modes, no setuid, 
 with the policy **the package** installed, a real `pkexec` job through the installed helper, and `pacman -R`.
 
 Every test file whose name starts with `package` runs in this image. `package_hostile.rs` (5.6) is the hostile-input table:
-one test, about 100 rows, each sent through the real `pkexec` to the installed helper (bad names, bad JSON, 2 MiB and more,
+one test, 106 rows, each sent through the real `pkexec` to the installed helper (bad names, bad JSON, 2 MiB and more,
 hostile `argv[1]`, wrong program names, a hostile environment, a leaked descriptor, values pkexec itself refuses), with the
 whole journal entry compared and "nothing changed" checked after every row; it takes about 20 seconds once the image
 exists. The caller is root, so it shows what reaches the helper, not pkexec's protection for an ordinary user (the VM
