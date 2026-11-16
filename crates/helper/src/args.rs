@@ -1,12 +1,15 @@
 //! Steps 4 and 5: what the caller put in argv and in the environment (threats T-02, T-04, T-01, T-14).
 //!
-//! argv carries exactly one thing: the summary text that `pkexec` shows in the password dialog. It is kept as raw
+//! argv is exactly two things. First the program's own name, which must be `HELPER_PATH` byte for byte: `pkexec` hands
+//! the program the name it was typed with (a symlink's name stays a symlink's name) and puts it, as typed, in the
+//! command line the dialog shows, so anything else could dress up the dialog of a real transaction (question 22).
+//! Then the summary text that `pkexec` shows in the password dialog. The summary is kept as raw
 //! bytes, never turned into text, and used only for one comparison with the summary the helper recomputes. The
 //! environment is not read at all, except `PKEXEC_UID`, which `pkexec` sets to the id of the user who called it
 //! (`pkexec(1)`). That id goes into the log and nowhere else: it never allows or refuses anything.
 
 use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 /// The one path the helper is installed at, and the path of the polkit action (`exec.path`). `pkexec` hands the
 /// program the name it was typed with, so this is what `argv[0]` must be (threat model, question 22).
@@ -21,12 +24,18 @@ pub enum ArgsError {
     WrongProgramPath,
 }
 
-/// The summary argument as raw bytes: argv must be exactly `[program, summary]`.
+/// The summary argument as raw bytes: argv must be exactly `[HELPER_PATH, summary]`. The shape is judged first, then
+/// the program name, byte for byte (no normalising: `./`, `//`, a trailing slash or a symlink's name are all refused).
 pub fn summary_arg(args: impl IntoIterator<Item = OsString>) -> Result<Vec<u8>, ArgsError> {
     let mut args = args.into_iter().fuse();
-    let _program_name = args.next();
-    match (args.next(), args.next()) {
-        (Some(summary), None) => Ok(summary.into_vec()),
+    match (args.next(), args.next(), args.next()) {
+        (Some(program), Some(summary), None) => {
+            if program.as_bytes() == HELPER_PATH.as_bytes() {
+                Ok(summary.into_vec())
+            } else {
+                Err(ArgsError::WrongProgramPath)
+            }
+        }
         _ => Err(ArgsError::WrongCount),
     }
 }

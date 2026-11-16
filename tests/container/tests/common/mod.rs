@@ -10,6 +10,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixDatagram;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -17,6 +18,9 @@ use std::time::{Duration, Instant};
 use tidewise_container_tests::require_container;
 
 pub const HELPER: &str = "/opt/tidewise/tidewise-helper";
+/// The name pkexec gives the helper as argv[0] (what the policy's `exec.path` and the package say). The helper refuses
+/// to start under any other name (5.4b), so the tests, which run the binary from the read-only mount above, pass this.
+pub const HELPER_ARGV0: &str = "/usr/lib/tidewise/tidewise-helper";
 pub const JOURNAL_DIR: &str = "/run/systemd/journal";
 pub const JOURNAL_SOCKET: &str = "/run/systemd/journal/socket";
 pub const WORK_DIR: &str = "/run/tidewise-helper";
@@ -95,7 +99,11 @@ pub fn spawn(
     stdout: Stdio,
     stderr: Stdio,
 ) -> Child {
-    Command::new(program)
+    let mut command = Command::new(program);
+    if program == HELPER {
+        command.arg0(HELPER_ARGV0);
+    }
+    command
         .args(args)
         .env_clear()
         .envs(envs.iter().copied())
@@ -522,9 +530,9 @@ pub fn spawn_job(
     request: &str,
     own_group: bool,
 ) -> (Child, std::thread::JoinHandle<()>) {
-    use std::os::unix::process::CommandExt;
     let mut command = Command::new(HELPER);
     command
+        .arg0(HELPER_ARGV0)
         .arg(summary)
         .env_clear()
         .stdin(Stdio::piped())
@@ -544,11 +552,12 @@ pub fn run_under_umask(mask: &str, summary: &str, stdin: &[u8]) -> Ran {
     let mut child = Command::new("/usr/bin/bash")
         .args([
             "-c",
-            "umask \"$1\" && exec \"$2\" \"$3\"",
+            "umask \"$1\" && exec -a \"$4\" \"$2\" \"$3\"",
             "bash",
             mask,
             HELPER,
             summary,
+            HELPER_ARGV0,
         ])
         .env_clear()
         .stdin(Stdio::piped())
