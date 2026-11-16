@@ -53,7 +53,7 @@ const EXPECTED_FILES: [(&str, u32); 5] = [
 
 /// namcap lines that are accepted, each with the reason (the human accepted the first three kinds on 16 Nov 2026).
 /// Any other line fails the test. Matched as text inside the line.
-const ACCEPTED_NAMCAP: [(&str, &str); 10] = [
+const ACCEPTED_NAMCAP: [(&str, &str); 13] = [
     (
         "W: Missing Maintainer tag",
         "the maintainer's name and contact are the human's choice, made when the package goes to the AUR",
@@ -93,6 +93,18 @@ const ACCEPTED_NAMCAP: [(&str, &str); 10] = [
     (
         "W: Dependency included, but may not be needed ('libxkbcommon-x11')",
         "loaded at run time; the human decided it is a depends",
+    ),
+    (
+        "W: Dependency included, but may not be needed ('libglvnd')",
+        "loaded at run time (libEGL, libGL), found by review R-01 of 5.5; the human decided it is a depends",
+    ),
+    (
+        "W: Dependency included, but may not be needed ('libxcursor')",
+        "loaded at run time (libXcursor), found by review R-01 of 5.5; the human decided it is a depends",
+    ),
+    (
+        "W: Dependency included, but may not be needed ('libxrender')",
+        "loaded at run time (libXrender), found by review R-01 of 5.5; the human decided it is a depends",
     ),
 ];
 
