@@ -48,6 +48,9 @@ pub enum Stage<'a> {
     /// The end: the result the final line will carry (a refused request has only this entry), and what the notices
     /// said about the run.
     Finished(&'a Outcome, Notes),
+    /// A start check that comes after the root check refused (threat model question 27). Only a fixed code: the
+    /// `'static` lifetime means no runtime text, argv included, can ever be passed in.
+    StartRefused(&'static str),
 }
 
 /// What a job's notices said, for the journal: a clean `ok` and an `ok` that came with something to read must never look
@@ -85,6 +88,8 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
     // with something to read or with a check that did not run).
     let (priority, stage_name, code, notes) = match stage {
         Stage::Accepted => ("6", "accepted", None, Notes::default()),
+        // STUB (red commit): written like an accepted entry, so the tests fail on their assertions.
+        Stage::StartRefused(_) => ("6", "accepted", None, Notes::default()),
         Stage::Finished(outcome, notes) => {
             let ok_with_notices = matches!(outcome, Outcome::Ok) && notes.any();
             let clean_ok = matches!(outcome, Outcome::Ok) && !notes.any();
@@ -514,6 +519,39 @@ mod tests {
         assert!(
             datagram.contains("TIDEWISE_OUTCOME=invalid\n"),
             "{datagram}"
+        );
+    }
+
+    // ---- a refused start ----------------------------------------------------------------------------------
+
+    #[test]
+    fn a_start_refusal_is_a_warning_with_a_fixed_code_the_caller_and_no_summary() {
+        let entry = String::from_utf8(record(
+            Some(1000),
+            Stage::StartRefused("wrong_program_path"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(
+            entry,
+            "SYSLOG_IDENTIFIER=tidewise-helper\n\
+             PRIORITY=4\n\
+             TIDEWISE_CALLER_UID=1000\n\
+             TIDEWISE_STAGE=start_refused\n\
+             TIDEWISE_OUTCOME=wrong_program_path\n\
+             MESSAGE=uid 1000: refused to start: wrong_program_path\n"
+        );
+    }
+
+    #[test]
+    fn a_start_refusal_with_an_unknown_caller_says_unknown() {
+        let entry =
+            String::from_utf8(record(None, Stage::StartRefused("unexpected_fd"), None)).unwrap();
+        assert!(entry.contains("TIDEWISE_CALLER_UID=unknown\n"), "{entry}");
+        assert!(entry.contains("PRIORITY=4\n"), "{entry}");
+        assert!(
+            entry.contains("TIDEWISE_OUTCOME=unexpected_fd\n"),
+            "{entry}"
         );
     }
 
