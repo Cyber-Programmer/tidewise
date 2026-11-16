@@ -4,6 +4,7 @@
 - Date: 2026-11-13
 - Decided by: Bahauddin Hassan (human), 2026-11-13
 - Task: WBS 5.1 (threat model, section 3 and threat T-02); recorded while starting 5.7.
+- Updated: 2026-11-16, WBS 5.4: the re-test with our own policy action passed on KDE (section "5.4 re-test"). The decision stands.
 
 ## Context
 
@@ -40,11 +41,35 @@ Tested by the human on 13 Nov 2026 on their KDE Plasma agent: `pkexec /usr/bin/t
 (cancelled at the dialog). The agent **showed the full argv in the dialog title**, so a summary in argv does reach the
 user there. Not tested: GNOME's agent, other KDE versions, long summaries (truncation), non-ASCII text.
 
+### 5.4 re-test (15 Nov 2026, the human, KDE Plasma's polkit agent)
+
+Our policy action, `packaging/polkit/io.github.tidewise.helper.policy`, has the message
+"Tidewise needs an administrator password to make this change: $(command_line)". Its program path is the helper's, so
+the test used a TEST action with the same defaults and message and `exec.path` `/usr/bin/true`, installed by hand and
+removed again. A custom message **replaces** pkexec's text (pkexec sets `polkit.message` only for the stock action),
+and shows argv only because the message says `$(command_line)` (polkit 128, source in threat model 25).
+
+- `pkexec /usr/bin/true "install extra/dbeaver (2 packages)"`: the title read "Tidewise needs an administrator
+  password to make this change: /usr/bin/true install extra/dbeaver (2 packages)", **whole**.
+- A 192-byte summary: **whole**, wrapped over four lines, ending "(40 packages)", nothing cut. (The stock action's
+  text uses `cmdline_short`, which pkexec cuts to 80 characters; ours does not.)
+- Details pane: the action description, the action id, the vendor. `pkaction`: `implicit active: auth_admin` and the
+  `exec.path` annotation. The quotes around the argument are not shown.
+- Cancelled each time. Not tried: a second prompt after authenticating (no `_keep`), GNOME's agent, a summary of the
+  full 200 bytes, non-ASCII or hostile text, this action at its real path (5.5).
+
 ## Caveats
 
-- **Re-test in 5.4 with our own polkit action.** The test above used the stock `org.freedesktop.policykit.exec`
-  action. A custom action with its own `<message>` may hide argv; if our dialog does not show the summary, this
-  decision is reopened.
+- ~~**Re-test in 5.4 with our own polkit action.**~~ **Done 15 Nov 2026 (above): the summary is shown whole.** Still
+  open: GNOME's agent, and the real action at its real path (5.5).
+- **argv is chosen by the caller and polkit does not sanitise it** (`command_line` is not escaped or cut). Any process of
+  the user can show a Tidewise-branded prompt with text of its own after the fixed sentence; the helper then refuses
+  (the summary does not match), but the user has been asked for a password. This is the spoofing and fatigue risk of
+  T-02 and T-16, not a privilege gain. Whether the agents render markup, and what a very long or multi-line argv does,
+  is untested (threat model, open question 21).
+- **argv[0] is part of `command_line` and the caller can dress it up** with a symlink to the helper; the helper ignores
+  it today. Making the helper require the exact path would make the whole dialog of an accepted request
+  fixed-sentence + fixed-path + recomputed-summary. Proposed, not decided (open question 22).
 - argv is visible to every user in `ps`. The summary must contain nothing secret (package names only).
 - The summary shown can be long (many packages); the summary function must have a length rule decided with the
   protocol (for example "install dbeaver and 11 more"), tested against the dialog's truncation.
@@ -55,5 +80,6 @@ user there. Not tested: GNOME's agent, other KDE versions, long summaries (trunc
   proves a problem we can only fix before polkit is asked, switch to a D-Bus service. That would change the wording of
   golden rule 1 ("started with `pkexec`") and add a dependency that needs its own approval.
 - Threat T-02's proof becomes: the unit test "argv summary ≠ summary derived from JSON → refused" plus the 5.4 dialog
-  check with our action.
+  check with our action (done on KDE, see above).
+- The policy must keep `$(command_line)` in its message and must not use `cmdline_short`; `polkit_policy.rs` checks it.
 - Threat model §3 is updated to say "decided, see this record".
