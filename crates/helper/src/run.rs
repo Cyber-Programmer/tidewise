@@ -90,6 +90,12 @@ impl StartRefusal {
         }
     }
 
+    /// True if this refusal writes a journal entry: every one that comes after the root check. Before it (the user
+    /// cannot be checked, or is not root) the helper stays silent, because anyone can start it by hand.
+    pub fn is_journaled(self) -> bool {
+        !matches!(self, Self::CannotCheckUser | Self::NotRoot)
+    }
+
     /// The sentence printed on stderr.
     pub fn text(self) -> &'static str {
         match self {
@@ -127,10 +133,9 @@ pub fn write_line(out: &mut impl Write, line: &str) -> io::Result<()> {
     out.flush()
 }
 
-/// What the start checks hand on: the raw summary argument and the caller's id (for the log only).
+/// What the start checks hand on: the raw summary argument.
 struct Started {
     summary: Vec<u8>,
-    caller: Option<u32>,
 }
 
 /// The four start checks, in order. The first one that fails decides.
@@ -154,10 +159,7 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
         ArgsError::WrongCount => StartRefusal::BadArguments,
         ArgsError::WrongProgramPath => StartRefusal::WrongProgramPath,
     })?;
-    Ok(Started {
-        summary,
-        caller: caller_uid(facts.pkexec_uid),
-    })
+    Ok(Started { summary })
 }
 
 /// Makes the runner for a job, only after a request was accepted (so a refused request never touches the work folder).
@@ -172,10 +174,16 @@ pub fn run(
     log: &mut dyn FnMut(&[u8]) -> bool,
     make_runner: MakeRunner,
 ) -> u8 {
+    // The caller's id is read first so that a refusal can carry it too (for the log only: it never decides anything).
+    let caller = caller_uid(facts.pkexec_uid.clone());
     let started = match start(facts) {
         Ok(started) => started,
         Err(refusal) => {
-            // A failed write changes nothing: the exit code is the answer.
+            // The audit trail first, as for a refused request. A refusal before the root check stays silent: anyone
+            // can start the helper by hand. A failed write changes nothing: the exit code is the answer.
+            if refusal.is_journaled() {
+                let _ = log(&record(caller, Stage::StartRefused(refusal.code()), None));
+            }
             let _ = write_line(stderr, refusal.text());
             return EXIT_REFUSED_TO_START;
         }
@@ -186,7 +194,7 @@ pub fn run(
             let outcome = Outcome::Error(verdict.error);
             // The audit trail first, so it exists even if nobody is listening to stdout any more.
             let written = log(&record(
-                started.caller,
+                caller,
                 Stage::Finished(&outcome, Notes::default()),
                 verdict.summary.as_deref(),
             ));
@@ -194,7 +202,7 @@ pub fn run(
         }
         Decision::Accepted { request, summary } => {
             // Before any pacman command, so a helper that is killed later still left a trace that a job began.
-            let accepted_written = log(&record(started.caller, Stage::Accepted, Some(&summary)));
+            let accepted_written = log(&record(caller, Stage::Accepted, Some(&summary)));
 
             let (outcome, notes) = match make_runner() {
                 Err(kind) => (Outcome::Error(kind), Notes::default()),
@@ -214,7 +222,7 @@ pub fn run(
             };
 
             let finished_written = log(&record(
-                started.caller,
+                caller,
                 Stage::Finished(&outcome, notes),
                 Some(&summary),
             ));

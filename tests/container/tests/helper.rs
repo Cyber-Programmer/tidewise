@@ -173,10 +173,20 @@ fn the_wrong_number_of_arguments_is_refused_to_start_with_exit_2() {
             "{args:?}: {}",
             ran.stderr
         );
-        assert!(
-            journal.datagrams().is_empty(),
-            "{args:?}: a refusal to start is not logged"
+        // A refusal after the root check writes one entry: a fixed code, a warning, never the arguments.
+        let entries = journal.datagrams();
+        assert_eq!(entries.len(), 1, "{args:?}: {entries:?}");
+        assert_fields(
+            &entries[0],
+            &[
+                ("PRIORITY", "4"),
+                ("TIDEWISE_STAGE", "start_refused"),
+                ("TIDEWISE_OUTCOME", "bad_arguments"),
+                ("TIDEWISE_CALLER_UID", "unknown"),
+            ],
         );
+        assert!(!entries[0].contains("--help"), "{args:?}: {}", entries[0]);
+        assert!(!entries[0].contains("TIDEWISE_SUMMARY"), "{}", entries[0]);
     }
 }
 
@@ -210,7 +220,17 @@ fn an_inherited_file_descriptor_is_refused_to_start() {
     assert_eq!(output.stdout, b"");
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("unexpected open files"), "{stderr}");
-    assert!(journal.datagrams().is_empty());
+    // After the root check, so it is logged: a fixed code, a warning.
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_fields(
+        &entries[0],
+        &[
+            ("PRIORITY", "4"),
+            ("TIDEWISE_STAGE", "start_refused"),
+            ("TIDEWISE_OUTCOME", "unexpected_fd"),
+        ],
+    );
 }
 
 #[test]
@@ -299,7 +319,12 @@ fn a_full_or_gone_stderr_does_not_panic_the_refusal_to_start_is_still_exit_2() {
     let status = wait_up_to(&mut gone_stderr, Duration::from_secs(10));
     assert_eq!(status.and_then(|s| s.code()), Some(2));
 
-    assert!(journal.datagrams().is_empty());
+    // Both runs were refused for their arguments, after the root check: one entry each, whatever stderr did.
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    for entry in &entries {
+        assert_fields(entry, &[("TIDEWISE_OUTCOME", "bad_arguments")]);
+    }
 }
 
 // ---- nothing changed ------------------------------------------------------------------------------------
@@ -335,11 +360,17 @@ fn nothing_on_the_system_changes_when_every_request_is_refused() {
     // And the ways to refuse to start.
     assert_eq!(run_with(&[], &[], b"").status.code(), Some(2));
     assert_eq!(run_with(&["a", "b"], &[], b"").status.code(), Some(2));
-    assert_eq!(
-        journal.datagrams().len(),
-        6,
-        "one entry per request that got past the start checks"
-    );
+    // One entry per request that got past the start checks, and one per refusal to start (after the root check).
+    let entries = journal.datagrams();
+    let finished = |stage: &str| {
+        entries
+            .iter()
+            .filter(|entry| entry.contains(&format!("TIDEWISE_STAGE={stage}\n")))
+            .count()
+    };
+    assert_eq!(finished("finished"), 6, "{entries:?}");
+    assert_eq!(finished("start_refused"), 2, "{entries:?}");
+    assert_eq!(entries.len(), 8, "{entries:?}");
     drop(journal);
 
     assert_eq!(
