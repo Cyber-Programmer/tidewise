@@ -305,35 +305,18 @@ impl Runner for PacmanRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::TempDir;
     use std::fs;
     use std::os::unix::fs::MetadataExt;
     use tidewise_helper_protocol::PackageRef;
 
     // ---- a work folder for the tests and a runner pointed at a stand-in program ---------------------------
 
-    struct Temp(PathBuf);
-
-    impl Temp {
-        fn new(test: &str) -> Temp {
-            let path =
-                std::env::temp_dir().join(format!("tidewise-runner-{}-{test}", std::process::id()));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).unwrap();
-            Temp(path)
-        }
-    }
-
-    impl Drop for Temp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
     fn me() -> u32 {
         fs::metadata("/proc/self").unwrap().uid()
     }
 
-    fn runner_in(temp: &Temp) -> PacmanRunner {
+    fn runner_in(temp: &TempDir) -> PacmanRunner {
         let workdir = WorkDir::open(&temp.0.join("work"), me()).unwrap();
         let mut runner = PacmanRunner::new(workdir);
         runner.lock_path = temp.0.join("db.lck");
@@ -355,7 +338,7 @@ mod tests {
             .unwrap()
     }
 
-    fn files_left(temp: &Temp) -> Vec<String> {
+    fn files_left(temp: &TempDir) -> Vec<String> {
         fs::read_dir(temp.0.join("work"))
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
@@ -373,7 +356,7 @@ mod tests {
 
     #[test]
     fn the_real_runner_uses_pacman_by_absolute_path_and_the_real_limits() {
-        let temp = Temp::new("defaults");
+        let temp = TempDir::new("defaults");
         let runner = runner_in(&temp);
         assert_eq!(runner.program, Path::new("/usr/bin/pacman"));
         assert_eq!(runner.read_timeout, READ_TIMEOUT);
@@ -407,7 +390,7 @@ mod tests {
 
     #[test]
     fn stdout_and_stderr_are_files_in_the_work_folder_not_pipes() {
-        let temp = Temp::new("files");
+        let temp = TempDir::new("files");
         let mut runner = runner_in(&temp);
         let out = go(&mut runner, "/usr/bin/readlink", &["/proc/self/fd/1"], None);
         let work = temp.0.join("work");
@@ -428,7 +411,7 @@ mod tests {
 
     #[test]
     fn the_child_leads_its_own_process_group() {
-        let temp = Temp::new("group");
+        let temp = TempDir::new("group");
         let mut runner = runner_in(&temp);
         let out = go(&mut runner, "/usr/bin/cat", &["/proc/self/stat"], None);
         // "pid (comm) state ppid pgrp ..."
@@ -441,7 +424,7 @@ mod tests {
 
     #[test]
     fn the_child_gets_exactly_the_fixed_environment() {
-        let temp = Temp::new("env");
+        let temp = TempDir::new("env");
         let mut runner = runner_in(&temp);
         let out = go(&mut runner, "/usr/bin/env", &[], None);
         let mut lines: Vec<&str> = out.stdout.lines().collect();
@@ -451,7 +434,7 @@ mod tests {
 
     #[test]
     fn stdin_is_null_so_a_program_that_reads_it_sees_the_end_at_once() {
-        let temp = Temp::new("stdin");
+        let temp = TempDir::new("stdin");
         let mut runner = runner_in(&temp);
         let out = go(
             &mut runner,
@@ -467,7 +450,7 @@ mod tests {
 
     #[test]
     fn the_exit_status_is_reported() {
-        let temp = Temp::new("exit");
+        let temp = TempDir::new("exit");
         let mut runner = runner_in(&temp);
         assert_eq!(go(&mut runner, "/usr/bin/true", &[], None).exit, Some(0));
         assert_eq!(go(&mut runner, "/usr/bin/false", &[], None).exit, Some(1));
@@ -475,7 +458,7 @@ mod tests {
 
     #[test]
     fn stdout_and_stderr_are_kept_apart() {
-        let temp = Temp::new("apart");
+        let temp = TempDir::new("apart");
         let file = temp.0.join("input.txt");
         fs::write(&file, "from the file\n").unwrap();
         let mut runner = runner_in(&temp);
@@ -492,7 +475,7 @@ mod tests {
 
     #[test]
     fn invalid_utf8_becomes_replacement_characters() {
-        let temp = Temp::new("utf8");
+        let temp = TempDir::new("utf8");
         let mut runner = runner_in(&temp);
         let out = go(&mut runner, "/usr/bin/printf", &["\\377abc"], None);
         assert_eq!(out.stdout, "\u{fffd}abc");
@@ -500,7 +483,7 @@ mod tests {
 
     #[test]
     fn stdout_lines_are_delivered_in_order_including_a_last_line_without_a_new_line() {
-        let temp = Temp::new("lines");
+        let temp = TempDir::new("lines");
         let mut runner = runner_in(&temp);
         let mut seen: Vec<String> = Vec::new();
         runner
@@ -518,7 +501,7 @@ mod tests {
 
     #[test]
     fn a_read_that_runs_too_long_is_killed() {
-        let temp = Temp::new("timeout");
+        let temp = TempDir::new("timeout");
         let mut runner = runner_in(&temp);
         let started = std::time::Instant::now();
         let out = go(
@@ -534,7 +517,7 @@ mod tests {
 
     #[test]
     fn a_run_without_a_limit_is_left_to_finish() {
-        let temp = Temp::new("nolimit");
+        let temp = TempDir::new("nolimit");
         let mut runner = runner_in(&temp);
         runner.read_timeout = Duration::from_millis(50);
         let out = go(&mut runner, "/usr/bin/sleep", &["1"], None);
@@ -543,7 +526,7 @@ mod tests {
 
     #[test]
     fn output_past_the_cap_is_dropped_and_said_so() {
-        let temp = Temp::new("cap");
+        let temp = TempDir::new("cap");
         let mut runner = runner_in(&temp);
         runner.stdout_cap = 1000;
         let mut longest = 0;
@@ -587,7 +570,7 @@ mod tests {
 
     #[test]
     fn small_output_is_not_marked_truncated() {
-        let temp = Temp::new("small");
+        let temp = TempDir::new("small");
         let mut runner = runner_in(&temp);
         assert!(!go(&mut runner, "/usr/bin/echo", &["hi"], None).truncated);
     }
@@ -596,7 +579,7 @@ mod tests {
 
     #[test]
     fn the_files_are_removed_after_success_failure_and_timeout() {
-        let temp = Temp::new("cleanup");
+        let temp = TempDir::new("cleanup");
         let mut runner = runner_in(&temp);
         go(&mut runner, "/usr/bin/echo", &["x"], None);
         go(&mut runner, "/usr/bin/false", &[], None);
@@ -611,7 +594,7 @@ mod tests {
 
     #[test]
     fn a_program_that_cannot_start_is_a_spawn_error_and_leaves_nothing() {
-        let temp = Temp::new("spawn");
+        let temp = TempDir::new("spawn");
         let mut runner = runner_in(&temp);
         let result = runner.run_program(Path::new("/nonexistent/pacman"), &[], None, &mut |_| {});
         assert_eq!(result.unwrap_err(), RunnerError::Spawn);
@@ -620,7 +603,7 @@ mod tests {
 
     #[test]
     fn a_bad_command_is_refused_before_anything_is_created_or_run() {
-        let temp = Temp::new("refused");
+        let temp = TempDir::new("refused");
         let mut runner = runner_in(&temp);
         let bad = PacmanCommand::RealInstall(vec![pkg("extra", "--force")]);
         assert_eq!(
@@ -638,7 +621,7 @@ mod tests {
     #[test]
     fn run_builds_the_command_line_and_runs_the_program() {
         // echo is not pacman, but it shows exactly what the argument list was.
-        let temp = Temp::new("plumbing");
+        let temp = TempDir::new("plumbing");
         let mut runner = runner_in(&temp);
         runner.program = PathBuf::from("/usr/bin/echo");
         let out = runner
@@ -653,7 +636,7 @@ mod tests {
 
     #[test]
     fn two_runs_in_a_row_do_not_collide() {
-        let temp = Temp::new("serial");
+        let temp = TempDir::new("serial");
         let mut runner = runner_in(&temp);
         for _ in 0..5 {
             assert_eq!(go(&mut runner, "/usr/bin/true", &[], None).exit, Some(0));
@@ -664,7 +647,7 @@ mod tests {
 
     #[test]
     fn the_lock_is_present_when_the_file_is_and_never_touched() {
-        let temp = Temp::new("lock");
+        let temp = TempDir::new("lock");
         let runner = runner_in(&temp);
         assert!(!runner.database_lock_present());
         fs::write(temp.0.join("db.lck"), b"").unwrap();
@@ -679,7 +662,7 @@ mod tests {
 
     #[test]
     fn a_lock_that_is_a_symlink_or_a_folder_counts_as_present() {
-        let temp = Temp::new("lock-odd");
+        let temp = TempDir::new("lock-odd");
         let runner = runner_in(&temp);
         std::os::unix::fs::symlink("/nonexistent", temp.0.join("db.lck")).unwrap();
         assert!(runner.database_lock_present());

@@ -203,30 +203,9 @@ impl WorkDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::TempDir;
     use std::fs;
     use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
-
-    /// A throwaway folder under the temp dir, removed when dropped. (No `tempfile` crate.)
-    struct Temp(PathBuf);
-
-    impl Temp {
-        fn new(test: &str) -> Temp {
-            let path = std::env::temp_dir()
-                .join(format!("tidewise-workdir-{}-{test}", std::process::id()));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).unwrap();
-            Temp(path)
-        }
-        fn join(&self, name: &str) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for Temp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn me() -> u32 {
         fs::metadata("/proc/self").unwrap().uid()
@@ -245,7 +224,7 @@ mod tests {
 
     #[test]
     fn a_missing_folder_is_created_with_mode_0700_and_then_verified() {
-        let temp = Temp::new("create");
+        let temp = TempDir::new("create");
         let path = temp.join("work");
         let dir = WorkDir::open(&path, me()).unwrap();
         assert_eq!(dir.path(), path);
@@ -255,7 +234,7 @@ mod tests {
 
     #[test]
     fn an_existing_folder_that_is_right_is_used_as_it_is() {
-        let temp = Temp::new("existing");
+        let temp = TempDir::new("existing");
         let path = temp.join("work");
         make_dir(&path, 0o700);
         fs::write(path.join("keep-me.txt"), b"x").unwrap();
@@ -265,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_symlink_to_a_good_folder_is_refused() {
-        let temp = Temp::new("symlink");
+        let temp = TempDir::new("symlink");
         let real = temp.join("real");
         make_dir(&real, 0o700);
         let link = temp.join("work");
@@ -278,7 +257,7 @@ mod tests {
 
     #[test]
     fn a_dangling_symlink_is_refused_not_followed_or_created_through() {
-        let temp = Temp::new("dangling");
+        let temp = TempDir::new("dangling");
         let link = temp.join("work");
         symlink(temp.join("nowhere"), &link).unwrap();
         assert_eq!(
@@ -290,7 +269,7 @@ mod tests {
 
     #[test]
     fn a_file_where_the_folder_should_be_is_refused() {
-        let temp = Temp::new("file");
+        let temp = TempDir::new("file");
         let path = temp.join("work");
         fs::write(&path, b"x").unwrap();
         assert_eq!(
@@ -302,7 +281,7 @@ mod tests {
     #[test]
     fn any_mode_but_0700_is_refused_and_not_repaired() {
         for mode in [0o755, 0o750, 0o777, 0o701, 0o600, 0o1700, 0o2700] {
-            let temp = Temp::new(&format!("mode-{mode:o}"));
+            let temp = TempDir::new(&format!("mode-{mode:o}"));
             let path = temp.join("work");
             make_dir(&path, mode);
             assert_eq!(
@@ -316,7 +295,7 @@ mod tests {
 
     #[test]
     fn a_folder_of_another_owner_is_refused() {
-        let temp = Temp::new("owner");
+        let temp = TempDir::new("owner");
         let path = temp.join("work");
         make_dir(&path, 0o700);
         assert_eq!(
@@ -327,7 +306,7 @@ mod tests {
 
     #[test]
     fn a_missing_parent_is_an_io_error_and_nothing_is_created() {
-        let temp = Temp::new("parent");
+        let temp = TempDir::new("parent");
         let path = temp.join("missing-parent").join("work");
         assert_eq!(WorkDir::open(&path, me()).unwrap_err(), WorkDirError::Io);
         assert!(!temp.join("missing-parent").exists());
@@ -350,7 +329,7 @@ mod tests {
 
     #[test]
     fn a_leftover_with_our_own_pid_is_removed_so_a_reused_pid_cannot_block_the_job() {
-        let temp = Temp::new("reused-pid");
+        let temp = TempDir::new("reused-pid");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         let own = std::process::id();
         for extension in ["out", "err"] {
@@ -369,7 +348,7 @@ mod tests {
 
     #[test]
     fn the_two_output_files_are_created_empty_with_mode_0600() {
-        let temp = Temp::new("files");
+        let temp = TempDir::new("files");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         let files = dir.create_output_files(77, 3).unwrap();
         assert_eq!(files.out_path, dir.path().join("tidewise-helper-77-3.out"));
@@ -383,7 +362,7 @@ mod tests {
 
     #[test]
     fn an_existing_name_is_never_reused_or_followed() {
-        let temp = Temp::new("exists");
+        let temp = TempDir::new("exists");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         dir.create_output_files(77, 3).unwrap();
         assert_eq!(
@@ -401,7 +380,7 @@ mod tests {
 
     #[test]
     fn a_failed_second_file_leaves_no_half_pair_behind() {
-        let temp = Temp::new("half");
+        let temp = TempDir::new("half");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         fs::write(dir.path().join("tidewise-helper-5-1.err"), b"").unwrap();
         assert!(dir.create_output_files(5, 1).is_err());
@@ -421,7 +400,7 @@ mod tests {
 
     #[test]
     fn leftovers_of_dead_helpers_are_removed_and_nothing_else() {
-        let temp = Temp::new("leftovers");
+        let temp = TempDir::new("leftovers");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         let root = dir.path();
         // Ours, dead (pid 111) and alive (pid 222):
@@ -489,14 +468,14 @@ mod tests {
 
     #[test]
     fn leftovers_in_an_empty_folder_are_nothing() {
-        let temp = Temp::new("empty");
+        let temp = TempDir::new("empty");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         assert_eq!(dir.remove_leftovers(&|_| false), 0);
     }
 
     #[test]
     fn many_leftovers_are_all_removed() {
-        let temp = Temp::new("many");
+        let temp = TempDir::new("many");
         let dir = WorkDir::open(&temp.join("work"), me()).unwrap();
         for n in 0..2000 {
             fs::write(dir.path().join(file_name(4000, n, "out")), b"").unwrap();

@@ -177,7 +177,7 @@ pub fn send(socket: &Path, datagram: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::testing::TempDir;
     use tidewise_helper_protocol::{Details, Field, InvalidRequest, Reason};
 
     fn text(datagram: &[u8]) -> String {
@@ -518,27 +518,6 @@ mod tests {
     }
 
     // ---- sending ----------------------------------------------------------------------------------------
-
-    /// A folder for a test socket, removed when dropped. (No `tempfile` crate: this crate has one dependency.)
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(test: &str) -> TempDir {
-            let path = std::env::temp_dir().join(format!(
-                "tidewise-helper-journal-{}-{test}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).unwrap();
-            TempDir(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
 
     #[test]
     fn a_datagram_arrives_whole_on_a_socket_in_a_temp_folder() {

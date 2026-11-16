@@ -25,6 +25,8 @@ mod si;
 mod size;
 mod ss;
 mod sync;
+#[cfg(test)]
+mod testing;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};

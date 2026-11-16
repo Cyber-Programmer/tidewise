@@ -21,13 +21,38 @@ fn src_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// Every `.rs` file in `src/`: (name, whole text).
+/// The files `lib.rs` declares under `#[cfg(test)]` (today `testing.rs`): never compiled into the real helper, so
+/// they are not production code and are not read here.
+fn test_only_files() -> Vec<String> {
+    let lib = fs::read_to_string(src_dir().join("lib.rs")).unwrap();
+    let mut files = Vec::new();
+    let mut lines = lib.lines().map(str::trim);
+    while let Some(line) = lines.next() {
+        if line != "#[cfg(test)]" {
+            continue;
+        }
+        let declaration = lines.next().unwrap_or_default();
+        let declaration = declaration
+            .trim_start_matches("pub(crate) ")
+            .trim_start_matches("pub ");
+        if let Some(name) = declaration
+            .strip_prefix("mod ")
+            .and_then(|rest| rest.strip_suffix(';'))
+        {
+            files.push(format!("{name}.rs"));
+        }
+    }
+    files
+}
+
+/// Every `.rs` file in `src/` that is compiled into the real helper: (name, whole text).
 fn sources() -> Vec<(String, String)> {
+    let skipped = test_only_files();
     let mut found = Vec::new();
     for entry in fs::read_dir(src_dir()).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if name.ends_with(".rs") {
+        if name.ends_with(".rs") && !skipped.contains(&name) {
             found.push((name, fs::read_to_string(&path).unwrap()));
         }
     }

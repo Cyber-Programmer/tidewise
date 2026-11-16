@@ -2,6 +2,9 @@
 //! run. Used by the flow tests and the `run` tests. Compiled only for tests.
 
 use std::collections::VecDeque;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::pacman_args::PacmanCommand;
 use crate::runner::{RunOutput, Runner, RunnerError};
@@ -54,4 +57,33 @@ pub fn out(exit: i32, stdout: &str, stderr: &str) -> Result<RunOutput, RunnerErr
 
 pub fn ok(stdout: &str) -> Result<RunOutput, RunnerError> {
     out(0, stdout, "")
+}
+
+/// A throwaway folder under the system temp dir, removed when dropped. (No `tempfile` crate: this crate has one
+/// dependency.) The one TempDir of this crate's unit tests, so the only place they delete a folder. The counter makes
+/// every folder unique inside a process, whatever the test's name.
+pub struct TempDir(pub PathBuf);
+
+impl TempDir {
+    pub fn new(test: &str) -> TempDir {
+        static COUNT: AtomicU32 = AtomicU32::new(0);
+        let number = COUNT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "tidewise-helper-test-{}-{number}-{test}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        TempDir(path)
+    }
+
+    pub fn join(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }

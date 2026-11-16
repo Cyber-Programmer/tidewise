@@ -88,6 +88,7 @@ pub(crate) fn sync_lists_in(sync_dir: &Path, repos: &[String]) -> Result<SyncLis
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::TempDir;
     use std::fs::{self, File};
     use std::time::Duration;
 
@@ -184,29 +185,6 @@ mod tests {
     }
 
     // --- sync_lists_in ---
-
-    /// A folder under the system temp dir, removed when dropped. Unique per test name and process.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir()
-                .join(format!("tidewise-sync-test-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn at(seconds: u64) -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
