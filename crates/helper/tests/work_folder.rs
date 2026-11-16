@@ -12,6 +12,9 @@
 //!
 //! Like `file_changes.rs` this reads each source file up to its first `#[cfg(test)]`. That is why the test-only
 //! constructor has to sit right before `mod tests`: anything placed after a `#[cfg(test)]` marker would not be read.
+//! Two more checks keep that blind spot closed for both guards (review R-04, 5.4b): `src/` has no subfolders, and
+//! after its first marker a file holds only unit tests (a production item there would start in column 0, which
+//! rustfmt, run in CI, does not allow for anything inside a block).
 //! This is a prompt for review, not a proof of absence.
 
 use std::fs;
@@ -133,4 +136,47 @@ fn the_test_only_constructor_sits_alone_before_the_unit_tests() {
         "nothing but the constructor may sit there"
     );
     assert!(pieces[2].trim_start().starts_with("mod tests {"));
+}
+
+#[test]
+fn src_has_no_subfolders() {
+    // The guards read `src/*.rs` only (review R-04): a module in a subfolder would not be read.
+    let folders: Vec<_> = fs::read_dir(src_dir())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_dir())
+        .collect();
+    assert!(folders.is_empty(), "subfolders of src/: {folders:?}");
+}
+
+#[test]
+fn after_its_first_test_marker_a_file_holds_only_unit_tests() {
+    // The guards read each file only up to its first `#[cfg(test)]`. So what follows must be unit tests and nothing
+    // else (review R-04). rustfmt indents everything inside a block, so a production item placed after `mod tests`
+    // would start in column 0: here only the closing brace, the test module, the test-only constructor of WorkDir,
+    // comments, further markers and (in lib.rs) module declarations may.
+    for (name, text) in sources() {
+        let Some((_, after)) = text.split_once("#[cfg(test)]") else {
+            continue;
+        };
+        for line in after.lines() {
+            let is_module_declaration = name == "lib.rs"
+                && line.ends_with(';')
+                && (line.starts_with("pub mod ")
+                    || line.starts_with("pub(crate) mod ")
+                    || line.starts_with("mod "));
+            let allowed = line.is_empty()
+                || line.starts_with(' ')
+                || line.starts_with("//")
+                || line.starts_with("#[cfg(test)]")
+                || line == "}"
+                || line == "mod tests {"
+                || (name == "workdir.rs" && line == "impl WorkDir {")
+                || is_module_declaration;
+            assert!(
+                allowed,
+                "{name}: production code after the first #[cfg(test)], where the guards do not read: {line}"
+            );
+        }
+    }
 }
