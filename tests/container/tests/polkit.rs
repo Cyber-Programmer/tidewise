@@ -39,8 +39,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use common::{
-    HELPER, REPO, assert_inside_the_test_container, confirmed, feed, install_request,
-    installed_version, reset_world,
+    FakeJournal, HELPER, REPO, assert_fields, assert_inside_the_test_container, confirmed, feed,
+    install_request, installed_version, reset_world,
 };
 
 /// The policy as it is in the repository, embedded at build time.
@@ -422,4 +422,53 @@ fn polkit_a_name_found_through_path_arrives_as_the_installed_path_and_is_accepte
     let last = ran.stdout.lines().last().unwrap_or_default();
     assert!(last.contains("summary_mismatch"), "{last}");
     assert_eq!(ran.stderr, "");
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn polkit_a_symlinked_start_leaves_one_journal_entry_without_its_name() {
+    // Question 27: a refusal after the root check is journaled, so a symlinked start (which only happens after the user
+    // authenticated) leaves a trace: a fixed code, a warning, who asked (pkexec sets PKEXEC_UID to the caller's id; root
+    // here) and nothing the caller typed.
+    assert_inside_the_test_container();
+    reset_world();
+    let (request, summary) = install_hello();
+    let _helper = InstalledHelper::new();
+    let journal = FakeJournal::start();
+    let _polkit = Polkit::start(POLICY);
+    let folder = "/tmp/NO PASSWORD NEEDED, press Cancel";
+    fs::create_dir_all(folder).unwrap();
+    let link = format!("{folder}/tidewise-helper");
+    symlink(INSTALLED_HELPER, &link).unwrap();
+
+    let ran = pkexec(&link, &[&summary], None, request.as_bytes());
+    assert_eq!(ran.code, Some(2), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(ran.stderr, REFUSED_NAME);
+
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_fields(
+        &entries[0],
+        &[
+            ("SYSLOG_IDENTIFIER", "tidewise-helper"),
+            ("PRIORITY", "4"),
+            ("TIDEWISE_CALLER_UID", "0"),
+            ("TIDEWISE_STAGE", "start_refused"),
+            ("TIDEWISE_OUTCOME", "wrong_program_path"),
+        ],
+    );
+    // Nothing the caller typed: not the symlink's name, nor any word of it, nor the summary, nor the request.
+    for text in [
+        "NO PASSWORD",
+        "press Cancel",
+        "/tmp/",
+        summary.as_str(),
+        "tidewise-dummy-hello",
+    ] {
+        assert!(!entries[0].contains(text), "{text:?} in {}", entries[0]);
+    }
+    assert!(!entries[0].contains("TIDEWISE_SUMMARY"), "{}", entries[0]);
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
+    let _ = fs::remove_file(&link);
+    let _ = fs::remove_dir(folder);
 }
