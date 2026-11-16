@@ -122,6 +122,9 @@ libalpm bindings (the `alpm` crate). The M2 spike measured both; see `docs/decis
 -> the other M3 tasks, so every helper task can be tested against real pacman in a container from the start.
 Threat model: `docs/security/threat-model.md`.
 
+**Ideas for later:** M10: proper debug info and a debug package for the AUR package (5.5 builds with
+`options=('!debug')` because the release profile has no debug info, so the debug package would be empty).
+
 Design is done **just in time**: each milestone designs its own screens first.
 
 ## 8. Working rules (for Claude Code and chats)
