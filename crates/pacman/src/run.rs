@@ -24,6 +24,10 @@ const PACMAN_CONF: &str = "/usr/bin/pacman-conf";
 
 /// Builds the command: absolute program, arguments as a list (no shell), empty environment
 /// except `LC_ALL=C`, and no stdin so pacman can never wait for a prompt.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the one place the read-only side starts a program: absolute path, argument list, no shell (golden rule 3)"
+)]
 fn pacman_command(program: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(program);
     command

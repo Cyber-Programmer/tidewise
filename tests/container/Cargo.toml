@@ -7,6 +7,12 @@ repository.workspace = true
 publish.workspace = true
 description = "Tests that run real pacman as root. They only run inside the Tidewise test container."
 
+# Not product code: these tests start programs (pacman, kill, flock, repo-add) and remove files and folders inside a
+# throwaway container, by design. The ban in the workspace's clippy.toml (golden rules 3 and 7) is for the product,
+# so the lint is off for this one crate. Nothing else in the workspace has a crate-wide allow.
+[lints.clippy]
+disallowed_methods = "allow"
+
 # No dependencies on purpose: this crate runs inside a throwaway image, and every dependency would be one more thing
 # to build and review there.
 [dependencies]
