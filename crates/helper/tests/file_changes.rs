@@ -85,8 +85,6 @@ fn expected() -> Vec<(String, String)> {
         ("runner.rs", "lock_path: PathBuf,"),
         ("runner.rs", "lock_path: PathBuf::from(DATABASE_LOCK),"),
         ("runner.rs", "match fs::symlink_metadata(&self.lock_path) {"),
-        // Removes the two output files of the run that just ended.
-        ("runner.rs", "let _ = fs::remove_file(path);"),
         // The one removal: a regular file directly in the work folder, after symlink_metadata (removal.rs).
         (
             "removal.rs",
@@ -105,11 +103,6 @@ fn expected() -> Vec<(String, String)> {
             "workdir.rs",
             "match DirBuilder::new().mode(0o700).create(path) {",
         ),
-        (
-            "workdir.rs",
-            "if is_regular_file && !process_is_alive(pid) && fs::remove_file(entry.path()).is_ok() {",
-        ),
-        ("workdir.rs", "let _ = fs::remove_file(&out_path);"),
         ("workdir.rs", "OpenOptions::new()"),
     ];
     list.sort();

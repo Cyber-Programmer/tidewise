@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::env::pacman_environment;
 use crate::pacman_args::{ArgsRefused, PACMAN, PacmanCommand, args};
+use crate::removal::remove_work_file;
 use crate::workdir::{WorkDir, WorkDirError};
 
 /// Dry runs and reads that take longer than this are killed.
@@ -129,13 +130,16 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
     }
 }
 
-/// Removes the run's two files when it ends, however it ends.
-struct Cleanup(Vec<PathBuf>);
+/// Removes the run's two files when it ends, however it ends. Through `removal.rs`, the helper's one way to delete.
+struct Cleanup<'a> {
+    dir: &'a WorkDir,
+    paths: Vec<PathBuf>,
+}
 
-impl Drop for Cleanup {
+impl Drop for Cleanup<'_> {
     fn drop(&mut self) {
-        for path in &self.0 {
-            let _ = fs::remove_file(path);
+        for path in &self.paths {
+            let _ = remove_work_file(self.dir, path);
         }
     }
 }
@@ -180,7 +184,10 @@ impl PacmanRunner {
             .workdir
             .create_output_files(std::process::id(), serial)
             .map_err(RunnerError::WorkDir)?;
-        let _cleanup = Cleanup(vec![files.out_path.clone(), files.err_path.clone()]);
+        let _cleanup = Cleanup {
+            dir: &self.workdir,
+            paths: vec![files.out_path.clone(), files.err_path.clone()],
+        };
         let mut stdout_reader = File::open(&files.out_path).map_err(|_| RunnerError::Io)?;
 
         let mut child = Command::new(program)

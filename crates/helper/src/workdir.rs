@@ -18,6 +18,8 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+use crate::removal::remove_work_file;
+
 /// The folder the real helper uses.
 pub const WORK_DIR: &str = "/run/tidewise-helper";
 
@@ -134,7 +136,10 @@ impl WorkDir {
             };
             // DirEntry::file_type does not follow symlinks: only a regular file is ever removed.
             let is_regular_file = entry.file_type().is_ok_and(|kind| kind.is_file());
-            if is_regular_file && !process_is_alive(pid) && fs::remove_file(entry.path()).is_ok() {
+            if is_regular_file
+                && !process_is_alive(pid)
+                && remove_work_file(self, &entry.path()).is_ok()
+            {
                 removed += 1;
             }
         }
@@ -150,7 +155,7 @@ impl WorkDir {
             Ok(file) => file,
             Err(error) => {
                 // Never leave half a pair behind.
-                let _ = fs::remove_file(&out_path);
+                let _ = remove_work_file(self, &out_path);
                 return Err(error);
             }
         };
