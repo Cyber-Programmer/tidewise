@@ -52,6 +52,13 @@ if [ $# -gt 0 ]; then
 fi
 pkg_image=""
 if [ "$want_package" -eq 1 ]; then
+    # The unit tests read the working tree and this image is built from HEAD, so a green unit run and a green container
+    # run could describe two different recipes (review R-06 of 5.5). Refuse when what the package is made of is dirty.
+    if [ -n "$(git status --porcelain -- packaging Cargo.toml Cargo.lock LICENSE tests/container/Containerfile.package)" ]; then
+        echo "run.sh: the package is built from HEAD (git archive), but packaging/, Cargo.toml, Cargo.lock, LICENSE or" \
+             "Containerfile.package have uncommitted changes. Commit them first (or stash them)." >&2
+        exit 1
+    fi
     if [ -n "$(git status --porcelain)" ]; then
         echo "run.sh: WARNING: the working tree has uncommitted changes. The package is built from HEAD" \
              "(git archive), not from the working tree." >&2

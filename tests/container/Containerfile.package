@@ -25,9 +25,11 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
 COPY --chown=builder:builder PKGBUILD .SRCINFO tidewise-*.tar.gz /home/builder/pkg/
 
 # The recipe's own depends and makedepends, read by the builder user (never by root), are installed with `pacman -S`
-# (against the freshly upgraded lists). makepkg then checks them again and builds without sudo.
+# (against the freshly upgraded lists). Every line must be a plain package name first: `pacman -S` would also take a URL
+# (review R-06 of 5.5). makepkg then checks them again and builds without sudo.
 RUN runuser -u builder -- bash -c 'cd /home/builder/pkg && . ./PKGBUILD && printf "%s\n" "${depends[@]}" "${makedepends[@]}"' \
       > /tmp/recipe-deps \
+ && ! grep -qvE '^[a-z0-9@._+-]+$' /tmp/recipe-deps \
  && pacman -S --disable-download-timeout --noconfirm --needed - < /tmp/recipe-deps
 
 # makepkg runs build(), check() (the whole workspace's tests, in release mode) and package(). Everything it makes goes
