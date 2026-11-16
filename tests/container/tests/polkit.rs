@@ -5,12 +5,15 @@
 //!     rejected by the same command (so the check can fail);
 //!  2. polkitd, started on a private system bus, reads the file and lists the action with the agreed defaults
 //!     (`pkaction --verbose`): implicit any `no`, inactive `no`, active `auth_admin`, the helper's absolute path, the
-//!     message with `$(command_line)`. pkexec learns about actions from the same list (EnumerateActions).
+//!     message with `$(command_line)`. This is polkitd's own list of actions (`pkaction` asks it). That pkexec reads actions
+//!     from the same list is from polkit's source, not shown by this test.
 //!
 //! What is NOT checked here, and why:
 //!  - pkexec itself. It is setuid, and the container runs with `no-new-privileges`, so it cannot become root; and an
 //!    authentication needs an agent. So `find_action_for_path` (the exact comparison with `exec.path`) and the dialog
-//!    are not run. The dialog was checked by hand on a KDE agent (decision 0005, threat T-02).
+//!    are not run. What the dialog shows was checked by hand on 15 Nov 2026 on a KDE agent, with a TEST action that has
+//!    the same message but runs `/usr/bin/true` (decision 0005, threat T-02). Not checked by anyone: this action at
+//!    its real path, GNOME's agent, a hostile argv (threat model, open question 21).
 //!  - `allow_active`: the container has no logind session, so "active" is never true here. The file's text is what
 //!    is checked.
 //!  - the helper at its real path (`/usr/lib/tidewise/tidewise-helper`): the package, WBS 5.5.
