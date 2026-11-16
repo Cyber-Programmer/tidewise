@@ -80,8 +80,15 @@ pub fn file_name(pid: u32, serial: u32, extension: &str) -> String {
 }
 
 impl WorkDir {
+    /// The real work folder, `/run/tidewise-helper`, which must belong to root (uid 0): created if missing, then
+    /// verified. The only way to get a `WorkDir` outside the test builds.
+    pub fn open_default() -> Result<WorkDir, WorkDirError> {
+        WorkDir::open_verified(Path::new(WORK_DIR), 0)
+    }
+
     /// Creates `path` (mode 0700) if it is missing, then verifies it: a real directory, owned by `owner_uid`, mode 0700.
-    pub fn open(path: &Path, owner_uid: u32) -> Result<WorkDir, WorkDirError> {
+    /// Private: `open_default` calls it for the real folder, and the test builds for a temporary one.
+    fn open_verified(path: &Path, owner_uid: u32) -> Result<WorkDir, WorkDirError> {
         match fs::symlink_metadata(path) {
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -180,6 +187,16 @@ fn pid_of_our_file(name: &str) -> Option<u32> {
         pid.parse().ok()
     } else {
         None
+    }
+}
+
+// Keep this block here, directly before `mod tests`, and with one function only: tests/file_changes.rs and
+// tests/work_folder.rs read this file only up to the first test marker, and work_folder.rs checks this shape.
+#[cfg(test)]
+impl WorkDir {
+    /// A work folder anywhere, owned by `owner_uid`. For tests only: production code has `open_default`.
+    pub(crate) fn open(path: &Path, owner_uid: u32) -> Result<WorkDir, WorkDirError> {
+        WorkDir::open_verified(path, owner_uid)
     }
 }
 
