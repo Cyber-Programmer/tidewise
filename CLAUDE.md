@@ -87,6 +87,11 @@ The rebuild exists so the human understands every part. For each task:
 - **Clippy answers from its cache after `clippy.toml` changes** and says "Finished" with no errors, so a new ban
   looks like it passes (5.4). After editing `clippy.toml`, `touch` a source file in each crate (or `cargo clean -p
   <crate>`) and run `cargo clippy --keep-going --all-targets -- -D warnings` to see every hit at once.
+- **ArchWiki blocks bots; read the local arch-wiki-docs copy instead.** `wiki.archlinux.org` answers automated fetches
+  with an "Anubis, Access Denied" page (5.5). Use `pacman -Ql arch-wiki-docs` to find a page under
+  `/usr/share/doc/arch-wiki/html/en/`, and cite the page and `pacman -Q arch-wiki-docs`. Never fetch the live wiki
+  through browser automation. Not every page is in every language: the snapshot of 1 Nov 2026 has "Rust package
+  guidelines" only as a Portuguese translation of 2020.
 
 ## Workspace layout
 
