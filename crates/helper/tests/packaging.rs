@@ -323,6 +323,13 @@ fn depends_name_pacman_and_polkit_and_makedepends_the_compiler() {
     assert!(depends.iter().all(|name| !name.contains(['<', '>', '='])));
 }
 
+#[test]
+fn the_empty_debug_package_is_turned_off() {
+    // The release profile has no debug info, so makepkg's `tidewise-debug` package would be empty (it printed
+    // "No debugging symbols" for both binaries). Proper debug info and a debug package: an M10 idea.
+    assert_eq!(array(&pkgbuild(), "options"), ["!debug"]);
+}
+
 // ---- how it is built ----------------------------------------------------------------------------------------
 
 #[test]
@@ -378,6 +385,7 @@ fn srcinfo_agrees_with_the_pkgbuild() {
         "arch",
         "depends",
         "makedepends",
+        "options",
         "source",
         "sha256sums",
     ] {
