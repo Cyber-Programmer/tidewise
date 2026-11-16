@@ -17,6 +17,7 @@
 //! (only the Portuguese translation of 2020-06-23 is in that snapshot), "Arch package guidelines", "PKGBUILD",
 //! ".SRCINFO", "Desktop entries".
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -139,6 +140,9 @@ fn installs(package_body: &[String]) -> Vec<Install> {
     package_body
         .iter()
         .filter(|line| line.as_str() != r#"cd "$pkgname-$pkgver""#)
+        // The check that package() installs what build() made (review R-05 of 5.5) is the one line that is not an
+        // install; `installed_binaries_are_the_ones_build_made` pins its exact shape and place.
+        .filter(|line| !line.starts_with("sha256sum --check "))
         .map(|line| {
             let words: Vec<&str> = line.split_whitespace().collect();
             assert!(
@@ -342,12 +346,15 @@ fn the_empty_debug_package_is_turned_off() {
 
 #[test]
 fn the_depends_are_the_list_derived_from_the_built_package() {
-    // Derived in 5.5 from the package built in the container, not guessed (evidence in docs/progress.md):
+    // Derived in 5.5 from the package built in the container (evidence in docs/progress.md):
     //  - linked in (readelf NEEDED, ldd, namcap): glibc (libc, libm, the loader), libgcc (libgcc_s; NOT gcc-libs,
     //    which Rust does not need and which only reaches libgcc through its own dependencies), fontconfig;
     //  - loaded at run time (names found in the app binary, not NEEDED): libxkbcommon, wayland (libwayland-client,
-    //    libwayland-egl), libx11, libxcb, libxi, libxkbcommon-x11. The human decided they are depends, not optdepends:
-    //    without one set of them the window cannot open;
+    //    libwayland-egl), libx11 (libX11, libX11-xcb), libxcb, libxi, libxkbcommon-x11, and, found by the review of
+    //    5.5 (R-01, my first search used a word-boundary anchor that missed names packed against other text),
+    //    libglvnd (libEGL, libGL), libxcursor, libxrender. The human decided they are depends, not optdepends:
+    //    without them the window cannot open or draw. The container test
+    //    `package_every_library_name_in_the_binaries_exists_with_only_the_declared_depends` keeps the list honest;
     //  - programs the package runs: pacman (the helper), polkit (pkexec, polkitd, the policy).
     assert_eq!(
         array(&pkgbuild(), "depends"),
@@ -363,6 +370,9 @@ fn the_depends_are_the_list_derived_from_the_built_package() {
             "libxcb",
             "libxi",
             "libxkbcommon-x11",
+            "libglvnd",
+            "libxcursor",
+            "libxrender",
         ]
     );
 }
@@ -403,6 +413,44 @@ fn build_and_check_follow_the_rust_package_guidelines() {
             "{name}()"
         );
     }
+}
+
+#[test]
+fn installed_binaries_are_the_ones_build_made() {
+    // Review R-05 of 5.5: makepkg runs check() (a workspace-wide `cargo test --release`) between build() and
+    // package(), and package() installs whatever is left in target/release/. So build() ends by recording the sha256
+    // of the two binaries it made, and package() begins by checking them, before any install: if check() changed
+    // either, packaging stops. (The human's design: no second compile.)
+    let text = pkgbuild();
+    let build = function_body(&text, "build");
+    let record = build.last().expect("build() is empty");
+    let words: Vec<&str> = record.split_whitespace().collect();
+    assert_eq!(words.first(), Some(&"sha256sum"), "{record}");
+    let redirect = words
+        .iter()
+        .position(|word| *word == ">")
+        .expect("no `>` in the record line");
+    let recorded: BTreeSet<String> = words[1..redirect].iter().map(|w| w.to_string()).collect();
+    let file = words[redirect + 1..].join(" ");
+    assert!(
+        file.starts_with("\"$srcdir/") && file.ends_with('"'),
+        "the sums must live in $srcdir: {file}"
+    );
+
+    let package = function_body(&text, "package");
+    assert_eq!(
+        package.get(1).map(String::as_str),
+        Some(format!("sha256sum --check --quiet {file}").as_str()),
+        "the check must be the first thing package() does after the cd: {package:?}"
+    );
+    // The recorded files are exactly the binaries package() installs from target/.
+    let installed: BTreeSet<String> = installs(&package)
+        .into_iter()
+        .map(|install| install.source)
+        .filter(|source| source.starts_with("target/"))
+        .collect();
+    assert_eq!(recorded, installed);
+    assert_eq!(recorded.len(), 2, "{recorded:?}");
 }
 
 // ---- .SRCINFO says what the PKGBUILD says ---------------------------------------------------------------
