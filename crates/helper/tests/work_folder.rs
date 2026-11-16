@@ -14,7 +14,8 @@
 //! constructor has to sit right before `mod tests`: anything placed after a `#[cfg(test)]` marker would not be read.
 //! Two more checks keep that blind spot closed for both guards (review R-04, 5.4b): `src/` has no subfolders, and
 //! after its first marker a file holds only unit tests (a production item there would start in column 0, which
-//! rustfmt, run in CI, does not allow for anything inside a block).
+//! rustfmt, run in CI, does not allow for anything inside a block). If that check ever flags a test (a multi-line
+//! string with text in column 0), indent the literal or build it with `concat!`; do not loosen the check.
 //! This is a prompt for review, not a proof of absence.
 
 use std::fs;
@@ -159,6 +160,8 @@ fn after_its_first_test_marker_a_file_holds_only_unit_tests() {
         let Some((_, after)) = text.split_once("#[cfg(test)]") else {
             continue;
         };
+        // The last line that was not blank; the text starts right after the first marker.
+        let mut previous = "#[cfg(test)]";
         for line in after.lines() {
             let is_module_declaration = name == "lib.rs"
                 && line.ends_with(';')
@@ -171,12 +174,19 @@ fn after_its_first_test_marker_a_file_holds_only_unit_tests() {
                 || line.starts_with("#[cfg(test)]")
                 || line == "}"
                 || line == "mod tests {"
-                || (name == "workdir.rs" && line == "impl WorkDir {")
+                // The test-only constructor's block, and only when it is itself marked: an unmarked `impl WorkDir {`
+                // here would be production code that nothing reads.
+                || (name == "workdir.rs"
+                    && line == "impl WorkDir {"
+                    && previous.starts_with("#[cfg(test)]"))
                 || is_module_declaration;
             assert!(
                 allowed,
                 "{name}: production code after the first #[cfg(test)], where the guards do not read: {line}"
             );
+            if !line.is_empty() {
+                previous = line;
+            }
         }
     }
 }
