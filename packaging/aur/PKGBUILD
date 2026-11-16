@@ -1,0 +1,71 @@
+# Tidewise: an open-source "PC manager" for Arch Linux (WBS 5.5; threat model T-03).
+#
+# Runs as a normal user (makepkg refuses root). Installs, as root:root:
+#   /usr/bin/tidewise                   0755  the app, never root
+#   /usr/lib/tidewise/tidewise-helper   0755  the root helper: NOT setuid, started only by pkexec
+#   /usr/share/polkit-1/actions/io.github.tidewise.helper.policy   0644
+#   /usr/share/applications/io.github.tidewise.desktop             0644
+#   /usr/share/licenses/tidewise/LICENSE                           0644
+# The helper's path is fixed in three places that crates/helper/tests/packaging.rs ties together:
+# HELPER_PATH in the code, `exec.path` in the policy, and here. pkexec finds our policy action
+# only by that exact real path.
+#
+# Rules used, from the ArchWiki as read in the local arch-wiki-docs 20261101-1 (the live wiki
+# blocks bots):
+#  - "Rust package guidelines": build() is `cargo build --release --locked`, check() is
+#    `cargo test --release --locked`; --locked keeps Cargo.lock as it is (reproducible builds).
+#    That snapshot has only the Portuguese translation of 2020-06-23, so these are the 2020
+#    rules. The `-p` choices after the flags are ours (build only the two programs we install).
+#  - "Arch package guidelines": SPDX license; pkgdesc about 80 characters and not naming the
+#    package; quote "$pkgdir"; lines below ~100 characters; files under /usr and nothing in
+#    /run, /tmp, /srv or /home; dependencies are "the most common packaging error", so they are
+#    derived with ldd, readelf and namcap and not guessed (see depends).
+#  - "PKGBUILD": common licenses such as GPL-3.0-or-later need no license file in the package
+#    (the `licenses` package has them); the LICENSE is installed anyway, on purpose.
+#  - ".SRCINFO": `makepkg --printsrcinfo > .SRCINFO` after every change to this file; a test
+#    compares the two.
+#  - "Desktop entries": Type, Name and Exec; the entry is
+#    packaging/desktop/io.github.tidewise.desktop.
+#
+# pkgver is the workspace version in Cargo.toml: packaging.rs fails if they differ.
+#
+# source, for now: a tarball of `git archive` of HEAD with the prefix tidewise-<pkgver>/ (the
+# container test script makes it: tests/container/run.sh). The real tagged-release source, its
+# URL and its checksum come with v0.1 in M4. Until then the checksum is SKIP, and that is a
+# RELEASE BLOCKER: packaging.rs fails a release build (TIDEWISE_RELEASE=1, or a tag build) while
+# any SKIP is left, and at any time a SKIP next to a downloaded source.
+
+pkgname=tidewise
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Manage apps, updates and disk space on Arch Linux in plain language'
+arch=('x86_64')
+url='https://github.com/Cyber-Programmer/tidewise'
+license=('GPL-3.0-or-later')
+# PROVISIONAL: step 5 of 5.5 replaces this line with the list derived from ldd, namcap and the
+# libraries the binaries load at run time.
+depends=('pacman' 'polkit' 'glibc' 'gcc-libs')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --release --locked -p tidewise-app -p tidewise-helper
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --release --locked
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/tidewise "$pkgdir/usr/bin/tidewise"
+  install -Dm755 target/release/tidewise-helper "$pkgdir/usr/lib/tidewise/tidewise-helper"
+  install -Dm644 packaging/polkit/io.github.tidewise.helper.policy \
+    "$pkgdir/usr/share/polkit-1/actions/io.github.tidewise.helper.policy"
+  install -Dm644 packaging/desktop/io.github.tidewise.desktop \
+    "$pkgdir/usr/share/applications/io.github.tidewise.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/tidewise/LICENSE"
+}

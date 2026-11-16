@@ -81,7 +81,8 @@ fn array(text: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// The code lines inside `name() {` ... `}` (the closing brace alone at the start of a line).
+/// The code lines inside `name() {` ... `}` (the closing brace alone at the start of a line). A line that ends in
+/// a backslash is joined with the next one, as the shell reads it, so a long `install` line may be wrapped.
 fn function_body(text: &str, name: &str) -> Vec<String> {
     let header = format!("{name}() {{");
     let mut lines = text.lines();
@@ -90,7 +91,19 @@ fn function_body(text: &str, name: &str) -> Vec<String> {
         "the PKGBUILD has no `{header}`"
     );
     let body: Vec<&str> = lines.take_while(|line| *line != "}").collect();
-    code_lines(&body.join("\n"))
+    let joined = body.join("\n").replace("\\\n", " ");
+    code_lines(&joined)
+}
+
+/// A value as `makepkg --printsrcinfo` writes it: `$pkgname` and `$pkgver` replaced by their values.
+fn expand(value: &str, text: &str) -> String {
+    let name = scalar(text, "pkgname").unwrap();
+    let version = scalar(text, "pkgver").unwrap();
+    value
+        .replace("${pkgname}", &name)
+        .replace("$pkgname", &name)
+        .replace("${pkgver}", &version)
+        .replace("$pkgver", &version)
 }
 
 /// Every value of `key = value` in a `.SRCINFO`, in order.
@@ -368,7 +381,11 @@ fn srcinfo_agrees_with_the_pkgbuild() {
         "source",
         "sha256sums",
     ] {
-        assert_eq!(srcinfo_values(&info, key), array(&text, key), "{key}");
+        let expected: Vec<String> = array(&text, key)
+            .iter()
+            .map(|value| expand(value, &text))
+            .collect();
+        assert_eq!(srcinfo_values(&info, key), expected, "{key}");
     }
     assert_eq!(srcinfo_values(&info, "pkgbase"), ["tidewise"]);
     assert_eq!(srcinfo_values(&info, "pkgname"), ["tidewise"]);
