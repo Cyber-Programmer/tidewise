@@ -6,7 +6,7 @@
 #   Command::new    crates/pacman/src/run.rs (the read-only pacman runner), crates/helper/src/runner.rs (the helper's
 #                   pacman runner), and tests (their own helper functions and crates/helper/tests/not_root.rs).
 #   remove_*        crates/helper/src/removal.rs (the helper's one deletion point), and the TempDir of each crate's tests.
-#   rustix unlink*, rmdir, rename*   nowhere today: nothing calls them.
+#   rename, rustix unlink*, rmdir, rename*   nowhere today: nothing calls them.
 #   tests/container is a crate that runs programs and removes files inside a throwaway container by design; it has one
 #   crate-wide allow in its Cargo.toml.
 # User files are never deleted by the app at all (golden rule 7: they go to the Trash).
@@ -15,6 +15,7 @@ disallowed-methods = [
     { path = "std::fs::remove_file", reason = "files are deleted only through crates/helper/src/removal.rs (golden rule 7); allow it in one function with a reason" },
     { path = "std::fs::remove_dir", reason = "folders are never deleted by the product; tests use their crate's TempDir (golden rule 7)" },
     { path = "std::fs::remove_dir_all", reason = "folders are never deleted by the product; tests use their crate's TempDir (golden rule 7)" },
+    { path = "std::fs::rename", reason = "a rename deletes the file it replaces (golden rule 7); allow it in one function with a reason" },
     # rustix is a dependency of the helper only (for `umask`; its `fs` feature is what gates that call). Its deleting
     # calls are banned like the std ones, and so is renaming, which deletes the file it replaces. The other crates do
     # not depend on rustix, so these paths do not resolve there: measured with clippy 0.1.99 (stable on 16 Nov 2026,
