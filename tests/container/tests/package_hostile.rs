@@ -1123,8 +1123,10 @@ fn package_hostile_every_row_is_refused_and_changes_nothing() {
     assert_eq!(names.len(), total, "two rows have the same name");
     assert!(total >= 90, "the table looks short: {total} rows");
 
-    let packages_before = package_list();
-    let files_before = snapshot();
+    // The baseline moves when a row changes the system, so one bad row is reported once and the rows after it are
+    // still judged on their own.
+    let mut packages_before = package_list();
+    let mut files_before = snapshot();
     assert!(files_before.len() > 1000, "the snapshot looks empty");
 
     let mut failures: Vec<String> = Vec::new();
@@ -1133,18 +1135,23 @@ fn package_hostile_every_row_is_refused_and_changes_nothing() {
         let mut problems = judge(row, &seen);
 
         // Nothing changed, row by row.
-        if package_list() != packages_before {
+        let packages_now = package_list();
+        if packages_now != packages_before {
             problems.push("the installed packages changed".to_string());
+            packages_before = packages_now;
         }
-        let changed = differences(&files_before, &snapshot());
+        let files_now = snapshot();
+        let changed = differences(&files_before, &files_now);
         if !changed.is_empty() {
             problems.push(format!("these paths changed: {changed:?}"));
+            files_before = files_now;
         }
         if Path::new("/var/lib/pacman/db.lck").exists() {
             problems.push("the lock file exists".to_string());
         }
         if Path::new(WORK_DIR).exists() {
             problems.push("the work folder was created".to_string());
+            let _ = fs::remove_dir_all(WORK_DIR);
         }
         for problem in problems {
             failures.push(format!("{}: {problem}", row.name));
