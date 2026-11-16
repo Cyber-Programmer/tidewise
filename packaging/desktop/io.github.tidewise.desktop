@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tidewise
+GenericName=PC manager
+Comment=Install apps, update the system and clean up, in plain language
+Exec=tidewise
+Icon=system-software-install
+Terminal=false
+Categories=System;
