@@ -50,14 +50,20 @@ fuzz_target!(|data: &[u8]| {
         Err(ArgsError::WrongCount)
     );
 
-    // 2. PKEXEC_UID: a number only for plain decimal digits, and then the very number that was written.
-    if let Some(number) = caller_uid(Some(OsString::from_vec(uid_text.to_vec()))) {
-        assert!(uid_text.iter().all(u8::is_ascii_digit), "not digits");
-        assert_eq!(number.to_string().trim_start_matches('0'), {
-            let text = std::str::from_utf8(uid_text).unwrap_or_default();
-            text.trim_start_matches('0')
-        });
-    }
+    // 2. PKEXEC_UID: a number exactly when the text is 1 to 10 plain decimal digits that fit in a u32, and then the
+    //    very number that was written (leading zeros allowed). Both directions, so a function that always answers
+    //    `None`, or one that accepts a sign or a space, is caught.
+    let plain_digits =
+        !uid_text.is_empty() && uid_text.len() <= 10 && uid_text.iter().all(u8::is_ascii_digit);
+    let written = std::str::from_utf8(uid_text)
+        .ok()
+        .filter(|_| plain_digits)
+        .and_then(|text| text.parse::<u64>().ok())
+        .filter(|number| *number <= u64::from(u32::MAX));
+    assert_eq!(
+        caller_uid(Some(OsString::from_vec(uid_text.to_vec()))).map(u64::from),
+        written
+    );
 
     // 3. The decision. Accepted only when the request is valid and argv is exactly the recomputed summary; a refusal
     //    carries at most the recomputed summary (printable ASCII, capped), never the argv text as such.
