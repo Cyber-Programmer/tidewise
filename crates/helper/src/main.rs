@@ -24,7 +24,7 @@ use tidewise_helper::journal::{JOURNAL_SOCKET, send};
 use tidewise_helper::run::{Facts, run};
 use tidewise_helper::runner::{PacmanRunner, Runner};
 use tidewise_helper::uid::read_status;
-use tidewise_helper::workdir::{WORK_DIR, WorkDir, another_process_is_alive};
+use tidewise_helper::workdir::{WorkDir, another_process_is_alive};
 use tidewise_helper_protocol::ErrorKind;
 
 fn main() -> ExitCode {
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     // The work folder and the runner are made only once a request has been accepted. The folder belongs to root
     // (uid 0, which is what the helper is by now); leftovers of a killed earlier helper are removed first.
     let mut make_runner = || -> Result<Box<dyn Runner>, ErrorKind> {
-        let dir = WorkDir::open(Path::new(WORK_DIR), 0).map_err(|_| work_folder_unusable())?;
+        let dir = WorkDir::open_default().map_err(|_| work_folder_unusable())?;
         dir.remove_leftovers(&another_process_is_alive);
         Ok(Box::new(PacmanRunner::new(dir)))
     };
