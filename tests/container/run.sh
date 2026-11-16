@@ -11,6 +11,8 @@
 #    (5.3a), each mounted read-only; nothing else from the host
 #  - each test binary runs in its own fresh container, so one test file cannot leave state for the next
 #  - the container has no network (--network=none)
+#  - (5.5) the package test runs in a second image that holds the package of HEAD, built by makepkg in a container;
+#    that build, and only that, needs network, and happens before any test runs
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -37,6 +39,38 @@ image="localhost/tidewise-test:$inputs"
 echo "==> image $image (the first build needs network, later runs do not)"
 podman build --tag "$image" --file "$here/Containerfile" "$here"
 
+# The package image (5.5): the package of HEAD, built by makepkg inside a container (Containerfile.package), put into
+# a copy of the test image. It is rebuilt whenever HEAD's tarball, the recipe or the Containerfile changes, and a
+# release build of the whole workspace takes minutes, so it is built only for a full run or when a filter says
+# "package" (`run.sh package`); `run.sh dependency` does not touch it.
+want_package=1
+if [ $# -gt 0 ]; then
+    want_package=0
+    for filter in "$@"; do
+        case "$filter" in *package*) want_package=1 ;; esac
+    done
+fi
+pkg_image=""
+if [ "$want_package" -eq 1 ]; then
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "run.sh: WARNING: the working tree has uncommitted changes. The package is built from HEAD" \
+             "(git archive), not from the working tree." >&2
+    fi
+    pkgver=$(git show HEAD:packaging/aur/PKGBUILD | sed -n 's/^pkgver=//p')
+    ctx="${CARGO_TARGET_DIR:-target}/container-package"
+    mkdir -p "$ctx"
+    rm -f "$ctx/PKGBUILD" "$ctx/.SRCINFO" "$ctx"/tidewise-*.tar.gz
+    # Deterministic: git archive uses the commit's time for every file, and gzip -n leaves its own clock out.
+    git archive --format=tar --prefix="tidewise-$pkgver/" HEAD | gzip -n > "$ctx/tidewise-$pkgver.tar.gz"
+    git show HEAD:packaging/aur/PKGBUILD > "$ctx/PKGBUILD"
+    git show HEAD:packaging/aur/.SRCINFO > "$ctx/.SRCINFO"
+    pkg_inputs=$( (echo "$image"; cat "$here/Containerfile.package" "$ctx/PKGBUILD" "$ctx/.SRCINFO" \
+        "$ctx/tidewise-$pkgver.tar.gz") | sha256sum | cut -c1-12)
+    pkg_image="localhost/tidewise-package-test:$pkg_inputs"
+    echo "==> package image $pkg_image (builds the package with makepkg: needs network, takes minutes the first time)"
+    podman build --tag "$pkg_image" --build-arg "BASE=$image" --file "$here/Containerfile.package" "$ctx"
+fi
+
 echo "==> building the helper and the test binaries on the host"
 build_log=$(mktemp)
 trap 'rm -f "$build_log"' EXIT
@@ -61,6 +95,15 @@ status=0
 for entry in "${tests[@]}"; do
     name=${entry%% *}
     binary=$(realpath "${entry#* }")
+    # `package` runs in the package image (the built package is in it); every other file in the plain test image.
+    run_image="$image"
+    if [ "$name" = package ]; then
+        if [ "$want_package" -eq 0 ]; then
+            echo "==> skipping package (the filter does not name it; the package image was not built)"
+            continue
+        fi
+        run_image="$pkg_image"
+    fi
     echo "==> running $name inside a fresh container (no network, binaries mounted read-only)"
     podman run --rm \
         --pull=never \
@@ -68,7 +111,7 @@ for entry in "${tests[@]}"; do
         --security-opt=no-new-privileges \
         --volume "$binary:/opt/tidewise/$name:ro" \
         --volume "$helper:/opt/tidewise/tidewise-helper:ro" \
-        "$image" \
+        "$run_image" \
         "/opt/tidewise/$name" --ignored --test-threads=1 "$@" || status=$?
 done
 exit "$status"
