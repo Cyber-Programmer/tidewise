@@ -1,4 +1,5 @@
-//! Step 10: one journal entry per request that got past the start checks (threat T-14, open question 7).
+//! Step 10: one journal entry per request that got past the start checks, and one for a start refusal that comes after
+//! the root check (threat T-14, open questions 7 and 27).
 //!
 //! No new dependency: journald's native protocol is one datagram to `/run/systemd/journal/socket`, made of
 //! `KEY=value\n` lines (<https://systemd.io/JOURNAL_NATIVE_PROTOCOL/>). That document says a value that contains a
@@ -88,8 +89,8 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
     // with something to read or with a check that did not run).
     let (priority, stage_name, code, notes) = match stage {
         Stage::Accepted => ("6", "accepted", None, Notes::default()),
-        // STUB (red commit): written like an accepted entry, so the tests fail on their assertions.
-        Stage::StartRefused(_) => ("6", "accepted", None, Notes::default()),
+        // A warning with the fixed code of the refusal: who asked and why it did not start, never what they typed.
+        Stage::StartRefused(code) => ("4", "start_refused", Some(code), Notes::default()),
         Stage::Finished(outcome, notes) => {
             let ok_with_notices = matches!(outcome, Outcome::Ok) && notes.any();
             let clean_ok = matches!(outcome, Outcome::Ok) && !notes.any();
@@ -140,6 +141,9 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
                 ""
             }
         ),
+        Some(code) if matches!(stage, Stage::StartRefused(_)) => {
+            format!("refused to start: {code}")
+        }
         Some(code) => code.to_string(),
         None => "accepted".to_string(),
     };
