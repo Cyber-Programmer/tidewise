@@ -84,6 +84,9 @@ The rebuild exists so the human understands every part. For each task:
 - **Test the whole workspace, not one crate.** Run `cargo test --all` (the whole workspace), not `-p <crate>`,
   before every commit: a change in one crate can break another (4.3: `BadQuery` broke the app's exhaustive
   match for 4 commits).
+- **Clippy answers from its cache after `clippy.toml` changes** and says "Finished" with no errors, so a new ban
+  looks like it passes (5.4). After editing `clippy.toml`, `touch` a source file in each crate (or `cargo clean -p
+  <crate>`) and run `cargo clippy --keep-going --all-targets -- -D warnings` to see every hit at once.
 
 ## Workspace layout
 
