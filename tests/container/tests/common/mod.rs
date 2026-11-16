@@ -715,3 +715,52 @@ pub fn install_hello() -> (String, String) {
     let items = confirmed("-S", &[&format!("{REPO}/tidewise-dummy-hello")]);
     install_request(&[(REPO, "tidewise-dummy-hello")], &[], &items)
 }
+
+// ---- the built package (moved here from package.rs in 5.6, so package_hostile.rs can use it) -------------
+
+/// Where the package image keeps what `makepkg` built (see `Containerfile.package`).
+pub const PKG_DIR: &str = "/srv/tidewise-pkg";
+
+/// The built package's file name, read from the recipe in the image: `tidewise-<pkgver>-<pkgrel>-x86_64.pkg.tar.zst`.
+/// (`options=('!debug')` means there is no `tidewise-debug` package.)
+pub fn package_file() -> String {
+    let recipe =
+        fs::read_to_string(format!("{PKG_DIR}/PKGBUILD")).expect("no PKGBUILD in the image");
+    let value = |key: &str| {
+        recipe
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{key}=")))
+            .unwrap_or_else(|| panic!("no {key}= in the PKGBUILD"))
+            .to_string()
+    };
+    format!(
+        "{PKG_DIR}/tidewise-{}-{}-x86_64.pkg.tar.zst",
+        value("pkgver"),
+        value("pkgrel")
+    )
+}
+
+/// The package installed with `pacman -U` (as root, in the container) for the length of a test, and removed again on
+/// drop (when a test already removed it, the removal fails and nobody minds).
+pub struct Installed;
+
+impl Installed {
+    pub fn new() -> Installed {
+        assert_inside_the_test_container();
+        reset_world();
+        let out = pacman(&["-U", "--noconfirm", &package_file()]);
+        assert!(
+            out.status.success(),
+            "pacman -U failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Installed
+    }
+}
+
+impl Drop for Installed {
+    fn drop(&mut self) {
+        let _ = pacman(&["-R", "--noconfirm", "tidewise"]);
+    }
+}

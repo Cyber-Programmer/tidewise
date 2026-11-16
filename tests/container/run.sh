@@ -102,11 +102,12 @@ status=0
 for entry in "${tests[@]}"; do
     name=${entry%% *}
     binary=$(realpath "${entry#* }")
-    # `package` runs in the package image (the built package is in it); every other file in the plain test image.
+    # `package*` files run in the package image (the built package is in it); every other file in the plain test image.
     run_image="$image"
-    if [ "$name" = package ]; then
+    case "$name" in package*) is_package=1 ;; *) is_package=0 ;; esac
+    if [ "$is_package" -eq 1 ]; then
         if [ "$want_package" -eq 0 ]; then
-            echo "==> skipping package (the filter does not name it; the package image was not built)"
+            echo "==> skipping $name (the filter does not name it; the package image was not built)"
             continue
         fi
         run_image="$pkg_image"

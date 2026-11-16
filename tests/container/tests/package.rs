@@ -35,11 +35,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use common::{
-    HELPER_ARGV0, POLICY_PATH, Polkit, WORK_DIR, assert_inside_the_test_container, install_hello,
-    installed_version, pacman, pkexec, reset_world,
+    HELPER_ARGV0, Installed, PKG_DIR, POLICY_PATH, Polkit, WORK_DIR,
+    assert_inside_the_test_container, install_hello, installed_version, package_file, pacman,
+    pkexec,
 };
 
-const PKG_DIR: &str = "/srv/tidewise-pkg";
 const ACTION_ID: &str = "io.github.tidewise.helper";
 
 /// Every regular file the package owns, and its mode. Nothing else may be in the package (but directories).
@@ -129,50 +129,6 @@ fn run(program: &str, args: &[&str]) -> Out {
         code: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
-}
-
-/// The built package's file name, read from the recipe in the image: `tidewise-<pkgver>-<pkgrel>-x86_64.pkg.tar.zst`.
-/// (`options=('!debug')` means there is no `tidewise-debug` package.)
-fn package_file() -> String {
-    let recipe =
-        fs::read_to_string(format!("{PKG_DIR}/PKGBUILD")).expect("no PKGBUILD in the image");
-    let value = |key: &str| {
-        recipe
-            .lines()
-            .find_map(|line| line.strip_prefix(&format!("{key}=")))
-            .unwrap_or_else(|| panic!("no {key}= in the PKGBUILD"))
-            .to_string()
-    };
-    format!(
-        "{PKG_DIR}/tidewise-{}-{}-x86_64.pkg.tar.zst",
-        value("pkgver"),
-        value("pkgrel")
-    )
-}
-
-/// The package installed with `pacman -U` (as root, in the container) for the length of a test, and removed again on
-/// drop (when a test already removed it, the removal fails and nobody minds).
-struct Installed;
-
-impl Installed {
-    fn new() -> Installed {
-        assert_inside_the_test_container();
-        reset_world();
-        let out = pacman(&["-U", "--noconfirm", &package_file()]);
-        assert!(
-            out.status.success(),
-            "pacman -U failed:\n{}\n{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        Installed
-    }
-}
-
-impl Drop for Installed {
-    fn drop(&mut self) {
-        let _ = pacman(&["-R", "--noconfirm", "tidewise"]);
     }
 }
 
