@@ -904,3 +904,99 @@ Rules bent: no `(red)` commit for the container tests, the harness and the namca
 (a `\` line continuation, `$pkgname` expansion, a missing allowed key): fixed in the green commits, no assertion weakened. `--disable-download-timeout` at image-build time (your OK). The LICENSE is installed although the
 guidelines say GPL-3.0-or-later needs none (your request). `crates/helper/tests/packaging.rs` is a test file in an ask-first crate (in the plan you approved). Read-only `pacman -Qo/-Qi` queries ran on the host for library owners; nothing was
 installed or changed there. The WBS sheet is yours.
+
+## 2026-11-17 — 5.6 Hostile-input tests + fuzzing, end to end
+Done:
+- **Gap list first** (plan approved before any code). Every hostile row of ENGINEERING §2 was already refused one layer down
+  (protocol `hostile_input.rs`, helper unit tests, the direct-start container tests). Nobody had sent them through the **real
+  pkexec to the helper the package installs**, and what pkexec really hands over (environment, descriptors) was from the source
+  only. So no new protocol or unit tests; everything new is at the pkexec + installed-package layer.
+- **The table.** `tests/container/tests/package_hostile.rs`, one test, **106 rows**, about 25 s, in the package image (release
+  helper at `/usr/lib/tidewise/tidewise-helper`, real polkitd and pkexec, `--network=none`). Three kinds of expected result:
+  `Refused` (exit 1, one exact stdout line, the **whole** journal entry compared), `StartRefused` (exit 2, one fixed sentence,
+  one `start_refused` entry), `PkexecRefused` (exit 127, pkexec's own words, the helper never exists, no entry; your change 1:
+  `LC_ALL=../x`, `LC_ALL=a..b`, `LANG=a/b`, `LANGUAGE=../x`, `TERM=%n`, `COLORTERM=%s`, `SHELL=/tmp/evil`). After every row:
+  `pacman -Q`, metadata under `/etc /usr /var/lib/pacman /var/cache/pacman /var/log /root /opt /srv /home /boot /tmp`, the lock
+  and the work folder unchanged. All failing rows are collected and the test fails once, naming them (change 3); stdin is written
+  from a thread, a broken pipe accepted where the helper stops reading, and **required** on the 8 MiB row (change 4). Rows: 26
+  bad names, 5 repos, 2 versions, 10 000 targets, 10 000 levels of JSON ×3, 2 MiB + 1 / 8 MiB, 17 malformed requests, 3 protocol
+  versions, 11 hostile `argv[1]`, 3 argument counts, 5 wrong program names (dot, `//`, `..`, `/lib`, a symlink named like a
+  sentence), 13 environments, 1 leaked descriptor, 7 pkexec refusals, 6 combined/other positions. Inspect rows hold stdin open and
+  read `/proc/<pid>` of the waiting helper: environ, fds, cwd, cmdline.
+- **Measured, polkit 128, root caller (step 2, recorded in T-08).** Through pkexec the helper gets only `HOME=/root`, `LOGNAME`,
+  `PATH=/usr/sbin:/usr/bin:/sbin:/bin:/root/bin`, `PKEXEC_UID=0` (forged values overwritten), `SUDO_UID`, `SUDO_GID`, `USER=root`, plus
+  `LANG`, `LC_*`, `TERM`, `COLORTERM`, `SHELL` when their values pass pkexec's own checks. `LD_PRELOAD`, `LD_LIBRARY_PATH`, `IFS`,
+  `PACMAN_ROOT`, `PATH`/`HOME` and unknown variables do not arrive. Leaked descriptors 3 and 4 are closed. pkexec refuses the
+  suspicious values above with exit 127. A non-UTF-8 `argv[1]` reaches the helper byte for byte (compared through `/proc/<pid>/cmdline`)
+  and makes pkexec print two `GLib-CRITICAL ... requires valid UTF-8` lines on its own stderr.
+- **Your change 2, stated everywhere** (test header, T-01, T-08, T-14, Q31, README, the checklist): the caller is root, so no setuid
+  transition, AT_SECURE off, pkexec's own loader honours `LD_PRELOAD`. The table proves what reaches the helper, not pkexec's own
+  protection. "A valid request from another uid" and that protection are in the new `docs/security/pentest-checklist.md` (8 items,
+  seeded; ENGINEERING.md already named the file).
+- **Mutation checks (temporary edits to `crates/helper`, reverted; `git diff -- crates` is empty).** Run in a throwaway container: the
+  package is repacked with the mutated debug helper (`bsdtar`), then the test binary runs. (a) `args.rs`: `if true || program.as_bytes() == HELPER_PATH.as_bytes()`
+  → the five wrong-program rows ran a **real install** and failed; (b) `gate.rs`: a mismatch logs `String::from_utf8_lossy(summary_arg)` instead of the
+  recomputed summary → the 11 argv rows and the 13 env rows fail; (c) `fds.rs`: `check_fds` returns `Ok(())` first → **nothing fails**: the fd
+  row and the seven pkexec-refused rows stay green, because pkexec closes the descriptor before the helper looks (so T-08 says the helper's
+  own check is proven by the direct-start test only); (d) `main.rs`: `chdir: Ok(())` → all 25 inspect rows fail on cwd; (e) `input.rs`:
+  `.take(limit.saturating_mul(1_000_000))` → the 8 MiB row fails. (a), (b), (c) were run together (their failing rows are disjoint); (d), (e) together.
+  A first run with (a) exposed a cascade (one leaked real job made every later row say "packages changed"): fixed, the baseline now moves.
+- **Fuzz target `gate`** (your OK): `summary_arg`, `caller_uid` and `decide` (argv and `PKEXEC_UID` are hostile input nobody fuzzed): no helper
+  change, no new dependency; five seeds in `tests/fixtures/helper-gate/`; `caller_uid` is asserted in both directions.
+- **Fuzz, all nine targets, 600 s each, run by me on the final code, `fuzz/artifacts/*` empty:**
+
+  | target | runs | exit | last run before (progress.md) |
+  |---|---|---|---|
+  | qi | 5 564 588 | 0 | 12 Nov (3.6) |
+  | qq | 40 630 492 | 0 | 12 Nov (3.6) |
+  | ss | 2 785 981 | 0 | 12 Nov (4.3) |
+  | si | 5 004 110 | 0 | 13 Nov (4.4) |
+  | qu | 11 429 450 | 0 | 13 Nov (4.5) |
+  | request | 7 547 454 | 0 | 15 Nov (5.3c) |
+  | output | 621 071 | 0 | 15 Nov (5.3c) |
+  | progress | 28 827 694 | 0 | 15 Nov (5.3b) |
+  | gate (new) | 15 558 692 | 0 | — |
+
+  Milestone gate (all ≥ 10 min, no artifacts): met. The `slow-unit-*` file the 5.3c `request` run left is gone (nothing in `fuzz/artifacts/request`).
+- **Review** (fresh subagent, `docs/security/reviews/5.6-hostile.md`): no High, one Medium (the env, fd and pkexec-refusal rows measure pkexec, not
+  the helper), seven Low, one Info. Fixed: cwd and cmdline inspected, six rows for other positions of a hostile value and for "bad request and
+  a lying argv", the 8 MiB broken-pipe requirement, counts and snapshot wording, the `caller_uid` assertion. Accepted and written down: the umask
+  is not read (it is 022 in the container already), metadata-only snapshot (no `/run`), uid always 0, a copy of the 2 MiB constant. See its Resolution table.
+- Tests (final commit): workspace 838 passed, 0 failed, 72 ignored (71 container tests before plus the new one); fmt (also `fuzz/`), clippy `-D warnings`,
+  `cargo test --all`, `cargo deny check`, release build exit 0. Container, full `run.sh`, real polkitd, pkexec and pacman as root,
+  `--network=none`: helper 11, helper_jobs 22, package 11, **package_hostile 1 (106 rows)**, pacman_prompts 11, polkit 9, smoke 2, all passed.
+  Two earlier runs of `run.sh` stopped at the image build, on the same step: the Arch Archive dropped the `llvm-libs` download mid-transfer
+  ("HTTP/2 stream reset", "SSL_read"); retried, cached layers reused.
+Next:
+- **Q21 hand test for you (I never run sudo; cancel every dialog, report what KDE shows).** The TEST policy is the real one with another id
+  and `exec.path` `/usr/bin/true`. Make it in the repo folder, install it, run the commands, remove it:
+  ```
+  sed -e 's/id="io.github.tidewise.helper"/id="io.github.tidewise.test-dialog"/' \
+      -e 's#\(exec.path">\)/usr/lib/tidewise/tidewise-helper#\1/usr/bin/true#' \
+      packaging/polkit/io.github.tidewise.helper.policy > /tmp/io.github.tidewise.test-dialog.policy
+  sudo install -m 0644 -o root -g root /tmp/io.github.tidewise.test-dialog.policy /usr/share/polkit-1/actions/
+  pkaction --action-id io.github.tidewise.test-dialog --verbose        # shows exec.path /usr/bin/true
+  pkexec /usr/bin/true '<b>bold</b> <a href="https://example.org">click</a> &amp; <i>no password needed</i>'
+  pkexec /usr/bin/true "$(printf 'one\ntwo\nthree\nfour')"
+  pkexec /usr/bin/true "$(printf 'line %s\n' $(seq 200))"
+  pkexec /usr/bin/true "$(head -c 20000 /dev/zero | tr '\0' x)"
+  pkexec /usr/bin/true '$(user) $(program) $(command_line)'
+  pkexec /usr/bin/true "$(printf 'install extra/firefox \342\200\256gnp.exe\342\200\254 (1 package)')"
+  pkexec /usr/bin/true "$(printf 'bad bytes \377\376 end')"
+  sudo rm /usr/share/polkit-1/actions/io.github.tidewise.test-dialog.policy
+  ```
+  (A copy made by me is also at the scratchpad path of this session; the `sed` above makes the same file. I checked the seven argument strings expand to
+  83, 18, 1691, 20000, 34, 47 and 16 bytes in zsh.) For each, write down: markup rendered or literal; is the link clickable; how many lines show; do the
+  buttons stay reachable at 200 lines and 20 KB; is `$(user)` literal or replaced; is the right-to-left text reversed; what the invalid bytes look like (and
+  whether the message shows no command line at all). Your report goes into Q21, T-02 and source 27; it decides whether Q21 needs code.
+- Your decision: the `argv[1]` of a real transaction is the summary, so an agent that renders markup or hides the line would show a Tidewise-branded
+  prompt with the wrong or no summary (the helper then refuses after the password, T-02). Only the hand test can say whether that matters.
+- 6.8 (VM checklist, `docs/security/pentest-checklist.md`): a valid request from another uid, pkexec's own `LD_PRELOAD` protection with AT_SECURE on,
+  that pkexec picks our action, a second prompt, the dialogs on GNOME, prompt spam, the window under Wayland and X11 (Q29), the work folder's permission.
+- M4: unchanged (the launcher calls pkexec with exactly `/usr/lib/tidewise/tidewise-helper`; the first host install checks the window).
+Blockers: none.
+Rules bent: no `(red)` commit for the table, the harness refactor or the `gate` target: they test code that was already built (characterisation, starts green);
+the proof they can fail is the five hand mutations above. Mutations ran in a throwaway container with the helper repacked into the package; nothing of
+them is committed. A new file, `docs/security/pentest-checklist.md`, was created (ENGINEERING.md named it). `CLAUDE.md` got the `gate` fuzz lines (as 3.6 to
+5.3 did for theirs). Nothing under `crates/helper*`, `packaging/`, `deny.toml` or `.github/` changed. `run.sh` gained one `case "$name" in package*` line.
+The WBS sheet is yours.
