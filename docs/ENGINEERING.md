@@ -34,11 +34,13 @@ Based on Microsoft's SDL: threat modelling, static analysis, fuzzing, independen
 - **Static analysis every CI run:** clippy `-D warnings` and `cargo deny check` (RustSec advisories — the same
   database `cargo audit` uses — plus licences, bans and sources; config in `deny.toml`).
   `#![forbid(unsafe_code)]` in `crates/helper*`.
-- **Banned calls (`clippy.toml`, from 5.4):** `std::process::Command::new` and `std::fs::remove_file`, `remove_dir`,
-  `remove_dir_all` are `disallowed-methods` for the whole workspace, so a new program start or deletion fails clippy
-  until a person reads it. Allowed only in: the two pacman runners (`crates/pacman/src/run.rs`,
-  `crates/helper/src/runner.rs`), the helper's one deletion point (`crates/helper/src/removal.rs`), each crate's test
-  `TempDir`, a few named tests, and the container-test crate (one crate-wide allow in its `Cargo.toml`). Each
+- **Banned calls (`clippy.toml`, from 5.4):** `std::process::Command::new`, `std::fs::remove_file`, `remove_dir`,
+  `remove_dir_all` and (5.4b) rustix's `fs::unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, `renameat_with` (a
+  rename deletes the file it replaces) are `disallowed-methods` for the whole workspace, so a new program start or
+  deletion fails clippy until a person reads it. Allowed only in: the two functions that build the pacman command
+  (`pacman_command` in `crates/pacman/src/run.rs` and in `crates/helper/src/runner.rs`), the helper's one deletion
+  point (`remove_work_file` in `crates/helper/src/removal.rs`), each crate's test `TempDir`, a few named test
+  functions, and the container-test crate (one crate-wide allow in its `Cargo.toml`). Each
   exception is `#[expect(clippy::disallowed_methods, reason = "…")]` on one function: `expect`, not `allow`, so an
   exception that no longer matches anything fails clippy too. **Trap:** clippy answers from its cache after
   `clippy.toml` changes and reports nothing; `touch` a source file in each crate (or `cargo clean -p <crate>`) and use
