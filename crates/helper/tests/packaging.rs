@@ -436,6 +436,72 @@ fn srcinfo_agrees_with_the_pkgbuild() {
     assert_eq!(srcinfo_values(&info, "pkgname"), ["tidewise"]);
 }
 
+// ---- the recipe may only have shapes these readers understand ------------------------------------------------
+
+/// The top-level assignments the recipe may have. The readers above take the first `name=` they find and know
+/// nothing of `+=`, arch-suffixed arrays (`source_x86_64`), `install=`, `provides=`, `backup=` and the like, so
+/// any of those would let something through unseen (review R-03 of 5.5). Adding a key is a decision for a person.
+const ALLOWED_KEYS: [&str; 12] = [
+    "pkgname",
+    "pkgver",
+    "pkgrel",
+    "pkgdesc",
+    "arch",
+    "url",
+    "license",
+    "depends",
+    "makedepends",
+    "options",
+    "source",
+    "sha256sums",
+];
+
+/// The top-level code lines that start an assignment or a function, and the names of the functions. Lines inside a
+/// function body, comments, blank lines and the wrapped lines of an array (they start with a space) are skipped.
+fn recipe_shape(text: &str) -> (Vec<String>, Vec<String>) {
+    let (mut top, mut functions) = (Vec::new(), Vec::new());
+    let mut inside = false;
+    for line in text.lines() {
+        if inside {
+            inside = line != "}";
+            continue;
+        }
+        if line.trim().is_empty() || line.trim_start().starts_with('#') || line.starts_with(' ') {
+            continue;
+        }
+        if let Some(name) = line.strip_suffix("() {") {
+            functions.push(name.to_string());
+            inside = true;
+        } else {
+            top.push(line.to_string());
+        }
+    }
+    (top, functions)
+}
+
+#[test]
+fn the_recipe_has_only_the_shapes_these_tests_can_read() {
+    let (top, functions) = recipe_shape(&pkgbuild());
+    assert_eq!(functions, ["build", "check", "package"]);
+    let mut seen = Vec::new();
+    for line in &top {
+        let key = line
+            .split_once('=')
+            .map(|(key, _)| key)
+            .unwrap_or_else(|| panic!("a top-level line that is not an assignment: {line}"));
+        assert!(
+            ALLOWED_KEYS.contains(&key),
+            "`{key}` is not an allowed key (a `+=`, a `_x86_64` array, `install=`, `provides=`, ...): {line}"
+        );
+        assert!(!seen.contains(&key), "`{key}` is assigned twice");
+        seen.push(key);
+    }
+    // And every key the tests rely on is there.
+    for key in ALLOWED_KEYS {
+        assert!(seen.contains(&key), "the PKGBUILD has no `{key}=`");
+    }
+}
+
 // ---- the release guard (SKIP) ---------------------------------------------------------------------------
 
 /// What is wrong with the checksums, if anything. `SKIP` is how the local `git archive` tarball is built until
@@ -486,6 +552,26 @@ fn skip_is_refused_for_a_downloaded_source() {
 fn skip_is_refused_in_a_release_build() {
     let source = words(&["tidewise-0.1.0.tar.gz"]);
     assert!(skip_problem(&source, &words(&["SKIP"]), true).is_some());
+}
+
+#[test]
+fn a_checksum_that_is_not_64_hex_digits_is_refused() {
+    // Review R-04 of 5.5: any other text used to pass as a checksum.
+    let source = words(&["https://example.org/x.tar.gz"]);
+    for bad in [
+        "",
+        "abc",
+        "skip",
+        "SKIP ",
+        &"z".repeat(64),
+        &"a".repeat(63),
+        &"a".repeat(65),
+    ] {
+        assert!(
+            skip_problem(&source, &words(&[bad]), false).is_some(),
+            "{bad:?}"
+        );
+    }
 }
 
 #[test]
