@@ -73,3 +73,10 @@ path = "fuzz_targets/progress.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "gate"
+path = "fuzz_targets/gate.rs"
+test = false
+doc = false
+bench = false
