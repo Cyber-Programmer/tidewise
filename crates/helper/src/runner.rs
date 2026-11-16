@@ -171,6 +171,10 @@ impl PacmanRunner {
     }
 
     /// The program and its arguments, with an optional time limit. `run` calls this with pacman.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one place the helper starts a program: absolute path, argument list, cleared environment, no shell (golden rule 3)"
+    )]
     fn run_program(
         &mut self,
         program: &Path,
@@ -668,6 +672,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test swaps its own fake lock, a symlink in a temp folder, for a folder; the real db.lck is never touched"
+    )]
     fn a_lock_that_is_a_symlink_or_a_folder_counts_as_present() {
         let temp = TempDir::new("lock-odd");
         let runner = runner_in(&temp);

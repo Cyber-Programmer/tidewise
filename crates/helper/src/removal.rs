@@ -33,6 +33,10 @@ pub enum RemovalError {
 }
 
 /// Removes one regular file that sits directly in the work folder.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the helper's one deletion point: a regular file directly in the verified work folder (golden rule 7)"
+)]
 pub fn remove_work_file(dir: &WorkDir, path: &Path) -> Result<(), RemovalError> {
     // Judged by spelling alone, before any look at the disk: `..` has no file name, and the parent must be exactly
     // the folder (so `folder/sub/../file` and `folder/../file` are outside).

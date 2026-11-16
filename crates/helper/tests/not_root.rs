@@ -4,6 +4,13 @@
 //! These tests need to be *not* root. They skip (with a message) when run as root, for example inside the container,
 //! where `tests/container/tests/helper.rs` covers the root cases.
 
+// The ban in clippy.toml is for the product. This file starts the real helper binary (and flock) as a child process
+// and removes its own lock file in the temp folder: that is what it is for.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test that starts the helper binary and cleans up its own temp file"
+)]
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::process::{Child, Command, ExitStatus, Stdio};

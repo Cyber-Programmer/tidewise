@@ -10,6 +10,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 pub struct TempDir(PathBuf);
 
 impl TempDir {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the unit tests' one TempDir removes a stale folder of its own name before it creates it"
+    )]
     pub fn new(name: &str) -> Self {
         static COUNT: AtomicU32 = AtomicU32::new(0);
         let number = COUNT.fetch_add(1, Ordering::Relaxed);
@@ -28,6 +32,10 @@ impl TempDir {
 }
 
 impl Drop for TempDir {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the unit tests' one TempDir removes its own folder when the test ends"
+    )]
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
