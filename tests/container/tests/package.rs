@@ -385,6 +385,76 @@ fn package_every_library_is_found_and_the_desktop_entry_is_valid() {
     );
 }
 
+/// Every `lib<name>.so.<digits>` text in `bytes`, as groups of candidate file names. Found WITHOUT a word boundary: in
+/// a Rust binary the strings are packed against other text (`...codelibEGL.so.1`), and a regex with `\b` missed five
+/// names that way (review R-01 of 5.5). For each `.so.N` the run of name characters before it is taken, and every place
+/// in it where `lib` starts is one candidate; the occurrence is satisfied when any candidate exists.
+fn library_names(bytes: &[u8]) -> BTreeSet<Vec<String>> {
+    let is_name = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'-');
+    let mut found = BTreeSet::new();
+    let mut at = 0;
+    while let Some(offset) = bytes[at..].windows(4).position(|window| window == b".so.") {
+        let dot = at + offset;
+        at = dot + 4;
+        // The version: digits separated by single dots.
+        let mut end = at;
+        while end < bytes.len()
+            && (bytes[end].is_ascii_digit()
+                || (bytes[end] == b'.' && bytes.get(end + 1).is_some_and(u8::is_ascii_digit)))
+        {
+            end += 1;
+        }
+        if end == at {
+            continue;
+        }
+        let version = String::from_utf8_lossy(&bytes[dot..end]).into_owned();
+        let mut start = dot;
+        while start > 0 && is_name(bytes[start - 1]) {
+            start -= 1;
+        }
+        let run = &bytes[start..dot];
+        let candidates: Vec<String> = (0..run.len().saturating_sub(3))
+            .filter(|&place| run[place..].starts_with(b"lib"))
+            .map(|place| format!("{}{version}", String::from_utf8_lossy(&run[place..])))
+            .collect();
+        if !candidates.is_empty() {
+            found.insert(candidates);
+        }
+    }
+    found
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_every_library_name_in_the_binaries_exists_with_only_the_declared_depends() {
+    // Review R-01 of 5.5, and the human's decision to add this test: `ldd` and namcap see only the libraries that are
+    // linked in. The window-system libraries are loaded by name at run time, so this takes every versioned library name
+    // out of the two binaries and checks the file exists. The image holds exactly the package's declared depends (read
+    // from its .PKGINFO) next to the test tools, so a name with no file is a dependency the recipe does not declare.
+    let _installed = Installed::new();
+    let mut missing = Vec::new();
+    let mut checked = 0;
+    for path in elf_files() {
+        let bytes = fs::read(&path).unwrap();
+        for candidates in library_names(&bytes) {
+            checked += 1;
+            let exists = candidates
+                .iter()
+                .any(|name| Path::new("/usr/lib").join(name).exists());
+            if !exists {
+                missing.push(format!("{path}: {}", candidates.join(" | ")));
+            }
+        }
+    }
+    // Not vacuous: the two binaries name at least libc, libgcc_s, libfontconfig and the window-system libraries.
+    assert!(checked >= 10, "only {checked} library names found");
+    assert!(
+        missing.is_empty(),
+        "library names with no file after installing only the declared depends:\n{}",
+        missing.join("\n")
+    );
+}
+
 // ---- polkit and the real pkexec, with what the package installed ----------------------------------------
 
 /// The value after `label` in a `pkaction --verbose` line such as `  implicit active:   auth_admin`.
