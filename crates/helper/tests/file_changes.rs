@@ -87,6 +87,11 @@ fn expected() -> Vec<(String, String)> {
         ("runner.rs", "match fs::symlink_metadata(&self.lock_path) {"),
         // Removes the two output files of the run that just ended.
         ("runner.rs", "let _ = fs::remove_file(path);"),
+        // The one removal: a regular file directly in the work folder, after symlink_metadata (removal.rs).
+        (
+            "removal.rs",
+            "fs::remove_file(&target).map_err(|_| RemovalError::Io)",
+        ),
         // The work folder (/run/tidewise-helper): created if missing, files created with O_EXCL, own leftovers removed.
         (
             "workdir.rs",
