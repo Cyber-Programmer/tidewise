@@ -808,3 +808,43 @@ and for `clippy.toml` (the proof is the deliberate violations above). The `remov
 refuses, so the tests fail on assertions. `TempDir` was consolidated before `removal.rs` (the removal tests need it).
 Both source guards were changed to skip `#[cfg(test)]` module files (not a weakening: no production line left the list).
 `#[expect]` instead of the `#[allow]` you wrote (stricter). The WBS sheet is yours.
+
+## 2026-11-16 — 5.4b argv[0] check, real pkexec tests, rustix ban
+Done:
+- Your decisions of 16 Nov 2026 (threat model Q22, Q24, Q25) built. **Q22:** the helper starts only when `argv[0]` is exactly
+  `/usr/lib/tidewise/tidewise-helper`, byte for byte (`summary_arg`: the shape first, then the name); otherwise its own
+  `StartRefusal::WrongProgramPath`, a local stderr sentence, exit 2, before stdin is read, no journal entry, nothing from argv
+  repeated (no protocol change). Red commit first; 14 wrong spellings tested; two mutation checks. `polkit_policy.rs` ties the
+  policy's `exec.path` to the constant `HELPER_PATH`.
+- **Measured, not assumed:** pkexec gives the program `argv[0]` as typed (polkit 128 source, and the container): a direct path as
+  typed, a symlink "NO PASSWORD NEEDED" under that name, a bare name found through `PATH` as the absolute path; `realpath` is
+  used only for the match and the exec. Real pkexec runs in the test container as root with no agent, through `/usr/bin/timeout`
+  (it refuses a parent that is process 1: "Refusing to render service to dead parents", exit 127). Four container tests: the
+  premise, a job run through pkexec at the installed path, a symlinked start refused (exit 2, the one sentence, nothing
+  installed), a `PATH` lookup accepted. With the check disabled the symlink test failed (the job ran).
+- **Q24:** `clippy.toml` bans `rustix::fs::{unlink, unlinkat, rmdir, rename, renameat, renameat_with}` (a rename deletes the file
+  it replaces); five deliberate calls failed clippy. No `allow-invalid`: the crates without rustix do not warn (measured, clippy
+  0.1.99 = CI's stable). The exceptions are narrowed: `pacman_command` in the helper's `runner.rs`, and two functions in
+  `not_root.rs`; deliberate violations in `run_program` and in an unrelated `not_root.rs` function now fail.
+- **Q25 (it was small):** `work_folder.rs` checks `src/` has no subfolders and that only unit tests follow a file's first
+  `#[cfg(test)]` (an `impl WorkDir {` only directly after a marker); four mutations caught. CLAUDE.md has the clippy-cache trap.
+- Review (fresh subagent, `docs/security/reviews/5.4b-argv0.md`): no High or Medium. R-03 and R-04 fixed; R-01 (`std::fs::rename`
+  not banned) and R-02 (a refused start is not journaled) are your questions 26 and 27; R-05 and R-06 noted. Threat model, 0005 and
+  the 5.4 review table updated.
+- Tests: whole workspace 810 passed, 59 ignored (container tests); helper 261 unit, `polkit_policy` 9, `work_folder` 6. Container
+  (real polkitd, real pkexec and pacman as root, `--network=none`): helper 11, helper_jobs 22, pacman_prompts 11, polkit 8,
+  smoke 2, all passed (last run before two test-only commits). fmt, clippy -D warnings (every crate rechecked), cargo test
+  --all, cargo deny, release build exit 0. Fuzz not run: no parser changed and no fuzz target uses the argv API.
+Next:
+- Your decisions: Q26 (ban `std::fs::rename` too: recommended, costs nothing), Q27 (one fixed journal line for a wrong
+  program name?).
+- Backlog for 5.6 (your decision): the hostile-argv hand test on KDE (commands in the 5.4 entry above); a hostile `argv[1]` is
+  still shown in the dialog after the fixed path.
+- 5.5: install the helper at exactly `/usr/lib/tidewise/tidewise-helper` and test that its real path equals the policy's
+  annotation (Q23). **M4: the launcher must call pkexec with exactly `/usr/lib/tidewise/tidewise-helper`**; any other spelling
+  is refused by design. Contributors: a helper run from `target/` has no pkexec route.
+Blockers: none.
+Rules bent: no `(red)` commit for the container tests (their behaviour was built and unit-tested in the two commits before),
+for the guard tests (they start green, mutation-checked) and for the clippy ban (proof by deliberate violations). The
+`StartRefusal::WrongProgramPath` variant is new where the plan said to reuse `BadArguments` (its sentence would mislead; local,
+not protocol). `#[expect]` instead of `#[allow]`, as in 5.4. The WBS sheet is yours.
