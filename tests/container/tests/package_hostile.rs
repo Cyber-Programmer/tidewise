@@ -1,4 +1,5 @@
-//! The hostile-input table, through the real `pkexec`, to the helper the built package installed (WBS 5.6; threats
+//! The hostile-input table, through the real `pkexec`, to the helper the built package installed: the gate, end to end.
+//! No row reaches a job (WBS 5.6; threats
 //! T-01, T-02, T-04 to T-08, T-14, T-15; golden rules 1, 2, 3, 6, 10). Real polkitd, real pkexec, as root, in the
 //! package image only (`tests/container/run.sh package`).
 //!
@@ -10,6 +11,14 @@
 //! belong to the VM checklist (WBS 6.8). Also not shown: which polkit action pkexec picked (root is authorized
 //! whatever the action), and the password dialog (the hand test of threat model question 21).
 //!
+//! **What the environment, descriptor and pkexec-refusal rows are.** They measure what pkexec passes on (and what it
+//! refuses itself), not the helper's own defences: the helper's descriptor check is proven only by the direct-start
+//! container test `an_inherited_file_descriptor_is_refused_to_start` (pkexec closes the descriptor first, so the check
+//! never fires here: mutation check in progress.md), and its child environment and umask only by the 5.3b job tests
+//! (the container's umask is already 022, so reading it here would prove nothing). What the helper does itself and these
+//! rows do show is `chdir("/")` (pkexec starts it in `/root`). `PKEXEC_UID` is always 0 here, because pkexec sets it, so
+//! a non-zero caller id and a hostile `PKEXEC_UID` are covered by unit tests, the `gate` fuzz target and the VM checklist.
+//!
 //! One test, one table. Every row is: how pkexec is called (the program name as typed, argv, extra environment, an
 //! extra open file) and what is on stdin; and what must come back, one of three kinds:
 //!  - `Refused`: the helper ran its gate and said no. Exit 1, exactly one stdout line, exactly one journal entry
@@ -19,7 +28,7 @@
 //!  - `PkexecRefused`: pkexec itself refused (a suspicious variable), so the helper never existed. Exit 127, pkexec's
 //!    own words, no stdout, **no** journal entry.
 //!
-//! After **every** row: `pacman -Q` unchanged, a snapshot of `/etc /usr /var /root /opt /srv /home /boot /tmp`
+//! After **every** row: `pacman -Q` unchanged, metadata (size, mode, times) under `/etc /usr /var/lib/pacman /var/cache/pacman /var/log /root /opt /srv /home /boot /tmp`
 //! unchanged, no `db.lck`, no work folder. A row fails by adding a line to a list; the test fails once, at the end,
 //! naming every failing row.
 //!
@@ -121,6 +130,9 @@ struct Row {
     stdin: Vec<u8>,
     /// Hostile text that must not appear in stdout, stderr or the journal entry.
     needle: Option<Vec<u8>>,
+    /// The request is bigger than the cap: a helper that stops reading at cap + 1 makes the write fail with a broken
+    /// pipe, and one that drained all of it would not. This row must see the failure.
+    must_break_the_pipe: bool,
     expect: Expect,
 }
 
@@ -189,6 +201,7 @@ impl Row {
             inspect: false,
             stdin: world.request.clone().into_bytes(),
             needle: None,
+            must_break_the_pipe: false,
             expect,
         }
     }
@@ -228,6 +241,11 @@ impl Row {
         if (4..=200).contains(&text.len()) {
             self.needle = Some(text.to_vec());
         }
+        self
+    }
+
+    fn must_break_the_pipe(mut self) -> Row {
+        self.must_break_the_pipe = true;
         self
     }
 
@@ -402,7 +420,9 @@ fn table(w: &World) -> Vec<Row> {
         ]),
     );
     rows.push(
-        Row::new(w, "size: 8 MiB of zeros", plain("too_large")).stdin(vec![0u8; 8 * 1024 * 1024]),
+        Row::new(w, "size: 8 MiB of zeros", plain("too_large"))
+            .stdin(vec![0u8; 8 * 1024 * 1024])
+            .must_break_the_pipe(),
     );
 
     let broken: Vec<(&str, Vec<u8>)> = vec![
@@ -525,9 +545,79 @@ fn table(w: &World) -> Vec<Row> {
         rows.push(
             Row::new(w, format!("argv: {label}"), mismatch(w, stderr))
                 .args(&[&text])
-                .needle(&text),
+                .needle(&text)
+                .inspect(),
         );
     }
+
+    // -- the same checks in other places of the request, and a bad request that also lies in argv
+    rows.push(
+        Row::new(
+            w,
+            "combined: a bad name and a wrong summary",
+            invalid("targets", "bad_package_name"),
+        )
+        .stdin(w.with_name("--force"))
+        .args(&[WRONG]),
+    );
+    rows.push(
+        Row::new(
+            w,
+            "combined: broken JSON and an empty summary",
+            plain("malformed"),
+        )
+        .stdin(b"{".to_vec())
+        .args(&[b""]),
+    );
+    let name_here = r#""name":"tidewise-dummy-hello""#;
+    let last = request
+        .rfind(name_here)
+        .expect("the request has no confirmed line");
+    let in_transaction = format!(
+        "{}{}{}",
+        &request[..last],
+        r#""name":"--force""#,
+        &request[last + name_here.len()..]
+    );
+    assert_ne!(in_transaction, request);
+    rows.push(
+        Row::new(
+            w,
+            "name: --force in a confirmed line",
+            invalid("transaction", "bad_package_name"),
+        )
+        .stdin(in_transaction),
+    );
+    let with_provider = request.replacen(
+        r#""providers":[]"#,
+        &format!(
+            r#""providers":[{{"dependency":"java-runtime","chosen":{{"repo":"{REPO}","name":"--force"}}}}]"#
+        ),
+        1,
+    );
+    assert_ne!(with_provider, request);
+    rows.push(
+        Row::new(
+            w,
+            "name: --force as a chosen provider",
+            invalid("providers", "bad_package_name"),
+        )
+        .stdin(with_provider),
+    );
+    rows.push(
+        Row::new(w, "update: a version that is an option", invalid("transaction", "bad_version"))
+            .stdin(
+                br#"{"protocol_version":1,"action":{"update_system":{"transaction":[{"repo":"core","name":"a","version":"--force"}]}}}"#.to_vec(),
+            )
+            .args(&[WRONG]),
+    );
+    rows.push(
+        Row::new(w, "update and install: a bad name in the targets", invalid("targets", "bad_package_name"))
+            .stdin(
+                br#"{"protocol_version":1,"action":{"update_system_and_install":{"targets":[{"repo":"core","name":"-dd"}],"providers":[],"transaction":[{"repo":"core","name":"a","version":"1-1"}]}}}"#.to_vec(),
+            )
+            .args(&[WRONG]),
+    );
 
     // -- how the helper is started: the number of arguments, the name it is given
     rows.push(
@@ -723,9 +813,19 @@ struct Seen {
     entries: Vec<String>,
     write: io::Result<()>,
     /// Found only for `inspect` rows.
-    helper_env: Option<BTreeMap<String, String>>,
-    helper_fds: Option<Vec<String>>,
+    helper: Option<Inspected>,
     could_not_find_the_helper: bool,
+}
+
+/// What `/proc/<pid>` shows of the helper while it waits for its request.
+#[derive(PartialEq)]
+struct Inspected {
+    env: BTreeMap<String, String>,
+    fds: Vec<String>,
+    /// Where the helper stands: pkexec starts it in `/root`, the helper itself moves to `/` (T-08).
+    cwd: String,
+    /// The argv the helper received, NUL-separated: the program name as typed, then each argument.
+    cmdline: Vec<u8>,
 }
 
 fn find_helper(limit: Duration) -> Option<u32> {
@@ -784,18 +884,28 @@ fn read_fds(pid: u32) -> Option<Vec<String>> {
     Some(names)
 }
 
-/// The helper's environment and descriptors once they have stopped changing. Right after `exec` the kernel has not yet
-/// filled in `environ` and has not yet closed pkexec's close-on-exec descriptors, so a first look can show an empty
-/// environment or a descriptor that is about to go. The helper then waits for stdin (we hold it open), so two looks
-/// 30 ms apart that agree, with a non-empty environment, are the settled state.
-fn settled_helper(limit: Duration) -> Option<(BTreeMap<String, String>, Vec<String>)> {
+/// The helper's `/proc/<pid>` once it has stopped changing. Right after `exec` the kernel has not yet filled in
+/// `environ` and has not yet closed pkexec's close-on-exec descriptors, so a first look can show an empty environment or
+/// a descriptor that is about to go. The helper then waits for stdin (we hold it open), so two looks 30 ms apart that
+/// agree, with a non-empty environment, are the settled state.
+fn settled_helper(limit: Duration) -> Option<Inspected> {
     let start = Instant::now();
     let pid = find_helper(limit)?;
-    let mut previous: Option<(BTreeMap<String, String>, Vec<String>)> = None;
+    let mut previous: Option<Inspected> = None;
     while start.elapsed() < limit {
-        let now = read_environ(pid).zip(read_fds(pid));
+        let now = (|| {
+            Some(Inspected {
+                env: read_environ(pid)?,
+                fds: read_fds(pid)?,
+                cwd: fs::read_link(format!("/proc/{pid}/cwd"))
+                    .ok()?
+                    .display()
+                    .to_string(),
+                cmdline: fs::read(format!("/proc/{pid}/cmdline")).ok()?,
+            })
+        })();
         if let Some(now) = now
-            && !now.0.is_empty()
+            && !now.env.is_empty()
         {
             if previous.as_ref() == Some(&now) {
                 return Some(now);
@@ -843,13 +953,10 @@ fn run_row(row: &Row) -> Seen {
     let mut stdin = child.stdin.take().expect("no stdin pipe");
 
     // Look at the helper while it waits for its request.
-    let (mut helper_env, mut helper_fds, mut missing) = (None, None, false);
+    let (mut helper, mut missing) = (None, false);
     if row.inspect {
         match settled_helper(Duration::from_secs(10)) {
-            Some((env, fds)) => {
-                helper_env = Some(env);
-                helper_fds = Some(fds);
-            }
+            Some(found) => helper = Some(found),
             None => missing = true,
         }
     }
@@ -864,8 +971,7 @@ fn run_row(row: &Row) -> Seen {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         entries: journal.datagrams(),
         write,
-        helper_env,
-        helper_fds,
+        helper,
         could_not_find_the_helper: missing,
     }
 }
@@ -1004,6 +1110,11 @@ fn judge(row: &Row, seen: &Seen) -> Vec<String> {
             error.kind() == io::ErrorKind::BrokenPipe && row.may_break_the_pipe(),
             format!("writing the request failed: {error}"),
         );
+    } else if row.must_break_the_pipe {
+        problems.push(
+            "all of the oversize request was read: the helper should have stopped at the cap"
+                .to_string(),
+        );
     }
 
     // Hostile text is repeated nowhere.
@@ -1026,13 +1137,10 @@ fn judge(row: &Row, seen: &Seen) -> Vec<String> {
         if seen.could_not_find_the_helper {
             problems.push("the helper's process was not found".to_string());
         }
-        if let Some(env) = &seen.helper_env {
-            problems.extend(judge_environment(row, env));
-        } else if !seen.could_not_find_the_helper {
-            problems.push("the helper's environment could not be read".to_string());
-        }
-        if let Some(fds) = &seen.helper_fds {
-            let extra: Vec<&String> = fds
+        if let Some(found) = &seen.helper {
+            problems.extend(judge_environment(row, &found.env));
+            let extra: Vec<&String> = found
+                .fds
                 .iter()
                 .filter(|fd| !["0", "1", "2"].contains(&fd.as_str()))
                 .collect();
@@ -1041,8 +1149,29 @@ fn judge(row: &Row, seen: &Seen) -> Vec<String> {
                     "the helper had open descriptors besides 0, 1, 2: {extra:?}"
                 ));
             }
+            // pkexec starts the program in /root; the helper's own chdir("/") is what puts it in /.
+            if found.cwd != "/" {
+                problems.push(format!(
+                    "the helper stands in {:?}, wanted \"/\"",
+                    found.cwd
+                ));
+            }
+            // What arrived, byte for byte: the program name as typed, then every argument, each followed by a NUL.
+            let mut wanted = HELPER_ARGV0.as_bytes().to_vec();
+            wanted.push(0);
+            for arg in &row.args {
+                wanted.extend_from_slice(arg);
+                wanted.push(0);
+            }
+            if found.cmdline != wanted {
+                problems.push(format!(
+                    "the helper's argv is {:?}, wanted {:?}",
+                    String::from_utf8_lossy(&found.cmdline),
+                    String::from_utf8_lossy(&wanted)
+                ));
+            }
         } else if !seen.could_not_find_the_helper {
-            problems.push("the helper's descriptors could not be read".to_string());
+            problems.push("the helper's /proc entry could not be read".to_string());
         }
     }
     problems
