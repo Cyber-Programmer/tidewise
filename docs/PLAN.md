@@ -122,6 +122,8 @@ libalpm bindings (the `alpm` crate). The M2 spike measured both; see `docs/decis
 -> the other M3 tasks, so every helper task can be tested against real pacman in a container from the start.
 Threat model: `docs/security/threat-model.md`.
 
+**M4 manual check (the human's decision, 16 Nov 2026), at the first install of the package on a real machine:** start the installed app (`tidewise`) under a Wayland session and under an X11 session and confirm the window opens. No test can: the container has no display, and the window-system libraries are loaded at run time, so `ldd` and namcap cannot see them (threat model, question 29).
+
 **Ideas for later:** M10: proper debug info and a debug package for the AUR package (5.5 builds with
 `options=('!debug')` because the release profile has no debug info, so the debug package would be empty).
 
