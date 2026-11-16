@@ -44,7 +44,7 @@ url='https://github.com/Cyber-Programmer/tidewise'
 license=('GPL-3.0-or-later')
 # PROVISIONAL: step 5 of 5.5 replaces this line with the list derived from ldd, namcap and the
 # libraries the binaries load at run time.
-depends=('pacman' 'polkit' 'glibc' 'gcc-libs')
+depends=('pacman' 'polkit' 'glibc' 'gcc-libs' 'fontconfig' 'libxkbcommon')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
