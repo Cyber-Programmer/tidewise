@@ -132,6 +132,23 @@ fn the_action_is_for_the_helpers_absolute_path_and_nothing_narrower() {
 }
 
 #[test]
+fn the_action_has_exactly_one_annotation_and_no_translations() {
+    // exec.path is the only annotation: `imply` would hand this action's authorization to other actions, `owner` would
+    // let another user's process pass details to polkit, and a translated message would show text this file's other
+    // checks never look at (review R-07, 5.4).
+    let xml = policy();
+    assert_eq!(
+        xml.matches("<annotate ").count(),
+        1,
+        "exactly one annotation"
+    );
+    assert!(!xml.contains("imply"), "imply found");
+    assert!(!xml.contains("policykit.owner"), "owner found");
+    assert!(!xml.contains("xml:lang"), "a translation found");
+    assert!(!xml.contains("gettext"), "gettext found");
+}
+
+#[test]
 fn the_defaults_are_no_no_and_auth_admin() {
     let xml = policy();
     assert_eq!(texts_of(&xml, "allow_any"), vec!["no".to_string()]);
