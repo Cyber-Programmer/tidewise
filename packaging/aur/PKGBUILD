@@ -45,14 +45,17 @@ license=('GPL-3.0-or-later')
 # Derived from the package built in the container (5.5), not guessed:
 #  - linked in (readelf NEEDED, ldd, namcap): glibc, libgcc (libgcc_s; gcc-libs would only be a
 #    transitive dependency), fontconfig;
-#  - loaded at run time by Slint's windowing code (names found in the app binary, not NEEDED, so
-#    ldd and namcap cannot see them): libxkbcommon, wayland, libx11, libxcb, libxi,
-#    libxkbcommon-x11. Depends and not optdepends: without one set of them the window cannot open;
+#  - loaded at run time by Slint's windowing and drawing code (names found in the app binary, not
+#    NEEDED, so ldd and namcap cannot see them): libxkbcommon, wayland, libx11, libxcb, libxi,
+#    libxkbcommon-x11, libglvnd (libEGL, libGL), libxcursor, libxrender. Depends and not optdepends:
+#    without them the window cannot open or draw. A container test checks every library name in
+#    both binaries against what the declared depends install (a first search missed some);
 #  - programs the package runs: pacman (the helper) and polkit (pkexec, polkitd, the policy).
 # namcap says pacman, polkit and libxkbcommon "may not be needed" (a program, a program, a library
 # that is not linked): accepted on purpose, see tests/container/tests/package.rs.
 depends=('pacman' 'polkit' 'glibc' 'libgcc' 'fontconfig' 'libxkbcommon' 'wayland'
-         'libx11' 'libxcb' 'libxi' 'libxkbcommon-x11')
+         'libx11' 'libxcb' 'libxi' 'libxkbcommon-x11' 'libglvnd' 'libxcursor'
+         'libxrender')
 makedepends=('cargo')
 # The release profile has no debug info, so makepkg's tidewise-debug package would be empty.
 # Proper debug info and a debug package: an M10 idea (docs/PLAN.md).
@@ -63,6 +66,9 @@ sha256sums=('SKIP')
 build() {
   cd "$pkgname-$pkgver"
   cargo build --release --locked -p tidewise-app -p tidewise-helper
+  # check() runs a workspace-wide `cargo test --release` before package(). Record what was built;
+  # package() fails if either binary is no longer exactly this (no second compile).
+  sha256sum target/release/tidewise target/release/tidewise-helper > "$srcdir/built.sha256"
 }
 
 check() {
@@ -72,6 +78,7 @@ check() {
 
 package() {
   cd "$pkgname-$pkgver"
+  sha256sum --check --quiet "$srcdir/built.sha256"
   install -Dm755 target/release/tidewise "$pkgdir/usr/bin/tidewise"
   install -Dm755 target/release/tidewise-helper "$pkgdir/usr/lib/tidewise/tidewise-helper"
   install -Dm644 packaging/polkit/io.github.tidewise.helper.policy \
