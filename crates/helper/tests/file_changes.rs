@@ -27,14 +27,39 @@ const WORDS: [&str; 14] = [
     "lock_path",
 ];
 
+/// The files `lib.rs` declares under `#[cfg(test)]` (today `testing.rs`): never compiled into the real helper, so
+/// they are not production code and are not read here.
+fn test_only_files(src: &Path) -> Vec<String> {
+    let lib = fs::read_to_string(src.join("lib.rs")).unwrap();
+    let mut files = Vec::new();
+    let mut lines = lib.lines().map(str::trim);
+    while let Some(line) = lines.next() {
+        if line != "#[cfg(test)]" {
+            continue;
+        }
+        let declaration = lines.next().unwrap_or_default();
+        let declaration = declaration
+            .trim_start_matches("pub(crate) ")
+            .trim_start_matches("pub ");
+        if let Some(name) = declaration
+            .strip_prefix("mod ")
+            .and_then(|rest| rest.strip_suffix(';'))
+        {
+            files.push(format!("{name}.rs"));
+        }
+    }
+    files
+}
+
 /// Every such line of the non-test code: (file, line without its indentation).
 fn found() -> Vec<(String, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let skipped = test_only_files(&src);
     let mut found = Vec::new();
     for entry in fs::read_dir(src).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".rs") {
+        if !name.ends_with(".rs") || skipped.contains(&name) {
             continue;
         }
         let text = fs::read_to_string(&path).unwrap();
