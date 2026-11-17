@@ -53,6 +53,36 @@ pub fn is_helper_repo_name(repo: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Review 5.8 R-06. Every character above ASCII, one by one (about 1.1 million, a second or so): none may be part
+    /// of a package or repository name, at the start or after a letter. This is what keeps look-alikes, zero-width and
+    /// direction characters out of the confirm list, the pacman command line and the transaction compare.
+    #[test]
+    fn no_character_above_ascii_is_ever_a_name_character() {
+        let mut name = String::new();
+        for c in '\u{80}'..=char::MAX {
+            for shape in [0, 1] {
+                name.clear();
+                if shape == 0 {
+                    name.push('a');
+                    name.push(c);
+                } else {
+                    name.push(c);
+                    name.push('a');
+                }
+                assert!(
+                    !is_valid_package_name(&name),
+                    "{c:?} (U+{:04X}) in {name:?}",
+                    c as u32
+                );
+                assert!(
+                    !is_helper_repo_name(&name),
+                    "{c:?} (U+{:04X}) in {name:?}",
+                    c as u32
+                );
+            }
+        }
+    }
+
     #[test]
     fn accepts_real_package_names() {
         for name in [

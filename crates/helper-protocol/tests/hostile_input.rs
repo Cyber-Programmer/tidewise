@@ -2,6 +2,8 @@
 //! bytes, sent through `parse_request` (the one door), with the exact refusal we expect (threat model T-01,
 //! T-04 to T-07). Nothing here needs root or pacman.
 
+use std::sync::LazyLock;
+
 use serde_json::{Value, json};
 use tidewise_helper_protocol::{
     Field, InvalidRequest, MAX_REQUEST_BYTES, MAX_TARGETS, MAX_TRANSACTION, ProtocolError, Reason,
@@ -368,13 +370,18 @@ use tidewise_names::is_valid_package_name;
 ///    when `"a" + c` is a legal name: letters, digits and `@ . _ + -`);
 ///  - what `summary.rs` writes by itself: its fixed words are letters, its counts are digits, and its separators are a
 ///    space, `/`, `(`, `)` and the `.` of `...` (the `.` is also a name character).
-fn safe_summary_characters() -> BTreeSet<char> {
-    let mut set: BTreeSet<char> = (0u8..=127)
-        .map(char::from)
-        .filter(|c| is_valid_package_name(&format!("a{c}")))
-        .collect();
-    set.extend(" /().".chars());
-    set
+///
+/// The probe covers the whole of Unicode (about 1.1 million characters, once per test run), not only ASCII (review 5.8
+/// R-06): a name rule that let one non-ASCII character in would put it into this set and fail the "only ASCII" check.
+fn safe_summary_characters() -> &'static BTreeSet<char> {
+    static SET: LazyLock<BTreeSet<char>> = LazyLock::new(|| {
+        let mut set: BTreeSet<char> = ('\0'..=char::MAX)
+            .filter(|c| is_valid_package_name(&format!("a{c}")))
+            .collect();
+        set.extend(" /().".chars());
+        set
+    });
+    &SET
 }
 
 #[test]
@@ -390,6 +397,56 @@ fn the_names_allow_list_holds_no_markup_quote_substitution_or_control_character(
     }
     // And only plain ASCII at all.
     assert!(safe.iter().all(|c| c.is_ascii_graphic() || *c == ' '));
+}
+
+/// Review 5.8 R-06. Look-alike, invisible and direction characters the table's own list does not have, one by one: a
+/// name rule that was rewritten as a block list, or as "letters in any script", would let some of them through.
+#[test]
+fn a_look_alike_or_invisible_character_never_gets_through_the_door() {
+    let sample = [
+        '\u{ad}',
+        '\u{61c}',
+        '\u{180e}',
+        '\u{200b}',
+        '\u{200c}',
+        '\u{200d}',
+        '\u{200e}',
+        '\u{2060}',
+        '\u{2062}',
+        '\u{2066}',
+        '\u{2069}',
+        '\u{202e}',
+        '\u{feff}',
+        '\u{115f}',
+        '\u{3164}',
+        '\u{ffa0}',
+        '\u{fe0f}',
+        '\u{e0041}',
+        '\u{e007f}',
+        '\u{ff41}',
+        '\u{430}',
+        '\u{3b1}',
+        '\u{4e2d}',
+        '\u{1d41a}',
+        '\u{2024}',
+        '\u{2215}',
+        '\u{ff0f}',
+        '\u{2212}',
+        '\u{fe63}',
+        '\u{ff0d}',
+        '\u{a0}',
+        '\u{2003}',
+        '\u{300}',
+    ];
+    for c in sample {
+        for name in [format!("pkg{c}"), format!("{c}pkg"), format!("p{c}kg")] {
+            assert_eq!(
+                parse_request(&install_of(&name)),
+                Err(invalid(Field::Targets, 0, Reason::BadPackageName)),
+                "{c:?} in {name:?}"
+            );
+        }
+    }
 }
 
 /// A valid request, as JSON: `targets` and `providers` are `(repo, name)` and `(dependency, repo, name)`; the confirmed
