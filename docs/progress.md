@@ -1080,3 +1080,31 @@ The package build runs the workspace tests in `check()`, so a red unit-test comm
 worktree at the code before each fix plus only the new container test (the worktree is removed). The container expectations changed by the R-03 refinement were checked
 in the full green run, not in a separate red run. The `request` fuzz target did not change; both targets were re-run because the start path did. Edits in
 `crates/helper*` were approved by the human (17 Nov 2026). The WBS sheet is yours.
+
+## 2026-11-18 — 5.8 follow-up: deny ignore, oom_score_adj, NPROC (supersedes the Next and Blockers of the 17 Nov entry)
+Done:
+- **`cargo deny check` is green again.** The human approved a sixth ignore (`1fabca1`): RUSTSEC-2026-0543, chrono unmaintained, only via Slint -> `i-slint-core`, app
+  only (`cargo tree -p tidewise-helper -i chrono` finds no such package). Remove the entry when cargo-deny reports it unused.
+- **Question 37 (a), `oom_score_adj`: built** (red `031041d` → fix `589ab4c`; start-order rows `dead6c8`). The helper writes `0` after the limit reset, reads the value
+  back and refuses (`cannot_reset_oom_score`) above `MAX_ACCEPTED_OOM_SCORE_ADJ` = 200 or when the file cannot be read or parsed. Measured on 17 Nov 2026: a desktop session
+  and rootless Podman both give 200 and a root in the container cannot lower it, so "must be 0" would have refused every container job (the human chose the 200 rule after
+  seeing this); an ordinary user can lower their own value only to the minimum they inherited (100 here). Container, through real pkexec with `choom`: a caller at 1000 is
+  refused with nothing installed and one journal entry (before the fix the same caller got exit 0, the whole job ran); a caller at 200 is accepted and the install script
+  sees at most 200. One named write in `file_changes.rs`. Fresh re-check of the diff: no High; the Medium (no test shows a real root lowering to 0: this host stops at 100, the
+  container cannot lower) is VM checklist item 9, new in `docs/security/pentest-checklist.md`; the Low (start-order rows) is `dead6c8`.
+- **Question 37 (b), `RLIMIT_NPROC`: no code** (the human's decision), reasoning and citation in the threat model (`setrlimit(2)`, man-pages 6.19: not enforced for real uid 0 or
+  CAP_SYS_ADMIN or CAP_SYS_RESOURCE; the one untested nuance is pacman's download child as the `alpm` user, where a failure ends the transaction before any package is unpacked).
+- T-08 and question 37 updated (`c3186d5`).
+- **Checks on the last code commit (`dead6c8`):** `cargo fmt --all --check` and `fuzz/` fmt exit 0; `cargo clippy --all-targets -- -D warnings` exit 0; `cargo test --all`
+  **865 passed, 0 failed, 76 ignored**; `cargo deny check` exit 0; release build exit 0; `tests/container/run.sh` exit 0 (**936 passed, 0 failed, 76 ignored** over all its result
+  lines, which include the 865 the package's `check()` runs; the four new real-pkexec tests ran: SIGCHLD, limits, oom at 1000, oom at 200); `gate` fuzz 13 259 368 runs and
+  `request` fuzz 9 254 777 runs, 601 s each, exit 0, `fuzz/artifacts/` empty.
+Next:
+- WBS 6.10 (the human's, added): R-02 with Q12 (private-copy sync before the compare) and R-04 (bounded writer, stdin deadline); v0.1 blockers.
+- Checklist item 9 (WBS 6.8, a VM): pacman runs at `oom_score_adj` 0 and with the reset limits when started from a normal session through pkexec (the container cannot show the lowering).
+- Cgroup limits of the caller's service or scope cannot be reset from a process (question 37 c); documented.
+Blockers: none.
+Rules bent: the container red evidence (SIGCHLD, limits, oom) came from a throwaway worktree at the code before each fix plus only the new container test, because the package
+build runs the workspace tests in `check()` and a red unit-test commit cannot build the package image (the human accepted this on 17 Nov 2026). The R-03 refinement's container
+expectations were checked in the green run only. The start-order rows of `dead6c8` and the R-06, R-07, R-14 guards start green (they pin behaviour that exists; each has a recorded
+mutation or follows from the order in `start()`). Edits in `crates/helper*` and `file_changes.rs` and `deny.toml` were approved by the human. The WBS sheet is yours.
