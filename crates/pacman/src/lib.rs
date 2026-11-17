@@ -4,6 +4,9 @@
 //! The `run` module is the only place that starts a process (read-only, no root, no shell).
 //! Library code must not panic, so clippy forbids `unwrap`, `expect`, indexing and `panic!` here
 //! (tests may still use them).
+//!
+//! No `unsafe`: the root helper links this crate, and the other crates it links already forbid it (review 5.8).
+#![forbid(unsafe_code)]
 #![cfg_attr(
     not(test),
     deny(
