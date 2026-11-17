@@ -1154,6 +1154,25 @@ mod tests {
         oom_chdir_args.args = vec![];
         refused(oom_chdir_args, StartRefusal::CannotResetOomScore);
 
+        // The score check comes after the root check (silent), the descriptors and the signal check.
+        let mut oom_not_root = good_facts("x");
+        oom_not_root.oom = Err(io::Error::other("x"));
+        oom_not_root.status =
+            Ok("Uid:\t1000\t1000\t1000\t1000\nSigIgn:\t0000000000001000\n".to_string());
+        refused(oom_not_root, StartRefusal::NotRoot);
+        let mut oom_extra_fd = good_facts("x");
+        oom_extra_fd.oom = Err(io::Error::other("x"));
+        oom_extra_fd.fds = Ok({
+            let mut fds = std_fds();
+            fds.push((5, "/etc/shadow".to_string()));
+            fds
+        });
+        refused(oom_extra_fd, StartRefusal::UnexpectedFd);
+        let mut oom_and_signal = good_facts("x");
+        oom_and_signal.oom = Err(io::Error::other("x"));
+        oom_and_signal.status = Ok(root_status("0000000000010000"));
+        refused(oom_and_signal, StartRefusal::ChildSignalIgnored);
+
         // Not root and an ignored SIGCHLD: the root check speaks first, silently.
         let mut signal_not_root = good_facts("x");
         signal_not_root.status =
