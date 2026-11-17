@@ -40,6 +40,7 @@ pub mod progress;
 pub mod removal;
 pub mod run;
 pub mod runner;
+pub mod signals;
 #[cfg(test)]
 pub(crate) mod testing;
 pub mod uid;

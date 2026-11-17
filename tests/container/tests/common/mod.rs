@@ -682,12 +682,27 @@ pub struct Piped {
 
 /// `pkexec <program> <args>` as root, with an empty environment (plus `PATH` when given), the request on stdin.
 pub fn pkexec(program: &str, args: &[&str], path: Option<&str>, stdin: &[u8]) -> Piped {
+    pkexec_through(&[], program, args, path, stdin)
+}
+
+/// Like `pkexec`, but `wrapper` (a program by absolute path and its arguments, no shell) starts pkexec: for example
+/// `["/usr/bin/env", "--ignore-signal=CHLD"]` or `["/usr/bin/prlimit", "--fsize=65536:"]`. What the wrapper sets up
+/// (ignored signals, limits) is inherited by pkexec and, unless pkexec resets it, by the helper.
+pub fn pkexec_through(
+    wrapper: &[&str],
+    program: &str,
+    args: &[&str],
+    path: Option<&str>,
+    stdin: &[u8],
+) -> Piped {
     // Through `timeout`: the test binary is process 1 of the container, and pkexec refuses to serve a parent that is
     // process 1 ("Refusing to render service to dead parents", exit 127). `timeout` is a real parent in between, and
     // a limit in case something waits for an agent that is not there.
     let mut command = Command::new("/usr/bin/timeout");
     command
-        .args(["60", "/usr/bin/pkexec"])
+        .arg("60")
+        .args(wrapper)
+        .arg("/usr/bin/pkexec")
         .arg(program)
         .args(args)
         .env_clear()

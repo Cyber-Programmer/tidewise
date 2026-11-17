@@ -69,6 +69,7 @@ pub struct Facts {
 pub enum StartRefusal {
     CannotCheckFds,
     UnexpectedFd,
+    ChildSignalIgnored,
     CannotCheckUser,
     NotRoot,
     CannotChangeDirectory,
@@ -82,6 +83,7 @@ impl StartRefusal {
         match self {
             Self::CannotCheckFds => "cannot_check_fds",
             Self::UnexpectedFd => "unexpected_fd",
+            Self::ChildSignalIgnored => "child_signal_ignored",
             Self::CannotCheckUser => "cannot_check_user",
             Self::NotRoot => "not_root",
             Self::CannotChangeDirectory => "cannot_change_directory",
@@ -104,6 +106,9 @@ impl StartRefusal {
             }
             Self::UnexpectedFd => {
                 "tidewise-helper: it was started with unexpected open files, so it did not start. Nothing was changed."
+            }
+            Self::ChildSignalIgnored => {
+                "tidewise-helper: it was started with the child-exit signal ignored, or that could not be checked, so it did not start. Nothing was changed."
             }
             Self::CannotCheckUser => {
                 "tidewise-helper: could not check which user it runs as, so it did not start. Nothing was changed."
@@ -276,11 +281,16 @@ mod tests {
         ]
     }
 
+    /// `/proc/self/status` of a root helper; `sig_ign` is the `SigIgn:` mask (Rust itself ignores SIGPIPE: 0x1000).
+    fn root_status(sig_ign: &str) -> String {
+        format!("Name:\thelper\nUid:\t0\t0\t0\t0\nSigIgn:\t{sig_ign}\n")
+    }
+
     fn good_facts(summary: &str) -> Facts {
         Facts {
             fds: Ok(std_fds()),
             own_pid: 77,
-            status: Ok("Name:\thelper\nUid:\t0\t0\t0\t0\n".to_string()),
+            status: Ok(root_status("0000000000001000")),
             chdir: Ok(()),
             args: vec![
                 OsString::from("/usr/lib/tidewise/tidewise-helper"),
@@ -892,6 +902,14 @@ mod tests {
         user.status = Ok("Uid:\t1000\t1000\t1000\t1000\n".to_string());
         refused(user, StartRefusal::NotRoot);
 
+        let mut sigchld_ignored = good_facts(UPDATE_SUMMARY);
+        sigchld_ignored.status = Ok(root_status("0000000000011000"));
+        refused(sigchld_ignored, StartRefusal::ChildSignalIgnored);
+
+        let mut no_signal_line = good_facts(UPDATE_SUMMARY);
+        no_signal_line.status = Ok("Name:\thelper\nUid:\t0\t0\t0\t0\n".to_string());
+        refused(no_signal_line, StartRefusal::ChildSignalIgnored);
+
         let mut no_chdir = good_facts(UPDATE_SUMMARY);
         no_chdir.chdir = Err(io::Error::other("x"));
         refused(no_chdir, StartRefusal::CannotChangeDirectory);
@@ -987,6 +1005,7 @@ mod tests {
         let all = [
             StartRefusal::CannotCheckFds,
             StartRefusal::UnexpectedFd,
+            StartRefusal::ChildSignalIgnored,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
@@ -1052,6 +1071,28 @@ mod tests {
         root_all_wrong.args = vec![];
         refused(root_all_wrong, StartRefusal::UnexpectedFd);
 
+        // The signal check sits after the descriptors and before the directory and the arguments.
+        let mut signal_and_fd = good_facts("x");
+        signal_and_fd.status = Ok(root_status("0000000000010000"));
+        signal_and_fd.fds = Ok({
+            let mut fds = std_fds();
+            fds.push((5, "/etc/shadow".to_string()));
+            fds
+        });
+        refused(signal_and_fd, StartRefusal::UnexpectedFd);
+
+        let mut signal_and_chdir_and_args = good_facts("x");
+        signal_and_chdir_and_args.status = Ok(root_status("0000000000010000"));
+        signal_and_chdir_and_args.chdir = Err(io::Error::other("x"));
+        signal_and_chdir_and_args.args = vec![];
+        refused(signal_and_chdir_and_args, StartRefusal::ChildSignalIgnored);
+
+        // Not root and an ignored SIGCHLD: the root check speaks first, silently.
+        let mut signal_not_root = good_facts("x");
+        signal_not_root.status =
+            Ok("Uid:\t1000\t1000\t1000\t1000\nSigIgn:\t0000000000010000\n".to_string());
+        refused(signal_not_root, StartRefusal::NotRoot);
+
         let mut chdir_and_bad_args = good_facts(UPDATE_SUMMARY);
         chdir_and_bad_args.chdir = Err(io::Error::other("x"));
         chdir_and_bad_args.args = vec![];
@@ -1073,6 +1114,7 @@ mod tests {
         let all = [
             StartRefusal::CannotCheckFds,
             StartRefusal::UnexpectedFd,
+            StartRefusal::ChildSignalIgnored,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
