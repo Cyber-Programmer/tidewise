@@ -60,6 +60,8 @@ pub struct Facts {
     pub status: io::Result<String>,
     /// The result of `chdir("/")`.
     pub chdir: io::Result<()>,
+    /// The result of `env::reset_limits()` (review 5.8 R-03).
+    pub limits: io::Result<()>,
     /// argv, program name first.
     pub args: Vec<OsString>,
     /// The `PKEXEC_UID` variable, the only one read.
@@ -72,6 +74,7 @@ pub enum StartRefusal {
     CannotCheckFds,
     UnexpectedFd,
     ChildSignalIgnored,
+    CannotResetLimits,
     CannotCheckUser,
     NotRoot,
     CannotChangeDirectory,
@@ -86,6 +89,7 @@ impl StartRefusal {
             Self::CannotCheckFds => "cannot_check_fds",
             Self::UnexpectedFd => "unexpected_fd",
             Self::ChildSignalIgnored => "child_signal_ignored",
+            Self::CannotResetLimits => "cannot_reset_limits",
             Self::CannotCheckUser => "cannot_check_user",
             Self::NotRoot => "not_root",
             Self::CannotChangeDirectory => "cannot_change_directory",
@@ -111,6 +115,9 @@ impl StartRefusal {
             }
             Self::ChildSignalIgnored => {
                 "tidewise-helper: it was started with the child-exit signal ignored, or that could not be checked, so it did not start. Nothing was changed."
+            }
+            Self::CannotResetLimits => {
+                "tidewise-helper: could not reset its resource limits, so it did not start. Nothing was changed."
             }
             Self::CannotCheckUser => {
                 "tidewise-helper: could not check which user it runs as, so it did not start. Nothing was changed."
@@ -300,6 +307,7 @@ mod tests {
             own_pid: 77,
             status: Ok(root_status("0000000000001000")),
             chdir: Ok(()),
+            limits: Ok(()),
             args: vec![
                 OsString::from("/usr/lib/tidewise/tidewise-helper"),
                 OsString::from(summary),
@@ -918,6 +926,10 @@ mod tests {
         no_signal_line.status = Ok("Name:\thelper\nUid:\t0\t0\t0\t0\n".to_string());
         refused(no_signal_line, StartRefusal::ChildSignalIgnored);
 
+        let mut no_limits = good_facts(UPDATE_SUMMARY);
+        no_limits.limits = Err(io::Error::other("x"));
+        refused(no_limits, StartRefusal::CannotResetLimits);
+
         let mut no_chdir = good_facts(UPDATE_SUMMARY);
         no_chdir.chdir = Err(io::Error::other("x"));
         refused(no_chdir, StartRefusal::CannotChangeDirectory);
@@ -1014,6 +1026,7 @@ mod tests {
             StartRefusal::CannotCheckFds,
             StartRefusal::UnexpectedFd,
             StartRefusal::ChildSignalIgnored,
+            StartRefusal::CannotResetLimits,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
@@ -1095,6 +1108,17 @@ mod tests {
         signal_and_chdir_and_args.args = vec![];
         refused(signal_and_chdir_and_args, StartRefusal::ChildSignalIgnored);
 
+        // The limits come after the signal check and before the directory and the arguments.
+        let mut limits_and_signal = good_facts("x");
+        limits_and_signal.limits = Err(io::Error::other("x"));
+        limits_and_signal.status = Ok(root_status("0000000000010000"));
+        refused(limits_and_signal, StartRefusal::ChildSignalIgnored);
+        let mut limits_chdir_args = good_facts("x");
+        limits_chdir_args.limits = Err(io::Error::other("x"));
+        limits_chdir_args.chdir = Err(io::Error::other("x"));
+        limits_chdir_args.args = vec![];
+        refused(limits_chdir_args, StartRefusal::CannotResetLimits);
+
         // Not root and an ignored SIGCHLD: the root check speaks first, silently.
         let mut signal_not_root = good_facts("x");
         signal_not_root.status =
@@ -1123,6 +1147,7 @@ mod tests {
             StartRefusal::CannotCheckFds,
             StartRefusal::UnexpectedFd,
             StartRefusal::ChildSignalIgnored,
+            StartRefusal::CannotResetLimits,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,

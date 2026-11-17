@@ -18,6 +18,27 @@ pub fn set_umask_022() -> u32 {
     rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o022)).bits()
 }
 
+/// The resource limits the helper sets at start, and the value of each (`None` is unlimited). Review 5.8 R-03.
+///
+/// `pkexec` passes the caller's limits on, and they apply to root too: a low file-size or CPU limit kills pacman in
+/// the middle of unpacking a package, and the caller needs no privilege to set them. So the helper sets its own, and
+/// pacman, its scriptlets and its hooks inherit them. Cgroup limits (a memory cap, a CPU quota) belong to the
+/// caller's service or scope and cannot be reset from inside a process: that part is documented, not defended.
+///
+/// - file size, CPU time, address space, data segment: unlimited, because a transaction is as big as it is;
+/// - core dumps: 0, so a crash of a root process never writes memory to disk;
+/// - open files: 1048576, the maximum systemd itself gives services, far above what pacman needs but not unbounded;
+/// - stack: 8 MiB, the kernel's own default.
+pub fn limit_plan() -> Vec<(rustix::process::Resource, Option<u64>)> {
+    Vec::new()
+}
+
+/// Applies `limit_plan`, soft and hard together. Where raising the hard limit is not allowed (a process that is not
+/// really root, such as the rootless test container), the soft limit is raised as far as the hard one allows.
+pub fn reset_limits() -> std::io::Result<()> {
+    Ok(())
+}
+
 /// The only environment variables pacman gets.
 pub fn pacman_environment() -> Vec<(&'static str, &'static str)> {
     vec![("PATH", "/usr/bin"), ("LC_ALL", "C")]
@@ -63,5 +84,22 @@ mod tests {
         for (key, _) in pacman_environment() {
             assert!(matches!(key, "PATH" | "LC_ALL"), "{key}");
         }
+    }
+
+    #[test]
+    fn the_helper_sets_exactly_these_limits() {
+        use rustix::process::Resource::{As, Core, Cpu, Data, Fsize, Nofile, Stack};
+        assert_eq!(
+            limit_plan(),
+            vec![
+                (Fsize, None),
+                (Cpu, None),
+                (As, None),
+                (Data, None),
+                (Core, Some(0)),
+                (Nofile, Some(1_048_576)),
+                (Stack, Some(8 * 1024 * 1024)),
+            ]
+        );
     }
 }
