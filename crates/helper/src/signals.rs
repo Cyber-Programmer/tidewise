@@ -14,8 +14,22 @@ pub const SIGCHLD: u32 = 17;
 /// Whether SIGCHLD is ignored, from the text of `/proc/self/status`. `None` when the text does not hold exactly one
 /// well-formed `SigIgn:` line (sixteen hex digits): unknown is not "fine".
 pub fn child_signal_ignored(status: &str) -> Option<bool> {
-    let _ = status;
-    Some(false)
+    let mut found = None;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("SigIgn:") {
+            if found.is_some() {
+                // The kernel prints one. Two means something odd: unknown, not a pick of one.
+                return None;
+            }
+            found = Some(rest.trim());
+        }
+    }
+    let digits = found?;
+    if digits.len() != 16 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mask = u64::from_str_radix(digits, 16).ok()?;
+    Some(mask & (1 << (SIGCHLD - 1)) != 0)
 }
 
 #[cfg(test)]
