@@ -526,6 +526,96 @@ fn package_pkexec_with_sigchld_ignored_is_refused_and_changes_nothing() {
     assert!(installed_version("tidewise-dummy-hello").is_none());
 }
 
+/// The soft and hard limit of the row that starts with `label` in a `/proc/<pid>/limits` text, as written there
+/// (`unlimited` or a number).
+fn limit_row(limits: &str, label: &str) -> (String, String) {
+    let row = limits
+        .lines()
+        .find_map(|line| line.strip_prefix(label))
+        .unwrap_or_else(|| panic!("no {label:?} row in:\n{limits}"));
+    let mut words = row.split_whitespace();
+    (
+        words.next().unwrap().to_string(),
+        words.next().unwrap().to_string(),
+    )
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_limits_the_caller_set_do_not_reach_pacman_through_pkexec() {
+    // R-03. Resource limits pass through setuid pkexec and apply to root too. A caller who lowers the file-size or
+    // CPU limit could kill pacman in the middle of unpacking. Only soft limits are lowered here, as an ordinary caller
+    // could, and what the install script of a real pacman run sees must be the helper's own values.
+    let items = common::confirmed("-S", &["tidewise-test/tidewise-dummy-scriptlet"]);
+    let (request, summary) = common::install_request(
+        &[("tidewise-test", "tidewise-dummy-scriptlet")],
+        &[],
+        &items,
+    );
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+    let own = fs::read_to_string("/proc/self/limits").unwrap();
+    let _ = fs::remove_file("/tmp/tidewise-scriptlet-limits");
+
+    let ran = pkexec_through(
+        &[
+            "/usr/bin/prlimit",
+            "--fsize=1048576:",
+            "--cpu=600:",
+            "--as=8589934592:",
+            "--data=8589934592:",
+            "--core=1048576:",
+            "--nofile=128:",
+            "--stack=1048576:",
+        ],
+        HELPER_ARGV0,
+        &[&summary],
+        None,
+        request.as_bytes(),
+    );
+    assert_eq!(ran.code, Some(0), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(
+        ran.stdout.lines().last(),
+        Some("{\"finished\":\"ok\"}"),
+        "{}",
+        ran.stdout
+    );
+
+    let seen = fs::read_to_string("/tmp/tidewise-scriptlet-limits").unwrap();
+    let unlimited = ("unlimited".to_string(), "unlimited".to_string());
+    for label in [
+        "Max file size",
+        "Max cpu time",
+        "Max address space",
+        "Max data size",
+    ] {
+        assert_eq!(limit_row(&seen, label), unlimited, "{label}\n{seen}");
+    }
+    assert_eq!(
+        limit_row(&seen, "Max core file size"),
+        ("0".to_string(), "0".to_string()),
+        "{seen}"
+    );
+    assert_eq!(
+        limit_row(&seen, "Max stack size"),
+        ("8388608".to_string(), "8388608".to_string()),
+        "{seen}"
+    );
+    // Open files: 1048576, or the container's own hard limit when that is lower (a root of a user namespace cannot
+    // raise a hard limit; the real helper is root of the real system and can).
+    let hard: u64 = match limit_row(&own, "Max open files").1.as_str() {
+        "unlimited" => u64::MAX,
+        number => number.parse().unwrap(),
+    };
+    let want = 1_048_576u64.min(hard).to_string();
+    assert_eq!(
+        limit_row(&seen, "Max open files"),
+        (want.clone(), want),
+        "{seen}"
+    );
+    let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-scriptlet"]);
+}
+
 // ---- removal --------------------------------------------------------------------------------------------
 
 #[test]

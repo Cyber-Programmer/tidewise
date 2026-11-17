@@ -17,7 +17,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use tidewise_helper::env::set_umask_022;
+use tidewise_helper::env::{reset_limits, set_umask_022};
 use tidewise_helper::fds::read_fd_entries;
 use tidewise_helper::flows::work_folder_unusable;
 use tidewise_helper::journal::{JOURNAL_SOCKET, send};
@@ -30,6 +30,8 @@ use tidewise_helper_protocol::ErrorKind;
 fn main() -> ExitCode {
     // Before anything is created: pkexec passes on the caller's umask and pacman does not fix it (see env.rs).
     set_umask_022();
+    // The caller's resource limits survive pkexec and apply to root pacman too (review 5.8 R-03). Judged by `run`.
+    let limits = reset_limits();
 
     // The only things read from the process. The environment is read for one variable, PKEXEC_UID, and nothing
     // else. `chdir("/")` happens here, before the root check inside `run`: it only changes our own working
@@ -39,6 +41,7 @@ fn main() -> ExitCode {
         own_pid: std::process::id(),
         status: read_status(),
         chdir: std::env::set_current_dir("/"),
+        limits,
         args: std::env::args_os().collect(),
         pkexec_uid: std::env::var_os("PKEXEC_UID"),
     };
