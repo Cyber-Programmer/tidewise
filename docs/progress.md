@@ -1038,3 +1038,45 @@ Blockers: none.
 Rules bent: the three tests start green (they pin behaviour that exists; no red commit); the proof they can fail is the four mutations above. The
 `request` fuzz target changed, so its 600 s run was repeated (the other eight targets and their code did not change). Edits to `crates/helper-protocol` are
 test files only (the human's approval of 17 Nov 2026). The WBS sheet is yours.
+
+## 2026-11-17 — 5.8 M3 adversarial review (root code, all of M3 at once)
+Done:
+- **Review:** three independent fresh reviewers (A request path, B start and install surface, C seams and the T-row to proving-test map), each from the code,
+  the threat model, the golden rules and decision 0005 first, then the earlier reviews. Merged, deduplicated and tagged in `docs/security/reviews/5.8-m3.md`
+  (R-01 to R-20, with my verification and the three original reports in an appendix). Result: nothing lets a caller make root run something outside the
+  allow-list; **two High** under the fixed severity scale (a golden rule can break with no test failing): R-01 and, upgraded by the human, R-03.
+- **R-01 fixed** (`1021bfc` red → `06d589f`): a caller that ignores SIGCHLD makes the helper's wait fail (`ECHILD`) and an update stops after its one `-Sy`.
+  The helper now refuses to start (`child_signal_ignored`, from `SigIgn` in `/proc/self/status`). Measured through real pkexec on the code before the fix:
+  **pkexec keeps the ignored disposition** (exit 1, `pacman_failed: the helper could not read pacman's output`). Question 16 updated.
+- **R-03 fixed** (`76461de` red → `1a78e0b`, refined by the fresh re-check `45bcce1` red → `31ff60b`): the caller's resource limits survive pkexec and apply to
+  root. `main` resets them with `rustix::process::setrlimit` (no new dependency): file size, CPU, address space, data unlimited; core 0; open files 1024 soft /
+  524288 hard; stack 8 MiB soft, hard open. A reset that cannot lift one of the four unlimited limits refuses to start (`cannot_reset_limits`). Before the fix, through
+  real pkexec, a real pacman scriptlet saw `Max file size 1048576 unlimited`. My first values were wrong in one place (I claimed 1048576 open files is systemd's
+  default; it is 1024/524288) and the re-check caught it and a silent fallback.
+- **Each fix was re-checked by a fresh subagent** (R-01: no High or Medium; SA_NOCLDWAIT is cleared by `execve`, about 85% sure from kernel knowledge, not run.
+  R-03: F1 and F4 fixed, F2 `oom_score_adj` and F3 `RLIMIT_NPROC` recorded, not built: question 37).
+- **Tests and docs the human asked for:** R-06 non-ASCII probe over U+0080..=U+10FFFF (`260423a`; verdict on the carried 5.6 item: it was worth adding, about 2 s);
+  R-07 exhaustive-match tables for `PacmanCommand` and `Action` (`829dc2b`); R-14 ban-list and lint-switch guards (`21190ad`); `forbid(unsafe_code)` in
+  `crates/pacman` with a guard over the five crate roots (`324458d`); docs for R-12, R-16, R-17 and the stale T-16, T-17, T-19 rows (`c07be03`); outcome table
+  and the T-08 row (`a919fb0`).
+- **Carried to M4 (not fixed, recorded in the threat model):** R-02 with Q12 (question 33: the update syncs the real lists before the compare) and R-04 (question 34:
+  stdout and stdin held by the caller) as **v0.1 blockers**, for WBS 6.10 (the human adds it); R-05, R-08, R-09, R-10, R-11, R-18, R-20 rest as notes (question 35).
+  Accepted: R-13 (Q14), R-15 Info. Rejected: R-19 (question 36).
+- **Checks on the last code commit (`31ff60b`):** `cargo fmt --all --check` and `fuzz/` fmt exit 0; `cargo clippy --all-targets -- -D warnings` exit 0;
+  `cargo test --all` **861 passed, 0 failed, 74 ignored** (841 at the start); release build exit 0; `tests/container/run.sh` exit 0 (**930 passed, 0 failed, 74 ignored**
+  over all its result lines, which include the 861 the package's `check()` runs; the two new real-pkexec tests ran); `gate` fuzz 11 797 481 runs and `request` fuzz
+  9 093 822 runs, exit 0, `fuzz/artifacts/` empty (the gate run took 1337 s of wall time because other builds ran at the same time; the first pair after the
+  R-01 fix: 13 841 079 and 9 039 148 runs, also clean).
+Next:
+- **The human decides:** `cargo deny check` now fails on RUSTSEC-2026-0543 ("chrono is unmaintained", via Slint into the app, not the helper). It appeared after
+  this task began; `Cargo.lock` and `deny.toml` are untouched. It needs a sixth ignore with a reason like the other five (deny.toml is ask-first), or a Slint bump. CI's
+  `cargo-deny` job fails on `main` until then.
+- Question 37: whether to write `oom_score_adj` (touches the file-writing guard `file_changes.rs`) and to add `RLIMIT_NPROC` to the plan.
+- M4: WBS 6.10 (R-02/Q12 private-copy sync; R-04 bounded writer and stdin deadline); the M4 app must call `summary()` only after `validate` (R-18).
+- Checklist (WBS 6.8): the container tests prove the limits through pkexec as root only; the setuid path for an ordinary caller is still the VM list (question 31, R-05).
+Blockers: the `cargo deny check` failure above (not caused by this branch). M3 closes on the review's own condition (no High open), but CI cannot be green until deny is decided.
+Rules bent: the R-06, R-07, R-14 and `crates/pacman` guards pin behaviour that already exists, so they start green with a recorded mutation each instead of a red commit.
+The package build runs the workspace tests in `check()`, so a red unit-test commit cannot build the package image: the container red evidence came from a throwaway
+worktree at the code before each fix plus only the new container test (the worktree is removed). The container expectations changed by the R-03 refinement were checked
+in the full green run, not in a separate red run. The `request` fuzz target did not change; both targets were re-run because the start path did. Edits in
+`crates/helper*` were approved by the human (17 Nov 2026). The WBS sheet is yours.
