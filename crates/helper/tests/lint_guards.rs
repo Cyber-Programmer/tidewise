@@ -145,3 +145,24 @@ fn no_source_file_switches_the_disallowed_methods_lint_off() {
     }
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
+
+/// Review 5.8 B-07. The root helper links these four crates, so none of them may hold `unsafe` code. The helper's own
+/// binary (`main.rs`) is a separate crate root and needs its own line.
+#[test]
+fn every_crate_the_root_helper_links_forbids_unsafe_code() {
+    let root = workspace_root();
+    for file in [
+        "crates/helper/src/lib.rs",
+        "crates/helper/src/main.rs",
+        "crates/helper-protocol/src/lib.rs",
+        "crates/names/src/lib.rs",
+        "crates/pacman/src/lib.rs",
+    ] {
+        let text = fs::read_to_string(root.join(file)).unwrap();
+        assert!(
+            text.lines()
+                .any(|line| line.trim() == "#![forbid(unsafe_code)]"),
+            "{file} does not forbid unsafe code"
+        );
+    }
+}
