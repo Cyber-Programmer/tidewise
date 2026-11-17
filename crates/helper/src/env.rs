@@ -111,14 +111,18 @@ pub const MAX_ACCEPTED_OOM_SCORE_ADJ: i32 = 200;
 /// The number in the text of `/proc/self/oom_score_adj`: an optional minus sign and digits, in the kernel's range
 /// -1000 to 1000, after one trailing new line. Anything else is `None`.
 pub fn parse_oom_score_adj(text: &str) -> Option<i32> {
-    let _ = text;
-    None
+    let number = text.strip_suffix('\n').unwrap_or(text);
+    let digits = number.strip_prefix('-').unwrap_or(number);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let value: i32 = number.parse().ok()?;
+    (-1000..=1000).contains(&value).then_some(value)
 }
 
 /// True when the value in `text` is one the helper accepts: parseable and at most `MAX_ACCEPTED_OOM_SCORE_ADJ`.
 pub fn oom_score_is_acceptable(text: &str) -> bool {
-    let _ = text;
-    true
+    parse_oom_score_adj(text).is_some_and(|value| value <= MAX_ACCEPTED_OOM_SCORE_ADJ)
 }
 
 /// Writes `0` to `OOM_SCORE_ADJ_PATH` (never a negative value: protecting pacman over the desktop could freeze the
@@ -126,7 +130,15 @@ pub fn oom_score_is_acceptable(text: &str) -> bool {
 /// lower the value keeps the one it has); what counts is what is there afterwards. A missing or unparseable file is
 /// an error: unknown is not fine.
 pub fn reset_oom_score() -> std::io::Result<()> {
-    Ok(())
+    let _ = std::fs::write(OOM_SCORE_ADJ_PATH, "0");
+    let text = std::fs::read_to_string(OOM_SCORE_ADJ_PATH)?;
+    if oom_score_is_acceptable(&text) {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(
+            "the out-of-memory score of the caller could not be lowered",
+        ))
+    }
 }
 
 /// The only environment variables pacman gets.
