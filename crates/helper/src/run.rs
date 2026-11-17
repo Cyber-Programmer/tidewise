@@ -6,9 +6,10 @@
 //! Order of the start checks, each one refusing before the next is looked at:
 //! 1. the effective user id is 0 (`uid`)
 //! 2. only the expected file descriptors are open (`fds`)
-//! 3. the working directory is `/` (done by `main`; the result is passed in, and moving to `/` is harmless even when
+//! 3. SIGCHLD is not ignored (`signals`)
+//! 4. the working directory is `/` (done by `main`; the result is passed in, and moving to `/` is harmless even when
 //!    a later check refuses)
-//! 4. argv is exactly the program name and one summary (`args`)
+//! 5. argv is exactly the program name and one summary (`args`)
 //!
 //! Only then is stdin read (`input`, capped) and the request decided (`gate`). A refused request gets one journal
 //! entry and one result line. An accepted one gets a journal entry (before any pacman command), a runner (made only
@@ -38,6 +39,7 @@ use crate::gate::{Decision, decide};
 use crate::input::read_capped;
 use crate::journal::{Notes, Stage, record};
 use crate::runner::Runner;
+use crate::signals::child_signal_ignored;
 use crate::uid::is_root;
 
 /// The job finished.
@@ -143,7 +145,7 @@ struct Started {
     summary: Vec<u8>,
 }
 
-/// The four start checks, in order. The first one that fails decides.
+/// The five start checks, in order. The first one that fails decides.
 fn start(facts: Facts) -> Result<Started, StartRefusal> {
     // Root first: for someone who started the helper by hand, "must be started as root" is the useful message, and
     // a caller's extra descriptors (a CI runner hands out some) must not hide it. Both checks refuse before
@@ -155,6 +157,12 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
 
     let entries = facts.fds.map_err(|_| StartRefusal::CannotCheckFds)?;
     check_fds(&entries, facts.own_pid).map_err(|_| StartRefusal::UnexpectedFd)?;
+
+    // An ignored SIGCHLD survives pkexec and would make every wait for pacman fail (review 5.8 R-01). Unknown counts
+    // as ignored: this is a look, and only a clear "no" lets the start go on.
+    if child_signal_ignored(&status) != Some(false) {
+        return Err(StartRefusal::ChildSignalIgnored);
+    }
 
     facts
         .chdir
