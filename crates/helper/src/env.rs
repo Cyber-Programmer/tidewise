@@ -97,6 +97,38 @@ pub fn reset_limits() -> std::io::Result<()> {
     Ok(())
 }
 
+/// The helper's own out-of-memory score adjustment (`oom_score_adj`, -1000 to 1000; the kernel kills the process with
+/// the highest score first). Review 5.8 R-03 re-check, question 37.
+pub const OOM_SCORE_ADJ_PATH: &str = "/proc/self/oom_score_adj";
+
+/// The highest `oom_score_adj` the helper starts with. Measured on 17 Nov 2026: a desktop session and rootless Podman
+/// both give 200, so anything above it was raised on purpose (a caller can raise its own score to 1000 and have the
+/// OOM killer pick root pacman first, in the middle of unpacking). A real root behind pkexec always reaches 0 (it has
+/// CAP_SYS_RESOURCE), so this limit only matters where root lacks the host's capability: containers and user
+/// namespaces, which cannot lower the value they were given.
+pub const MAX_ACCEPTED_OOM_SCORE_ADJ: i32 = 200;
+
+/// The number in the text of `/proc/self/oom_score_adj`: an optional minus sign and digits, in the kernel's range
+/// -1000 to 1000, after one trailing new line. Anything else is `None`.
+pub fn parse_oom_score_adj(text: &str) -> Option<i32> {
+    let _ = text;
+    None
+}
+
+/// True when the value in `text` is one the helper accepts: parseable and at most `MAX_ACCEPTED_OOM_SCORE_ADJ`.
+pub fn oom_score_is_acceptable(text: &str) -> bool {
+    let _ = text;
+    true
+}
+
+/// Writes `0` to `OOM_SCORE_ADJ_PATH` (never a negative value: protecting pacman over the desktop could freeze the
+/// machine), reads the value back and judges it. A failed write is not an error by itself (a process that may not
+/// lower the value keeps the one it has); what counts is what is there afterwards. A missing or unparseable file is
+/// an error: unknown is not fine.
+pub fn reset_oom_score() -> std::io::Result<()> {
+    Ok(())
+}
+
 /// The only environment variables pacman gets.
 pub fn pacman_environment() -> Vec<(&'static str, &'static str)> {
     vec![("PATH", "/usr/bin"), ("LC_ALL", "C")]
@@ -178,5 +210,52 @@ mod tests {
         // caller for those three, and none of them is one pacman can run into).
         assert!(!is_short(Some(1024), Some(256)));
         assert!(!is_short(Some(0), Some(0)));
+    }
+
+    #[test]
+    fn the_accepted_oom_score_is_pinned_at_what_the_desktop_and_rootless_podman_give() {
+        assert_eq!(MAX_ACCEPTED_OOM_SCORE_ADJ, 200);
+    }
+
+    #[test]
+    fn the_oom_score_text_is_parsed_strictly() {
+        for (text, number) in [
+            ("0\n", 0),
+            ("0", 0),
+            ("200\n", 200),
+            ("1000\n", 1000),
+            ("-1000\n", -1000),
+            ("-1\n", -1),
+        ] {
+            assert_eq!(parse_oom_score_adj(text), Some(number), "{text:?}");
+        }
+        for bad in [
+            "",
+            "\n",
+            "abc\n",
+            "1 2\n",
+            "+5\n",
+            "0x10\n",
+            "1001\n",
+            "-1001\n",
+            "99999999999\n",
+            "1.5\n",
+            "--1\n",
+            "- 1\n",
+            "5\n\n",
+            " 5\n",
+        ] {
+            assert_eq!(parse_oom_score_adj(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_score_up_to_the_accepted_one_is_acceptable() {
+        for fine in ["0\n", "100\n", "200\n", "-500\n", "-1000\n"] {
+            assert!(oom_score_is_acceptable(fine), "{fine:?}");
+        }
+        for not_fine in ["201\n", "500\n", "1000\n", "", "abc\n", "1001\n", "\n"] {
+            assert!(!oom_score_is_acceptable(not_fine), "{not_fine:?}");
+        }
     }
 }

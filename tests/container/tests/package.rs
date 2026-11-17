@@ -619,6 +619,75 @@ fn package_limits_the_caller_set_do_not_reach_pacman_through_pkexec() {
     let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-scriptlet"]);
 }
 
+/// A real install of the scriptlet package through real pkexec, started by `wrapper`.
+fn scriptlet_install_through(wrapper: &[&str]) -> (common::Piped, bool) {
+    let items = common::confirmed("-S", &["tidewise-test/tidewise-dummy-scriptlet"]);
+    let (request, summary) = common::install_request(
+        &[("tidewise-test", "tidewise-dummy-scriptlet")],
+        &[],
+        &items,
+    );
+    let _ = fs::remove_file("/tmp/tidewise-scriptlet-oom");
+    let ran = pkexec_through(wrapper, HELPER_ARGV0, &[&summary], None, request.as_bytes());
+    let installed = installed_version("tidewise-dummy-scriptlet").is_some();
+    (ran, installed)
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_a_caller_with_oom_score_adj_1000_is_refused_through_pkexec() {
+    // Question 37. The caller's oom_score_adj survives pkexec: at 1000 the OOM killer would pick root pacman first, in
+    // the middle of unpacking. A real root lowers it to 0 and carries on; a root that may not lower it (this rootless
+    // container: Podman gives 200 and refuses to go below) must refuse to start instead of running a job at 1000. The
+    // container cannot show the lowering itself: that path is on the VM checklist (WBS 6.8).
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+    let journal = FakeJournal::start();
+    let before = package_list();
+
+    let (ran, installed) = scriptlet_install_through(&["/usr/bin/choom", "-n", "1000", "--"]);
+    assert_eq!(ran.code, Some(2), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(ran.stdout, "");
+    assert!(ran.stderr.contains("out-of-memory score"), "{}", ran.stderr);
+    assert!(!installed);
+    assert_eq!(package_list(), before, "nothing may change");
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert!(
+        entries[0].contains("TIDEWISE_OUTCOME=cannot_reset_oom_score\n"),
+        "{entries:?}"
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_a_caller_at_the_harness_default_oom_score_adj_is_accepted_and_the_job_runs() {
+    // 200 is what the desktop session and rootless Podman give (measured 17 Nov 2026), so it is accepted. The
+    // install script of the real pacman run reports the score it ran under: never above 200.
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+
+    let (ran, installed) = scriptlet_install_through(&["/usr/bin/choom", "-n", "200", "--"]);
+    assert_eq!(ran.code, Some(0), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(
+        ran.stdout.lines().last(),
+        Some("{\"finished\":\"ok\"}"),
+        "{}",
+        ran.stdout
+    );
+    assert!(installed);
+    let seen: i32 = fs::read_to_string("/tmp/tidewise-scriptlet-oom")
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        (0..=200).contains(&seen),
+        "the install script ran at {seen}"
+    );
+    let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-scriptlet"]);
+}
+
 // ---- removal --------------------------------------------------------------------------------------------
 
 #[test]

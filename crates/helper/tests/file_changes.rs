@@ -90,6 +90,13 @@ fn expected() -> Vec<(String, String)> {
             "removal.rs",
             "fs::remove_file(&target).map_err(|_| RemovalError::Io)",
         ),
+        // The one write outside the work folder, and the one on a /proc file: the helper's own oom_score_adj, set to 0 at
+        // start (question 37). The path is a constant of env.rs, `/proc/self/...`, so it names no other file; the value is
+        // read back and judged, never trusted.
+        (
+            "env.rs",
+            "let _ = std::fs::write(OOM_SCORE_ADJ_PATH, \"0\");",
+        ),
         // The work folder (/run/tidewise-helper): created if missing, files created with O_EXCL, own leftovers removed.
         (
             "workdir.rs",
