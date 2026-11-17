@@ -8,9 +8,10 @@
 //! 2. only the expected file descriptors are open (`fds`)
 //! 3. SIGCHLD is not ignored (`signals`)
 //! 4. the resource limits were reset (`env`, done by `main`; the result is passed in)
-//! 5. the working directory is `/` (done by `main`; the result is passed in, and moving to `/` is harmless even when
+//! 5. the out-of-memory score is acceptable (`env`, done by `main`; the result is passed in)
+//! 6. the working directory is `/` (done by `main`; the result is passed in, and moving to `/` is harmless even when
 //!    a later check refuses)
-//! 6. argv is exactly the program name and one summary (`args`)
+//! 7. argv is exactly the program name and one summary (`args`)
 //!
 //! Only then is stdin read (`input`, capped) and the request decided (`gate`). A refused request gets one journal
 //! entry and one result line. An accepted one gets a journal entry (before any pacman command), a runner (made only
@@ -160,7 +161,7 @@ struct Started {
     summary: Vec<u8>,
 }
 
-/// The six start checks, in order. The first one that fails decides.
+/// The seven start checks, in order. The first one that fails decides.
 fn start(facts: Facts) -> Result<Started, StartRefusal> {
     // Root first: for someone who started the helper by hand, "must be started as root" is the useful message, and
     // a caller's extra descriptors (a CI runner hands out some) must not hide it. Both checks refuse before
@@ -182,6 +183,11 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
     // The caller's resource limits were reset by `main` (review 5.8 R-03); a reset that failed means the limits are
     // not ours, so the helper does not start. A low limit of the caller is not a reason to refuse: it was replaced.
     facts.limits.map_err(|_| StartRefusal::CannotResetLimits)?;
+
+    // The caller's out-of-memory score survives pkexec too: raised to 1000 it would make the OOM killer pick root
+    // pacman first. `main` wrote 0 and read it back; a value above the accepted one, or none, means the helper is not
+    // a root that can lower it (question 37).
+    facts.oom.map_err(|_| StartRefusal::CannotResetOomScore)?;
 
     facts
         .chdir
