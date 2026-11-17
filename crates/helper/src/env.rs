@@ -37,34 +37,35 @@ pub struct Limit {
 ///
 /// - file size, CPU time, address space, data segment: unlimited, because a transaction is as big as it is;
 /// - core dumps: 0, so a crash of a root process never writes memory to disk;
-/// - open files: 1048576 (soft = hard here, to be changed in the next commit);
-/// - stack: 8 MiB (soft = hard here, to be changed in the next commit).
+/// - open files: 1024 soft and 524288 hard, what systemd gives a service. A soft limit of a million would make every
+///   program that closes all descriptors up to the limit (shells, install scripts) slow;
+/// - stack: 8 MiB soft, the kernel's own default, with the hard limit left open as on a stock system.
 pub fn limit_plan() -> Vec<Limit> {
-    let both = |resource, value| Limit {
+    let limit = |resource, soft, hard| Limit {
         resource,
-        soft: value,
-        hard: value,
+        soft,
+        hard,
     };
     vec![
-        both(Resource::Fsize, None),
-        both(Resource::Cpu, None),
-        both(Resource::As, None),
-        both(Resource::Data, None),
-        both(Resource::Core, Some(0)),
-        both(Resource::Nofile, Some(1_048_576)),
-        both(Resource::Stack, Some(8 * 1024 * 1024)),
+        limit(Resource::Fsize, None, None),
+        limit(Resource::Cpu, None, None),
+        limit(Resource::As, None, None),
+        limit(Resource::Data, None, None),
+        limit(Resource::Core, Some(0), Some(0)),
+        limit(Resource::Nofile, Some(1024), Some(524_288)),
+        limit(Resource::Stack, Some(8 * 1024 * 1024), None),
     ]
 }
 
 /// True when a limit that the plan leaves unlimited is still limited after the reset: the helper could not undo what
 /// the caller did (raising a hard limit was refused), so a transaction could still be cut short.
 pub fn is_short(planned_soft: Option<u64>, after_soft: Option<u64>) -> bool {
-    let _ = (planned_soft, after_soft);
-    false
+    planned_soft.is_none() && after_soft.is_some()
 }
 
 /// Applies `limit_plan`. Where raising the hard limit is not allowed (a process that is not really root, such as the
-/// rootless test container), the soft limit is raised as far as the hard one allows.
+/// rootless test container), the soft limit is raised as far as the hard one allows. A limit the plan leaves unlimited
+/// that still is not unlimited afterwards is an error (`is_short`): the caller's limit is still in force.
 pub fn reset_limits() -> std::io::Result<()> {
     for limit in limit_plan() {
         let wanted = Rlimit {
@@ -87,6 +88,11 @@ pub fn reset_limits() -> std::io::Result<()> {
                 maximum: hard,
             },
         )?;
+        if is_short(limit.soft, getrlimit(limit.resource).current) {
+            return Err(std::io::Error::other(
+                "a resource limit of the caller could not be lifted",
+            ));
+        }
     }
     Ok(())
 }
