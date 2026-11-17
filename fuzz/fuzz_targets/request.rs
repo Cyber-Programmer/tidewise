@@ -15,6 +15,22 @@ fn assert_summary_is_safe(request: &Request) {
     );
 }
 
+/// A summary of a request that passed validation is what the genuine password dialog shows (threat T-02, question 21):
+/// the dialog draws markup and links and grows with the text, so it may hold only name characters (letters, digits and
+/// `@ . _ + -`, the package-name allow-list) and the separators summary.rs writes (space, `/`, `(`, `)`), and must stay
+/// within the cap. Spelled out here because the fuzz crate does not depend on `tidewise-names`; the unit test in
+/// `crates/helper-protocol/tests/hostile_input.rs` derives the same set from the allow-list, so a drift between the two
+/// shows as a failure of one of them.
+fn assert_summary_is_safe_for_the_dialog(request: &Request) {
+    let text = summary(request);
+    assert!(text.len() <= MAX_SUMMARY_BYTES, "summary too long");
+    assert!(
+        text.chars()
+            .all(|c| c.is_ascii_alphanumeric() || " /().@_+-".contains(c)),
+        "an accepted request has a summary with a character the dialog could interpret: {text:?}"
+    );
+}
+
 // Everything the helper reads (a request on stdin) and everything the app reads (an event line) goes through
 // a parser of outside data. Ok and Err are both fine; a panic, a hang, or a broken promise below is a bug.
 fuzz_target!(|data: &[u8]| {
@@ -22,6 +38,7 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(request) = parse_request(data) {
         assert_eq!(validate(&request), Ok(()), "accepted but not valid");
         assert_summary_is_safe(&request);
+        assert_summary_is_safe_for_the_dialog(&request);
     }
 
     // 2. Whatever serde alone accepts (before validation) must still give a safe summary: summary() is total.
