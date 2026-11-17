@@ -5,6 +5,7 @@
 - Decided by: Bahauddin Hassan (human), 2026-11-13
 - Task: WBS 5.1 (threat model, section 3 and threat T-02); recorded while starting 5.7.
 - Updated: 2026-11-16, WBS 5.4: the re-test with our own policy action passed on KDE (section "5.4 re-test"). The decision stands.
+- Updated: 2026-11-17, WBS 5.6 follow-up: a hostile `argv[1]` on KDE (section "Hostile argv, 17 Nov 2026"). The decision stands.
 - Updated: 2026-11-16, WBS 5.4b: the helper now refuses unless `argv[0]` is exactly the installed path (caveat below).
 
 ## Context
@@ -58,6 +59,14 @@ and shows argv only because the message says `$(command_line)` (polkit 128, sour
   `exec.path` annotation. The quotes around the argument are not shown.
 - Cancelled each time. Not tried: a second prompt after authenticating (no `_keep`), GNOME's agent, a summary of the
   full 200 bytes, non-ASCII or hostile text, this action at its real path (5.5).
+
+### Hostile argv, 17 Nov 2026 (the human, KDE Plasma's polkit agent, the same TEST action)
+
+Seven hostile `argv[1]` texts, each cancelled: markup is drawn as rich text with a clickable link, 200 lines and 20 KB push the
+password field and buttons off the screen, right-to-left text is reversed, bytes that are not UTF-8 replace the whole command
+line with `[Invalid UTF-8]`; `$(...)` stays literal (table: threat model question 21). **The summary stays:** the helper
+refuses a wrong summary after the password, and the genuine summary is kept to name characters and at most 200 bytes, which
+is pinned by tests. The residual (a hostile caller can show misleading text or a link in our dialog) is accepted (human, option A).
 
 ## Caveats
 
