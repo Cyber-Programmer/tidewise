@@ -347,3 +347,205 @@ fn no_refusal_repeats_what_was_sent() {
         assert!(!format!("{error:?}").contains(marker));
     }
 }
+
+// ---- what the password dialog can be made to show (threat T-02, question 21) --------------------------------------
+//
+// The KDE agent draws the polkit message as rich text (bold, links, `&amp;` decoded), keeps new lines, reverses
+// right-to-left text and grows with the text until the password field and the buttons are off the screen (hand test of
+// 17 Nov 2026, threat model question 21). Any process can put its own text in argv, so the dialog of a *hostile* caller
+// cannot be cleaned. What can be kept clean is the **genuine** dialog: the text the app puts in argv is `summary()` of
+// a request that passed validation, so these tests pin that such a text (1) uses only characters that cannot make
+// markup, a link, a new line or reversed text, and (2) is short enough to keep the buttons on screen.
+
+use std::collections::BTreeSet;
+use tidewise_helper_protocol::{
+    MAX_NAME_BYTES, MAX_PROVIDERS, MAX_SUMMARY_BYTES, Request, summary,
+};
+use tidewise_names::is_valid_package_name;
+
+/// The characters a summary of an accepted request may hold. Derived, not typed:
+///  - what a package or repository name may hold is read from the allow-list itself (an ASCII character `c` is allowed
+///    when `"a" + c` is a legal name: letters, digits and `@ . _ + -`);
+///  - what `summary.rs` writes by itself: its fixed words are letters, its counts are digits, and its separators are a
+///    space, `/`, `(`, `)` and the `.` of `...` (the `.` is also a name character).
+fn safe_summary_characters() -> BTreeSet<char> {
+    let mut set: BTreeSet<char> = (0u8..=127)
+        .map(char::from)
+        .filter(|c| is_valid_package_name(&format!("a{c}")))
+        .collect();
+    set.extend(" /().".chars());
+    set
+}
+
+#[test]
+fn the_names_allow_list_holds_no_markup_quote_substitution_or_control_character() {
+    let safe = safe_summary_characters();
+    // The characters the dialog would interpret or that would change its shape.
+    let dangerous = "<>&\"'`$\\%;|{}[]!#*?~^=,:\u{7f}\u{202e}\u{202c}\u{2066}\u{2069}";
+    for c in dangerous.chars().chain((0u8..32).map(char::from)) {
+        assert!(
+            !safe.contains(&c),
+            "the allow-list now lets {c:?} into a summary"
+        );
+    }
+    // And only plain ASCII at all.
+    assert!(safe.iter().all(|c| c.is_ascii_graphic() || *c == ' '));
+}
+
+/// A valid request, as JSON: `targets` and `providers` are `(repo, name)` and `(dependency, repo, name)`; the confirmed
+/// list holds all of them.
+fn valid_install(
+    action: &str,
+    targets: &[(String, String)],
+    providers: &[(String, String, String)],
+) -> Vec<u8> {
+    let mut transaction: Vec<Value> = targets.iter().map(|(r, n)| line_of(r, n)).collect();
+    transaction.extend(providers.iter().map(|(_, r, n)| line_of(r, n)));
+    json!({"protocol_version": 1, "action": {action: {
+        "targets": targets.iter().map(|(r, n)| json!({"repo": r, "name": n})).collect::<Vec<_>>(),
+        "providers": providers.iter()
+            .map(|(d, r, n)| json!({"dependency": d, "chosen": {"repo": r, "name": n}}))
+            .collect::<Vec<_>>(),
+        "transaction": transaction,
+    }}})
+    .to_string()
+    .into_bytes()
+}
+
+fn line_of(repo: &str, name: &str) -> Value {
+    json!({"repo": repo, "name": name, "version": "1-1"})
+}
+
+fn valid_update(lines: usize) -> Vec<u8> {
+    let transaction: Vec<Value> = (0..lines)
+        .map(|n| line_of("core", &format!("p{n}")))
+        .collect();
+    json!({"protocol_version": 1, "action": {"update_system": {"transaction": transaction}}})
+        .to_string()
+        .into_bytes()
+}
+
+/// Valid requests that reach every branch of `summary()`.
+fn valid_requests() -> Vec<(&'static str, Vec<u8>)> {
+    let max_name = format!("a{}", "b".repeat(MAX_NAME_BYTES - 1));
+    let all_characters = "a@._+-9Z".to_string();
+    let repo_64 = "r".repeat(64);
+    let many: Vec<(String, String)> = (0..MAX_TARGETS)
+        .map(|n| ("extra".to_string(), format!("package-number-{n}")))
+        .collect();
+    let many_providers: Vec<(String, String, String)> = (0..MAX_PROVIDERS)
+        .map(|n| {
+            (
+                format!("dep{n}"),
+                "extra".to_string(),
+                format!("provider-{n}"),
+            )
+        })
+        .collect();
+    let one = |repo: &str, name: &str| vec![(repo.to_string(), name.to_string())];
+    vec![
+        (
+            "fixture: install",
+            include_str!("../../../tests/fixtures/helper-protocol/install.json")
+                .as_bytes()
+                .to_vec(),
+        ),
+        (
+            "fixture: update system",
+            include_str!("../../../tests/fixtures/helper-protocol/update-system.json")
+                .as_bytes()
+                .to_vec(),
+        ),
+        (
+            "fixture: update system and install",
+            include_str!("../../../tests/fixtures/helper-protocol/update-system-and-install.json")
+                .as_bytes()
+                .to_vec(),
+        ),
+        (
+            "every character a name may hold",
+            valid_install("install", &one("extra", &all_characters), &[]),
+        ),
+        (
+            "a name of the longest length (the ... case)",
+            valid_install("install", &one("extra", &max_name), &[]),
+        ),
+        (
+            "a repository of 64 bytes",
+            valid_install("install", &one(&repo_64, "dbeaver"), &[]),
+        ),
+        (
+            "100 targets (and K more)",
+            valid_install("install", &many, &[]),
+        ),
+        (
+            "100 providers with one target (counted)",
+            valid_install("install", &one("extra", "dbeaver"), &many_providers),
+        ),
+        (
+            "100 targets and 100 providers",
+            valid_install("update_system_and_install", &many, &many_providers),
+        ),
+        ("an update of 5000 lines", valid_update(MAX_TRANSACTION)),
+    ]
+}
+
+#[test]
+fn the_summary_of_every_accepted_request_uses_only_safe_characters_and_fits_the_dialog() {
+    // The cap behind "the buttons stay on screen": a 192-byte summary was shown whole on KDE (15 Nov 2026, hand test),
+    // while 200 lines and 20 KB pushed the password field and the buttons off the screen (17 Nov 2026). If this number
+    // changes, the hand test of question 21 has to be done again.
+    assert_eq!(MAX_SUMMARY_BYTES, 200);
+
+    let safe = safe_summary_characters();
+    for (label, bytes) in valid_requests() {
+        let request = parse_request(&bytes)
+            .unwrap_or_else(|error| panic!("{label}: the request is not valid: {error:?}"));
+        let text = summary(&request);
+        assert!(!text.is_empty(), "{label}");
+        assert!(
+            text.len() <= MAX_SUMMARY_BYTES,
+            "{label}: {} bytes: {text}",
+            text.len()
+        );
+        let unsafe_characters: Vec<char> = text.chars().filter(|c| !safe.contains(c)).collect();
+        assert!(
+            unsafe_characters.is_empty(),
+            "{label}: {unsafe_characters:?} in {text:?}"
+        );
+    }
+}
+
+#[test]
+fn a_request_with_markup_in_a_name_is_refused_so_its_summary_never_reaches_a_dialog() {
+    let mut names = hostile_names();
+    // What the hand test put in argv, as a package name.
+    for (label, name) in [
+        ("bold markup", "<b>bold</b>"),
+        ("link markup", r#"<a href="https://example.org">click</a>"#),
+        ("entity", "a&amp;b"),
+        ("double quote", "a\"b"),
+        ("single quote", "a'b"),
+        ("polkit substitution", "$(user)"),
+        ("percent", "a%nb"),
+    ] {
+        names.push((label, name.to_string()));
+    }
+    for (label, name) in &names {
+        assert_eq!(
+            parse_request(&install_of(name)),
+            Err(invalid(Field::Targets, 0, Reason::BadPackageName)),
+            "{label}"
+        );
+    }
+
+    // `summary()` alone is NOT a sanitiser: it only keeps printable ASCII, so markup survives it. What keeps the
+    // dialog clean is that the helper (and the app, which must call it the same way: M4) validates first.
+    let unchecked: Request =
+        serde_json::from_slice(&install_of("<b>x</b>")).expect("serde accepts it");
+    assert!(
+        summary(&unchecked).contains("<b>"),
+        "{}",
+        summary(&unchecked)
+    );
+}
