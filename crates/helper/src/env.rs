@@ -13,6 +13,8 @@
 //! `SHLVL`. With no `PATH` the shell supplies its own default, so `PATH` is not strictly needed; it is set anyway so
 //! the environment is fixed and readable.)
 
+use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
+
 /// Sets the umask to 022 and returns the previous one.
 pub fn set_umask_022() -> u32 {
     rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o022)).bits()
@@ -29,13 +31,45 @@ pub fn set_umask_022() -> u32 {
 /// - core dumps: 0, so a crash of a root process never writes memory to disk;
 /// - open files: 1048576, the maximum systemd itself gives services, far above what pacman needs but not unbounded;
 /// - stack: 8 MiB, the kernel's own default.
-pub fn limit_plan() -> Vec<(rustix::process::Resource, Option<u64>)> {
-    Vec::new()
+pub fn limit_plan() -> Vec<(Resource, Option<u64>)> {
+    vec![
+        (Resource::Fsize, None),
+        (Resource::Cpu, None),
+        (Resource::As, None),
+        (Resource::Data, None),
+        (Resource::Core, Some(0)),
+        (Resource::Nofile, Some(1_048_576)),
+        (Resource::Stack, Some(8 * 1024 * 1024)),
+    ]
 }
 
 /// Applies `limit_plan`, soft and hard together. Where raising the hard limit is not allowed (a process that is not
 /// really root, such as the rootless test container), the soft limit is raised as far as the hard one allows.
 pub fn reset_limits() -> std::io::Result<()> {
+    for (resource, planned) in limit_plan() {
+        let wanted = Rlimit {
+            current: planned,
+            maximum: planned,
+        };
+        if setrlimit(resource, wanted).is_ok() {
+            continue;
+        }
+        // Raising the hard limit was refused. The real helper is root of the real system and is not refused; a
+        // user-namespace root (the rootless test container) is. Take the soft limit as high as the hard one allows.
+        let hard = getrlimit(resource).maximum;
+        let soft = match (planned, hard) {
+            (Some(wanted), Some(hard)) => Some(wanted.min(hard)),
+            (Some(wanted), None) => Some(wanted),
+            (None, hard) => hard,
+        };
+        setrlimit(
+            resource,
+            Rlimit {
+                current: soft,
+                maximum: hard,
+            },
+        )?;
+    }
     Ok(())
 }
 

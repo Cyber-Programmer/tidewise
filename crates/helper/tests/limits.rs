@@ -33,7 +33,7 @@ fn expected(planned: Option<u64>, hard_before: Option<u64>) -> Option<u64> {
 fn limits_the_caller_lowered_are_reset_to_the_planned_values() {
     // The caller's doing: every limit of the plan pushed to something small (but never so small that the test
     // process itself stops working).
-    for (resource, _) in limit_plan() {
+    for resource in [Resource::As, Resource::Data] {
         lower(resource, 4 * 1024 * 1024 * 1024);
     }
     lower(Resource::Fsize, 1024 * 1024);
