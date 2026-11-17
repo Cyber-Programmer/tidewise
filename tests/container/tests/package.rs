@@ -598,19 +598,22 @@ fn package_limits_the_caller_set_do_not_reach_pacman_through_pkexec() {
     );
     assert_eq!(
         limit_row(&seen, "Max stack size"),
-        ("8388608".to_string(), "8388608".to_string()),
+        ("8388608".to_string(), "unlimited".to_string()),
         "{seen}"
     );
-    // Open files: 1048576, or the container's own hard limit when that is lower (a root of a user namespace cannot
-    // raise a hard limit; the real helper is root of the real system and can).
-    let hard: u64 = match limit_row(&own, "Max open files").1.as_str() {
+    // Open files: 1024 soft and 524288 hard (what systemd gives a service), or the container's own hard limit when
+    // that is lower (a root of a user namespace cannot raise a hard limit; the real helper is root of the real
+    // system and can).
+    let own_hard: u64 = match limit_row(&own, "Max open files").1.as_str() {
         "unlimited" => u64::MAX,
         number => number.parse().unwrap(),
     };
-    let want = 1_048_576u64.min(hard).to_string();
     assert_eq!(
         limit_row(&seen, "Max open files"),
-        (want.clone(), want),
+        (
+            1024u64.min(own_hard).to_string(),
+            524_288u64.min(own_hard).to_string()
+        ),
         "{seen}"
     );
     let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-scriptlet"]);

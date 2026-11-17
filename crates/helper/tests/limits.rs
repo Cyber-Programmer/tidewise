@@ -20,8 +20,9 @@ fn lower(resource: Resource, soft: u64) {
     .unwrap();
 }
 
-/// What the soft and hard limit must be after the reset: the planned value, or the hard limit when that is lower.
-fn expected(planned: Option<u64>, hard_before: Option<u64>) -> Option<u64> {
+/// The smaller of a planned value and the hard limit that was there before (where raising is not allowed, the
+/// result cannot be above it); `None` is unlimited.
+fn capped(planned: Option<u64>, hard_before: Option<u64>) -> Option<u64> {
     match (planned, hard_before) {
         (Some(wanted), Some(hard)) => Some(wanted.min(hard)),
         (Some(wanted), None) => Some(wanted),
@@ -44,16 +45,18 @@ fn limits_the_caller_lowered_are_reset_to_the_planned_values() {
 
     let hard_before: Vec<_> = limit_plan()
         .iter()
-        .map(|(resource, _)| getrlimit(*resource).maximum)
+        .map(|limit| getrlimit(limit.resource).maximum)
         .collect();
     reset_limits().unwrap();
 
     let plan = limit_plan();
     assert_eq!(plan.len(), 7, "the plan names the seven limits");
-    for ((resource, planned), hard) in plan.into_iter().zip(hard_before) {
-        let after = getrlimit(resource);
-        let want = expected(planned, hard);
-        assert_eq!(after.current, want, "{resource:?}: soft limit");
-        assert_eq!(after.maximum, want, "{resource:?}: hard limit");
+    for (limit, hard) in plan.into_iter().zip(hard_before) {
+        let after = getrlimit(limit.resource);
+        let hard_want = capped(limit.hard, hard);
+        // The soft limit cannot end above the hard one.
+        let soft_want = capped(limit.soft, hard_want);
+        assert_eq!(after.current, soft_want, "{:?}: soft limit", limit.resource);
+        assert_eq!(after.maximum, hard_want, "{:?}: hard limit", limit.resource);
     }
 }
