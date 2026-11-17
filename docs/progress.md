@@ -1000,3 +1000,41 @@ the proof they can fail is the five hand mutations above. Mutations ran in a thr
 them is committed. A new file, `docs/security/pentest-checklist.md`, was created (ENGINEERING.md named it). `CLAUDE.md` got the `gate` fuzz lines (as 3.6 to
 5.3 did for theirs). Nothing under `crates/helper*`, `packaging/`, `deny.toml` or `.github/` changed. `run.sh` gained one `case "$name" in package*` line.
 The WBS sheet is yours.
+
+## 2026-11-17 — 5.6 follow-up: Q21 write-up (the KDE hostile-argv hand test)
+Done:
+- **Question 21 answered for KDE** (the human's hand test, 17 Nov 2026, TEST action `io.github.tidewise.test-dialog`, seven dialogs cancelled, policy
+  removed, `pkaction` confirms it is gone). The agent draws the polkit message as rich text with a clickable link, keeps new lines, reverses
+  right-to-left text (`gnp.exe` shown as `exe.png`), shows `$(...)` literally, replaces the whole command line with `[Invalid UTF-8]` for bytes that
+  are not UTF-8 (pkexec still asks), and a 200-line or 20 KB message makes the dialog taller than the screen with the password field and buttons off
+  screen (closed with Esc). **Decision (human, option A): the residual is accepted**: a hostile local caller can show misleading text, a clickable link
+  or an oversized dialog in our genuine prompt; the helper refuses on a summary mismatch, so nothing changes. Table and decision in threat model Q21;
+  T-02, Q2, source 27 and decision 0005 updated.
+- **Test only, no behaviour change in `crates/helper-protocol`:** `tests/hostile_input.rs` gets three tests. (1) The characters `summary()` may write are
+  *derived* from the names allow-list (an ASCII `c` is allowed when `"a" + c` is a legal name) plus the separators summary.rs writes (space, `/`, `(`,
+  `)`, `.`); the test asserts no markup, quote, `$`, backslash, `%`, control character or direction mark is in that set, so widening the allow-list to
+  one of them fails it. (2) The summary of every accepted request (the three fixtures, a name with every allowed character, a 128-byte name, a 64-byte
+  repo, 100 targets, 100 providers, both, an update of 5000 lines) uses only those characters and is **at most 200 bytes**, the cap that keeps genuine
+  prompts on screen (192 bytes fit whole on 15 Nov; 200 lines and 20 KB did not on 17 Nov): `MAX_SUMMARY_BYTES` is pinned to 200, so changing it means
+  redoing the hand test (linked in Q21). (3) Markup, quotes, `$(user)` and the table's hostile names are refused by `parse_request`, and `summary()` alone
+  is shown to keep `<b>`: it is validate-first that keeps the dialog clean. The hostile-names list became a function first (own refactor commit).
+- **Fuzz, cheap:** the `request` target asserts the same (only name characters and four separators, at most 200 bytes) for whatever `parse_request` accepts,
+  with the set spelled out in the target (the fuzz crate does not depend on `tidewise-names`: no new dependency). 600 s run: 6 658 355 runs, exit 0,
+  `fuzz/artifacts/` empty.
+- **Mutation checks (temporary, reverted, nothing committed):** `summary.rs` writing `" with<"` → the character test and the fuzz target fail at once (the
+  fuzz message names `with< extra/jre-openjdk`); the names rule accepting `&` → the allow-list test fails; the cap raised to 400 → the pin fails; the cut loosened
+  by 60 bytes with the cap still 200 → the length check fails (a 241-byte summary named). The one crash file the fuzz mutation made was removed by its exact path.
+- Checklist: item 5 lists the same seven inputs for GNOME with the KDE results as the baseline; item 6 checks whether cancelled dialogs raise the
+  `pam_faillock` counter. Question 32 is new: "(N minutes left to unlock)" appeared from the second dialog on; the cause is not established.
+- Tests: workspace 841 passed, 0 failed, 72 ignored (838 before, plus the 3 new tests); fmt (also `fuzz/`), clippy `-D warnings`, `cargo test --all`,
+  `cargo deny check`, release build exit 0. Container tests not run: nothing they exercise changed (`summary()` and the helper are untouched).
+Next:
+- **M4 6.7 (the human's decision): an error state for a `pam_faillock`-locked administrator account.** pkexec then exits 126 or 127 before the helper exists, so
+  the app gets no event line; the app must say so in plain words, with details under the technical-details toggle (question 32).
+- **M4: the app calls `summary()` only on a request that passed `validate`.** The safe-character guarantee is about validated requests; `summary()` keeps `<`
+  in an unvalidated one (the third new test shows it).
+- Checklist (WBS 6.8): the same seven inputs on GNOME; whether cancelled dialogs raise the `pam_faillock` counter; the items from 5.6.
+Blockers: none.
+Rules bent: the three tests start green (they pin behaviour that exists; no red commit); the proof they can fail is the four mutations above. The
+`request` fuzz target changed, so its 600 s run was repeated (the other eight targets and their code did not change). Edits to `crates/helper-protocol` are
+test files only (the human's approval of 17 Nov 2026). The WBS sheet is yours.
