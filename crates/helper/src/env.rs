@@ -20,50 +20,68 @@ pub fn set_umask_022() -> u32 {
     rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o022)).bits()
 }
 
-/// The resource limits the helper sets at start, and the value of each (`None` is unlimited). Review 5.8 R-03.
+/// One resource limit of the plan: the soft and the hard value (`None` is unlimited).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limit {
+    pub resource: Resource,
+    pub soft: Option<u64>,
+    pub hard: Option<u64>,
+}
+
+/// The resource limits the helper sets at start. Review 5.8 R-03.
 ///
 /// `pkexec` passes the caller's limits on, and they apply to root too: a low file-size or CPU limit kills pacman in
 /// the middle of unpacking a package, and the caller needs no privilege to set them. So the helper sets its own, and
-/// pacman, its scriptlets and its hooks inherit them. Cgroup limits (a memory cap, a CPU quota) belong to the
-/// caller's service or scope and cannot be reset from inside a process: that part is documented, not defended.
+/// pacman, its scriptlets and its hooks inherit them. Cgroup limits (a memory cap, a CPU quota) and the OOM score
+/// belong to the caller's service or scope and cannot be reset this way: documented, not defended.
 ///
 /// - file size, CPU time, address space, data segment: unlimited, because a transaction is as big as it is;
 /// - core dumps: 0, so a crash of a root process never writes memory to disk;
-/// - open files: 1048576, the maximum systemd itself gives services, far above what pacman needs but not unbounded;
-/// - stack: 8 MiB, the kernel's own default.
-pub fn limit_plan() -> Vec<(Resource, Option<u64>)> {
+/// - open files: 1048576 (soft = hard here, to be changed in the next commit);
+/// - stack: 8 MiB (soft = hard here, to be changed in the next commit).
+pub fn limit_plan() -> Vec<Limit> {
+    let both = |resource, value| Limit {
+        resource,
+        soft: value,
+        hard: value,
+    };
     vec![
-        (Resource::Fsize, None),
-        (Resource::Cpu, None),
-        (Resource::As, None),
-        (Resource::Data, None),
-        (Resource::Core, Some(0)),
-        (Resource::Nofile, Some(1_048_576)),
-        (Resource::Stack, Some(8 * 1024 * 1024)),
+        both(Resource::Fsize, None),
+        both(Resource::Cpu, None),
+        both(Resource::As, None),
+        both(Resource::Data, None),
+        both(Resource::Core, Some(0)),
+        both(Resource::Nofile, Some(1_048_576)),
+        both(Resource::Stack, Some(8 * 1024 * 1024)),
     ]
 }
 
-/// Applies `limit_plan`, soft and hard together. Where raising the hard limit is not allowed (a process that is not
-/// really root, such as the rootless test container), the soft limit is raised as far as the hard one allows.
+/// True when a limit that the plan leaves unlimited is still limited after the reset: the helper could not undo what
+/// the caller did (raising a hard limit was refused), so a transaction could still be cut short.
+pub fn is_short(planned_soft: Option<u64>, after_soft: Option<u64>) -> bool {
+    let _ = (planned_soft, after_soft);
+    false
+}
+
+/// Applies `limit_plan`. Where raising the hard limit is not allowed (a process that is not really root, such as the
+/// rootless test container), the soft limit is raised as far as the hard one allows.
 pub fn reset_limits() -> std::io::Result<()> {
-    for (resource, planned) in limit_plan() {
+    for limit in limit_plan() {
         let wanted = Rlimit {
-            current: planned,
-            maximum: planned,
+            current: limit.soft,
+            maximum: limit.hard,
         };
-        if setrlimit(resource, wanted).is_ok() {
+        if setrlimit(limit.resource, wanted).is_ok() {
             continue;
         }
-        // Raising the hard limit was refused. The real helper is root of the real system and is not refused; a
-        // user-namespace root (the rootless test container) is. Take the soft limit as high as the hard one allows.
-        let hard = getrlimit(resource).maximum;
-        let soft = match (planned, hard) {
+        let hard = getrlimit(limit.resource).maximum;
+        let soft = match (limit.soft, hard) {
             (Some(wanted), Some(hard)) => Some(wanted.min(hard)),
             (Some(wanted), None) => Some(wanted),
             (None, hard) => hard,
         };
         setrlimit(
-            resource,
+            limit.resource,
             Rlimit {
                 current: soft,
                 maximum: hard,
@@ -122,18 +140,37 @@ mod tests {
 
     #[test]
     fn the_helper_sets_exactly_these_limits() {
-        use rustix::process::Resource::{As, Core, Cpu, Data, Fsize, Nofile, Stack};
+        use Resource::{As, Core, Cpu, Data, Fsize, Nofile, Stack};
+        let limit = |resource, soft, hard| Limit {
+            resource,
+            soft,
+            hard,
+        };
         assert_eq!(
             limit_plan(),
             vec![
-                (Fsize, None),
-                (Cpu, None),
-                (As, None),
-                (Data, None),
-                (Core, Some(0)),
-                (Nofile, Some(1_048_576)),
-                (Stack, Some(8 * 1024 * 1024)),
+                limit(Fsize, None, None),
+                limit(Cpu, None, None),
+                limit(As, None, None),
+                limit(Data, None, None),
+                limit(Core, Some(0), Some(0)),
+                // What systemd gives a service: 1024 soft (a program that closes every descriptor up to the limit
+                // stays fast), 524288 hard.
+                limit(Nofile, Some(1024), Some(524_288)),
+                // The kernel's default stack, with the hard limit left open as it is everywhere else.
+                limit(Stack, Some(8 * 1024 * 1024), None),
             ]
         );
+    }
+
+    #[test]
+    fn a_limit_that_should_be_unlimited_but_is_not_is_short_of_the_plan() {
+        assert!(is_short(None, Some(1_048_576)));
+        assert!(is_short(None, Some(0)));
+        assert!(!is_short(None, None));
+        // A bounded plan is not judged here (a lower value than planned only makes a transaction cut short by the
+        // caller for those three, and none of them is one pacman can run into).
+        assert!(!is_short(Some(1024), Some(256)));
+        assert!(!is_short(Some(0), Some(0)));
     }
 }
