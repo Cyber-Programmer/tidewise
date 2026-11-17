@@ -40,8 +40,8 @@ fn the_good_request_the_table_starts_from_is_accepted() {
     assert!(parse_request(&install_of("dbeaver")).is_ok());
 }
 
-#[test]
-fn hostile_names_are_refused_as_names() {
+/// Every hostile package name of the table, with its label: what the protocol must refuse as a name.
+fn hostile_names() -> Vec<(&'static str, String)> {
     let long = "a".repeat(1_000_000);
     let names: Vec<(&str, &str)> = vec![
         ("force flag", "--force"),
@@ -71,9 +71,17 @@ fn hostile_names_are_refused_as_names() {
         ("empty", ""),
         ("one million bytes", long.as_str()),
     ];
-    for (label, name) in names {
+    names
+        .into_iter()
+        .map(|(label, name)| (label, name.to_string()))
+        .collect()
+}
+
+#[test]
+fn hostile_names_are_refused_as_names() {
+    for (label, name) in hostile_names() {
         assert_eq!(
-            parse_request(&install_of(name)),
+            parse_request(&install_of(&name)),
             Err(invalid(Field::Targets, 0, Reason::BadPackageName)),
             "{label}"
         );
