@@ -134,6 +134,28 @@ mod tests {
     const BOTH: &str =
         include_str!("../../../tests/fixtures/helper-protocol/update-system-and-install.json");
 
+    /// A number for each action. No `_` arm on purpose (review 5.8 R-07): a new `Action` does not compile here until it
+    /// is given a number, and `LAST_ACTION` must grow with it, which makes the test below fail until there is a fixture
+    /// (and so a summary sample) of the new kind.
+    fn action_kind(action: &Action) -> usize {
+        match action {
+            Action::Install(_) => 0,
+            Action::UpdateSystem(_) => 1,
+            Action::UpdateSystemAndInstall(_) => 2,
+        }
+    }
+    const LAST_ACTION: usize = 2;
+
+    #[test]
+    fn every_action_kind_has_a_fixture_and_so_a_summary_sample() {
+        let seen: std::collections::BTreeSet<usize> = [INSTALL, UPDATE, BOTH]
+            .iter()
+            .map(|text| action_kind(&from_json(text).action))
+            .collect();
+        let every_kind: std::collections::BTreeSet<usize> = (0..=LAST_ACTION).collect();
+        assert_eq!(seen, every_kind, "an action has no fixture");
+    }
+
     fn from_json(text: &str) -> Request {
         serde_json::from_str(text).unwrap()
     }

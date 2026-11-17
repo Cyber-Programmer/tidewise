@@ -179,6 +179,37 @@ mod tests {
         ]
     }
 
+    /// A number for each kind of command. The match has no `_` arm on purpose (review 5.8 R-07): a new `PacmanCommand`
+    /// does not compile here until it is given a number, and `LAST` must grow with it, which makes
+    /// `every_command_kind_is_in_the_table` fail until `all_commands()` holds one of the new kind. Every template test
+    /// (no dangerous option, `-y` only in the sync, `--noconfirm` only in real runs, `--print` only in dry runs) loops
+    /// over that table, so a command outside it would be checked by none of them.
+    fn kind(command: &PacmanCommand) -> usize {
+        match command {
+            PacmanCommand::PendingUpdates => 0,
+            PacmanCommand::Sync => 1,
+            PacmanCommand::DryRunInstall(_) => 2,
+            PacmanCommand::DryRunUpdate(_) => 3,
+            PacmanCommand::RealInstall(_) => 4,
+            PacmanCommand::RealUpdate(_) => 5,
+            PacmanCommand::MarkAsDeps(_) => 6,
+            PacmanCommand::ListInstalled => 7,
+        }
+    }
+    /// The highest number `kind` hands out. Raise it together with a new arm.
+    const LAST: usize = 7;
+
+    #[test]
+    fn every_command_kind_is_in_the_table() {
+        let in_the_table: std::collections::BTreeSet<usize> =
+            all_commands().iter().map(kind).collect();
+        let every_kind: std::collections::BTreeSet<usize> = (0..=LAST).collect();
+        assert_eq!(
+            in_the_table, every_kind,
+            "all_commands() lacks a kind of command"
+        );
+    }
+
     fn before_the_double_dash(args: &[String]) -> Vec<&str> {
         args.iter()
             .map(String::as_str)
