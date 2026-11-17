@@ -8,8 +8,9 @@ targets = ["x86_64-unknown-linux-gnu"]
 [advisories]
 # Defaults: RustSec Advisory DB (same database as `cargo audit`).
 # Vulnerable and unmaintained crates fail the check; yanked crates only warn.
-# Each ignore below was reviewed by the human on 2026-11-09 (task 2.4). All are "unmaintained", none is a
-# vulnerability, and all come in through Slint 1.18.1, so only a Slint update can remove them.
+# Each ignore below was reviewed by the human (the first five on 2026-11-09, task 2.4; chrono on 2026-11-17, task 5.8).
+# All are "unmaintained", none is a vulnerability, and all come in through Slint 1.18.1, so only a Slint update can
+# remove them.
 # When Slint drops one, cargo-deny warns "unused-ignored-advisory": then delete that entry.
 ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; via Slint -> winit -> accessibility (AT-SPI)" },
@@ -17,6 +18,7 @@ ignore = [
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; via Slint -> winit -> accessibility (AT-SPI)" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; via Slint -> winit -> sctk-adwaita (Wayland title bar)" },
     { id = "RUSTSEC-2026-0441", reason = "pin-utils archived; build-time only via slint-build/slint-macros -> spin_on" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained (INFO, no patched version, issued 17 Nov 2026); only via Slint -> i-slint-core, app only, not linked into the helper" },
 ]
 
 [licenses]
