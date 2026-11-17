@@ -35,9 +35,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use common::{
-    HELPER_ARGV0, Installed, PKG_DIR, POLICY_PATH, Polkit, WORK_DIR,
-    assert_inside_the_test_container, install_hello, installed_version, package_file, pacman,
-    pkexec,
+    FakeJournal, HELPER_ARGV0, Installed, PKG_DIR, POLICY_PATH, Polkit, WORK_DIR,
+    assert_inside_the_test_container, install_hello, installed_version, package_file, package_list,
+    pacman, pkexec, pkexec_through,
 };
 
 const ACTION_ID: &str = "io.github.tidewise.helper";
@@ -486,6 +486,44 @@ fn package_real_pkexec_runs_the_installed_helper_end_to_end() {
     assert_eq!(fs::read_dir(WORK_DIR).unwrap().count(), 0);
 
     let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-hello"]);
+}
+
+// ---- what the caller passes on through pkexec (review 5.8 R-01, R-03) ---------------------------------
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_pkexec_with_sigchld_ignored_is_refused_and_changes_nothing() {
+    // R-01. Linux keeps an ignored signal across execve; with SIGCHLD ignored the kernel reaps pacman itself and the
+    // helper's wait fails, so a job would stop after pacman's first step. The helper must refuse to start instead.
+    // This test is also the record of whether pkexec keeps the disposition: it passes only if it does.
+    let (request, summary) = install_hello();
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+    let journal = FakeJournal::start();
+    let before = package_list();
+
+    let ran = pkexec_through(
+        &["/usr/bin/env", "--ignore-signal=CHLD"],
+        HELPER_ARGV0,
+        &[&summary],
+        None,
+        request.as_bytes(),
+    );
+    assert_eq!(ran.code, Some(2), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(ran.stdout, "");
+    assert!(
+        ran.stderr.contains("child-exit signal ignored"),
+        "{}",
+        ran.stderr
+    );
+    assert_eq!(package_list(), before, "nothing may change");
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert!(
+        entries[0].contains("TIDEWISE_OUTCOME=child_signal_ignored\n"),
+        "{entries:?}"
+    );
+    assert!(installed_version("tidewise-dummy-hello").is_none());
 }
 
 // ---- removal --------------------------------------------------------------------------------------------
