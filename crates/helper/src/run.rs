@@ -63,6 +63,8 @@ pub struct Facts {
     pub chdir: io::Result<()>,
     /// The result of `env::reset_limits()` (review 5.8 R-03).
     pub limits: io::Result<()>,
+    /// The result of `env::reset_oom_score()` (review 5.8, question 37).
+    pub oom: io::Result<()>,
     /// argv, program name first.
     pub args: Vec<OsString>,
     /// The `PKEXEC_UID` variable, the only one read.
@@ -76,6 +78,7 @@ pub enum StartRefusal {
     UnexpectedFd,
     ChildSignalIgnored,
     CannotResetLimits,
+    CannotResetOomScore,
     CannotCheckUser,
     NotRoot,
     CannotChangeDirectory,
@@ -91,6 +94,7 @@ impl StartRefusal {
             Self::UnexpectedFd => "unexpected_fd",
             Self::ChildSignalIgnored => "child_signal_ignored",
             Self::CannotResetLimits => "cannot_reset_limits",
+            Self::CannotResetOomScore => "cannot_reset_oom_score",
             Self::CannotCheckUser => "cannot_check_user",
             Self::NotRoot => "not_root",
             Self::CannotChangeDirectory => "cannot_change_directory",
@@ -119,6 +123,9 @@ impl StartRefusal {
             }
             Self::CannotResetLimits => {
                 "tidewise-helper: could not reset its resource limits, so it did not start. Nothing was changed."
+            }
+            Self::CannotResetOomScore => {
+                "tidewise-helper: could not bring its out-of-memory score down to an acceptable value, so it did not start. Nothing was changed."
             }
             Self::CannotCheckUser => {
                 "tidewise-helper: could not check which user it runs as, so it did not start. Nothing was changed."
@@ -313,6 +320,7 @@ mod tests {
             status: Ok(root_status("0000000000001000")),
             chdir: Ok(()),
             limits: Ok(()),
+            oom: Ok(()),
             args: vec![
                 OsString::from("/usr/lib/tidewise/tidewise-helper"),
                 OsString::from(summary),
@@ -935,6 +943,10 @@ mod tests {
         no_limits.limits = Err(io::Error::other("x"));
         refused(no_limits, StartRefusal::CannotResetLimits);
 
+        let mut no_oom = good_facts(UPDATE_SUMMARY);
+        no_oom.oom = Err(io::Error::other("x"));
+        refused(no_oom, StartRefusal::CannotResetOomScore);
+
         let mut no_chdir = good_facts(UPDATE_SUMMARY);
         no_chdir.chdir = Err(io::Error::other("x"));
         refused(no_chdir, StartRefusal::CannotChangeDirectory);
@@ -1032,6 +1044,7 @@ mod tests {
             StartRefusal::UnexpectedFd,
             StartRefusal::ChildSignalIgnored,
             StartRefusal::CannotResetLimits,
+            StartRefusal::CannotResetOomScore,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
@@ -1124,6 +1137,17 @@ mod tests {
         limits_chdir_args.args = vec![];
         refused(limits_chdir_args, StartRefusal::CannotResetLimits);
 
+        // The out-of-memory score comes after the limits and before the directory and the arguments.
+        let mut oom_and_limits = good_facts("x");
+        oom_and_limits.oom = Err(io::Error::other("x"));
+        oom_and_limits.limits = Err(io::Error::other("x"));
+        refused(oom_and_limits, StartRefusal::CannotResetLimits);
+        let mut oom_chdir_args = good_facts("x");
+        oom_chdir_args.oom = Err(io::Error::other("x"));
+        oom_chdir_args.chdir = Err(io::Error::other("x"));
+        oom_chdir_args.args = vec![];
+        refused(oom_chdir_args, StartRefusal::CannotResetOomScore);
+
         // Not root and an ignored SIGCHLD: the root check speaks first, silently.
         let mut signal_not_root = good_facts("x");
         signal_not_root.status =
@@ -1153,6 +1177,7 @@ mod tests {
             StartRefusal::UnexpectedFd,
             StartRefusal::ChildSignalIgnored,
             StartRefusal::CannotResetLimits,
+            StartRefusal::CannotResetOomScore,
             StartRefusal::CannotCheckUser,
             StartRefusal::NotRoot,
             StartRefusal::CannotChangeDirectory,
