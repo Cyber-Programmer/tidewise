@@ -442,4 +442,52 @@ mod tests {
         assert_eq!(text(&seen), "kept\nfinal\n");
         assert_eq!(writer.dropped(), 0, "a failed write is not counted");
     }
+
+    // ---- proofs added by review 6.10a (A-02 and a survivor of its mutation list). They pin behaviour that already
+    // ---- existed, so they started green; each was mutation-checked (see the commit message).
+
+    /// An output whose every write takes a while: a line that is "in the writer's hand" for a measurable time.
+    struct Slow {
+        pause: Duration,
+        seen: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for Slow {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            thread::sleep(self.pause);
+            self.seen.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn finish_waits_for_a_line_that_is_still_being_written() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let out = Slow {
+            pause: Duration::from_millis(300),
+            seen: seen.clone(),
+        };
+        let writer = BoundedWriter::start(out, limits(16, 1024, Duration::from_secs(5)));
+        assert!(writer.deliver("only line"));
+        // By now the writer has taken the line (the queue is empty) and is in the middle of writing it.
+        thread::sleep(Duration::from_millis(50));
+        assert!(writer.finish());
+        assert_eq!(
+            text(&seen),
+            "only line\n",
+            "finish returned while the line was still being written: the exit would cut it short"
+        );
+    }
+
+    #[test]
+    fn a_line_longer_than_the_cap_is_still_accepted_into_an_empty_queue() {
+        // The byte cap must never refuse the only line there is: a final line has to be able to go out.
+        let (stuck, _release, _seen) = Gate::new();
+        let writer = BoundedWriter::start(stuck, limits(8, 100, Duration::from_secs(5)));
+        writer.offer(&"x".repeat(500));
+        assert_eq!(writer.dropped(), 0);
+    }
 }
