@@ -4,9 +4,17 @@
 //! what the user confirmed does `move_in` copy the refreshed lists into the real `/var/lib/pacman/sync/`. Until then the
 //! real lists are not touched, so a refused update leaves the system exactly as it was.
 //!
-//! STUB (6.10b, red commit): the types and signatures are final, the behaviour is not written yet.
+//!
+//! Nothing here deletes anything. The one `rename` replaces a list that is cache-class data (golden rule 7), inside the
+//! real `sync/` folder only. Every look at a `db.lck` is a `symlink_metadata` (golden rule 9).
 
-use std::path::PathBuf;
+use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::io::{self, ErrorKind};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::path::{Path, PathBuf};
+
+use rustix::fs::OFlags;
+use tidewise_names::is_helper_repo_name;
 
 /// `--dbpath` of the private sync, with the trailing slash pacman wants.
 pub const LISTS_DBPATH: &str = "/run/tidewise-helper-lists/";
@@ -18,6 +26,8 @@ pub const REAL_SYNC_DIR: &str = "/var/lib/pacman/sync";
 pub const REAL_LOCAL_DIR: &str = "/var/lib/pacman/local";
 /// The real lock. Only looked at, never created, changed or removed (golden rule 9).
 pub const REAL_LOCK: &str = "/var/lib/pacman/db.lck";
+/// The lock's name inside the private folder. Same rule: only looked at.
+const LOCK_NAME: &str = "db.lck";
 
 /// Why the private copy could not be prepared or moved in. A code only; the flow turns it into a fixed text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,43 +86,245 @@ impl Lists {
         }
     }
 
-    /// Folders inside `base`, owned by `owner`, for the unit tests.
-    #[cfg(test)]
-    pub(crate) fn in_folder(base: &std::path::Path, owner: u32) -> Lists {
-        Lists {
-            private: base.join("run-lists"),
-            real_sync: base.join("var-lib-pacman").join("sync"),
-            real_lock: base.join("var-lib-pacman").join("db.lck"),
-            local_target: base.join("var-lib-pacman").join("local"),
-            owner,
-        }
-    }
-
     /// Creates the private folder, its `sync/` and the `local` link when they are missing (mode 0711), and checks all
     /// three again. Anything that is there and is not as required is refused, never repaired.
     pub fn prepare(&self) -> Result<(), ListsError> {
-        let _ = (&self.private, &self.local_target, self.owner);
-        Err(ListsError::Io)
+        self.folder(&self.private)?;
+        self.folder(&self.private.join("sync"))?;
+        self.local_link()
     }
 
-    /// True if the private `db.lck` is there, or cannot be checked. A look only.
+    /// A real folder (not a link), owned by `owner`, with exactly mode 0711. Made if it is missing; then looked at again
+    /// whoever made it, because `mkdir` is subject to the umask and the folder may have been made in between.
+    fn folder(&self, path: &Path) -> Result<(), ListsError> {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                match DirBuilder::new().mode(0o711).create(path) {
+                    Ok(()) => {}
+                    // Made between our look and our create: judged below like any other.
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+                    Err(_) => return Err(ListsError::Io),
+                }
+            }
+            Err(_) => return Err(ListsError::Io),
+        }
+        let meta = fs::symlink_metadata(path).map_err(|_| ListsError::Io)?;
+        if meta.is_dir() && meta.uid() == self.owner && meta.mode() & 0o7777 == 0o711 {
+            Ok(())
+        } else {
+            Err(ListsError::FolderUnusable)
+        }
+    }
+
+    /// `local` is a link to the real local database (the same recipe as checkupdates): made when missing, and when it
+    /// exists it must be exactly that link.
+    fn local_link(&self) -> Result<(), ListsError> {
+        let link = self.private.join("local");
+        match fs::symlink_metadata(&link) {
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                match symlink(&self.local_target, &link) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+                    Err(_) => return Err(ListsError::Io),
+                }
+            }
+            Err(_) => return Err(ListsError::Io),
+        }
+        let meta = fs::symlink_metadata(&link).map_err(|_| ListsError::Io)?;
+        let right_target = fs::read_link(&link).is_ok_and(|target| target == self.local_target);
+        if meta.file_type().is_symlink() && meta.uid() == self.owner && right_target {
+            Ok(())
+        } else {
+            Err(ListsError::FolderUnusable)
+        }
+    }
+
+    /// True if the private `db.lck` is there, or cannot be checked. A look only: `symlink_metadata` never opens,
+    /// creates or follows anything.
     pub fn private_lock_present(&self) -> bool {
-        let _ = &self.private;
-        false
+        looks_present(&self.private.join(LOCK_NAME))
     }
 
-    /// Copies the refreshed lists into the real `sync/` (see decision 0007, "The move, in this order").
+    /// Copies the refreshed lists into the real `sync/` (decision 0007, "The move, in this order").
     pub fn move_in(&self) -> Result<(), MoveError> {
         self.move_traced(&mut |_| {})
     }
 
-    fn move_traced(&self, _trace: &mut dyn FnMut(Step)) -> Result<(), MoveError> {
-        let _ = (&self.real_sync, &self.real_lock);
-        Err(MoveError {
-            error: ListsError::Io,
-            renamed: 0,
-        })
+    fn move_traced(&self, trace: &mut dyn FnMut(Step)) -> Result<(), MoveError> {
+        let nothing_moved = |error| MoveError { error, renamed: 0 };
+
+        // 1. Every check that needs no write: names, kinds, owners, and the signature rule.
+        let lists = self.refreshed_lists().map_err(nothing_moved)?;
+        self.check_signatures(&lists).map_err(nothing_moved)?;
+
+        // 2. The real lock, before anything is written.
+        trace(Step::LockLook);
+        if looks_present(&self.real_lock) {
+            return Err(nothing_moved(ListsError::Locked));
+        }
+
+        // 3. Every copy is staged and flushed before the first rename.
+        for list in &lists {
+            self.stage(list, trace).map_err(nothing_moved)?;
+        }
+
+        // 4. Staging takes time: another package manager may have started. Look again, right before the renames.
+        trace(Step::LockLook);
+        if looks_present(&self.real_lock) {
+            return Err(nothing_moved(ListsError::Locked));
+        }
+
+        // 5. One rename per list, inside the real sync folder.
+        let mut renamed = 0;
+        for list in &lists {
+            let staged = staged_name(&list.name);
+            if replace_list(&self.real_sync, &staged, &list.name).is_err() {
+                return Err(MoveError {
+                    error: ListsError::Io,
+                    renamed,
+                });
+            }
+            renamed += 1;
+            trace(Step::Rename {
+                from: self.real_sync.join(&staged),
+                to: self.real_sync.join(&list.name),
+            });
+        }
+
+        // 6. A synced file does not make its directory entry durable: flush the folder.
+        let flushed = File::open(&self.real_sync).and_then(|folder| folder.sync_all());
+        if flushed.is_err() {
+            return Err(MoveError {
+                error: ListsError::Io,
+                renamed,
+            });
+        }
+        trace(Step::SyncDir);
+        Ok(())
     }
+
+    /// The lists in the private `sync/` that may move: `<repo>.db` and `<repo>.db.sig` with a repository name that
+    /// passes the allow-list. Everything else (the `download-*` folders, odd names) is ignored, never read. A list that
+    /// is not a regular file owned by `owner` refuses the whole move. Sorted by name.
+    fn refreshed_lists(&self) -> Result<Vec<List>, ListsError> {
+        let entries = fs::read_dir(self.private.join("sync")).map_err(|_| ListsError::Io)?;
+        let mut lists = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|_| ListsError::Io)?;
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let Some((repo, is_signature)) = split_list_name(&name) else {
+                continue;
+            };
+            if !is_helper_repo_name(repo) {
+                continue;
+            }
+            let meta = fs::symlink_metadata(entry.path()).map_err(|_| ListsError::Io)?;
+            if !meta.file_type().is_file() || meta.uid() != self.owner {
+                return Err(ListsError::BadFile);
+            }
+            lists.push(List {
+                repo: repo.to_string(),
+                is_signature,
+                name,
+            });
+        }
+        lists.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(lists)
+    }
+
+    /// pacman leaves a stale `<repo>.db.sig` next to a new list and then cannot read the pair (measured, decision 0007).
+    /// So a repository whose new copy has no signature while the real folder has one is refused, before any write.
+    fn check_signatures(&self, lists: &[List]) -> Result<(), ListsError> {
+        for list in lists.iter().filter(|list| !list.is_signature) {
+            let has_signature = lists
+                .iter()
+                .any(|other| other.is_signature && other.repo == list.repo);
+            if has_signature {
+                continue;
+            }
+            let real_signature = self.real_sync.join(format!("{}.db.sig", list.repo));
+            if looks_present(&real_signature) {
+                return Err(ListsError::StoppedSigning);
+            }
+        }
+        Ok(())
+    }
+
+    /// Copies one private list to `.tidewise-<name>.new` in the real folder and flushes it. The private file is opened
+    /// without following a link and judged again on the open descriptor; the staged file is created without following a
+    /// link, truncated if a killed update left one, and given mode 0644 whatever the umask or the leftover said.
+    fn stage(&self, list: &List, trace: &mut dyn FnMut(Step)) -> Result<(), ListsError> {
+        let no_follow = OFlags::NOFOLLOW.bits() as i32;
+        let mut source = OpenOptions::new()
+            .read(true)
+            .custom_flags(no_follow)
+            .open(self.private.join("sync").join(&list.name))
+            .map_err(|_| ListsError::Io)?;
+        let meta = source.metadata().map_err(|_| ListsError::Io)?;
+        if !meta.file_type().is_file() || meta.uid() != self.owner {
+            return Err(ListsError::BadFile);
+        }
+        let mut staged = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o644)
+            .custom_flags(no_follow)
+            .open(self.real_sync.join(staged_name(&list.name)))
+            .map_err(|_| ListsError::Io)?;
+        staged
+            .set_permissions(fs::Permissions::from_mode(0o644))
+            .map_err(|_| ListsError::Io)?;
+        io::copy(&mut source, &mut staged).map_err(|_| ListsError::Io)?;
+        trace(Step::Stage(list.name.clone()));
+        staged.sync_all().map_err(|_| ListsError::Io)?;
+        trace(Step::SyncFile(list.name.clone()));
+        Ok(())
+    }
+}
+
+/// One list that may move.
+struct List {
+    repo: String,
+    is_signature: bool,
+    /// `<repo>.db` or `<repo>.db.sig`.
+    name: String,
+}
+
+/// `core.db` is `("core", false)`, `core.db.sig` is `("core", true)`, anything else is `None`.
+fn split_list_name(name: &str) -> Option<(&str, bool)> {
+    if let Some(repo) = name.strip_suffix(".db") {
+        Some((repo, false))
+    } else {
+        name.strip_suffix(".db.sig").map(|repo| (repo, true))
+    }
+}
+
+fn staged_name(list_name: &str) -> String {
+    format!(".tidewise-{list_name}.new")
+}
+
+/// True if something is at `path`, or it cannot be checked (unknown counts as present). A look: it follows nothing.
+fn looks_present(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != ErrorKind::NotFound,
+    }
+}
+
+/// The helper's one rename: a staged list over the real one. Both names are inside the one folder `dir` by
+/// construction (a rename across folders fails on a real system: `/run` is tmpfs, `/var` is not), and the staged name
+/// is the helper's own dotfile.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "decision 0007: one rename of a staged pacman list over the real one inside the real sync folder; cache-class data, not a user file (golden rule 7)"
+)]
+fn replace_list(dir: &Path, staged_name: &str, list_name: &str) -> io::Result<()> {
+    fs::rename(dir.join(staged_name), dir.join(list_name))
 }
 
 #[cfg(test)]
@@ -165,7 +377,7 @@ mod tests {
             let real = temp.join("var-lib-pacman");
             fs::create_dir_all(real.join("sync")).unwrap();
             fs::create_dir_all(real.join("local")).unwrap();
-            let lists = Lists::in_folder(&temp.0, me_for(&temp));
+            let lists = in_folder(&temp.0, me_for(&temp));
             World { temp, lists }
         }
 
@@ -210,8 +422,31 @@ mod tests {
         }
     }
 
+    /// Folders inside `base`, owned by `owner`.
+    fn in_folder(base: &Path, owner: u32) -> Lists {
+        Lists {
+            private: base.join("run-lists"),
+            real_sync: base.join("var-lib-pacman").join("sync"),
+            real_lock: base.join("var-lib-pacman").join("db.lck"),
+            local_target: base.join("var-lib-pacman").join("local"),
+            owner,
+        }
+    }
+
     fn me_for(temp: &TempDir) -> u32 {
         fs::metadata(&temp.0).unwrap().uid()
+    }
+
+    /// The private folder alone, at `mode` (no `sync/`, no link).
+    fn by_hand(world: &World, mode: u32) {
+        fs::create_dir(world.private()).unwrap();
+        fs::set_permissions(world.private(), fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// A correct `sync/` inside the private folder.
+    fn by_hand_sync(world: &World) {
+        fs::create_dir(world.private_sync()).unwrap();
+        fs::set_permissions(world.private_sync(), fs::Permissions::from_mode(0o711)).unwrap();
     }
 
     fn untouched(error: ListsError) -> Result<(), MoveError> {
@@ -280,32 +515,31 @@ mod tests {
             }),
             ("private folder is a file", |w| put(&w.private(), "x")),
             ("sync/ is 0755", |w| {
-                w.lists.prepare().unwrap();
+                by_hand(w, 0o711);
+                fs::create_dir(w.private_sync()).unwrap();
                 fs::set_permissions(w.private_sync(), fs::Permissions::from_mode(0o755)).unwrap();
             }),
             ("sync/ is a symlink", |w| {
-                w.lists.prepare().unwrap();
-                fs::remove_dir(w.private_sync()).unwrap();
+                by_hand(w, 0o711);
                 symlink(w.real_sync(), w.private_sync()).unwrap();
             }),
             ("sync/ is a file", |w| {
-                w.lists.prepare().unwrap();
-                fs::remove_dir(w.private_sync()).unwrap();
+                by_hand(w, 0o711);
                 put(&w.private_sync(), "x");
             }),
             ("local points somewhere else", |w| {
-                w.lists.prepare().unwrap();
-                fs::remove_file(w.private().join("local")).unwrap();
+                by_hand(w, 0o711);
+                by_hand_sync(w);
                 symlink("/etc", w.private().join("local")).unwrap();
             }),
             ("local is a file", |w| {
-                w.lists.prepare().unwrap();
-                fs::remove_file(w.private().join("local")).unwrap();
+                by_hand(w, 0o711);
+                by_hand_sync(w);
                 put(&w.private().join("local"), "x");
             }),
             ("local is a real folder", |w| {
-                w.lists.prepare().unwrap();
-                fs::remove_file(w.private().join("local")).unwrap();
+                by_hand(w, 0o711);
+                by_hand_sync(w);
                 fs::create_dir(w.private().join("local")).unwrap();
             }),
         ];
@@ -343,7 +577,7 @@ mod tests {
     fn a_folder_owned_by_someone_else_is_refused() {
         let world = World::empty("owner");
         assert_eq!(world.lists.prepare(), Ok(()));
-        let strict = Lists::in_folder(&world.temp.0, me_for(&world.temp) + 1);
+        let strict = in_folder(&world.temp.0, me_for(&world.temp) + 1);
         assert_eq!(strict.prepare(), Err(ListsError::FolderUnusable));
     }
 
@@ -352,15 +586,22 @@ mod tests {
         let world = World::with_private("private-lock", &[]);
         assert!(!world.lists.private_lock_present());
         let lock = world.private().join("db.lck");
-        put(&lock, "");
+        put(&lock, "marker");
         assert!(world.lists.private_lock_present());
-        // A dangling symlink is "there" too: the look does not follow it.
-        fs::remove_file(&lock).unwrap();
+        assert_eq!(read(&lock), "marker", "the look changed the lock");
+
+        // A dangling symlink is "there" too: the look does not follow it, and does not remove it.
+        let world = World::with_private("private-lock-link", &[]);
+        let lock = world.private().join("db.lck");
         symlink(world.temp.join("nowhere"), &lock).unwrap();
         assert!(world.lists.private_lock_present());
         assert!(
             fs::symlink_metadata(&lock).is_ok(),
             "the look removed the lock"
+        );
+        assert!(
+            !world.temp.join("nowhere").exists(),
+            "the look created the target"
         );
     }
 
@@ -437,7 +678,7 @@ mod tests {
 
         // a file of another user
         let world = World::with_private("owner", &[("core.db", "core")]);
-        let strict = Lists::in_folder(&world.temp.0, me_for(&world.temp) + 1);
+        let strict = in_folder(&world.temp.0, me_for(&world.temp) + 1);
         assert_eq!(strict.move_in(), untouched(ListsError::BadFile));
         assert_eq!(listing(&world.real_sync()), Vec::<String>::new());
     }
