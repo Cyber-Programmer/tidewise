@@ -8,12 +8,14 @@
 //! Nothing here deletes anything. The one `rename` replaces a list that is cache-class data (golden rule 7), inside the
 //! real `sync/` folder only. Every look at a `db.lck` is a `symlink_metadata` (golden rule 9).
 
+use std::cell::RefCell;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::OFlags;
+use rustix::fs::{FlockOperation, OFlags, flock};
+use rustix::io::Errno;
 use tidewise_names::is_helper_repo_name;
 
 /// `--dbpath` of the private sync, with the trailing slash pacman wants.
@@ -76,6 +78,9 @@ pub struct Lists {
     real_lock: PathBuf,
     local_target: PathBuf,
     owner: u32,
+    /// The private folder, open with an exclusive `flock` on it, from `prepare()` until this value is dropped (the end of
+    /// the job, or the death of the helper: the kernel closes the descriptor). Review 6.10b R-01.
+    held: RefCell<Option<File>>,
 }
 
 impl Lists {
@@ -86,6 +91,7 @@ impl Lists {
             real_lock: PathBuf::from(REAL_LOCK),
             local_target: PathBuf::from(REAL_LOCAL_DIR),
             owner: 0,
+            held: RefCell::new(None),
         }
     }
 
@@ -93,8 +99,37 @@ impl Lists {
     /// three again. Anything that is there and is not as required is refused, never repaired.
     pub fn prepare(&self) -> Result<(), ListsError> {
         self.folder(&self.private)?;
+        self.hold()?;
         self.folder(&self.private.join("sync"))?;
         self.local_link()
+    }
+
+    /// Takes an exclusive, non-blocking `flock` on the private folder and keeps it until `self` is dropped, so only one
+    /// helper at a time works in the private copy (review 6.10b R-01): without it a second helper's sync could replace a list
+    /// between the first one's dry run and its copy, and both would write the same staged name. `flock` creates no file,
+    /// and it has nothing to do with `db.lck`. The folder is opened without following a link and judged again on the open
+    /// descriptor; std opens with close-on-exec, so pacman and its scriptlets never inherit the descriptor and the lock.
+    fn hold(&self) -> Result<(), ListsError> {
+        if self.held.borrow().is_some() {
+            return Ok(());
+        }
+        let no_follow_directory = (OFlags::NOFOLLOW | OFlags::DIRECTORY).bits() as i32;
+        let folder = OpenOptions::new()
+            .read(true)
+            .custom_flags(no_follow_directory)
+            .open(&self.private)
+            .map_err(|_| ListsError::Io)?;
+        let meta = folder.metadata().map_err(|_| ListsError::Io)?;
+        if !meta.is_dir() || meta.uid() != self.owner || meta.mode() & 0o7777 != 0o711 {
+            return Err(ListsError::FolderUnusable);
+        }
+        match flock(&folder, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => {}
+            Err(Errno::WOULDBLOCK) => return Err(ListsError::Busy),
+            Err(_) => return Err(ListsError::Io),
+        }
+        *self.held.borrow_mut() = Some(folder);
+        Ok(())
     }
 
     /// A real folder (not a link), owned by `owner`, with exactly mode 0711. Made if it is missing; then looked at again
@@ -438,6 +473,7 @@ mod tests {
             real_lock: base.join("var-lib-pacman").join("db.lck"),
             local_target: base.join("var-lib-pacman").join("local"),
             owner,
+            held: RefCell::new(None),
         }
     }
 

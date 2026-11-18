@@ -446,11 +446,12 @@ fn failure_of(output: &RunOutput) -> ErrorKind {
     ErrorKind::PacmanFailed(Details::from_raw(&output.stderr))
 }
 
-/// The private lock is there, so the private sync did not start. Fixed text. The helper cannot tell a killed sync (a
-/// restart clears the lock: the folder is on tmpfs) from another helper syncing right now, so the text covers both.
+/// The private lock is there, so the private sync did not start. Fixed text. While a helper holds the private folder
+/// (`lists.rs`, an `flock`), another helper syncing right now is refused earlier as `Busy`, so a lock found here can only
+/// come from a killed sync; a restart clears it (the folder is on tmpfs).
 fn private_lock_left() -> ErrorKind {
     failed(
-        "An earlier refresh of the package lists was interrupted, or is still running, and left its lock. If no update is running now, restart the computer and try again. Nothing was changed.",
+        "An earlier refresh of the package lists was interrupted and left its lock. Nothing was changed. Please restart the computer, then try again.",
     )
 }
 
@@ -467,8 +468,8 @@ fn lists_failure(error: ListsError) -> ErrorKind {
         ListsError::BadFile => {
             failed("a refreshed package list was not a file the helper could trust.")
         }
-        // Shim of the red commit: the fix maps this to DatabaseLocked.
-        ListsError::Busy => failed("the helper could not copy the refreshed package lists."),
+        // Another helper holds the private folder: the same "wait until it is done" as a held pacman lock.
+        ListsError::Busy => ErrorKind::DatabaseLocked,
         ListsError::Io => failed("the helper could not copy the refreshed package lists."),
     }
 }
