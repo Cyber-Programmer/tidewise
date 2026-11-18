@@ -471,6 +471,128 @@ fn a_repository_that_changed_after_the_list_was_made_is_a_changed_transaction() 
     assert!(changed.is_empty(), "these paths changed: {changed:?}");
 }
 
+// ---- the update flow and the real package lists (6.10b, decision 0007, review 5.8 R-02) -------------------
+
+const LATER_UPD: &str = "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst";
+
+/// An installed package with a newer version in the repository (the real lists know it), and a SECOND change of the
+/// repository that the real lists do not know: whoever syncs the real lists now changes them.
+fn an_update_and_a_repository_the_real_lists_have_not_seen() -> Vec<Item> {
+    install_directly(&["tidewise-dummy-upd"]);
+    add_newer(LATER_UPD);
+    let items = confirmed("-Su", &[]);
+    assert_eq!(items.len(), 1);
+    // pacman skips a download whose server file is not newer (to the second) than its own copy: let a second pass, or
+    // a sync of the real lists would find nothing to change and the tests below could not tell it from no sync.
+    std::thread::sleep(Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    items
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_changed_update_list_leaves_the_real_sync_databases_untouched() {
+    assert_inside_the_test_container();
+    reset_world();
+    let mut items = an_update_and_a_repository_the_real_lists_have_not_seen();
+    items[0].version = "9.9-9".to_string(); // the list the user saw is not what pacman says now
+    let (request, summary) = update_request(&items);
+    let lists_before = fingerprint(REAL_SYNC);
+    let log_before = pacman_log();
+    let packages_before = package_list();
+
+    let ran = run(&summary, request.as_bytes());
+    finished_with(&ran, "transaction_changed");
+    assert_eq!(
+        fingerprint(REAL_SYNC),
+        lists_before,
+        "a refused update changed the real package lists"
+    );
+    assert_eq!(
+        pacman_log(),
+        log_before,
+        "a refused update wrote to pacman.log"
+    );
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_private_lock_left_by_a_killed_sync_refuses_with_the_restart_text_and_leaves_the_real_lists_untouched()
+ {
+    assert_inside_the_test_container();
+    reset_world();
+    let items = an_update_and_a_repository_the_real_lists_have_not_seen();
+    let (request, summary) = update_request(&items);
+    // What a killed private sync leaves (the test makes it itself: the helper never creates or removes a lock).
+    private_folder(PRIVATE_LISTS.trim_end_matches('/'), 0o711);
+    let private_lock = format!("{PRIVATE_LISTS}db.lck");
+    fs::write(&private_lock, b"").unwrap();
+    let lock_before = fs::metadata(&private_lock).unwrap();
+    let lists_before = fingerprint(REAL_SYNC);
+    let log_before = pacman_log();
+
+    let ran = run(&summary, request.as_bytes());
+    finished_with(&ran, "pacman_failed");
+    assert!(ran.stdout.contains("restart"), "{}", ran.stdout);
+    // The look is only a look: the lock is the same file, nothing was created next to it, pacman never ran.
+    let lock_after = fs::metadata(&private_lock).unwrap();
+    assert_eq!(
+        (
+            lock_before.ino(),
+            lock_before.mtime(),
+            lock_before.mtime_nsec()
+        ),
+        (
+            lock_after.ino(),
+            lock_after.mtime(),
+            lock_after.mtime_nsec()
+        )
+    );
+    let left_in_private: Vec<String> = fingerprint(&format!("{PRIVATE_LISTS}sync"));
+    assert!(left_in_private.is_empty(), "{left_in_private:?}");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(&pacman_log()[log_before.len()..], "");
+    assert!(!Path::new(LOCK).exists(), "the real db.lck appeared");
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("1.0-1")
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_repository_that_stopped_signing_is_refused_before_anything_is_written() {
+    assert_inside_the_test_container();
+    reset_world();
+    let items = an_update_and_a_repository_the_real_lists_have_not_seen();
+    let (request, summary) = update_request(&items);
+    // The real folder holds a signature for the list (it was signed once); the repository now sends none. This
+    // container's repository has `SigLevel = Never`, so pacman itself ignores the file: only the helper's rule acts.
+    let real_sig = format!("{REAL_SYNC}/tidewise-test.db.sig");
+    fs::write(&real_sig, b"an old signature").unwrap();
+    let lists_before = fingerprint(REAL_SYNC);
+    let log_before = pacman_log();
+
+    let ran = run(&summary, request.as_bytes());
+    let _ = fs::remove_file(&real_sig); // the test container's hygiene: the helper never does this
+    finished_with(&ran, "pacman_failed");
+    assert!(ran.stdout.contains("stopped signing"), "{}", ran.stdout);
+    assert!(ran.stdout.contains("pacman -Syy"), "{}", ran.stdout);
+    // Nothing was staged, renamed or changed in the real folder, and nothing was installed.
+    let mut expected = lists_before.clone();
+    expected.retain(|line| !line.starts_with("tidewise-test.db.sig "));
+    let mut now = fingerprint(REAL_SYNC);
+    now.retain(|line| !line.starts_with("tidewise-test.db.sig "));
+    assert_eq!(now, expected, "the real folder changed");
+    assert_eq!(&pacman_log()[log_before.len()..], "");
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("1.0-1")
+    );
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_conflict_aborts_with_pacmans_words_installs_nothing_and_the_notice_counts_the_list() {
