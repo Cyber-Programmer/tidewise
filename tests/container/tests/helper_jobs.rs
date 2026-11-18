@@ -184,9 +184,10 @@ fn a_provider_the_user_already_installed_by_hand_stays_explicit() {
 
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn a_system_update_updates_the_package_and_syncs_exactly_once() {
+fn a_system_update_updates_the_package_through_a_private_copy_and_never_syncs_the_real_lists() {
     assert_inside_the_test_container();
     reset_world();
+    let journal = FakeJournal::start();
     install_directly(&["tidewise-dummy-upd"]);
     add_newer("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
     let items = confirmed("-Su", &[]);
@@ -200,12 +201,54 @@ fn a_system_update_updates_the_package_and_syncs_exactly_once() {
         installed_version("tidewise-dummy-upd").as_deref(),
         Some("2.0-1")
     );
+    // Before 6.10b this counted exactly one real sync. Now there is none: the sync was of the private copy, which
+    // `--logfile /dev/null` keeps out of pacman.log, and the only things logged are the upgrade itself.
     let new_log = &pacman_log()[log_before.len()..];
     let syncs = new_log
         .lines()
         .filter(|l| l.contains("synchronizing package lists"))
         .count();
-    assert_eq!(syncs, 1, "one sync, not two:\n{new_log}");
+    assert_eq!(syncs, 0, "no sync of the real lists any more:\n{new_log}");
+    assert!(
+        new_log.contains("starting full system upgrade"),
+        "{new_log}"
+    );
+    assert!(!new_log.contains(" -Sy"), "{new_log}");
+
+    // The real list is the private list, byte for byte, root-owned with mode 0644 (decision 0007, measurements 2).
+    let real = format!("{REAL_SYNC}/tidewise-test.db");
+    let private = format!("{PRIVATE_LISTS}sync/tidewise-test.db");
+    assert_eq!(sha256(&real), sha256(&private));
+    let meta = fs::metadata(&real).unwrap();
+    assert_eq!(
+        (meta.uid(), meta.gid(), meta.mode() & 0o7777),
+        (0, 0, 0o644)
+    );
+    // The helper made its private folder on this first run: root-owned, exactly 0711, with the link to the real local
+    // database and a 0711 sync/ (the download as `alpm` only works through folders it can walk, never list).
+    let private_dir = PRIVATE_LISTS.trim_end_matches('/');
+    let dir = fs::symlink_metadata(private_dir).unwrap();
+    assert_eq!((dir.uid(), dir.gid(), dir.mode() & 0o7777), (0, 0, 0o711));
+    assert_eq!(mode_of(&format!("{PRIVATE_LISTS}sync")), 0o711);
+    assert_eq!(
+        fs::read_link(format!("{PRIVATE_LISTS}local")).unwrap(),
+        Path::new("/var/lib/pacman/local")
+    );
+    // Nothing of ours is left in the real folder, and the helper made no lock.
+    let leftovers: Vec<String> = fingerprint(REAL_SYNC)
+        .into_iter()
+        .filter(|line| line.starts_with('.') || line.starts_with("download-"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    assert!(!Path::new(LOCK).exists());
+    assert!(!Path::new(&format!("{PRIVATE_LISTS}db.lck")).exists());
+
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 2);
+    assert_fields(
+        &entries[1],
+        &[("TIDEWISE_OUTCOME", "ok"), ("TIDEWISE_LISTS", "moved")],
+    );
 }
 
 #[test]
@@ -555,6 +598,32 @@ fn a_private_lock_left_by_a_killed_sync_refuses_with_the_restart_text_and_leaves
     assert_eq!(fingerprint(REAL_SYNC), lists_before);
     assert_eq!(&pacman_log()[log_before.len()..], "");
     assert!(!Path::new(LOCK).exists(), "the real db.lck appeared");
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("1.0-1")
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_planted_private_folder_is_refused_and_not_repaired() {
+    assert_inside_the_test_container();
+    reset_world();
+    let items = an_update_and_a_repository_the_real_lists_have_not_seen();
+    let (request, summary) = update_request(&items);
+    // Anyone who could create this folder before the helper did (it is under /run, which is root's) would have to be
+    // root; the helper still does not take its word for it: another mode is refused, and left as it is.
+    let dir = PRIVATE_LISTS.trim_end_matches('/');
+    private_folder(dir, 0o755);
+    let lists_before = fingerprint(REAL_SYNC);
+    let log_before = pacman_log();
+
+    let ran = run(&summary, request.as_bytes());
+    finished_with(&ran, "pacman_failed");
+    assert!(ran.stdout.contains("private folder"), "{}", ran.stdout);
+    assert_eq!(mode_of(dir), 0o755, "the helper repaired the folder");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(&pacman_log()[log_before.len()..], "");
     assert_eq!(
         installed_version("tidewise-dummy-upd").as_deref(),
         Some("1.0-1")
@@ -1129,13 +1198,25 @@ fn a_caller_that_never_reads_stdout_does_not_stop_the_job() {
     );
     assert!(!Path::new(LOCK).exists());
     assert_eq!(entries.len(), 2, "{entries:?}");
-    assert_fields(&entries[1], &[("TIDEWISE_OUTCOME", "ok")]);
+    assert_fields(
+        &entries[1],
+        &[("TIDEWISE_OUTCOME", "ok"), ("TIDEWISE_LISTS", "moved")],
+    );
+    // The sync was of the private copy (its progress lines are the ones that filled the pipe), so pacman.log has the
+    // upgrade and no sync of the real lists.
     let new_log = &pacman_log()[log_before.len()..];
     let syncs = new_log
         .lines()
         .filter(|l| l.contains("synchronizing package lists"))
         .count();
-    assert_eq!(syncs, 1, "one sync, then the upgrade:\n{new_log}");
+    assert_eq!(
+        syncs, 0,
+        "no sync of the real lists, then the upgrade:\n{new_log}"
+    );
+    assert!(
+        new_log.contains("starting full system upgrade"),
+        "{new_log}"
+    );
 }
 
 #[test]

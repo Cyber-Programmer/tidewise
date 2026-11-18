@@ -355,6 +355,9 @@ pub fn reset_world() {
     }
     let _ = fs::remove_dir_all(WORK_DIR);
     let _ = fs::remove_file(WORK_DIR);
+    // The private copy of the package lists (6.10b) lives in /run, which the container keeps between tests: a private
+    // lock or a list one test left would be the next test's starting point.
+    let _ = fs::remove_dir_all("/run/tidewise-helper-lists");
 }
 
 /// Makes a newer package (from `/srv/tidewise-later`, not in the repository database) appear in the repository: copy,
