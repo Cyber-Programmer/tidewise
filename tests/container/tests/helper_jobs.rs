@@ -955,8 +955,13 @@ fn a_caller_that_never_reads_stdout_does_not_stop_the_job() {
     // although the pipe is full, and the finished journal entry is written.
     let mut entries: Vec<String> = Vec::new();
     let began = Instant::now();
+    let mut accepted_at = None;
     while entries.len() < 2 {
-        entries.extend(journal.datagrams());
+        let fresh = journal.datagrams();
+        if !fresh.is_empty() && accepted_at.is_none() {
+            accepted_at = Some(Instant::now());
+        }
+        entries.extend(fresh);
         assert!(
             began.elapsed() < Duration::from_secs(120),
             "the job did not reach its end while its stdout was full: {entries:?}"
@@ -964,6 +969,16 @@ fn a_caller_that_never_reads_stdout_does_not_stop_the_job() {
         std::thread::sleep(Duration::from_millis(50));
     }
     let job_ended = Instant::now();
+    // The job did not wait for the reader (review 6.10a A-01): a job that takes the whole 5 s budget between its two
+    // journal entries is being held by something. What this cannot show: a progress line that waits for room. That only
+    // waits when the queue is FULL, which needs more than 1024 events, and a real update prints a handful; the unit test
+    // `a_full_queue_still_delivers_the_final_outcome_when_the_reader_resumes_within_the_deadline` (3003 events, the job
+    // must end in under 2 s) is the proof for that, and it was mutation-checked.
+    let job_took = job_ended.duration_since(accepted_at.unwrap());
+    assert!(
+        job_took < FINAL_WRITE_DEADLINE,
+        "the job took {job_took:?} between its journal entries: it was held by a reader that was not reading"
+    );
 
     // The process exits too. Its writer thread is stuck in write(2) holding std's stdout lock, and that does not hold
     // the exit back: `std::rt::cleanup` calls `std::io::cleanup`, which takes that lock with `try_lock()` (stdio.rs:
