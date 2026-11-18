@@ -5,8 +5,11 @@
 //!
 //! Install:   lock look -> `-Qu` (pending updates block a plain install) -> dry run must equal the confirmed list ->
 //!            real `-S --noconfirm --ask 66` -> `-D --asdeps` for the chosen providers -> post-check.
-//! Update:    lock look -> `-Sy` once -> dry run `-Su` (plus any targets) must equal the confirmed list -> real `-Su`
-//!            with no second sync -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
+//! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
+//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> the
+//!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
+//!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
+//!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
 //!
 //! After every real run each confirmed item is checked with `pacman -Q`; the number that are not installed at the
 //! confirmed version (a declined replacement, which `--print` still lists, or a change by another package manager in
@@ -19,6 +22,7 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{InstallDecision, install_decision, parse_qu};
 
+use crate::lists::{ListsError, MoveError};
 use crate::output::{
     count_not_installed, installed_names, is_lock_failure, parse_print, removed_names,
     same_transaction,
@@ -39,6 +43,16 @@ pub enum RemovalCheck {
     Skipped,
 }
 
+/// What an update did to the REAL package lists. The journal says it in one fixed field (`TIDEWISE_LISTS`), because
+/// pacman does not log the move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListsState {
+    /// No list was renamed into the real `sync/`: the real lists are as they were.
+    Untouched,
+    /// At least one refreshed list was renamed into the real `sync/`.
+    Moved,
+}
+
 /// How a job ended, and what the notices said (the same counts go to the journal).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobResult {
@@ -48,6 +62,8 @@ pub struct JobResult {
     /// Packages that were installed before the real run and are gone after it.
     pub removed: u32,
     pub removal_check: RemovalCheck,
+    /// Only for an update (plain installs never touch the lists): what happened to the real lists.
+    pub lists: Option<ListsState>,
 }
 
 /// Runs the job the request asks for. Progress and notices go to `on_event`; the caller prints the final line.
@@ -78,6 +94,7 @@ pub fn run_job(
         not_installed: counts.not_installed,
         removed: counts.removed,
         removal_check: counts.removal_check,
+        lists: counts.lists,
     }
 }
 
@@ -90,6 +107,17 @@ struct Counts {
     not_installed: u32,
     removed: u32,
     removal_check: RemovalCheck,
+    lists: Option<ListsState>,
+}
+
+impl Counts {
+    /// Nothing counted, and what the update did to the real lists.
+    fn lists(state: ListsState) -> Counts {
+        Counts {
+            lists: Some(state),
+            ..Counts::default()
+        }
+    }
 }
 
 fn install_job(
@@ -130,37 +158,68 @@ fn update_job(
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
 ) -> (Step, Counts) {
+    // Until a list is renamed into the real `sync/`, every way out leaves the real lists untouched.
+    let untouched = || Counts::lists(ListsState::Untouched);
     if let Err(kind) = check_lock(runner) {
-        return (Err(kind), Counts::default());
+        return (Err(kind), untouched());
+    }
+    if let Err(error) = runner.prepare_private_lists() {
+        return (Err(lists_failure(error)), untouched());
+    }
+    // A look, not a guarantee (decision 0007): a lock that appears right after is still refused by pacman itself.
+    if runner.private_lock_present() {
+        return (Err(private_lock_left()), untouched());
     }
     let mut tracker = ProgressTracker::new(total_of(transaction));
 
-    // The one and only sync of the job. The full update that follows is what makes it safe (golden rule 4).
-    let synced = match runner.run(&PacmanCommand::Sync, &mut |line| {
+    // The one and only sync of the job, and of the PRIVATE copy. The real lists are refreshed by nothing: they are
+    // replaced by the lists this sync made, after the dry run on them equals the confirmed list (golden rule 4).
+    let synced = match runner.run(&PacmanCommand::PrivateSync, &mut |line| {
         forward(&mut tracker, on_event, line)
     }) {
         Ok(output) => output,
-        Err(error) => return (Err(runner_failure(error)), Counts::default()),
+        Err(error) => return (Err(runner_failure(error)), untouched()),
     };
     if synced.exit != Some(0) || synced.timed_out {
-        return (Err(failure_of(&synced)), Counts::default());
+        return (Err(failure_of(&synced)), untouched());
     }
 
+    if let Err(kind) = dry_run(
+        runner,
+        PacmanCommand::PrivateDryRunUpdate(names.to_vec()),
+        transaction,
+    ) {
+        return (Err(kind), untouched());
+    }
+
+    if let Err(MoveError { error, renamed }) = runner.move_lists_in() {
+        // A move that stopped half way has changed the real lists, and the journal must say so.
+        let state = if renamed > 0 {
+            ListsState::Moved
+        } else {
+            ListsState::Untouched
+        };
+        return (Err(lists_failure(error)), Counts::lists(state));
+    }
+
+    // The same check again, on the real lists: another root process may have changed them since (T-09).
     if let Err(kind) = dry_run(
         runner,
         PacmanCommand::DryRunUpdate(names.to_vec()),
         transaction,
     ) {
-        return (Err(kind), Counts::default());
+        return (Err(kind), Counts::lists(ListsState::Moved));
     }
-    real_run_and_after(
+    let (step, mut counts) = real_run_and_after(
         runner,
         on_event,
         &mut tracker,
         PacmanCommand::RealUpdate(names.to_vec()),
         transaction,
         providers,
-    )
+    );
+    counts.lists = Some(ListsState::Moved);
+    (step, counts)
 }
 
 /// The lock is only looked at. pacman's own advice about it (to remove the file) is never shown.
@@ -380,6 +439,31 @@ fn failure_of(output: &RunOutput) -> ErrorKind {
         };
     }
     ErrorKind::PacmanFailed(Details::from_raw(&output.stderr))
+}
+
+/// The private lock is there, so the private sync did not start. Fixed text. The helper cannot tell a killed sync (a
+/// restart clears the lock: the folder is on tmpfs) from another helper syncing right now, so the text covers both.
+fn private_lock_left() -> ErrorKind {
+    failed(
+        "An earlier refresh of the package lists was interrupted, or is still running, and left its lock. If no update is running now, restart the computer and try again. Nothing was changed.",
+    )
+}
+
+/// Why the private copy could not be prepared or moved in. Fixed texts; a held real lock is the usual one.
+fn lists_failure(error: ListsError) -> ErrorKind {
+    match error {
+        ListsError::Locked => ErrorKind::DatabaseLocked,
+        ListsError::FolderUnusable => {
+            failed("the helper's private folder for the package lists could not be used.")
+        }
+        ListsError::StoppedSigning => failed(
+            "A repository stopped signing its package list, so the refreshed list was not used. Nothing was changed. Refreshing by hand with pacman -Syy would leave pacman unable to read that list.",
+        ),
+        ListsError::BadFile => {
+            failed("a refreshed package list was not a file the helper could trust.")
+        }
+        ListsError::Io => failed("the helper could not copy the refreshed package lists."),
+    }
 }
 
 /// The work folder could not be used, so no job was started. A fixed text.
@@ -1211,75 +1295,200 @@ mod tests {
     // ---- update -------------------------------------------------------------------------------------------
 
     #[test]
-    fn a_system_update_syncs_once_compares_then_updates_without_another_sync() {
+    fn a_system_update_syncs_a_private_copy_compares_moves_it_in_and_compares_again_before_updating()
+     {
         let request = request(UPDATE);
         let items = transaction_of(&request);
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
-            ok(&print_text(&items)),
+            ok(&print_text(&items)), // the private copy
+            ok(&print_text(&items)), // the real lists, after the move
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(&installed_text(&items)),
         ]);
-        let (outcome, _) = go(&request, &mut fake);
-        assert_eq!(outcome, Outcome::Ok);
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(result.outcome, Outcome::Ok);
         assert_eq!(
             fake.ran,
             vec![
-                PacmanCommand::Sync,
+                PacmanCommand::PrivateSync,
+                PacmanCommand::PrivateDryRunUpdate(vec![]),
                 PacmanCommand::DryRunUpdate(vec![]),
                 PacmanCommand::ListInstalled,
                 PacmanCommand::RealUpdate(vec![]),
                 PacmanCommand::ListInstalled,
             ]
         );
+        // The folder was made and checked once, before the first command; the move happened after the private dry run
+        // (two commands had run) and before the dry run on the real lists.
+        assert_eq!(fake.prepared, 1);
+        assert_eq!(fake.moved_after, Some(2));
+        assert_eq!(result.lists, Some(ListsState::Moved));
+        // One refresh, and it is the private one: no command refreshes the real lists.
         assert_eq!(
             fake.ran
                 .iter()
-                .filter(|c| **c == PacmanCommand::Sync)
+                .filter(|c| **c == PacmanCommand::PrivateSync)
                 .count(),
             1
         );
+        assert!(fake.ran.iter().all(|c| !refreshes_the_real_lists(c)));
         assert!(!fake.ran.contains(&PacmanCommand::PendingUpdates));
     }
 
     #[test]
-    fn a_locked_database_stops_the_sync_and_nothing_else_runs() {
+    fn a_locked_database_stops_the_private_sync_and_nothing_else_runs() {
         let request = request(UPDATE);
         let mut fake = Fake::new(vec![out(1, "", LOCK_SYNC_ERR)]);
-        let (outcome, _) = go(&request, &mut fake);
-        assert_eq!(outcome, Outcome::Error(ErrorKind::DatabaseLocked));
-        assert_eq!(fake.ran, vec![PacmanCommand::Sync]);
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(result.outcome, Outcome::Error(ErrorKind::DatabaseLocked));
+        assert_eq!(fake.ran, vec![PacmanCommand::PrivateSync]);
+        assert_eq!(fake.moved_after, None);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
     }
 
     #[test]
-    fn a_sync_that_fails_for_another_reason_is_pacman_failed() {
+    fn a_private_sync_that_fails_for_another_reason_is_pacman_failed() {
         let request = request(UPDATE);
         let mut fake = Fake::new(vec![out(
             1,
             "",
             "error: failed to synchronize all databases (invalid url)\n",
         )]);
-        let (outcome, _) = go(&request, &mut fake);
+        let (result, _) = go_full(&request, &mut fake);
         assert!(matches!(
-            outcome,
+            result.outcome,
             Outcome::Error(ErrorKind::PacmanFailed(_))
         ));
-        assert_eq!(fake.ran, vec![PacmanCommand::Sync]);
+        assert_eq!(fake.ran, vec![PacmanCommand::PrivateSync]);
+        assert_eq!(fake.moved_after, None);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
     }
 
     #[test]
-    fn an_update_whose_dry_run_differs_after_the_sync_is_a_changed_transaction() {
+    fn an_update_whose_private_dry_run_differs_is_a_changed_transaction_and_moves_nothing() {
         let request = request(UPDATE);
         let mut items = transaction_of(&request);
         items.pop();
         let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
-        let (outcome, _) = go(&request, &mut fake);
-        assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(
+            result.outcome,
+            Outcome::Error(ErrorKind::TransactionChanged)
+        );
         assert_eq!(
             fake.ran,
-            vec![PacmanCommand::Sync, PacmanCommand::DryRunUpdate(vec![])]
+            vec![
+                PacmanCommand::PrivateSync,
+                PacmanCommand::PrivateDryRunUpdate(vec![])
+            ]
         );
+        assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+    }
+
+    #[test]
+    fn a_dry_run_that_differs_on_the_real_lists_after_the_move_is_reported_as_moved() {
+        // Another root process changed the lists between the move and the check (T-09): the helper refuses, and the
+        // journal must say the real lists were replaced.
+        let request = request(UPDATE);
+        let items = transaction_of(&request);
+        let mut changed = items.clone();
+        changed.pop();
+        let mut fake = Fake::new(vec![
+            ok(SYNC_OUT),
+            ok(&print_text(&items)),
+            ok(&print_text(&changed)),
+        ]);
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(
+            result.outcome,
+            Outcome::Error(ErrorKind::TransactionChanged)
+        );
+        assert_eq!(fake.ran.len(), 3);
+        assert_eq!(fake.moved_after, Some(2));
+        assert_eq!(result.lists, Some(ListsState::Moved));
+    }
+
+    #[test]
+    fn a_private_lock_refuses_before_pacman_runs_with_the_restart_text() {
+        let request = request(UPDATE);
+        let mut fake = Fake::new(vec![]);
+        fake.private_lock = true;
+        let (result, _) = go_full(&request, &mut fake);
+        let Outcome::Error(ErrorKind::PacmanFailed(details)) = &result.outcome else {
+            panic!("{:?}", result.outcome);
+        };
+        assert!(details.as_str().contains("restart the computer"));
+        assert!(details.as_str().contains("Nothing was changed"));
+        assert_eq!(fake.ran, vec![]);
+        assert_eq!(fake.prepared, 1);
+        assert_eq!(fake.moved_after, None);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+    }
+
+    #[test]
+    fn a_private_folder_that_is_not_as_required_refuses_before_pacman_runs() {
+        let request = request(UPDATE);
+        let mut fake = Fake::new(vec![]);
+        fake.prepare_result = Err(ListsError::FolderUnusable);
+        let (result, _) = go_full(&request, &mut fake);
+        assert!(matches!(
+            result.outcome,
+            Outcome::Error(ErrorKind::PacmanFailed(_))
+        ));
+        assert_eq!(fake.ran, vec![]);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+    }
+
+    #[test]
+    fn a_refused_move_stops_the_update_with_its_own_text_and_the_lists_untouched() {
+        let request = request(UPDATE);
+        let items = transaction_of(&request);
+        for (error, expected) in [
+            (ListsError::Locked, None),
+            (ListsError::StoppedSigning, Some("stopped signing")),
+            (ListsError::BadFile, Some("could trust")),
+            (ListsError::Io, Some("could not copy")),
+        ] {
+            let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
+            fake.move_result = Err(MoveError { error, renamed: 0 });
+            let (result, _) = go_full(&request, &mut fake);
+            match expected {
+                None => assert_eq!(result.outcome, Outcome::Error(ErrorKind::DatabaseLocked)),
+                Some(words) => {
+                    let Outcome::Error(ErrorKind::PacmanFailed(details)) = &result.outcome else {
+                        panic!("{error:?}: {:?}", result.outcome);
+                    };
+                    assert!(details.as_str().contains(words), "{error:?}");
+                }
+            }
+            assert_eq!(
+                fake.ran.len(),
+                2,
+                "{error:?}: nothing runs after a refused move"
+            );
+            assert_eq!(result.lists, Some(ListsState::Untouched), "{error:?}");
+        }
+    }
+
+    #[test]
+    fn a_move_that_stopped_after_some_renames_is_reported_as_moved() {
+        let request = request(UPDATE);
+        let items = transaction_of(&request);
+        let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
+        fake.move_result = Err(MoveError {
+            error: ListsError::Io,
+            renamed: 1,
+        });
+        let (result, _) = go_full(&request, &mut fake);
+        assert!(matches!(
+            result.outcome,
+            Outcome::Error(ErrorKind::PacmanFailed(_))
+        ));
+        assert_eq!(fake.ran.len(), 2);
+        assert_eq!(result.lists, Some(ListsState::Moved));
     }
 
     /// The folder the private copy of the package lists lives in (decision 0007).
@@ -1310,6 +1519,7 @@ mod tests {
             let (outcome, _) = go(&request, &mut fake);
             assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
             assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+            assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
             for command in &fake.ran {
                 assert!(
                     !refreshes_the_real_lists(command),
@@ -1333,16 +1543,20 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
             ok(&installed_text(&items)),
         ]);
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
+        // The targets are in BOTH dry runs, and the move sits between them.
+        assert_eq!(fake.moved_after, Some(2));
         assert_eq!(
             fake.ran,
             vec![
-                PacmanCommand::Sync,
+                PacmanCommand::PrivateSync,
+                PacmanCommand::PrivateDryRunUpdate(names_of(&install)),
                 PacmanCommand::DryRunUpdate(names_of(&install)),
                 PacmanCommand::ListInstalled,
                 PacmanCommand::RealUpdate(names_of(&install)),
@@ -1365,6 +1579,7 @@ mod tests {
         let partial = format!("pacman 7.1.0-1\n{partial}");
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
+            ok(&print_text(&items)),
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
@@ -1410,12 +1625,16 @@ mod tests {
     fn a_plain_install_never_syncs_and_never_uses_the_update_commands() {
         let request = request(INSTALL);
         let mut fake = Fake::new(clean_install_script(&request));
-        go(&request, &mut fake);
+        let (result, _) = go_full(&request, &mut fake);
+        // A plain install never prepares, looks at, syncs or moves the private copy, and says nothing about the lists.
+        assert_eq!((fake.prepared, fake.moved_after), (0, None));
+        assert_eq!(result.lists, None);
         for command in &fake.ran {
             assert!(
                 !matches!(
                     command,
-                    PacmanCommand::Sync
+                    PacmanCommand::PrivateSync
+                        | PacmanCommand::PrivateDryRunUpdate(_)
                         | PacmanCommand::DryRunUpdate(_)
                         | PacmanCommand::RealUpdate(_)
                 ),

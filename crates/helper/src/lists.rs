@@ -67,6 +67,7 @@ pub enum Step {
 }
 
 /// The places the private copy uses. `Lists::standard()` is the only way to get one outside the test builds.
+#[derive(Debug)]
 pub struct Lists {
     private: PathBuf,
     real_sync: PathBuf,

@@ -22,6 +22,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::env::pacman_environment;
+use crate::lists::{Lists, ListsError, MoveError};
 use crate::pacman_args::{ArgsRefused, PACMAN, PacmanCommand, args};
 use crate::removal::remove_work_file;
 use crate::workdir::{WorkDir, WorkDirError};
@@ -75,6 +76,15 @@ pub trait Runner {
 
     /// True if `db.lck` exists (or cannot be checked: unknown is treated as present).
     fn database_lock_present(&self) -> bool;
+
+    /// Makes the private folder for the package lists exist and checks it (decision 0007). Refuses, never repairs.
+    fn prepare_private_lists(&mut self) -> Result<(), ListsError>;
+
+    /// True if the private `db.lck` exists (or cannot be checked). A look only; the helper never touches that lock.
+    fn private_lock_present(&self) -> bool;
+
+    /// Copies the refreshed private lists into the real `sync/` (see `lists::Lists::move_in`).
+    fn move_lists_in(&mut self) -> Result<(), MoveError>;
 }
 
 /// Cuts a byte stream into lines at `\n` only, as chunks arrive.
@@ -122,8 +132,9 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         PacmanCommand::PendingUpdates
         | PacmanCommand::DryRunInstall(_)
         | PacmanCommand::DryRunUpdate(_)
+        | PacmanCommand::PrivateDryRunUpdate(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
-        PacmanCommand::Sync
+        PacmanCommand::PrivateSync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
         | PacmanCommand::MarkAsDeps(_) => None,
@@ -171,6 +182,7 @@ pub struct PacmanRunner {
     stdout_cap: usize,
     stderr_cap: usize,
     lock_path: PathBuf,
+    lists: Lists,
 }
 
 impl PacmanRunner {
@@ -184,6 +196,7 @@ impl PacmanRunner {
             stdout_cap: STDOUT_CAP,
             stderr_cap: STDERR_CAP,
             lock_path: PathBuf::from(DATABASE_LOCK),
+            lists: Lists::standard(),
         }
     }
 
@@ -320,6 +333,18 @@ impl Runner for PacmanRunner {
             Err(error) => error.kind() != io::ErrorKind::NotFound,
         }
     }
+
+    fn prepare_private_lists(&mut self) -> Result<(), ListsError> {
+        self.lists.prepare()
+    }
+
+    fn private_lock_present(&self) -> bool {
+        self.lists.private_lock_present()
+    }
+
+    fn move_lists_in(&mut self) -> Result<(), MoveError> {
+        self.lists.move_in()
+    }
 }
 
 #[cfg(test)]
@@ -392,12 +417,13 @@ mod tests {
             PacmanCommand::PendingUpdates,
             PacmanCommand::DryRunInstall(list.clone()),
             PacmanCommand::DryRunUpdate(vec![]),
+            PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::ListInstalled,
         ] {
             assert_eq!(timeout_for(&command), Some(READ_TIMEOUT), "{command:?}");
         }
         for command in [
-            PacmanCommand::Sync,
+            PacmanCommand::PrivateSync,
             PacmanCommand::RealInstall(list.clone()),
             PacmanCommand::RealUpdate(vec![]),
             PacmanCommand::MarkAsDeps(list),
