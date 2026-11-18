@@ -34,6 +34,7 @@ pub mod flows;
 pub mod gate;
 pub mod input;
 pub mod journal;
+pub mod lists;
 pub mod output;
 pub mod pacman_args;
 pub mod progress;
