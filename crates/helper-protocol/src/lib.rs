@@ -5,6 +5,26 @@
 //! so every request goes through `parse_request`, which refuses first and asks questions later.
 //! Library code must not panic, so clippy forbids `unwrap`, `expect`, indexing and `panic!` here
 //! (tests may still use them).
+//!
+//! # Talking to the helper (for the app that starts it)
+//!
+//! The helper's stdin and stdout belong to its caller, and the helper does not rely on the caller being well behaved
+//! (threat model A1, question 34). Three rules for the app's side:
+//!
+//! 1. **Write the request from a thread, then close stdin.** A request can be bigger than the 64 KiB a pipe holds, and
+//!    the helper may be writing to the app at the same moment, so write the request from a thread of its own (in one
+//!    go or in pieces), and drop the pipe when the request is complete: that is how the helper knows it has all of it.
+//!    The helper waits at most **10 seconds for the whole request**. A stdin that is still silent after that is refused
+//!    as `Malformed` and nothing runs. A request that arrives in pieces inside the 10 seconds is fine.
+//! 2. **Read stdout to its end, line by line, and treat `Progress` as best effort.** Progress lines can be missing when
+//!    the app falls behind (they are dropped, never queued without limit), so never count them or wait for one.
+//!    `Notice` and `Finished` wait for room, but only inside **one budget of 5 seconds in all**; an app that never reads
+//!    stops the helper from waiting after that, and the job is not affected by it.
+//! 3. **`Finished` is the only result.** If it never arrives, the helper's exit code (0 ok, 1 an error line was printed,
+//!    2 refused to start) and the journal entry still say how the job ended; do not guess from silence.
+//!
+//! The numbers (10 s, 5 s, a queue of 1024 lines and 1 MiB) are in `tidewise-helper`, `run.rs`, and pinned by a test
+//! there; the reasons are in `docs/security/threat-model.md`, question 34.
 #![forbid(unsafe_code)]
 #![cfg_attr(
     not(test),

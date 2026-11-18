@@ -17,11 +17,20 @@ pub const MAX_EVENT_LINE_BYTES: usize = 16 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
-    /// Something is happening.
+    /// Something is happening. **Best effort: a `Progress` line can be missing.** The helper writes to the app through
+    /// a bounded queue and never waits for the app while pacman runs, so when the app falls behind, a progress line that
+    /// finds the queue full is dropped (the helper's journal entry for the job says how many:
+    /// `TIDEWISE_EVENTS_DROPPED`). Never count progress lines, never wait for a particular one, and never take the last
+    /// one seen, or the lack of one, for a result.
     Progress(Progress),
-    /// Something the user should know did not go as planned. Comes before `Finished`.
+    /// Something the user should know did not go as planned. Comes before `Finished`. Not best effort: it waits for
+    /// room in the queue, but only inside one budget of 5 seconds in all, shared with `Finished` (so an app that reads
+    /// at all gets it; one that does not costs the helper 5 seconds once, and then the helper gives up and exits).
     Notice(Notice),
-    /// The last line: it worked, or why not.
+    /// The last line: it worked, or why not. **The only result.** It waits for room like a `Notice`, inside the same
+    /// 5 second budget. If it never arrives (the app stopped reading, or died), the helper's exit code (0 ok, 1 an error
+    /// line was printed, 2 refused to start) and its journal entry (`TIDEWISE_OUTCOME`) still say how the job ended:
+    /// silence is neither success nor failure.
     Finished(Outcome),
 }
 
