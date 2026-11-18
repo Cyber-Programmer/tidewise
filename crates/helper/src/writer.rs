@@ -490,4 +490,53 @@ mod tests {
         writer.offer(&"x".repeat(500));
         assert_eq!(writer.dropped(), 0);
     }
+
+    /// Waits until the writer has written everything queued and holds no line.
+    fn wait_until_empty(writer: &BoundedWriter) {
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            {
+                let state = lock(&writer.shared.state);
+                if state.queue.is_empty() && !state.in_hand {
+                    return;
+                }
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("the writer never emptied its queue");
+    }
+
+    #[test]
+    fn a_lost_notice_means_no_final_line_and_both_are_counted() {
+        // Review 6.10a A-04, decided by the human on 18 Nov 2026. The app must never get a result that hides a lost
+        // notice: once one `deliver` has failed, every later one fails too, so the final line is not written and the
+        // app sees "no result". The outcome stays in the exit code and the journal.
+        let (stuck, release, seen) = Gate::new();
+        let writer = BoundedWriter::start(stuck, limits(2, 1024, Duration::from_millis(300)));
+        writer.offer("first");
+        wait_until_in_hand(&writer);
+        for _ in 0..5 {
+            writer.offer("progress");
+        }
+        let dropped_before = writer.dropped();
+        assert!(!writer.deliver("notice"), "no room, and the budget ends");
+
+        // Room appears just after the budget is spent: the reader resumes and the queue drains.
+        release.send(()).unwrap();
+        wait_until_empty(&writer);
+        assert!(
+            !writer.deliver("final"),
+            "a final line written after a lost notice would hide the loss from the app"
+        );
+        assert_eq!(
+            writer.dropped(),
+            dropped_before + 2,
+            "the lost notice and the refused final line are both counted"
+        );
+        let written = text(&seen);
+        assert!(
+            !written.contains("notice") && !written.contains("final"),
+            "{written}"
+        );
+    }
 }
