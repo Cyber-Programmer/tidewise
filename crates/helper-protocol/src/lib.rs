@@ -18,10 +18,13 @@
 //!    as `Malformed` and nothing runs. A request that arrives in pieces inside the 10 seconds is fine.
 //! 2. **Read stdout to its end, line by line, and treat `Progress` as best effort.** Progress lines can be missing when
 //!    the app falls behind (they are dropped, never queued without limit), so never count them or wait for one.
-//!    `Notice` and `Finished` wait for room, but only inside **one budget of 5 seconds in all**; an app that never reads
-//!    stops the helper from waiting after that, and the job is not affected by it.
-//! 3. **`Finished` is the only result.** If it never arrives, the helper's exit code (0 ok, 1 an error line was printed,
-//!    2 refused to start) and the journal entry still say how the job ended; do not guess from silence.
+//!    `Notice` and `Finished` wait for room, but only inside **one budget of 5 seconds in all**, and the helper must see
+//!    everything queued written inside it: an app that never reads, or reads too slowly (a busy UI thread), stops the
+//!    helper from waiting after that, and the job is not affected by it. So read on a thread of its own, never on the
+//!    one that draws the window.
+//! 3. **`Finished` is the only result.** If it never arrives, or only part of it does (a last line with no new line
+//!    at its end is not a result), the helper's exit code (0 ok, 1 the job ended with an error, 2 refused to start) and
+//!    the journal entry still say how the job ended; do not guess from silence.
 //!
 //! The numbers (10 s, 5 s, a queue of 1024 lines and 1 MiB) are in `tidewise-helper`, `run.rs`, and pinned by a test
 //! there; the reasons are in `docs/security/threat-model.md`, question 34.
