@@ -9,7 +9,10 @@
 //!   bytes) is dropped and counted. The loop that supervises pacman calls only this.
 //! - `deliver` is for what must not be lost: a notice, and the final result line. It **waits for room**, but only inside
 //!   one budget (`Limits::final_wait`, 5 s) that starts at the first call and is shared by all of them, so a reader that
-//!   never reads costs the helper 5 s once, not 5 s per line. It is called only after pacman has finished.
+//!   never reads costs the helper 5 s once, not 5 s per line. It is called only after pacman has finished. **Once one
+//!   `deliver` has failed, every later one fails too** (and is counted): a lost notice means no final line, so the app
+//!   sees "no result" and never an "ok" that hides what it was not told (review 6.10a A-04). The outcome is still in the
+//!   exit code and the journal.
 //!
 //! `finish` then waits, inside the same budget, until everything queued has been written, so a reader that resumes in time
 //! gets every line and the exit code is not returned before the last line left. When the budget is spent the helper goes
@@ -60,6 +63,8 @@ struct State {
     /// Lines that were not queued (no room, or no writer). A failed write is not counted: a reader that went away
     /// is expected, not interesting.
     dropped: usize,
+    /// A `deliver` ran out of budget: a notice or the final line was lost, so no later `deliver` may succeed.
+    delivery_lost: bool,
     /// The writer thread could not be started, or the writer was dropped: nothing more will be written.
     closed: bool,
 }
@@ -104,12 +109,13 @@ impl BoundedWriter {
     }
 
     /// Queues `line` and, if there is no room, waits for it, but only inside the shared budget. True if the line was
-    /// queued. Never used for progress.
+    /// queued. Never used for progress. After one `deliver` has failed, every later one fails at once and is counted
+    /// (a lost notice means no final line).
     pub fn deliver(&self, line: &str) -> bool {
         let end = self.budget_end();
         let mut state = lock(&self.shared.state);
         loop {
-            if state.closed {
+            if state.closed || state.delivery_lost {
                 state.dropped = state.dropped.saturating_add(1);
                 return false;
             }
@@ -121,6 +127,7 @@ impl BoundedWriter {
             }
             let Some(left) = time_left(end) else {
                 state.dropped = state.dropped.saturating_add(1);
+                state.delivery_lost = true;
                 return false;
             };
             state = wait(&self.shared, state, left);
