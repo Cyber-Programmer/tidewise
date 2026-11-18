@@ -149,11 +149,11 @@ impl Lists {
     }
 
     /// Copies the refreshed lists into the real `sync/` (decision 0007, "The move, in this order").
-    pub fn move_in(&self) -> Result<(), MoveError> {
+    pub fn move_in(&self) -> Result<u32, MoveError> {
         self.move_traced(&mut |_| {})
     }
 
-    fn move_traced(&self, trace: &mut dyn FnMut(Step)) -> Result<(), MoveError> {
+    fn move_traced(&self, trace: &mut dyn FnMut(Step)) -> Result<u32, MoveError> {
         let nothing_moved = |error| MoveError { error, renamed: 0 };
 
         // 1. Every check that needs no write: names, kinds, owners, and the signature rule.
@@ -203,7 +203,7 @@ impl Lists {
             });
         }
         trace(Step::SyncDir);
-        Ok(())
+        Ok(0) // shim of the red commit: the number of lists renamed is returned in the fix
     }
 
     /// The lists in the private `sync/` that may move: `<repo>.db` and `<repo>.db.sig` with a repository name that
@@ -416,7 +416,7 @@ mod tests {
         fn real(&self, name: &str, text: &str) {
             put(&self.real_sync().join(name), text);
         }
-        fn trace(&self) -> (Result<(), MoveError>, Vec<Step>) {
+        fn trace(&self) -> (Result<u32, MoveError>, Vec<Step>) {
             let mut steps = Vec::new();
             let result = self.lists.move_traced(&mut |step| steps.push(step));
             (result, steps)
@@ -450,7 +450,7 @@ mod tests {
         fs::set_permissions(world.private_sync(), fs::Permissions::from_mode(0o711)).unwrap();
     }
 
-    fn untouched(error: ListsError) -> Result<(), MoveError> {
+    fn untouched(error: ListsError) -> Result<u32, MoveError> {
         Err(MoveError { error, renamed: 0 })
     }
 
@@ -617,7 +617,7 @@ mod tests {
         world.real("core.db", "old core");
         world.real("extra.db", "old extra");
         let (result, _) = world.trace();
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Ok(2));
         assert_eq!(read(&world.real_sync().join("core.db")), "new core");
         assert_eq!(read(&world.real_sync().join("extra.db")), "new extra");
         assert_eq!(mode_of(&world.real_sync().join("core.db")), 0o644);
@@ -644,7 +644,7 @@ mod tests {
         fs::create_dir(world.private_sync().join("download-AbCdEf")).unwrap();
         let before = listing(&world.private_sync());
         let (result, _) = world.trace();
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Ok(1));
         assert_eq!(
             listing(&world.real_sync()),
             vec!["core.db=core".to_string()]
@@ -689,7 +689,7 @@ mod tests {
         let world = World::with_private("order", &[("core.db", "a"), ("extra.db", "b")]);
         world.real("core.db", "old");
         let (result, steps) = world.trace();
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Ok(2));
         let real = world.real_sync();
         assert_eq!(
             steps,
@@ -723,7 +723,7 @@ mod tests {
             &[("core.db", "a"), ("core.db.sig", "s"), ("extra.db", "b")],
         );
         let (result, steps) = world.trace();
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Ok(3));
         let renames: Vec<(PathBuf, PathBuf)> = steps
             .into_iter()
             .filter_map(|step| match step {
@@ -800,9 +800,54 @@ mod tests {
             ".tidewise-core.db.new",
             "a longer leftover from a killed update",
         );
-        assert_eq!(world.trace().0, Ok(()));
+        assert_eq!(world.trace().0, Ok(1));
         assert_eq!(read(&world.real_sync().join("core.db")), "new");
         assert_eq!(listing(&world.real_sync()), vec!["core.db=new".to_string()]);
+    }
+
+    #[test]
+    fn move_in_says_how_many_lists_it_renamed_and_none_when_there_was_nothing_to_move() {
+        let world = World::with_private("count", &[("core.db", "a"), ("core.db.sig", "s")]);
+        assert_eq!(world.lists.move_in(), Ok(2));
+        // Only folders and odd names in the private sync/: nothing to move, nothing renamed, and it says so.
+        let world = World::with_private("count-none", &[("notes.txt", "x")]);
+        assert_eq!(world.lists.move_in(), Ok(0));
+        assert_eq!(listing(&world.real_sync()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_staged_copy_keeps_the_time_of_the_refreshed_list() {
+        // pacman sets a downloaded list's time to the server's and sends it back as If-Modified-Since. A copy that
+        // took "now" would make a newer list, published between the server's time and the copy, look unmodified
+        // to the user's next plain `pacman -Sy` (review 6.10b R-03).
+        let world = World::with_private("mtime", &[("core.db", "new")]);
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let source = fs::OpenOptions::new()
+            .write(true)
+            .open(world.private_sync().join("core.db"))
+            .unwrap();
+        source.set_modified(old).unwrap();
+        drop(source);
+        world.lists.move_in().unwrap();
+        let kept = fs::metadata(world.real_sync().join("core.db"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(kept, old);
+    }
+
+    #[test]
+    fn a_leftover_with_another_mode_is_set_to_0644() {
+        // The mode must not depend on what an old leftover (or the umask) says (mutation: no set_permissions).
+        let world = World::with_private("leftover-mode", &[("core.db", "new")]);
+        world.real(".tidewise-core.db.new", "old");
+        fs::set_permissions(
+            world.real_sync().join(".tidewise-core.db.new"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        world.lists.move_in().unwrap();
+        assert_eq!(mode_of(&world.real_sync().join("core.db")), 0o644);
     }
 
     // ---- signatures (decision 0007, "Signatures") ------------------------------------------------------
@@ -815,7 +860,7 @@ mod tests {
         );
         world.real("core.db", "old");
         world.real("core.db.sig", "old sig");
-        assert_eq!(world.trace().0, Ok(()));
+        assert_eq!(world.trace().0, Ok(2));
         assert_eq!(read(&world.real_sync().join("core.db")), "new");
         assert_eq!(read(&world.real_sync().join("core.db.sig")), "new sig");
     }
@@ -825,7 +870,7 @@ mod tests {
         let world =
             World::with_private("sig-new", &[("core.db", "new"), ("core.db.sig", "new sig")]);
         world.real("core.db", "old");
-        assert_eq!(world.trace().0, Ok(()));
+        assert_eq!(world.trace().0, Ok(2));
         assert_eq!(read(&world.real_sync().join("core.db.sig")), "new sig");
     }
 
@@ -833,7 +878,7 @@ mod tests {
     fn with_no_signature_on_either_side_only_the_list_moves() {
         let world = World::with_private("sig-none", &[("core.db", "new")]);
         world.real("core.db", "old");
-        assert_eq!(world.trace().0, Ok(()));
+        assert_eq!(world.trace().0, Ok(1));
         assert_eq!(listing(&world.real_sync()), vec!["core.db=new".to_string()]);
     }
 

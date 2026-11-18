@@ -21,7 +21,7 @@ pub struct Fake {
     pub prepare_result: Result<(), ListsError>,
     pub prepared: u32,
     /// What `move_lists_in` answers; `moved_after` is how many commands had run when it was asked (None: never asked).
-    pub move_result: Result<(), MoveError>,
+    pub move_result: Result<u32, MoveError>,
     pub moved_after: Option<usize>,
 }
 
@@ -34,7 +34,7 @@ impl Fake {
             private_lock: false,
             prepare_result: Ok(()),
             prepared: 0,
-            move_result: Ok(()),
+            move_result: Ok(1),
             moved_after: None,
         }
     }
@@ -67,7 +67,7 @@ impl Runner for Fake {
         self.private_lock
     }
 
-    fn move_lists_in(&mut self) -> Result<(), MoveError> {
+    fn move_lists_in(&mut self) -> Result<u32, MoveError> {
         self.moved_after = Some(self.ran.len());
         self.move_result
     }
