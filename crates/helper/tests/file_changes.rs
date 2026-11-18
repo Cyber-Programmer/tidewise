@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 /// What counts as touching a file or the lock.
-const WORDS: [&str; 17] = [
+const WORDS: [&str; 22] = [
     "remove_file",
     "remove_dir",
     "create_dir",
@@ -29,6 +29,12 @@ const WORDS: [&str; 17] = [
     "real_lock",
     "REAL_LOCK",
     "LOCK_NAME",
+    // ... and the calls that read, write, size or flush a file without a name from the list above (review 6.10b R-06).
+    "io::copy",
+    ".truncate(",
+    "File::open",
+    "sync_all",
+    "set_modified",
 ];
 
 /// The files `lib.rs` declares under `#[cfg(test)]` (today `testing.rs`): never compiled into the real helper, so
@@ -112,6 +118,25 @@ fn expected() -> Vec<(String, String)> {
             "if meta.file_type().is_symlink() && meta.uid() == self.owner && right_target {",
         ),
         ("lists.rs", "let mut source = OpenOptions::new()"),
+        // Read-only open of the folder to flush it, the truncating create of the staged copy, the copy, the list's own
+        // time put on the copy, and the two flushes (6.10b review R-06 added these words to the guard).
+        (
+            "lists.rs",
+            "let flushed = File::open(&self.real_sync).and_then(|folder| folder.sync_all());",
+        ),
+        ("lists.rs", ".truncate(true)"),
+        (
+            "lists.rs",
+            "io::copy(&mut source, &mut staged).map_err(|_| ListsError::Io)?;",
+        ),
+        (
+            "lists.rs",
+            ".set_modified(meta.modified().map_err(|_| ListsError::Io)?)",
+        ),
+        (
+            "lists.rs",
+            "staged.sync_all().map_err(|_| ListsError::Io)?;",
+        ),
         ("lists.rs", "let mut staged = OpenOptions::new()"),
         (
             "lists.rs",
@@ -131,6 +156,13 @@ fn expected() -> Vec<(String, String)> {
         ("lists.rs", "if looks_present(&self.real_lock) {"),
         ("lists.rs", "if looks_present(&self.real_lock) {"),
         ("lists.rs", "looks_present(&self.private.join(LOCK_NAME))"),
+        // Read-only opens of the pacman output files the runner itself made in the work folder (reading stdout while it
+        // grows, and the head of both files afterwards). Listed since 6.10b added `File::open` to the guard's words.
+        (
+            "runner.rs",
+            "let mut stdout_reader = File::open(&files.out_path).map_err(|_| RunnerError::Io)?;",
+        ),
+        ("runner.rs", "if let Ok(file) = File::open(path) {"),
         // The one removal: a regular file directly in the work folder, after symlink_metadata (removal.rs).
         (
             "removal.rs",

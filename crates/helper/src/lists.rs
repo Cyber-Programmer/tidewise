@@ -203,7 +203,7 @@ impl Lists {
             });
         }
         trace(Step::SyncDir);
-        Ok(0) // shim of the red commit: the number of lists renamed is returned in the fix
+        Ok(renamed)
     }
 
     /// The lists in the private `sync/` that may move: `<repo>.db` and `<repo>.db.sig` with a repository name that
@@ -281,6 +281,11 @@ impl Lists {
             .set_permissions(fs::Permissions::from_mode(0o644))
             .map_err(|_| ListsError::Io)?;
         io::copy(&mut source, &mut staged).map_err(|_| ListsError::Io)?;
+        // pacman sets a downloaded list's time to the server's and sends it back as If-Modified-Since: keep it, or a list
+        // published between the server's time and this copy would look unmodified to the next plain `pacman -Sy`.
+        staged
+            .set_modified(meta.modified().map_err(|_| ListsError::Io)?)
+            .map_err(|_| ListsError::Io)?;
         trace(Step::Stage(list.name.clone()));
         staged.sync_all().map_err(|_| ListsError::Io)?;
         trace(Step::SyncFile(list.name.clone()));
