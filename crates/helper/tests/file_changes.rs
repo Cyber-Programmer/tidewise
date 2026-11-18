@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 /// What counts as touching a file or the lock.
-const WORDS: [&str; 14] = [
+const WORDS: [&str; 17] = [
     "remove_file",
     "remove_dir",
     "create_dir",
@@ -25,6 +25,10 @@ const WORDS: [&str; 14] = [
     "db.lck",
     "DATABASE_LOCK",
     "lock_path",
+    // lists.rs (6.10b): its names for the real lock and the private one.
+    "real_lock",
+    "REAL_LOCK",
+    "LOCK_NAME",
 ];
 
 /// The files `lib.rs` declares under `#[cfg(test)]` (today `testing.rs`): never compiled into the real helper, so
@@ -85,6 +89,48 @@ fn expected() -> Vec<(String, String)> {
         ("runner.rs", "lock_path: PathBuf,"),
         ("runner.rs", "lock_path: PathBuf::from(DATABASE_LOCK),"),
         ("runner.rs", "match fs::symlink_metadata(&self.lock_path) {"),
+        // The private copy of the package lists (6.10b, decision 0007, lists.rs). Writes: the private folder and its
+        // `sync/` (mkdir 0711, then looked at again), the `local` link, the staged copy `.tidewise-<name>.new` in the real
+        // sync folder (O_NOFOLLOW, truncating, mode 0644) and the ONE rename of a staged list over the real one.
+        // Nothing is deleted. The locks (real and private) appear only as constants, struct fields and arguments of
+        // `looks_present`, which is a `symlink_metadata`.
+        (
+            "lists.rs",
+            "use std::fs::{self, DirBuilder, File, OpenOptions};",
+        ),
+        (
+            "lists.rs",
+            "use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};",
+        ),
+        (
+            "lists.rs",
+            "match DirBuilder::new().mode(0o711).create(path) {",
+        ),
+        ("lists.rs", "match symlink(&self.local_target, &link) {"),
+        (
+            "lists.rs",
+            "if meta.file_type().is_symlink() && meta.uid() == self.owner && right_target {",
+        ),
+        ("lists.rs", "let mut source = OpenOptions::new()"),
+        ("lists.rs", "let mut staged = OpenOptions::new()"),
+        (
+            "lists.rs",
+            ".set_permissions(fs::Permissions::from_mode(0o644))",
+        ),
+        (
+            "lists.rs",
+            "fs::rename(dir.join(staged_name), dir.join(list_name))",
+        ),
+        (
+            "lists.rs",
+            "pub const REAL_LOCK: &str = \"/var/lib/pacman/db.lck\";",
+        ),
+        ("lists.rs", "const LOCK_NAME: &str = \"db.lck\";"),
+        ("lists.rs", "real_lock: PathBuf,"),
+        ("lists.rs", "real_lock: PathBuf::from(REAL_LOCK),"),
+        ("lists.rs", "if looks_present(&self.real_lock) {"),
+        ("lists.rs", "if looks_present(&self.real_lock) {"),
+        ("lists.rs", "looks_present(&self.private.join(LOCK_NAME))"),
         // The one removal: a regular file directly in the work folder, after symlink_metadata (removal.rs).
         (
             "removal.rs",
@@ -129,20 +175,49 @@ fn only_the_listed_places_touch_files_and_the_lock_is_only_looked_at() {
 
 #[test]
 fn nothing_but_a_look_ever_names_the_lock() {
-    // Every line that names the lock path is one of four: its constant, the field, its initialisation, and the stat.
+    // Every line that names a lock is one of eleven: in runner.rs its constant, the field, its initialisation and the stat;
+    // in lists.rs (6.10b) the two constants, the real lock's field and initialisation, the two looks at the real lock and
+    // the one at the private lock. Each look is a `symlink_metadata` (runner.rs directly, lists.rs through `looks_present`).
     let lock_lines: Vec<(String, String)> = found()
         .into_iter()
         .filter(|(_, line)| {
-            line.contains("db.lck") || line.contains("DATABASE_LOCK") || line.contains("lock_path")
+            [
+                "db.lck",
+                "DATABASE_LOCK",
+                "lock_path",
+                "real_lock",
+                "REAL_LOCK",
+                "LOCK_NAME",
+            ]
+            .iter()
+            .any(|word| line.contains(word))
         })
         .collect();
-    assert_eq!(lock_lines.len(), 4, "{lock_lines:?}");
-    assert!(lock_lines.iter().all(|(file, _)| file == "runner.rs"));
+    assert_eq!(lock_lines.len(), 11, "{lock_lines:?}");
+    assert!(
+        lock_lines
+            .iter()
+            .all(|(file, _)| file == "runner.rs" || file == "lists.rs")
+    );
     assert!(
         lock_lines
             .iter()
             .filter(|(_, line)| line.contains('('))
-            .all(|(_, line)| line.contains("symlink_metadata") || line.contains("PathBuf::from")),
+            .all(|(_, line)| line.contains("symlink_metadata")
+                || line.contains("PathBuf::from")
+                || line.contains("looks_present")),
         "{lock_lines:?}"
+    );
+    // ... and `looks_present` itself looks with `symlink_metadata` and nothing else.
+    let lists =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lists.rs")).unwrap();
+    let body = lists
+        .split("fn looks_present(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .unwrap();
+    assert!(body.contains("fs::symlink_metadata(path)"), "{body}");
+    assert!(
+        !body.contains("File::") && !body.contains("OpenOptions") && !body.contains("fs::read")
     );
 }
