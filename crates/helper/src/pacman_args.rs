@@ -419,6 +419,36 @@ mod tests {
     }
 
     #[test]
+    fn y_only_ever_comes_with_the_private_dbpath_and_a_null_logfile() {
+        // Decision 0007: no command can refresh the real package lists. Any command with a -y carries
+        // `--dbpath /run/tidewise-helper-lists/` and `--logfile /dev/null`, both as exact adjacent pairs.
+        let mut refreshes = 0;
+        for command in all_commands() {
+            let built = args(&command).unwrap();
+            let has_y = before_the_double_dash(&built)
+                .iter()
+                .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains('y'));
+            if !has_y {
+                continue;
+            }
+            refreshes += 1;
+            assert!(
+                built
+                    .windows(2)
+                    .any(|p| p[0] == "--dbpath" && p[1] == "/run/tidewise-helper-lists/"),
+                "{command:?} refreshes without the private --dbpath: {built:?}"
+            );
+            assert!(
+                built
+                    .windows(2)
+                    .any(|p| p[0] == "--logfile" && p[1] == "/dev/null"),
+                "{command:?} refreshes without --logfile /dev/null: {built:?}"
+            );
+        }
+        assert_eq!(refreshes, 1, "exactly one command refreshes the lists");
+    }
+
+    #[test]
     fn noconfirm_and_ask_belong_to_real_transactions_only() {
         for command in all_commands() {
             let built = args(&command).unwrap();
