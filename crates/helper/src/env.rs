@@ -32,8 +32,9 @@ pub struct Limit {
 ///
 /// `pkexec` passes the caller's limits on, and they apply to root too: a low file-size or CPU limit kills pacman in
 /// the middle of unpacking a package, and the caller needs no privilege to set them. So the helper sets its own, and
-/// pacman, its scriptlets and its hooks inherit them. Cgroup limits (a memory cap, a CPU quota) and the OOM score
-/// belong to the caller's service or scope and cannot be reset this way: documented, not defended.
+/// pacman, its scriptlets and its hooks inherit them. Cgroup limits (a memory cap, a CPU quota) belong to the caller's
+/// service or scope and cannot be reset this way: documented, not defended. The OOM score is handled separately, below
+/// (`reset_oom_score`).
 ///
 /// - file size, CPU time, address space, data segment: unlimited, because a transaction is as big as it is;
 /// - core dumps: 0, so a crash of a root process never writes memory to disk;
@@ -101,11 +102,21 @@ pub fn reset_limits() -> std::io::Result<()> {
 /// the highest score first). Review 5.8 R-03 re-check, question 37.
 pub const OOM_SCORE_ADJ_PATH: &str = "/proc/self/oom_score_adj";
 
-/// The highest `oom_score_adj` the helper starts with. Measured on 17 Nov 2026: a desktop session and rootless Podman
-/// both give 200, so anything above it was raised on purpose (a caller can raise its own score to 1000 and have the
-/// OOM killer pick root pacman first, in the middle of unpacking). A real root behind pkexec always reaches 0 (it has
-/// CAP_SYS_RESOURCE), so this limit only matters where root lacks the host's capability: containers and user
-/// namespaces, which cannot lower the value they were given.
+/// The highest `oom_score_adj` the helper starts with: 200. Two different numbers are easy to mix up here:
+///
+/// - **200 is the value session processes run at.** The user manager's `DefaultOOMScoreAdjust` is its own score plus 100
+///   (systemd-system.conf(5), systemd 262.2), and the manager itself runs at 100 because PID 1 starts it from
+///   `user@.service` with `OOMScoreAdjust=100` (`/usr/lib/systemd/system/user@.service:35`). Rootless Podman gives 200
+///   too. Measured on 17 and 18 Nov 2026.
+/// - **100 is the floor an ordinary process can lower itself to.** The kernel says the value "may be reduced no lower than
+///   the last value set by a CAP_SYS_RESOURCE process" (`Documentation/filesystems/proc.rst`, `/proc/<pid>/oom_score_adj`;
+///   page of kernel 7.4.0-rc3). PID 1 set 100 for the user manager, so on this host `choom -n 100` works and
+///   `choom -n 99` fails with "Permission denied".
+///
+/// Anything above 200 was raised on purpose (a caller can raise its own score to 1000 and have the OOM killer pick root
+/// pacman first, in the middle of unpacking), so the helper refuses it. A real root behind pkexec always reaches 0 (it
+/// has CAP_SYS_RESOURCE), so on a real system the limit never triggers. It only matters where root lacks the host's
+/// capability: containers and user namespaces, which cannot lower the value they were given.
 pub const MAX_ACCEPTED_OOM_SCORE_ADJ: i32 = 200;
 
 /// The number in the text of `/proc/self/oom_score_adj`: an optional minus sign and digits, in the kernel's range
