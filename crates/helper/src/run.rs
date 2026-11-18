@@ -31,6 +31,7 @@
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
+use std::time::Duration;
 
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, event_line};
 
@@ -203,6 +204,34 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
 /// Makes the runner for a job, only after a request was accepted (so a refused request never touches the work folder).
 pub type MakeRunner<'a> = &'a mut dyn FnMut() -> Result<Box<dyn Runner>, ErrorKind>;
 
+// ---- COMPILE SHIM (6.10a red commit, review 5.8 R-04, question 34) -----------------------------------------------
+// No behaviour: these names exist so the red tests compile and fail on an assertion. The green commit replaces them.
+
+/// How long the helper waits for the request on stdin, in total.
+pub const STDIN_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the final result line may wait for room in the output queue.
+pub const FINAL_WRITE_DEADLINE: Duration = Duration::from_secs(5);
+/// Most output lines queued for the writer.
+pub const LINE_QUEUE: usize = 1024;
+/// Most bytes queued for the writer (a line is at most `MAX_EVENT_LINE_BYTES`, 16 KiB: 1024 of them would be 16 MiB).
+pub const QUEUE_BYTES: usize = 1024 * 1024;
+
+/// The two waits the caller can make the helper do. Ignored by the shim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Deadlines {
+    pub stdin: Duration,
+    pub final_write: Duration,
+}
+
+impl Default for Deadlines {
+    fn default() -> Self {
+        Deadlines {
+            stdin: STDIN_DEADLINE,
+            final_write: FINAL_WRITE_DEADLINE,
+        }
+    }
+}
+
 /// Runs the whole start and returns the exit code. `log` returns whether the entry was written.
 pub fn run(
     facts: Facts,
@@ -211,6 +240,27 @@ pub fn run(
     stderr: &mut impl Write,
     log: &mut dyn FnMut(&[u8]) -> bool,
     make_runner: MakeRunner,
+) -> u8 {
+    run_with(
+        facts,
+        stdin,
+        stdout,
+        stderr,
+        log,
+        make_runner,
+        Deadlines::default(),
+    )
+}
+
+/// `run` with its waits given (tests use short ones). The shim ignores `_deadlines`.
+pub fn run_with(
+    facts: Facts,
+    stdin: impl Read,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    log: &mut dyn FnMut(&[u8]) -> bool,
+    make_runner: MakeRunner,
+    _deadlines: Deadlines,
 ) -> u8 {
     // The caller's id is read first so that a refusal can carry it too (for the log only: it never decides anything).
     let caller = caller_uid(facts.pkexec_uid.clone());
@@ -1327,6 +1377,402 @@ mod tests {
             );
             assert_eq!(code, EXIT_REFUSED_TO_START, "{kind:?}");
             assert!(logged.is_empty());
+        }
+    }
+
+    // ---- R-04: what the caller controls (review 5.8 R-04, question 34) ------------------------------------------
+    //
+    // The helper's stdout and stdin belong to the caller. A caller that never reads stdout, or never writes stdin,
+    // must not be able to hold an authorised root job. Each of these runs `run_with` in its own thread and waits
+    // for it with a time limit, so a helper that is stuck fails the test after `WAIT`; it never hangs `cargo test`.
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
+    use tidewise_helper_protocol::MAX_EVENT_LINE_BYTES;
+
+    /// The longest any of these tests waits for `run_with` before it calls the helper stuck.
+    const WAIT: Duration = Duration::from_secs(10);
+
+    /// stdout that blocks on its first write until the test sends on the sender `new` returns, then keeps everything
+    /// written. The gate holds a sender of its own, so a test that never releases it has a reader that never reads
+    /// (not a closed one: a closed pipe is a different case, an error that returns at once).
+    struct Gate {
+        release: Receiver<()>,
+        _hold: Sender<()>,
+        open: bool,
+        seen: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Gate {
+        fn new() -> (Gate, Sender<()>, Arc<Mutex<Vec<u8>>>) {
+            let (release_sender, release) = mpsc::channel();
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let gate = Gate {
+                release,
+                _hold: release_sender.clone(),
+                open: false,
+                seen: seen.clone(),
+            };
+            (gate, release_sender, seen)
+        }
+    }
+
+    impl Write for Gate {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if !self.open {
+                let _ = self.release.recv();
+                self.open = true;
+            }
+            self.seen.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// stdin that stays open and says nothing: a read waits forever.
+    struct Silent {
+        wait: Receiver<()>,
+        _hold: Sender<()>,
+    }
+
+    impl Silent {
+        fn new() -> Silent {
+            let (hold, wait) = mpsc::channel();
+            Silent { wait, _hold: hold }
+        }
+    }
+
+    impl Read for Silent {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            let _ = self.wait.recv();
+            Ok(0)
+        }
+    }
+
+    /// stdin that hands the request over a few bytes at a time, with a pause before each piece.
+    struct Chunked {
+        data: Vec<u8>,
+        at: usize,
+        chunk: usize,
+        pause: Duration,
+    }
+
+    impl Read for Chunked {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            std::thread::sleep(self.pause);
+            let rest = &self.data[self.at..];
+            let n = rest.len().min(self.chunk).min(buf.len());
+            buf[..n].copy_from_slice(&rest[..n]);
+            self.at += n;
+            Ok(n)
+        }
+    }
+
+    /// A run in progress: the exit code (when it returns), each journal entry as it is written, how many runners
+    /// were made.
+    struct Started {
+        done: Receiver<u8>,
+        journal: Receiver<Vec<u8>>,
+        runners: Arc<AtomicU32>,
+    }
+
+    fn start_run(
+        facts: Facts,
+        stdin: impl Read + Send + 'static,
+        stdout: impl Write + Send + 'static,
+        script: Script,
+        deadlines: Deadlines,
+    ) -> Started {
+        let (done_sender, done) = mpsc::channel();
+        let (journal_sender, journal) = mpsc::channel();
+        let runners = Arc::new(AtomicU32::new(0));
+        let made = runners.clone();
+        std::thread::spawn(move || {
+            let mut stdout = stdout;
+            let mut stderr = Vec::new();
+            let mut log = |datagram: &[u8]| {
+                let _ = journal_sender.send(datagram.to_vec());
+                true
+            };
+            let mut make = fake(script);
+            let mut counted = || {
+                made.fetch_add(1, Ordering::SeqCst);
+                make()
+            };
+            let code = run_with(
+                facts,
+                stdin,
+                &mut stdout,
+                &mut stderr,
+                &mut log,
+                &mut counted,
+                deadlines,
+            );
+            let _ = done_sender.send(code);
+        });
+        Started {
+            done,
+            journal,
+            runners,
+        }
+    }
+
+    fn entry_text(entry: Vec<u8>) -> String {
+        String::from_utf8(entry).unwrap()
+    }
+
+    /// The number in `TIDEWISE_EVENTS_DROPPED=<n>` of a journal entry, if the field is there.
+    fn dropped_in(entry: &str) -> Option<usize> {
+        entry
+            .lines()
+            .find_map(|line| line.strip_prefix("TIDEWISE_EVENTS_DROPPED="))
+            .and_then(|number| number.parse().ok())
+    }
+
+    /// An update of `count` packages whose real run prints a download line and an install line for each one:
+    /// `2 * count + 3` progress events (the first heading from the sync, the "Retrieving" and "Processing" headings,
+    /// and one line per package in each of those two phases).
+    struct BigUpdate {
+        request: Vec<u8>,
+        summary: String,
+        script: Script,
+        events: usize,
+    }
+
+    fn big_update(count: usize) -> BigUpdate {
+        let items: Vec<String> = (0..count)
+            .map(|n| format!("{{\"repo\":\"extra\",\"name\":\"pkg{n:04}\",\"version\":\"1-1\"}}"))
+            .collect();
+        let request = format!(
+            "{{\"protocol_version\":1,\"action\":{{\"update_system\":{{\"transaction\":[{}]}}}}}}",
+            items.join(",")
+        );
+        let transaction = match parse_request(request.as_bytes()).unwrap().action {
+            Action::UpdateSystem(update) => update.transaction,
+            _ => panic!("the request is an update"),
+        };
+        let mut real = String::from("resolving dependencies...\n:: Retrieving packages...\n");
+        for n in 0..count {
+            real.push_str(&format!(" pkg{n:04}-1-1-any downloading...\n"));
+        }
+        real.push_str(":: Processing package changes...\n");
+        for n in 0..count {
+            real.push_str(&format!("installing pkg{n:04}...\n"));
+        }
+        let script = vec![
+            ok(":: Synchronizing package databases...\n"),
+            ok(&print_text(&transaction)),
+            ok("pacman 7.1.0-1\n"),
+            ok(&real),
+            ok(&installed_text(&transaction)),
+        ];
+        BigUpdate {
+            request: request.into_bytes(),
+            summary: format!("update system ({count} packages)"),
+            script,
+            events: 2 * count + 3,
+        }
+    }
+
+    #[test]
+    fn a_stdout_that_never_takes_a_line_does_not_stop_the_job() {
+        let (gate, _release, _seen) = Gate::new();
+        let deadlines = Deadlines {
+            stdin: STDIN_DEADLINE,
+            final_write: Duration::from_millis(200),
+        };
+        let started = start_run(
+            good_facts(INSTALL_SUMMARY),
+            Cursor::new(INSTALL.as_bytes().to_vec()),
+            gate,
+            clean_install_script(),
+            deadlines,
+        );
+        let code = started.done.recv_timeout(WAIT).expect(
+            "run did not return within 10 s: a stdout that nobody reads is holding the job (R-04)",
+        );
+        assert_eq!(
+            code, EXIT_OK,
+            "the job's result does not depend on the reader"
+        );
+        let entries: Vec<String> = started.journal.try_iter().map(entry_text).collect();
+        assert_eq!(entries.len(), 2, "{entries:?}");
+        assert!(
+            entries[1].contains("TIDEWISE_OUTCOME=ok\n"),
+            "{}",
+            entries[1]
+        );
+    }
+
+    #[test]
+    fn lines_that_do_not_fit_are_dropped_and_counted_and_the_result_is_unchanged() {
+        let big = big_update(1500);
+        let (gate, _release, _seen) = Gate::new();
+        let deadlines = Deadlines {
+            stdin: STDIN_DEADLINE,
+            final_write: Duration::from_millis(200),
+        };
+        let started = start_run(
+            good_facts(&big.summary),
+            Cursor::new(big.request.clone()),
+            gate,
+            big.script.clone(),
+            deadlines,
+        );
+        let code = started.done.recv_timeout(WAIT).expect(
+            "run did not return within 10 s: a stdout that nobody reads is holding the job (R-04)",
+        );
+        assert_eq!(code, EXIT_OK, "dropping progress lines changes no result");
+        let entries: Vec<String> = started.journal.try_iter().map(entry_text).collect();
+        assert_eq!(entries.len(), 2, "{entries:?}");
+        assert!(
+            entries[1].contains("TIDEWISE_OUTCOME=ok\n"),
+            "{}",
+            entries[1]
+        );
+        // One line may be in the writer's hand and LINE_QUEUE in the queue: everything else is dropped, and counted.
+        let dropped = dropped_in(&entries[1])
+            .expect("the finished entry says how many lines were dropped: TIDEWISE_EVENTS_DROPPED");
+        assert!(
+            (big.events - LINE_QUEUE - 1..=big.events).contains(&dropped),
+            "{dropped} dropped of {} events",
+            big.events
+        );
+    }
+
+    #[test]
+    fn a_full_queue_still_delivers_the_final_outcome_when_the_reader_resumes_within_the_deadline() {
+        let big = big_update(1500);
+        let (gate, release, seen) = Gate::new();
+        let started = start_run(
+            good_facts(&big.summary),
+            Cursor::new(big.request.clone()),
+            gate,
+            big.script.clone(),
+            Deadlines::default(),
+        );
+        // The job runs to its end while nobody reads: both journal entries appear, the second one just before the
+        // final line is handed to the (blocked) writer.
+        let mut entries = Vec::new();
+        for which in ["accepted", "finished"] {
+            let entry = started.journal.recv_timeout(WAIT).unwrap_or_else(|_| {
+                panic!("the {which} journal entry did not appear within 10 s: the job is held by a reader that does not read (R-04)")
+            });
+            entries.push(entry_text(entry));
+        }
+        assert!(
+            entries[1].contains("TIDEWISE_OUTCOME=ok\n"),
+            "{}",
+            entries[1]
+        );
+        assert!(
+            dropped_in(&entries[1]).is_some_and(|dropped| dropped > 0),
+            "{}",
+            entries[1]
+        );
+        assert!(seen.lock().unwrap().is_empty(), "nothing was read yet");
+
+        // The reader resumes, well inside the 5 s the final line waits for room.
+        release.send(()).unwrap();
+        let code = started
+            .done
+            .recv_timeout(WAIT)
+            .expect("run did not return after the reader resumed");
+        assert_eq!(code, EXIT_OK);
+        let text = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            text.lines().last(),
+            Some("{\"finished\":\"ok\"}"),
+            "the final outcome is never dropped"
+        );
+        assert_eq!(text.lines().filter(|l| l.contains("finished")).count(), 1);
+        for line in text.lines() {
+            assert!(parse_event(line).is_ok(), "not an event: {line}");
+        }
+    }
+
+    #[test]
+    fn a_silent_stdin_is_refused_as_malformed_after_the_deadline() {
+        let (out, release, seen) = Gate::new();
+        release.send(()).unwrap();
+        let deadlines = Deadlines {
+            stdin: Duration::from_millis(100),
+            final_write: Duration::from_millis(200),
+        };
+        let started = start_run(
+            good_facts(UPDATE_SUMMARY),
+            Silent::new(),
+            out,
+            Vec::new(),
+            deadlines,
+        );
+        let code = started.done.recv_timeout(WAIT).expect(
+            "run did not return within 10 s: a stdin that stays silent parks an approved helper (R-04)",
+        );
+        assert_eq!(code, EXIT_ERROR_LINE);
+        let text = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+        assert_eq!(text, "{\"finished\":{\"error\":\"malformed\"}}\n");
+        let entries: Vec<String> = started.journal.try_iter().map(entry_text).collect();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert!(
+            entries[0].contains("TIDEWISE_OUTCOME=malformed\n"),
+            "{}",
+            entries[0]
+        );
+        assert_eq!(
+            started.runners.load(Ordering::SeqCst),
+            0,
+            "no pacman was ever started"
+        );
+    }
+
+    #[test]
+    fn a_request_that_arrives_in_pieces_within_the_deadline_is_accepted() {
+        // Starts green on purpose: it guards the deadline against being applied to a caller that is only slow.
+        let reader = Chunked {
+            data: INSTALL.as_bytes().to_vec(),
+            at: 0,
+            chunk: 40,
+            pause: Duration::from_millis(20),
+        };
+        let (out, release, seen) = Gate::new();
+        release.send(()).unwrap();
+        let started = start_run(
+            good_facts(INSTALL_SUMMARY),
+            reader,
+            out,
+            clean_install_script(),
+            Deadlines::default(),
+        );
+        let code = started.done.recv_timeout(WAIT).expect("run did not return");
+        assert_eq!(code, EXIT_OK);
+        let text = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+        assert_eq!(text.lines().last(), Some("{\"finished\":\"ok\"}"));
+    }
+
+    #[test]
+    fn the_bounds_are_pinned() {
+        // Starts green on purpose (the shim carries the decided values): a change must be a decision, not an accident.
+        assert_eq!(STDIN_DEADLINE, Duration::from_secs(10));
+        assert_eq!(FINAL_WRITE_DEADLINE, Duration::from_secs(5));
+        assert_eq!(LINE_QUEUE, 1024);
+        assert_eq!(QUEUE_BYTES, 1024 * 1024);
+        assert_eq!(
+            Deadlines::default(),
+            Deadlines {
+                stdin: STDIN_DEADLINE,
+                final_write: FINAL_WRITE_DEADLINE
+            }
+        );
+        // Why there is a byte cap at all: a line may be 16 KiB, so the line count alone allows 16 MiB.
+        // Checked when the test is compiled: these compare constants.
+        const {
+            assert!(LINE_QUEUE * MAX_EVENT_LINE_BYTES > 4 * 1024 * 1024);
+            assert!(QUEUE_BYTES <= 4 * 1024 * 1024);
+            assert!(QUEUE_BYTES >= MAX_EVENT_LINE_BYTES);
         }
     }
 }
