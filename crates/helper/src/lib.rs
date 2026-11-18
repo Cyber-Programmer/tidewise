@@ -45,3 +45,4 @@ pub mod signals;
 pub(crate) mod testing;
 pub mod uid;
 pub mod workdir;
+pub mod writer;
