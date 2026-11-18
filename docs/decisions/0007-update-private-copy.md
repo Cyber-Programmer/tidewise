@@ -70,7 +70,7 @@ said it had to be settled before the update flow was built; the flow is built.
 | | 1 (recommended) | 2 | 3 |
 |---|---|---|---|
 | A refusal (list differs) | Real lists untouched, byte for byte. | Untouched if the private compare fails; if the mirror moved between the two downloads, the R-02 state again. | Lists flip to new and back; `pacman.log` records a sync that was then undone. |
-| The mirror changes after the user confirmed | Caught privately; what is moved in is the file that was verified, never a second download. | A window of seconds between the two downloads. | Caught, but only after the real lists were touched. |
+| The mirror changes after the user confirmed | Caught privately; what is moved in is the file that was verified, never a second download (true for ONE helper; two helpers at once can still swap the private file between the check and the copy: review 6.10b R-01, see "Open after the review"). | A window of seconds between the two downloads. | Caught, but only after the real lists were touched. |
 | A forged confirmed list | Caught privately. | Caught privately. | Caught after the real `-Sy`. |
 | SIGKILL during the private sync | Real lists untouched. A private `db.lck` is left (see below). | Same. | Between `-Sy` and the restore: the R-02 state plus backups lying around. |
 | SIGKILL during the move | Some lists new, some old: the same as pacman's own `-Sy` (fact 1). The window is the renames, after every copy is staged and synced. | No move. | The restore is a rename too: the same mix. |
@@ -143,8 +143,7 @@ look). `removal.rs` does not change, because nothing is deleted.
 ## What stays out of this decision
 
 - **The app's own unprivileged refresh** (where the confirm list comes from: a fakeroot private sync like checkupdates, or
-  not; the app side of question 12) is not part of 6.10. It is a follow-up for 6.1 and 6.6. After 6.10b a stale app list costs
-  one refused update and no damage.
+  not; the app side of question 12) is not part of 6.10. It is a follow-up for 6.1 and 6.6. After 6.10b a stale app list is refused WITHOUT damage, but it is refused again on every retry until something refreshes the app's list: the app builds its list from the real lists, and a refusal now leaves those stale on purpose (review 6.10b R-02, see "Open after the review").
 - **A `.sig` that matters.** Arch's databases are not signed here (`SigLevel = Required DatabaseOptional`); the move
   carries `.db.sig` if the private sync produced one, with the same checks. The rules are in "Signatures" below.
 
@@ -217,3 +216,25 @@ when missing and checked (`read_link` must equal `/var/lib/pacman/local`) when i
 - The residual that stays: a kill between the move and the real `-Su` leaves the lists newer than the packages. It is the
   same as for pacman's own `-Sy` followed by a kill, it is documented (T-11, question 12), and it cannot be avoided by any
   update flow that has to refresh the lists at all.
+
+## Open after the review (6.10b, `docs/security/reviews/6.10b-private-lists.md`)
+
+Two findings change what this decision promises and are the human's to settle; neither is fixed in code yet.
+
+- **R-01, two helpers at once (Medium).** Nothing serialises two helpers any more during the private part of an update (before,
+  the real `db.lck` did, during `-Sy`). Helper B's private sync can replace the private list after helper A's dry run matched
+  and before A copies it, so A could move a list nobody verified (A's second dry run then refuses, but the real lists have
+  moved: the R-02 state again); and both helpers write the same staged name. Proposed fix: one exclusive, non-blocking `flock`
+  on the private folder, held from `prepare()` to the end of the job, refused with a fixed text if taken. No file is created
+  and `db.lck` is not involved; `rustix`'s `fs` feature is already enabled.
+- **R-02, a refusal that cannot converge (Medium).** The app's confirm list comes from the real lists. A refusal leaves them
+  stale, so the app offers the same list again and the helper refuses again, until the user runs a manual `pacman -Sy` or the
+  app refreshes its own view (the app side of question 12, WBS 6.1/6.6). The old behaviour converged because the refusal
+  itself refreshed the lists. The `TransactionChanged` text (helper-protocol) still says "if the package lists were refreshed
+  in the meantime"; it no longer matches. Options for the human: ship 6.10b only together with the app-side refresh; or ship
+  it and say so in the release notes; or change that text.
+
+Also from the review, recorded without a decision needed: renames go `.db` first then its `.sig` (a tiny window with a new
+list and an old signature, the same kind of mix as a kill between renames; no order avoids it); the staged copy keeps the list's
+time (fixed); the lists are assumed to be in `/var/lib/pacman` (a custom `DBPath` makes the update refuse, never damage); the
+private sync has no time limit, like the old sync, and a hung one holds only the private lock.
