@@ -18,6 +18,8 @@ use std::time::Duration;
 
 use tidewise_helper_protocol::{ErrorKind, Outcome};
 
+use crate::flows::ListsState;
+
 /// journald's native socket (`/run/systemd/journal/socket`).
 pub const JOURNAL_SOCKET: &str = "/run/systemd/journal/socket";
 
@@ -67,6 +69,10 @@ pub struct Notes {
     /// Output lines the helper did not queue for the app because the app was not reading them (review 5.8 R-04). A
     /// diagnostic, not a notice: it is **not** part of `any()`, so an `ok` that dropped progress lines is still `ok`.
     pub events_dropped: u32,
+    /// Only for an update: what happened to the REAL package lists (decision 0007). pacman does not log the move, so
+    /// this is the record of it. A diagnostic like `events_dropped`: **not** part of `any()`, so an `ok` that moved the
+    /// lists is still a clean `ok`. `None` (a plain install) writes no field.
+    pub lists: Option<ListsState>,
 }
 
 impl Notes {
@@ -270,7 +276,50 @@ mod tests {
             removed,
             removal_check_skipped: skipped,
             events_dropped: 0,
+            lists: None,
         }
+    }
+
+    #[test]
+    fn the_lists_field_is_moved_or_untouched_for_an_update_and_absent_otherwise() {
+        let none = finish_with(&Outcome::Ok, notes(0, 0, false));
+        assert!(!none.contains("TIDEWISE_LISTS"), "{none}");
+        for (state, word) in [
+            (ListsState::Moved, "moved"),
+            (ListsState::Untouched, "untouched"),
+        ] {
+            let with = Notes {
+                lists: Some(state),
+                ..notes(0, 0, false)
+            };
+            let text = finish_with(&Outcome::Ok, with);
+            assert!(text.contains(&format!("TIDEWISE_LISTS={word}\n")), "{text}");
+            // A diagnostic, not a notice: still a clean ok.
+            assert!(text.contains("TIDEWISE_OUTCOME=ok\n"), "{text}");
+            assert!(text.contains("PRIORITY=6\n"), "{text}");
+            assert!(!with.any());
+        }
+    }
+
+    #[test]
+    fn the_lists_field_is_there_for_a_refusal_too_and_never_on_the_accepted_entry() {
+        let refused = Outcome::Error(ErrorKind::TransactionChanged);
+        let with = Notes {
+            lists: Some(ListsState::Untouched),
+            ..notes(0, 0, false)
+        };
+        let entry = finish_with(&refused, with);
+        assert!(entry.contains("TIDEWISE_LISTS=untouched\n"), "{entry}");
+        assert!(
+            entry.contains("TIDEWISE_OUTCOME=transaction_changed\n"),
+            "{entry}"
+        );
+        let accepted = text(&record(
+            Some(1000),
+            Stage::Accepted,
+            Some("update system (3 packages)"),
+        ));
+        assert!(!accepted.contains("TIDEWISE_LISTS"), "{accepted}");
     }
 
     #[test]
