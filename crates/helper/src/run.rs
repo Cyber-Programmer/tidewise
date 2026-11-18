@@ -318,6 +318,7 @@ pub fn run(
                         removed: result.removed,
                         removal_check_skipped: result.removal_check == RemovalCheck::Skipped,
                         events_dropped: u32::try_from(out.dropped()).unwrap_or(u32::MAX),
+                        lists: None, // shim of the red commit: result.lists is wired in the fix
                     };
                     (result.outcome, notes)
                 }
@@ -773,6 +774,60 @@ mod tests {
             );
             assert!(finished.contains("PRIORITY=4\n"), "{finished}");
         }
+    }
+
+    fn update_items() -> Vec<TransactionItem> {
+        match parse_request(UPDATE.as_bytes()).unwrap().action {
+            Action::UpdateSystem(update) => update.transaction,
+            _ => panic!("the fixture is an update"),
+        }
+    }
+
+    #[test]
+    fn the_finished_entry_of_an_update_says_what_happened_to_the_real_lists() {
+        let items = update_items();
+        // A clean update: the lists were moved in, and it is still a plain ok.
+        let script = vec![
+            ok(":: Synchronizing package databases...\n"),
+            ok(&print_text(&items)),
+            ok(&print_text(&items)),
+            ok("pacman 7.1.0-1\n"),
+            ok(REAL_INSTALL_OUT),
+            ok(&installed_text(&items)),
+        ];
+        let outcome = go_job(good_facts(UPDATE_SUMMARY), UPDATE.as_bytes(), script);
+        assert_eq!(outcome.code, EXIT_OK);
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=ok\nTIDEWISE_LISTS=moved\n"),
+            "{finished}"
+        );
+        assert!(finished.contains("PRIORITY=6\n"), "{finished}");
+
+        // A refusal after the private dry run: the real lists were not touched, and the entry says so.
+        let mut fewer = items.clone();
+        fewer.pop();
+        let script = vec![
+            ok(":: Synchronizing package databases...\n"),
+            ok(&print_text(&fewer)),
+        ];
+        let outcome = go_job(good_facts(UPDATE_SUMMARY), UPDATE.as_bytes(), script);
+        let finished = log_text(&outcome, 1);
+        assert!(
+            finished.contains("TIDEWISE_OUTCOME=transaction_changed\nTIDEWISE_LISTS=untouched\n"),
+            "{finished}"
+        );
+    }
+
+    #[test]
+    fn a_job_that_never_touches_the_lists_logs_no_lists_field() {
+        let outcome = go_job(
+            good_facts(INSTALL_SUMMARY),
+            INSTALL.as_bytes(),
+            clean_install_script(),
+        );
+        let finished = log_text(&outcome, 1);
+        assert!(!finished.contains("TIDEWISE_LISTS"), "{finished}");
     }
 
     #[test]
