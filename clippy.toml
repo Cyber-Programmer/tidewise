@@ -6,7 +6,9 @@
 #   Command::new    crates/pacman/src/run.rs (the read-only pacman runner), crates/helper/src/runner.rs (the helper's
 #                   pacman runner), and tests (their own helper functions and crates/helper/tests/not_root.rs).
 #   remove_*        crates/helper/src/removal.rs (the helper's one deletion point), and the TempDir of each crate's tests.
-#   rename, rustix unlink*, rmdir, rename*   nowhere today: nothing calls them.
+#   rename          crates/helper/src/lists.rs `replace_list` only (6.10b, decision 0007): one rename of a staged pacman list
+#                   over the real one, inside the real /var/lib/pacman/sync folder (cache-class data, not a user file).
+#   rustix unlink*, rmdir, rename*   nowhere today: nothing calls them.
 #   tests/container is a crate that runs programs and removes files inside a throwaway container by design; it has one
 #   crate-wide allow in its Cargo.toml.
 # User files are never deleted by the app at all (golden rule 7: they go to the Trash).
