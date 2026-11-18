@@ -13,12 +13,18 @@
 //!    a later check refuses)
 //! 7. argv is exactly the program name and one summary (`args`)
 //!
-//! Only then is stdin read (`input`, capped) and the request decided (`gate`). A refused request gets one journal
-//! entry and one result line. An accepted one gets a journal entry (before any pacman command), a runner (made only
-//! now), the job (`flows`) with its progress and notice lines on stdout, a second journal entry with the outcome, and
-//! the final line. If either entry could not be written, one notice says so just before the final line: a journal that
-//! is down never stops a job (pacman's own log still records every package change). A refusal to start prints one
-//! fixed sentence on **stderr**, nothing on stdout, writes no journal entry, and never reads stdin.
+//! Only then is stdin read (`input`, capped, with a deadline for the whole request) and the request decided (`gate`). A
+//! refused request gets one journal entry and one result line. An accepted one gets a journal entry (before any pacman
+//! command), a runner (made only now), the job (`flows`) with its progress and notice lines on stdout, a second journal
+//! entry with the outcome, and the final line. If either entry could not be written, one notice says so just before the
+//! final line: a journal that is down never stops a job (pacman's own log still records every package change). A refusal
+//! to start prints one fixed sentence on **stderr**, nothing on stdout, writes no journal entry, and never reads stdin.
+//!
+//! **stdin and stdout belong to the caller** (review 5.8 R-04, question 34), so neither is used by the thread that watches
+//! pacman. stdin is read by a thread with a deadline (`input::read_within`); stdout is written by a thread behind a
+//! bounded queue (`writer`): progress lines never wait and are dropped and counted when there is no room, notices and
+//! the final line wait for room inside one 5 s budget. A caller that never reads or never writes costs the helper at
+//! most those waits and changes no result.
 //!
 //! Exit codes:
 //! - `0` the job finished: the final line is `{"finished":"ok"}`
@@ -26,8 +32,8 @@
 //! - `2` refused to start (see `StartRefusal`); `pkexec` itself uses 126 and 127 (`pkexec(1)`)
 //!
 //! Output never goes through `println!` and friends: they panic when stdout or stderr is closed or full. `write_line`
-//! returns the error, and `run` ignores it on purpose: the exit code and the journal entry must not depend on whether
-//! anyone is still listening.
+//! returns the error, and its callers ignore it on purpose: the exit code and the journal entry must not depend on
+//! whether anyone is still listening.
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -39,11 +45,12 @@ use crate::args::{ArgsError, caller_uid, summary_arg};
 use crate::fds::{FdEntry, check_fds};
 use crate::flows::{RemovalCheck, run_job};
 use crate::gate::{Decision, decide};
-use crate::input::read_capped;
+use crate::input::read_within;
 use crate::journal::{Notes, Stage, record};
 use crate::runner::Runner;
 use crate::signals::child_signal_ignored;
 use crate::uid::is_root;
+use crate::writer::{BoundedWriter, Limits};
 
 /// The job finished.
 pub const EXIT_OK: u8 = 0;
@@ -204,19 +211,19 @@ fn start(facts: Facts) -> Result<Started, StartRefusal> {
 /// Makes the runner for a job, only after a request was accepted (so a refused request never touches the work folder).
 pub type MakeRunner<'a> = &'a mut dyn FnMut() -> Result<Box<dyn Runner>, ErrorKind>;
 
-// ---- COMPILE SHIM (6.10a red commit, review 5.8 R-04, question 34) -----------------------------------------------
-// No behaviour: these names exist so the red tests compile and fail on an assertion. The green commit replaces them.
+// ---- what the caller controls (review 5.8 R-04, question 34; decided 18 Nov 2026) ------------------------------------
 
-/// How long the helper waits for the request on stdin, in total.
+/// How long the helper waits for the whole request on stdin. pkexec asks for the password *before* the helper starts, so
+/// the app's request is already waiting in the pipe: a caller that needs longer than this is not the app.
 pub const STDIN_DEADLINE: Duration = Duration::from_secs(10);
-/// How long the final result line may wait for room in the output queue.
+/// How long the notices and the final result line may wait, in all, for a reader that is not reading (`writer.rs`).
 pub const FINAL_WRITE_DEADLINE: Duration = Duration::from_secs(5);
 /// Most output lines queued for the writer.
 pub const LINE_QUEUE: usize = 1024;
 /// Most bytes queued for the writer (a line is at most `MAX_EVENT_LINE_BYTES`, 16 KiB: 1024 of them would be 16 MiB).
 pub const QUEUE_BYTES: usize = 1024 * 1024;
 
-/// The two waits the caller can make the helper do. Ignored by the shim.
+/// The two waits the caller can make the helper do. `main` uses the default; tests use short ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Deadlines {
     pub stdin: Duration,
@@ -233,34 +240,18 @@ impl Default for Deadlines {
 }
 
 /// Runs the whole start and returns the exit code. `log` returns whether the entry was written.
+///
+/// stdin and stdout are handed over (`Send + 'static`): stdin to a thread that reads it with a deadline, stdout to the
+/// writer thread. Neither is ever touched by the thread that supervises pacman. stderr is only used for a refusal to
+/// start, before anything is held.
 pub fn run(
     facts: Facts,
-    stdin: impl Read,
-    stdout: &mut impl Write,
+    stdin: impl Read + Send + 'static,
+    stdout: impl Write + Send + 'static,
     stderr: &mut impl Write,
     log: &mut dyn FnMut(&[u8]) -> bool,
     make_runner: MakeRunner,
-) -> u8 {
-    run_with(
-        facts,
-        stdin,
-        stdout,
-        stderr,
-        log,
-        make_runner,
-        Deadlines::default(),
-    )
-}
-
-/// `run` with its waits given (tests use short ones). The shim ignores `_deadlines`.
-pub fn run_with(
-    facts: Facts,
-    stdin: impl Read,
-    stdout: &mut impl Write,
-    stderr: &mut impl Write,
-    log: &mut dyn FnMut(&[u8]) -> bool,
-    make_runner: MakeRunner,
-    _deadlines: Deadlines,
+    deadlines: Deadlines,
 ) -> u8 {
     // The caller's id is read first so that a refusal can carry it too (for the log only: it never decides anything).
     let caller = caller_uid(facts.pkexec_uid.clone());
@@ -277,7 +268,19 @@ pub fn run_with(
         }
     };
 
-    match decide(&started.summary, read_capped(stdin)) {
+    // A deadline for the whole request: a stdin that stays silent is a malformed request, and nothing is held yet.
+    let input = read_within(stdin, deadlines.stdin);
+    // From here on, stdout belongs to the writer thread. Made only after the start checks, which print nothing on stdout.
+    let out = BoundedWriter::start(
+        stdout,
+        Limits {
+            lines: LINE_QUEUE,
+            bytes: QUEUE_BYTES,
+            final_wait: deadlines.final_write,
+        },
+    );
+
+    match decide(&started.summary, input) {
         Decision::Refused(verdict) => {
             let outcome = Outcome::Error(verdict.error);
             // The audit trail first, so it exists even if nobody is listening to stdout any more.
@@ -286,7 +289,7 @@ pub fn run_with(
                 Stage::Finished(&outcome, Notes::default()),
                 verdict.summary.as_deref(),
             ));
-            finish(stdout, &outcome, !written)
+            finish(&out, &outcome, !written)
         }
         Decision::Accepted { request, summary } => {
             // Before any pacman command, so a helper that is killed later still left a trace that a job began.
@@ -296,14 +299,24 @@ pub fn run_with(
                 Err(kind) => (Outcome::Error(kind), Notes::default()),
                 Ok(mut runner) => {
                     let result = run_job(&request, &mut *runner, &mut |event| {
-                        // A failed write changes nothing: the job goes on and the exit code is the answer.
-                        let _ = write_line(stdout, &event_line(&event));
+                        // This is called from the loop that supervises pacman, so it must never wait for the app:
+                        // progress is offered to the queue and dropped (and counted) when there is no room. A notice
+                        // is told in words the user needs, so it is delivered: it waits for room, but only inside the
+                        // shared 5 s budget, and only ever after the real run has finished (flows.rs `compare_lists`).
+                        let line = event_line(&event);
+                        match event {
+                            Event::Notice(_) => {
+                                out.deliver(&line);
+                            }
+                            _ => out.offer(&line),
+                        }
                     });
                     // What the notices said goes to the journal too, and a check that did not run is said so there.
                     let notes = Notes {
                         not_installed: result.not_installed,
                         removed: result.removed,
                         removal_check_skipped: result.removal_check == RemovalCheck::Skipped,
+                        events_dropped: u32::try_from(out.dropped()).unwrap_or(u32::MAX),
                     };
                     (result.outcome, notes)
                 }
@@ -314,21 +327,21 @@ pub fn run_with(
                 Stage::Finished(&outcome, notes),
                 Some(&summary),
             ));
-            finish(stdout, &outcome, !(accepted_written && finished_written))
+            finish(&out, &outcome, !(accepted_written && finished_written))
         }
     }
 }
 
 /// The last lines: a notice if an audit entry could not be written (a failed journal never stops a job, the app is
-/// told instead), then the final line. Returns the exit code.
-fn finish(stdout: &mut impl Write, outcome: &Outcome, audit_failed: bool) -> u8 {
+/// told instead), then the final line. Both wait for room, inside the writer's shared budget, and are never dropped
+/// while the reader can still read; then it waits, inside the same budget, for the writer to be done. Returns the exit
+/// code, which never depends on the reader.
+fn finish(out: &BoundedWriter, outcome: &Outcome, audit_failed: bool) -> u8 {
     if audit_failed {
-        let _ = write_line(
-            stdout,
-            &event_line(&Event::Notice(Notice::AuditEntryNotWritten)),
-        );
+        out.deliver(&event_line(&Event::Notice(Notice::AuditEntryNotWritten)));
     }
-    let _ = write_line(stdout, &event_line(&Event::Finished(outcome.clone())));
+    out.deliver(&event_line(&Event::Finished(outcome.clone())));
+    out.finish();
     match outcome {
         Outcome::Ok => EXIT_OK,
         Outcome::Error(_) => EXIT_ERROR_LINE,
@@ -340,9 +353,10 @@ mod tests {
     use super::*;
     use crate::runner::{RunOutput, RunnerError};
     use crate::testing::{Fake, ok, out};
-    use std::cell::{Cell, RefCell};
     use std::io::Cursor;
-    use std::rc::Rc;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
     use tidewise_helper_protocol::{
         Action, Details, MAX_REQUEST_BYTES, TransactionItem, parse_event, parse_request,
     };
@@ -396,29 +410,30 @@ mod tests {
         order: Vec<&'static str>,
     }
 
-    /// stdin that remembers whether anyone read from it.
-    struct Watched<'a> {
+    /// stdin that remembers whether anyone read from it. (It is read by a thread of `run`'s, so it is shared state.)
+    struct Watched {
         inner: Cursor<Vec<u8>>,
-        touched: &'a Cell<bool>,
+        touched: Arc<AtomicBool>,
     }
 
-    impl Read for Watched<'_> {
+    impl Read for Watched {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.touched.set(true);
+            self.touched.store(true, Ordering::SeqCst);
             self.inner.read(buf)
         }
     }
 
-    /// stdout that keeps what was written and notes each write in the shared order.
+    /// stdout that keeps what was written and notes each write in the shared order. (The writer thread writes to it,
+    /// so what it keeps is shared state; `run` returns only after the writer has written everything.)
     struct Recorder {
-        order: Rc<RefCell<Vec<&'static str>>>,
-        bytes: Vec<u8>,
+        order: Arc<Mutex<Vec<&'static str>>>,
+        bytes: Arc<Mutex<Vec<u8>>>,
     }
 
     impl Write for Recorder {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.order.borrow_mut().push("out");
-            self.bytes.extend_from_slice(buf);
+            self.order.lock().unwrap().push("out");
+            self.bytes.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
         fn flush(&mut self) -> io::Result<()> {
@@ -440,15 +455,16 @@ mod tests {
         make: &mut dyn FnMut() -> Result<Box<dyn Runner>, ErrorKind>,
         journal_fails_from: usize,
     ) -> Outcome1 {
-        let touched = Cell::new(false);
+        let touched = Arc::new(AtomicBool::new(false));
         let reader = Watched {
             inner: Cursor::new(stdin.to_vec()),
-            touched: &touched,
+            touched: touched.clone(),
         };
-        let order = Rc::new(RefCell::new(Vec::new()));
-        let mut stdout = Recorder {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let stdout = Recorder {
             order: order.clone(),
-            bytes: Vec::new(),
+            bytes: bytes.clone(),
         };
         let mut stderr = Vec::new();
         let mut logged: Vec<Vec<u8>> = Vec::new();
@@ -457,31 +473,33 @@ mod tests {
         let make_order = order.clone();
         let code = {
             let mut log = |datagram: &[u8]| -> bool {
-                log_order.borrow_mut().push("journal");
+                log_order.lock().unwrap().push("journal");
                 logged.push(datagram.to_vec());
                 logged.len() <= journal_fails_from
             };
             let mut counted = || {
                 runners_made += 1;
-                make_order.borrow_mut().push("runner");
+                make_order.lock().unwrap().push("runner");
                 make()
             };
             run(
                 facts,
                 reader,
-                &mut stdout,
+                stdout,
                 &mut stderr,
                 &mut log,
                 &mut counted,
+                Deadlines::default(),
             )
         };
-        let order = order.borrow().clone();
+        let order = order.lock().unwrap().clone();
+        let stdout = bytes.lock().unwrap().clone();
         Outcome1 {
             code,
-            stdout: String::from_utf8(stdout.bytes).unwrap(),
+            stdout: String::from_utf8(stdout).unwrap(),
             stderr: String::from_utf8(stderr).unwrap(),
             logged,
-            stdin_touched: touched.get(),
+            stdin_touched: touched.load(Ordering::SeqCst),
             runners_made,
             order,
         }
@@ -849,9 +867,22 @@ mod tests {
             clean_install_script(),
         );
         assert_eq!(&outcome.order[..2], &["journal", "runner"]);
-        let n = outcome.order.len();
-        assert_eq!(&outcome.order[n - 2..], &["journal", "out"]);
         assert_eq!(outcome.order.iter().filter(|e| **e == "journal").count(), 2);
+        // Progress lines are written by the writer thread, so some may still be written after the second journal
+        // entry. What is pinned is the order that matters: the finished entry exists before the final line is
+        // written, and the final line is the last thing written.
+        let second_journal = outcome
+            .order
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| **event == "journal")
+            .nth(1)
+            .map(|(index, _)| index)
+            .unwrap();
+        let last_out = outcome.order.iter().rposition(|e| *e == "out").unwrap();
+        assert!(second_journal < last_out, "{:?}", outcome.order);
+        assert_eq!(outcome.order.last(), Some(&"out"));
+        assert!(outcome.stdout.ends_with("{\"finished\":\"ok\"}\n"));
     }
 
     #[test]
@@ -1324,7 +1355,7 @@ mod tests {
     }
 
     /// A whole clean install with this stdout; the journal and the runner are fakes.
-    fn job_with_stdout(stdout: &mut impl Write) -> (u8, Vec<Vec<u8>>) {
+    fn job_with_stdout(stdout: impl Write + Send + 'static) -> (u8, Vec<Vec<u8>>) {
         let mut logged = Vec::new();
         let mut make = fake(clean_install_script());
         let code = run(
@@ -1337,6 +1368,7 @@ mod tests {
                 true
             },
             &mut make,
+            Deadlines::default(),
         );
         (code, logged)
     }
@@ -1348,11 +1380,11 @@ mod tests {
             io::ErrorKind::StorageFull,
             io::ErrorKind::WriteZero,
         ] {
-            let (code, logged) = job_with_stdout(&mut Failing(kind));
+            let (code, logged) = job_with_stdout(Failing(kind));
             assert_eq!(code, EXIT_OK, "{kind:?}");
             assert_eq!(logged.len(), 2, "{kind:?}");
         }
-        let (code, logged) = job_with_stdout(&mut FailsOnFlush);
+        let (code, logged) = job_with_stdout(FailsOnFlush);
         assert_eq!(code, EXIT_OK);
         assert_eq!(logged.len(), 2);
     }
@@ -1367,13 +1399,14 @@ mod tests {
             let code = run(
                 facts,
                 Cursor::new(Vec::new()),
-                &mut Vec::new(),
+                Vec::new(),
                 &mut Failing(kind),
                 &mut |datagram| {
                     logged.push(datagram.to_vec());
                     true
                 },
                 &mut make,
+                Deadlines::default(),
             );
             assert_eq!(code, EXIT_REFUSED_TO_START, "{kind:?}");
             assert!(logged.is_empty());
@@ -1383,15 +1416,12 @@ mod tests {
     // ---- R-04: what the caller controls (review 5.8 R-04, question 34) ------------------------------------------
     //
     // The helper's stdout and stdin belong to the caller. A caller that never reads stdout, or never writes stdin,
-    // must not be able to hold an authorised root job. Each of these runs `run_with` in its own thread and waits
+    // must not be able to hold an authorised root job. Each of these runs `run` in its own thread and waits
     // for it with a time limit, so a helper that is stuck fails the test after `WAIT`; it never hangs `cargo test`.
 
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::mpsc::{self, Receiver, Sender};
-    use std::sync::{Arc, Mutex};
     use tidewise_helper_protocol::MAX_EVENT_LINE_BYTES;
 
-    /// The longest any of these tests waits for `run_with` before it calls the helper stuck.
+    /// The longest any of these tests waits for `run` before it calls the helper stuck.
     const WAIT: Duration = Duration::from_secs(10);
 
     /// stdout that blocks on its first write until the test sends on the sender `new` returns, then keeps everything
@@ -1491,7 +1521,6 @@ mod tests {
         let runners = Arc::new(AtomicU32::new(0));
         let made = runners.clone();
         std::thread::spawn(move || {
-            let mut stdout = stdout;
             let mut stderr = Vec::new();
             let mut log = |datagram: &[u8]| {
                 let _ = journal_sender.send(datagram.to_vec());
@@ -1502,10 +1531,10 @@ mod tests {
                 made.fetch_add(1, Ordering::SeqCst);
                 make()
             };
-            let code = run_with(
+            let code = run(
                 facts,
                 stdin,
-                &mut stdout,
+                stdout,
                 &mut stderr,
                 &mut log,
                 &mut counted,
@@ -1540,6 +1569,7 @@ mod tests {
         summary: String,
         script: Script,
         events: usize,
+        transaction: Vec<TransactionItem>,
     }
 
     fn big_update(count: usize) -> BigUpdate {
@@ -1574,6 +1604,7 @@ mod tests {
             summary: format!("update system ({count} packages)"),
             script,
             events: 2 * count + 3,
+            transaction,
         }
     }
 
@@ -1656,6 +1687,7 @@ mod tests {
         );
         // The job runs to its end while nobody reads: both journal entries appear, the second one just before the
         // final line is handed to the (blocked) writer.
+        let began = std::time::Instant::now();
         let mut entries = Vec::new();
         for which in ["accepted", "finished"] {
             let entry = started.journal.recv_timeout(WAIT).unwrap_or_else(|_| {
@@ -1663,6 +1695,12 @@ mod tests {
             });
             entries.push(entry_text(entry));
         }
+        // The job did not wait for the reader at all (the 5 s the final line may wait for room come only after it).
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "the job took {:?}: a progress line waited for a reader that was not reading",
+            began.elapsed()
+        );
         assert!(
             entries[1].contains("TIDEWISE_OUTCOME=ok\n"),
             "{}",
@@ -1692,6 +1730,52 @@ mod tests {
         for line in text.lines() {
             assert!(parse_event(line).is_ok(), "not an event: {line}");
         }
+    }
+
+    #[test]
+    fn a_notice_is_delivered_like_the_final_line_when_the_queue_is_full() {
+        // The last package is not installed after the run: that is a notice ("1 not installed") the user needs.
+        let mut big = big_update(1500);
+        let all_but_one = big.transaction[..1499].to_vec();
+        big.script[4] = ok(&installed_text(&all_but_one));
+        let (gate, release, seen) = Gate::new();
+        let started = start_run(
+            good_facts(&big.summary),
+            Cursor::new(big.request.clone()),
+            gate,
+            big.script.clone(),
+            Deadlines::default(),
+        );
+        started
+            .journal
+            .recv_timeout(WAIT)
+            .expect("the accepted journal entry did not appear");
+        // The fake pacman is instant, so within this pause every progress line has been offered, the queue is full,
+        // and the notice is waiting for room. The notice waits (it is delivered, not dropped), and so does the finished
+        // journal entry behind it: that entry comes only after the notice has been queued.
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            started.journal.try_recv().is_err(),
+            "the finished entry was written while the notice still had no room"
+        );
+        release.send(()).unwrap();
+        let code = started.done.recv_timeout(WAIT).expect("run did not return");
+        assert_eq!(code, EXIT_OK);
+        let text = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+        let events: Vec<Event> = text.lines().map(|l| parse_event(l).unwrap()).collect();
+        let notices = events
+            .iter()
+            .filter(|event| matches!(event, Event::Notice(_)))
+            .count();
+        assert_eq!(notices, 1, "the notice was dropped: {:?}", events.last());
+        // Notice first, then the final line, as always.
+        let n = events.len();
+        assert!(
+            matches!(events[n - 2], Event::Notice(_)),
+            "{:?}",
+            events[n - 2]
+        );
+        assert!(matches!(events[n - 1], Event::Finished(Outcome::Ok)));
     }
 
     #[test]

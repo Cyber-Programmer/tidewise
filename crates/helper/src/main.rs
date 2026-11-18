@@ -21,7 +21,7 @@ use tidewise_helper::env::{reset_limits, reset_oom_score, set_umask_022};
 use tidewise_helper::fds::read_fd_entries;
 use tidewise_helper::flows::work_folder_unusable;
 use tidewise_helper::journal::{JOURNAL_SOCKET, send};
-use tidewise_helper::run::{Facts, run};
+use tidewise_helper::run::{Deadlines, Facts, run};
 use tidewise_helper::runner::{PacmanRunner, Runner};
 use tidewise_helper::uid::read_status;
 use tidewise_helper::workdir::{WorkDir, another_process_is_alive};
@@ -59,13 +59,16 @@ fn main() -> ExitCode {
         Ok(Box::new(PacmanRunner::new(dir)))
     };
 
+    // stdin and stdout are handed over, not locked here: `run` gives them to a reader thread with a deadline and to the
+    // writer thread (review 5.8 R-04). A locked handle could not leave this thread.
     let code = run(
         facts,
-        std::io::stdin().lock(),
-        &mut std::io::stdout().lock(),
+        std::io::stdin(),
+        std::io::stdout(),
         &mut std::io::stderr().lock(),
         &mut log,
         &mut make_runner,
+        Deadlines::default(),
     );
     ExitCode::from(code)
 }

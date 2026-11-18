@@ -64,6 +64,9 @@ pub struct Notes {
     pub removed: u32,
     /// The "did a package disappear?" check could not run (a `pacman -Q` list could not be read).
     pub removal_check_skipped: bool,
+    /// Output lines the helper did not queue for the app because the app was not reading them (review 5.8 R-04). A
+    /// diagnostic, not a notice: it is **not** part of `any()`, so an `ok` that dropped progress lines is still `ok`.
+    pub events_dropped: u32,
 }
 
 impl Notes {
@@ -128,6 +131,13 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
     }
     if notes.removal_check_skipped {
         add_field(&mut text, "TIDEWISE_REMOVAL_CHECK", "skipped");
+    }
+    if notes.events_dropped > 0 {
+        add_field(
+            &mut text,
+            "TIDEWISE_EVENTS_DROPPED",
+            &notes.events_dropped.to_string(),
+        );
     }
 
     let label = match code {
@@ -259,7 +269,25 @@ mod tests {
             not_installed,
             removed,
             removal_check_skipped: skipped,
+            events_dropped: 0,
         }
+    }
+
+    #[test]
+    fn dropped_lines_are_a_field_only_above_zero_and_never_make_an_ok_a_notice() {
+        let none = finish_with(&Outcome::Ok, notes(0, 0, false));
+        assert!(!none.contains("TIDEWISE_EVENTS_DROPPED"), "{none}");
+
+        let dropped = Notes {
+            events_dropped: 1978,
+            ..notes(0, 0, false)
+        };
+        let text = finish_with(&Outcome::Ok, dropped);
+        assert!(text.contains("TIDEWISE_EVENTS_DROPPED=1978\n"), "{text}");
+        // Still a clean ok: the same code, the same priority, no "with notices".
+        assert!(text.contains("TIDEWISE_OUTCOME=ok\n"), "{text}");
+        assert!(text.contains("PRIORITY=6\n"), "{text}");
+        assert!(!dropped.any());
     }
 
     fn finish_with(outcome: &Outcome, notes: Notes) -> String {

@@ -4,11 +4,20 @@
 //! is what lets `parse_request` say "too large" (it refuses anything longer than the cap, before parsing); a longer
 //! request is never stored.
 //!
-//! Known limit, recorded for 5.3b: a caller that never closes stdin and sends nothing keeps the helper waiting here.
-//! That is harmless in 5.3a, because nothing is held yet (no lock, no sync, no pacman). In 5.3b the whole request
-//! must be read and validated before any lock is taken, any sync is done or pacman is started.
+//! The caller owns stdin too (review 5.8 R-04, question 34). A caller that never closes it and sends nothing used to keep
+//! the helper waiting here for ever, and one that sent the request hours later released an action the user had approved
+//! hours earlier. So the read has a deadline for the whole request (`read_within`): the reading happens in a thread
+//! that owns stdin and a sender and nothing else, and the helper waits for its answer for a fixed time. After a timeout
+//! the thread is left alone. It holds nothing the rest of the helper needs (no lock, no journal, no writer, no gate), and
+//! if it ever gets an answer the sender finds the receiver gone and the answer is thrown away.
+//!
+//! Nothing is held while this waits (no lock, no sync, no pacman): the whole request is read and validated before any of
+//! that, so a refusal here changes nothing.
 
 use std::io::Read;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
 
 use tidewise_helper_protocol::MAX_REQUEST_BYTES;
 
@@ -16,6 +25,8 @@ use tidewise_helper_protocol::MAX_REQUEST_BYTES;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputError {
     ReadFailed,
+    /// The whole request did not arrive inside the deadline.
+    TimedOut,
 }
 
 /// Reads at most `MAX_REQUEST_BYTES + 1` bytes. Interrupted reads are retried by the standard library; any other
@@ -30,6 +41,28 @@ pub fn read_capped(reader: impl Read) -> Result<Vec<u8>, InputError> {
         .read_to_end(&mut bytes)
         .map_err(|_| InputError::ReadFailed)?;
     Ok(bytes)
+}
+
+/// `read_capped` with a deadline for the whole request, not for each read: a caller that drips one byte at a time is
+/// bounded too. The reader is moved into a thread of its own; see the top of this file for what that thread holds.
+pub fn read_within(
+    reader: impl Read + Send + 'static,
+    deadline: Duration,
+) -> Result<Vec<u8>, InputError> {
+    let (sender, receiver) = mpsc::channel();
+    let spawned = thread::Builder::new()
+        .name("tidewise-input".to_string())
+        .spawn(move || {
+            let _ = sender.send(read_capped(reader));
+        });
+    if spawned.is_err() {
+        return Err(InputError::ReadFailed);
+    }
+    match receiver.recv_timeout(deadline) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(InputError::TimedOut),
+        Err(RecvTimeoutError::Disconnected) => Err(InputError::ReadFailed),
+    }
 }
 
 #[cfg(test)]
@@ -157,5 +190,59 @@ mod tests {
     fn bytes_are_returned_as_they_are_not_as_text() {
         let raw = vec![0xff, 0x00, b'{', 0xc0];
         assert_eq!(read_capped(Cursor::new(raw.clone())), Ok(raw));
+    }
+
+    // ---- the deadline (written with the code; the run.rs tests of ff21e96 are the red ones end to end) ---------
+
+    /// A reader that stays open and says nothing: a read waits for ever.
+    struct Silent {
+        wait: std::sync::mpsc::Receiver<()>,
+        _hold: std::sync::mpsc::Sender<()>,
+    }
+
+    impl Read for Silent {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            let _ = self.wait.recv();
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn a_reader_that_stays_silent_times_out() {
+        let (hold, wait) = std::sync::mpsc::channel();
+        let started = std::time::Instant::now();
+        let result = read_within(Silent { wait, _hold: hold }, Duration::from_millis(100));
+        assert_eq!(result, Err(InputError::TimedOut));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_request_that_arrives_in_time_is_read_whole() {
+        let result = read_within(Cursor::new(b"{}".to_vec()), Duration::from_secs(5));
+        assert_eq!(result, Ok(b"{}".to_vec()));
+    }
+
+    #[test]
+    fn an_empty_stdin_is_an_empty_read_not_a_timeout() {
+        let result = read_within(Cursor::new(Vec::new()), Duration::from_secs(5));
+        assert_eq!(result, Ok(Vec::new()));
+    }
+
+    #[test]
+    fn a_read_error_is_still_read_failed() {
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+        }
+        assert_eq!(
+            read_within(Broken, Duration::from_secs(5)),
+            Err(InputError::ReadFailed)
+        );
     }
 }
