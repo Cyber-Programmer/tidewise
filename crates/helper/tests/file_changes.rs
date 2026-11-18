@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 /// What counts as touching a file or the lock.
-const WORDS: [&str; 22] = [
+const WORDS: [&str; 23] = [
     "remove_file",
     "remove_dir",
     "create_dir",
@@ -35,6 +35,8 @@ const WORDS: [&str; 22] = [
     "File::open",
     "sync_all",
     "set_modified",
+    // The one `flock` (6.10b R-01): on the private folder, never on a file of pacman's.
+    "flock",
 ];
 
 /// The files `lib.rs` declares under `#[cfg(test)]` (today `testing.rs`): never compiled into the real helper, so
@@ -118,6 +120,17 @@ fn expected() -> Vec<(String, String)> {
             "if meta.file_type().is_symlink() && meta.uid() == self.owner && right_target {",
         ),
         ("lists.rs", "let mut source = OpenOptions::new()"),
+        // The private folder opened (no link followed, close-on-exec by std) and locked with an exclusive flock, so one
+        // helper at a time works in the private copy (review 6.10b R-01). It creates no file and is not `db.lck`.
+        ("lists.rs", "let folder = OpenOptions::new()"),
+        (
+            "lists.rs",
+            "match flock(&folder, FlockOperation::NonBlockingLockExclusive) {",
+        ),
+        (
+            "lists.rs",
+            "use rustix::fs::{FlockOperation, OFlags, flock};",
+        ),
         // Read-only open of the folder to flush it, the truncating create of the staged copy, the copy, the list's own
         // time put on the copy, and the two flushes (6.10b review R-06 added these words to the guard).
         (
