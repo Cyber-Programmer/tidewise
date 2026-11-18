@@ -318,7 +318,7 @@ pub fn run(
                         removed: result.removed,
                         removal_check_skipped: result.removal_check == RemovalCheck::Skipped,
                         events_dropped: u32::try_from(out.dropped()).unwrap_or(u32::MAX),
-                        lists: None, // shim of the red commit: result.lists is wired in the fix
+                        lists: result.lists,
                     };
                     (result.outcome, notes)
                 }
