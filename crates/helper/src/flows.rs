@@ -192,15 +192,19 @@ fn update_job(
         return (Err(kind), untouched());
     }
 
-    if let Err(MoveError { error, renamed }) = runner.move_lists_in() {
-        // A move that stopped half way has changed the real lists, and the journal must say so.
-        let state = if renamed > 0 {
-            ListsState::Moved
-        } else {
-            ListsState::Untouched
-        };
-        return (Err(lists_failure(error)), Counts::lists(state));
-    }
+    let after_the_move = match runner.move_lists_in() {
+        // Shim of the red commit: any successful move counts as Moved. The fix counts the renames.
+        Ok(_renamed) => ListsState::Moved,
+        Err(MoveError { error, renamed }) => {
+            // A move that stopped half way has changed the real lists, and the journal must say so.
+            let state = if renamed > 0 {
+                ListsState::Moved
+            } else {
+                ListsState::Untouched
+            };
+            return (Err(lists_failure(error)), Counts::lists(state));
+        }
+    };
 
     // The same check again, on the real lists: another root process may have changed them since (T-09).
     if let Err(kind) = dry_run(
@@ -208,7 +212,7 @@ fn update_job(
         PacmanCommand::DryRunUpdate(names.to_vec()),
         transaction,
     ) {
-        return (Err(kind), Counts::lists(ListsState::Moved));
+        return (Err(kind), Counts::lists(after_the_move));
     }
     let (step, mut counts) = real_run_and_after(
         runner,
@@ -218,7 +222,7 @@ fn update_job(
         transaction,
         providers,
     );
-    counts.lists = Some(ListsState::Moved);
+    counts.lists = Some(after_the_move);
     (step, counts)
 }
 
@@ -1471,6 +1475,25 @@ mod tests {
             );
             assert_eq!(result.lists, Some(ListsState::Untouched), "{error:?}");
         }
+    }
+
+    #[test]
+    fn a_move_that_renamed_nothing_is_not_reported_as_moved() {
+        // Review 6.10b R-05: the journal's TIDEWISE_LISTS must tell the truth about the real lists.
+        let request = request(UPDATE);
+        let items = transaction_of(&request);
+        let mut fake = Fake::new(vec![
+            ok(SYNC_OUT),
+            ok(&print_text(&items)),
+            ok(&print_text(&items)), // the real dry run still equals the list
+            ok("pacman 7.1.0-1\n"),
+            ok(REAL_INSTALL_OUT),
+            ok(&installed_text(&items)),
+        ]);
+        fake.move_result = Ok(0);
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(result.outcome, Outcome::Ok);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
     }
 
     #[test]

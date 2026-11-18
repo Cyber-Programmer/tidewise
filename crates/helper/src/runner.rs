@@ -84,7 +84,8 @@ pub trait Runner {
     fn private_lock_present(&self) -> bool;
 
     /// Copies the refreshed private lists into the real `sync/` (see `lists::Lists::move_in`).
-    fn move_lists_in(&mut self) -> Result<(), MoveError>;
+    /// Returns how many lists were renamed into place (0: the real lists are untouched).
+    fn move_lists_in(&mut self) -> Result<u32, MoveError>;
 }
 
 /// Cuts a byte stream into lines at `\n` only, as chunks arrive.
@@ -342,7 +343,7 @@ impl Runner for PacmanRunner {
         self.lists.private_lock_present()
     }
 
-    fn move_lists_in(&mut self) -> Result<(), MoveError> {
+    fn move_lists_in(&mut self) -> Result<u32, MoveError> {
         self.lists.move_in()
     }
 }
