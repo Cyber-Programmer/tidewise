@@ -1,7 +1,8 @@
 # 0007 — An update syncs a private copy of the package lists first, and only moves it in once the list matches
 
-- Status: **Proposed** (6.10a). It becomes **Accepted** in 6.10b, after the container measurements below agree with the
-  source reading. If one disagrees, the record is revised and the human is asked before any code depends on it.
+- Status: **Accepted** (6.10b, 18 Nov 2026). Proposed in 6.10a; the container measurements below (commit `49caeac`)
+  agreed with the source reading except one, which the human settled (EXDEV, "Measured" below), and they added three
+  facts that changed the design (the private lock pre-check, the `.sig` rule, the first-run folder).
 - Date: 2026-11-18
 - Decided by: Bahauddin Hassan (human), 2026-11-18, the 6.10 plan: option 1; private folder `/run/tidewise-helper-lists/`
   at 0711; one staged copy and one `rename` per list into `/var/lib/pacman/sync/`; journal field `TIDEWISE_LISTS`
@@ -90,8 +91,8 @@ refused and never repaired. Not under `/run/tidewise-helper` (0700, fact 2). Ins
 - `sync/`: mode 0711, where the private sync writes.
 
 tmpfs means a reboot clears everything, including a private `db.lck` that a killed private sync left. The helper never
-deletes any `db.lck`, the private one included (golden rule 9): a private lock makes the update refuse with the
-`DatabaseLocked` text, and the user is told to wait or restart. It is not the real lock, so the real lists and the real
+deletes any `db.lck`, the private one included (golden rule 9): a private lock makes the update refuse (see "The lock look"
+below), and the user is told to restart. It is not the real lock, so the real lists and the real
 `db.lck` are untouched.
 
 ### The move, in this order
@@ -99,7 +100,8 @@ deletes any `db.lck`, the private one included (golden rule 9): a private lock m
 For each private `sync/<repo>.db` (and `<repo>.db.sig` if there is one):
 
 1. **Check.** The repository name passes `is_helper_repo_name`; the file is a regular file (`symlink_metadata`, never
-   followed); its owner is **exactly root** (fact 3).
+   followed; checked again on the opened descriptor); its owner is **exactly root** (fact 3). The `.sig` rule of
+   "Signatures" is applied here, before anything is written.
 2. **Look for the real lock.** The real `db.lck` is absent (looked at, never created, changed or removed). If it is
    present: stop, nothing moved, `DatabaseLocked`.
 3. **Stage every copy.** Create `<real sync>/.tidewise-<repo>.db.new` (`create` with `O_NOFOLLOW`, truncating, as root,
@@ -144,16 +146,66 @@ look). `removal.rs` does not change, because nothing is deleted.
   not; the app side of question 12) is not part of 6.10. It is a follow-up for 6.1 and 6.6. After 6.10b a stale app list costs
   one refused update and no damage.
 - **A `.sig` that matters.** Arch's databases are not signed here (`SigLevel = Required DatabaseOptional`); the move
-  carries `.db.sig` if the private sync produced one, with the same checks. The measurement covers both.
+  carries `.db.sig` if the private sync produced one, with the same checks. The rules are in "Signatures" below.
 
-## To measure before this becomes Accepted (6.10b, container, `pacman_private_sync.rs`)
+## Measured (6.10b, container `tests/container/tests/pacman_private_sync.rs`, commit `49caeac`; pacman 7.1.0)
 
-1. The download works as `alpm` through a 0711 private folder and fails through a 0700 one (fact 2).
-2. `stat` of the private and the real `sync/*.db` after a sync: owner (fact 3), mode.
-3. `--logfile /dev/null` keeps `pacman.log` free of lines from the private sync (fact 5).
-4. A stale private `db.lck` makes the private sync fail with the lock error, and the real lists are untouched.
-5. `.db.sig` handling; `--dbpath` with and without the trailing slash.
-6. `pacman -Sc` on a `sync/` that holds a `.tidewise-core.db.new` and a `download-*` folder removes both (fact 6).
+| # | Question | Result | Agrees with the source reading? |
+|---|---|---|---|
+| 1 | Download as `alpm` through the private folder | 0711: works. 0700: `error: could not open file …/download-…/tidewise-test.db.part: Permission denied`, exit 1, no list written | yes (fact 2) |
+| 2 | Owner and mode of a finished list | private `sync/tidewise-test.db` **root:root 0644**, real one the same; private `sync/` 0711 (made by us) | yes (fact 3). The move's rule stays "owner exactly root" |
+| 3 | `--logfile /dev/null` | `pacman.log` byte-identical after a private `-Sy` and a private `-Su --print`; the control (a real `-Syy`) logs "synchronizing package lists" | yes (fact 5) |
+| 4 | What a private sync touches | with the repository newer than the real lists, the private `-Sy` downloads a different list and changes **nothing else**: sha256 of every real `sync/*` file, `pacman.log`, `pacman -Q` and the absence of the real `db.lck` are the same before and after | yes |
+| 5 | A stale private `db.lck` | `-Sy` fails, exit 1, `error: failed to synchronize all databases (unable to lock database)`; the lock is **not** removed; the lists do not change; the real lists and the real `db.lck` are untouched. A `--print` dry run **ignores** the lock (exit 0). **New:** pacman had already made an empty `download-XXXXXX/` in the private `sync/` before it asked for the lock, so every refused attempt leaves one | yes, plus the leftover (see "The lock look") |
+| 6 | `--dbpath` with and without the trailing slash | both work | yes |
+| 7 | `pacman -Sc` with `.tidewise-core.db.new` and a `download-*` folder in `sync/` | both removed; the list of a configured repository kept (core and extra, not configured in the container, were removed as "unused repositories", as fact 6 says) | yes (fact 6) |
+| 8 | A stale real `.sig` next to a new list with no `.sig` | see "Signatures" | source: yes |
+| 9 | `rename(2)` from `/run` to `/var/lib/pacman/sync` | **EXDEV (errno 18) on the host, 18 Nov 2026**: `findmnt` says `/run` is `tmpfs` and `/` (with `/var/lib/pacman`) is `ext4`, and an unprivileged `rename` between `/run/user/<uid>` and a folder in `$HOME` failed with `18 Invalid cross-device link`. **Not reproducible in the container**: there `/run` and `/var/lib/pacman` are the same overlay filesystem and the rename succeeds | **disagreed in the container; the human decided (18 Nov): record it as a host measurement, repeat it on a VM (pentest checklist), and pin the design instead** |
+
+**Consequence of 9.** The design never renames across folders, so it does not depend on the container showing EXDEV. A
+permanent unit test pins it: `replace_list` takes one folder and two names, and every rename the move makes has the same
+parent folder for the staged file and the target. `run.sh` does not change.
+
+### Signatures (human's decision of 18 Nov, from measurement 8)
+
+Read in the source: nothing in `be_sync.c` or `dload.c` removes an existing `<repo>.db.sig`; the only `unlink`s are of
+temporary files, empty downloads and failed payloads. Measured with a repository that was signed and then stops being
+signed (`SigLevel = Optional TrustAll`, `DatabaseOptional` behaviour): pacman's own `-Syy` downloads the new list, leaves
+the old `.sig` **byte for byte**, and fails with `invalid or corrupted database (PGP signature)`; every later run on that
+folder fails the same way, `-Su --print` included. So **pacman leaves a stale `.sig`, and the move leaves it too: nothing is
+ever deleted.** The human did not accept the resulting state (new list, old `.sig`, the real database unreadable), so the
+move refuses before it writes anything:
+
+| private `<repo>.db.sig` | real `<repo>.db.sig` | the move |
+|---|---|---|
+| present | any | moves `.db` and `.db.sig` (both staged, both renamed) |
+| absent | absent | moves `.db` only |
+| absent | **present** | **refuses before any staging**, the real lists untouched, with the plain message that the repository stopped signing its database and that a manual `pacman -Syy` would leave pacman unable to read it |
+
+### The lock look (human's decision of 18 Nov, from measurement 5)
+
+Before `PrivateSync` the helper **looks** at the private `db.lck` (`symlink_metadata`; present, or not checkable, means
+present). It never creates, changes or removes it (golden rule 9, the private one included). If it is there the update
+refuses with a fixed sentence and pacman does not run, so no `download-*` folder is left behind. The look is not a
+guarantee: a lock that appears right after is still refused by pacman itself (measurement 5), which is harmless. The cause
+cannot be told apart from inside the helper (a killed sync, or another helper syncing now), so the sentence covers both:
+an earlier refresh was interrupted or is still running; if no update is running, restart the computer (tmpfs clears the
+lock), then try again. `ErrorKind::PacmanFailed` with that fixed text; no new variant in `helper-protocol`.
+
+### First run and a planted folder (human's decision of 18 Nov)
+
+The helper creates `/run/tidewise-helper-lists/` and its `sync/` as root with mode 0711 when they are missing, and
+**checks owner and mode again after creating them** (it does not trust `mkdir` and the umask). An existing folder or
+`sync/` with another owner, another mode, or as a symlink or file is refused, never repaired. The `local` link is created
+when missing and checked (`read_link` must equal `/var/lib/pacman/local`) when it exists; a wrong one is refused.
+
+### Smaller things the measurements showed
+
+- Entries of the private `sync/` that are not `<repo>.db` or `<repo>.db.sig` with a name that passes `is_helper_repo_name`
+  (the `download-*` folders) are ignored by the move, never read, never deleted.
+- A repository that was removed from `pacman.conf` still has its old list in the private `sync/`; the move copies it into
+  the real `sync/` like the others. It is cache-class data nobody reads (a sync reads lists by repository name), and the
+  user's own `pacman -Sc` removes it as an unused repository.
 
 ## Consequences
 
