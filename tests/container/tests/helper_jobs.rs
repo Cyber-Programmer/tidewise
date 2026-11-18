@@ -11,11 +11,12 @@
 //! `reset_world()`.
 
 use std::fs;
+use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod common;
 use common::*;
@@ -900,6 +901,188 @@ fn without_a_journal_the_job_still_runs_and_the_result_says_the_entry_could_not_
     let n = lines.len();
     assert_eq!(lines[n - 2], "{\"notice\":\"audit_entry_not_written\"}");
     assert_eq!(lines[n - 1], OK_LINE);
+    assert_eq!(
+        installed_version("tidewise-dummy-hello").as_deref(),
+        Some("1.0-1")
+    );
+}
+
+// ---- what the caller controls: its stdout and its stdin (review 5.8 R-04, question 34, WBS 6.10a) --------------
+//
+// The helper's stdout and stdin belong to its caller. These tests are the caller that misbehaves: a stdout pipe that is
+// full and never read, a stdin that stays open and silent, a request that arrives slowly and in pieces.
+
+/// The helper's `STDIN_DEADLINE` and `FINAL_WRITE_DEADLINE` (`crates/helper/src/run.rs`; this crate has no
+/// dependencies, so the numbers are repeated here and the unit test `the_bounds_are_pinned` pins the originals).
+const STDIN_DEADLINE: Duration = Duration::from_secs(10);
+const FINAL_WRITE_DEADLINE: Duration = Duration::from_secs(5);
+/// What a loaded machine may add to a wait that is exact on paper.
+const MARGIN: Duration = Duration::from_secs(5);
+
+/// A pipe for the helper's stdout that is **full** and that nobody reads. Returns the read end, which the test must keep
+/// (a reader that is closed is an error at once, which is a different case: `a_full_stdout_changes_neither…`), and the
+/// write end to give to the helper. A thread writes 128 KiB into the 64 KiB pipe and then waits for ever, so every
+/// write the helper makes blocks.
+fn stdout_that_nobody_reads() -> (std::io::PipeReader, Stdio) {
+    let (reader, writer) = std::io::pipe().unwrap();
+    let mut filler = writer.try_clone().unwrap();
+    std::thread::spawn(move || {
+        let _ = filler.write_all(&[b'.'; 128 * 1024]);
+    });
+    // Time for the filler to fill the pipe.
+    std::thread::sleep(Duration::from_millis(300));
+    (reader, Stdio::from(writer))
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_caller_that_never_reads_stdout_does_not_stop_the_job() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd"]);
+    add_newer("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    let items = confirmed("-Su", &[]);
+    let (request, summary) = update_request(&items);
+    let journal = FakeJournal::start();
+    let log_before = pacman_log();
+
+    let (_reader, stdout) = stdout_that_nobody_reads();
+    let mut child = spawn(HELPER, &[&summary], &[], stdout, Stdio::piped());
+    let writer = feed(&mut child, request.as_bytes());
+
+    // An update: its first progress line is written inside `-Sy`. Before the fix that write blocked for ever, the sync
+    // was done and the upgrade never ran (the lists newer than the packages: golden rule 4). Now the whole job runs
+    // although the pipe is full, and the finished journal entry is written.
+    let mut entries: Vec<String> = Vec::new();
+    let began = Instant::now();
+    while entries.len() < 2 {
+        entries.extend(journal.datagrams());
+        assert!(
+            began.elapsed() < Duration::from_secs(120),
+            "the job did not reach its end while its stdout was full: {entries:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let job_ended = Instant::now();
+
+    // The process exits too. Its writer thread is stuck in write(2) holding std's stdout lock, and that does not hold
+    // the exit back: `std::rt::cleanup` calls `std::io::cleanup`, which takes that lock with `try_lock()` (stdio.rs:
+    // "someone might have leaked a StdoutLock, which would otherwise cause a deadlock here"), then `exit()`.
+    // The helper waits at most FINAL_WRITE_DEADLINE for the writer, once, for the notices and the final line.
+    let status = wait_up_to(&mut child, FINAL_WRITE_DEADLINE + MARGIN).unwrap_or_else(|| {
+        panic!(
+            "the helper had not exited {FINAL_WRITE_DEADLINE:?} + {MARGIN:?} after its job ended"
+        )
+    });
+    let after_job = job_ended.elapsed();
+    writer.join().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the exit code is the job's, not the reader's"
+    );
+    assert!(
+        after_job < FINAL_WRITE_DEADLINE + MARGIN,
+        "exit took {after_job:?} after the job"
+    );
+
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("2.0-1")
+    );
+    assert!(!Path::new(LOCK).exists());
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    assert_fields(&entries[1], &[("TIDEWISE_OUTCOME", "ok")]);
+    let new_log = &pacman_log()[log_before.len()..];
+    let syncs = new_log
+        .lines()
+        .filter(|l| l.contains("synchronizing package lists"))
+        .count();
+    assert_eq!(syncs, 1, "one sync, then the upgrade:\n{new_log}");
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_silent_stdin_gives_up_after_the_deadline() {
+    assert_inside_the_test_container();
+    reset_world();
+    let journal = FakeJournal::start();
+    let log_before = pacman_log();
+
+    let mut child = spawn(
+        HELPER,
+        &["update system (1 package)"],
+        &[],
+        Stdio::piped(),
+        Stdio::piped(),
+    );
+    // stdin stays open and nothing is ever written to it.
+    let _held_open = child.stdin.take().unwrap();
+    let began = Instant::now();
+    let status = wait_up_to(&mut child, STDIN_DEADLINE + MARGIN)
+        .expect("the helper never gave up on a stdin that stays silent");
+    let waited = began.elapsed();
+
+    assert!(
+        waited >= STDIN_DEADLINE - Duration::from_secs(1),
+        "it refused after {waited:?}, before the deadline: a slow caller would be punished"
+    );
+    assert_eq!(status.code(), Some(1));
+    let mut stdout = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .unwrap();
+    assert_eq!(stdout, "{\"finished\":{\"error\":\"malformed\"}}\n");
+    let entries = journal.datagrams();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_fields(&entries[0], &[("TIDEWISE_OUTCOME", "malformed")]);
+    assert_eq!(
+        &pacman_log()[log_before.len()..],
+        "",
+        "no pacman was started"
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_request_larger_than_the_pipe_buffer_written_in_chunks_is_accepted_within_the_deadline() {
+    assert_inside_the_test_container();
+    reset_world();
+    let (request, summary) = install_one("hello");
+    // 192 KiB of white space after the opening brace is still one valid JSON request, three times the 64 KiB a pipe
+    // holds: the app has to write it while the helper reads, and a request that arrives slowly is not a silent one.
+    let padded = format!("{{{}{}", " ".repeat(192 * 1024), &request[1..]);
+    assert!(padded.len() > 64 * 1024 && padded.len() < MAX_REQUEST_BYTES);
+
+    let mut child = spawn(HELPER, &[&summary], &[], Stdio::piped(), Stdio::piped());
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        let began = Instant::now();
+        for chunk in padded.as_bytes().chunks(16 * 1024) {
+            stdin.write_all(chunk).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // `stdin` is dropped here: that closes it, which is how the helper knows the request is complete.
+        began.elapsed()
+    });
+    let output = child.wait_with_output().unwrap();
+    let writing_took = writer.join().unwrap();
+
+    assert!(
+        writing_took > Duration::from_millis(1000) && writing_took < STDIN_DEADLINE,
+        "writing took {writing_took:?}"
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(stdout.lines().last(), Some(OK_LINE), "{stdout}");
     assert_eq!(
         installed_version("tidewise-dummy-hello").as_deref(),
         Some("1.0-1")
