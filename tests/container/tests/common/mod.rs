@@ -779,3 +779,70 @@ impl Drop for Installed {
         let _ = pacman(&["-R", "--noconfirm", "tidewise"]);
     }
 }
+
+// ---- the private copy of the package lists (6.10b, decision 0007) ---------------------------------------
+
+/// `--dbpath` of the update flow's private sync (with the slash pacman wants).
+pub const PRIVATE_LISTS: &str = "/run/tidewise-helper-lists/";
+pub const REAL_SYNC: &str = "/var/lib/pacman/sync";
+
+/// `path` with exactly `mode`, whatever the umask says.
+pub fn folder(path: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(path).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A private database folder the way the helper makes it: `dir` at `dir_mode`, a `local` link to the real local
+/// database, and `sync/` at 0711. Anything already there is removed first (test container only).
+pub fn private_folder(dir: &str, dir_mode: u32) {
+    let _ = fs::remove_dir_all(dir);
+    folder(dir, dir_mode);
+    std::os::unix::fs::symlink("/var/lib/pacman/local", Path::new(dir).join("local")).unwrap();
+    folder(&format!("{dir}/sync"), 0o711);
+}
+
+pub fn sha256(path: &str) -> String {
+    let out = Command::new("/usr/bin/sha256sum")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "sha256sum {path} failed");
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+/// `name sha256` for every file directly in `dir`, sorted. Folders are listed by name only.
+pub fn fingerprint(dir: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.file_type().unwrap().is_file() {
+            lines.push(format!("{name} {}", sha256(path.to_str().unwrap())));
+        } else {
+            lines.push(format!("{name}/"));
+        }
+    }
+    lines.sort();
+    lines
+}
+
+/// Makes the repository newer than the real lists WITHOUT refreshing them (`add_newer` without its `-Syy`): a sync now
+/// has something to download that the real `sync/` does not have.
+pub fn change_repository_without_syncing(file: &str) {
+    fs::copy(format!("{LATER_DIR}/{file}"), format!("{REPO_DIR}/{file}")).unwrap();
+    let status = Command::new("/usr/bin/repo-add")
+        .arg(format!("{REPO_DIR}/tidewise-test.db.tar.gz"))
+        .arg(format!("{REPO_DIR}/{file}"))
+        .env_clear()
+        .env("PATH", "/usr/bin")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "repo-add failed");
+}

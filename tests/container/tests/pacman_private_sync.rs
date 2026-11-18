@@ -5,31 +5,14 @@
 //! Real pacman, as root, inside the Tidewise test container only (`tests/container/run.sh`).
 
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 mod common;
 use common::*;
 
-const PRIVATE: &str = "/run/tidewise-helper-lists/";
-const REAL_SYNC: &str = "/var/lib/pacman/sync";
 const LATER_PACKAGE: &str = "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst";
-
-/// `path` with exactly `mode`, whatever the umask says.
-fn folder(path: &str, mode: u32) {
-    fs::create_dir_all(path).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
-}
-
-/// A private database folder the way the helper will make it: `<dir>` at `dir_mode`, a `local` link to the real local
-/// database, and `sync/` at 0711.
-fn private_folder(dir: &str, dir_mode: u32) {
-    let _ = fs::remove_dir_all(dir);
-    folder(dir, dir_mode);
-    symlink("/var/lib/pacman/local", Path::new(dir).join("local")).unwrap();
-    folder(&format!("{dir}/sync"), 0o711);
-}
 
 /// `pacman <args> --dbpath <dbpath> --logfile /dev/null`.
 fn private_pacman(dbpath: &str, args: &[&str]) -> Output {
@@ -47,65 +30,16 @@ fn text(output: &Output) -> String {
     )
 }
 
-fn sha256(path: &str) -> String {
-    let out = Command::new("/usr/bin/sha256sum")
-        .arg(path)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "sha256sum {path} failed");
-    String::from_utf8_lossy(&out.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .to_string()
-}
-
-/// `name sha256` for every file directly in `dir`, sorted. Folders are listed by name only.
-fn fingerprint(dir: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    for entry in fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.file_type().unwrap().is_file() {
-            lines.push(format!("{name} {}", sha256(path.to_str().unwrap())));
-        } else {
-            lines.push(format!("{name}/"));
-        }
-    }
-    lines.sort();
-    lines
-}
-
 /// "owner:group mode" of `path`, not following a link.
 fn owner_and_mode(path: &str) -> String {
     let meta = fs::symlink_metadata(path).unwrap();
     format!("{}:{} {:o}", meta.uid(), meta.gid(), meta.mode() & 0o7777)
 }
 
-/// Makes the repository newer than the real lists without refreshing them: the private sync then has something to
-/// download that the real `sync/` does not have.
-fn change_repository_without_syncing() {
-    fs::copy(
-        format!("{LATER_DIR}/{LATER_PACKAGE}"),
-        format!("{REPO_DIR}/{LATER_PACKAGE}"),
-    )
-    .unwrap();
-    let status = Command::new("/usr/bin/repo-add")
-        .arg(format!("{REPO_DIR}/tidewise-test.db.tar.gz"))
-        .arg(format!("{REPO_DIR}/{LATER_PACKAGE}"))
-        .env_clear()
-        .env("PATH", "/usr/bin")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .unwrap();
-    assert!(status.success(), "repo-add failed");
-}
-
 fn start() {
     assert_inside_the_test_container();
     reset_world();
-    let _ = fs::remove_dir_all(PRIVATE);
+    let _ = fs::remove_dir_all(PRIVATE_LISTS);
     let _ = fs::remove_dir_all("/run/tw-lists-0700");
 }
 
@@ -114,10 +48,10 @@ fn start() {
 fn the_download_as_alpm_works_through_a_0711_folder_and_fails_through_a_0700_one() {
     start();
 
-    private_folder(PRIVATE, 0o711);
-    let through_0711 = private_pacman(PRIVATE, &["-Sy"]);
+    private_folder(PRIVATE_LISTS, 0o711);
+    let through_0711 = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(through_0711.status.success(), "{}", text(&through_0711));
-    assert!(Path::new(&format!("{PRIVATE}sync/tidewise-test.db")).is_file());
+    assert!(Path::new(&format!("{PRIVATE_LISTS}sync/tidewise-test.db")).is_file());
 
     private_folder("/run/tw-lists-0700/", 0o700);
     let through_0700 = private_pacman("/run/tw-lists-0700/", &["-Sy"]);
@@ -130,20 +64,20 @@ fn the_download_as_alpm_works_through_a_0711_folder_and_fails_through_a_0700_one
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_finished_list_is_owned_by_root_with_mode_0644_in_the_private_and_in_the_real_folder() {
     start();
-    private_folder(PRIVATE, 0o711);
+    private_folder(PRIVATE_LISTS, 0o711);
 
-    let private = private_pacman(PRIVATE, &["-Sy"]);
+    let private = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(private.status.success(), "{}", text(&private));
     let real = pacman(&["-Syy"]);
     assert!(real.status.success(), "{}", text(&real));
 
-    let private_list = format!("{PRIVATE}sync/tidewise-test.db");
+    let private_list = format!("{PRIVATE_LISTS}sync/tidewise-test.db");
     let real_list = format!("{REAL_SYNC}/tidewise-test.db");
     eprintln!(
         "private {} / real {} / private sync dir {} / real sync dir {} / umask of this test {:?}",
         owner_and_mode(&private_list),
         owner_and_mode(&real_list),
-        owner_and_mode(&format!("{PRIVATE}sync")),
+        owner_and_mode(&format!("{PRIVATE_LISTS}sync")),
         owner_and_mode(REAL_SYNC),
         fs::read_to_string("/proc/self/status")
             .unwrap()
@@ -158,12 +92,12 @@ fn a_finished_list_is_owned_by_root_with_mode_0644_in_the_private_and_in_the_rea
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn logfile_dev_null_keeps_the_private_sync_out_of_pacman_log() {
     start();
-    private_folder(PRIVATE, 0o711);
+    private_folder(PRIVATE_LISTS, 0o711);
     let before = pacman_log();
 
-    let private = private_pacman(PRIVATE, &["-Sy"]);
+    let private = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(private.status.success(), "{}", text(&private));
-    let dry = private_pacman(PRIVATE, &["-Su", "--print"]);
+    let dry = private_pacman(PRIVATE_LISTS, &["-Su", "--print"]);
     assert!(dry.status.success(), "{}", text(&dry));
     assert_eq!(pacman_log(), before, "the private sync wrote to pacman.log");
 
@@ -180,14 +114,14 @@ fn logfile_dev_null_keeps_the_private_sync_out_of_pacman_log() {
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_private_sync_changes_nothing_outside_the_private_folder() {
     start();
-    private_folder(PRIVATE, 0o711);
-    change_repository_without_syncing();
+    private_folder(PRIVATE_LISTS, 0o711);
+    change_repository_without_syncing(LATER_PACKAGE);
 
     let lists_before = fingerprint(REAL_SYNC);
     let log_before = pacman_log();
     let local_before = pacman_stdout(&["-Q"]);
 
-    let private = private_pacman(PRIVATE, &["-Sy"]);
+    let private = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(private.status.success(), "{}", text(&private));
 
     assert_eq!(
@@ -203,7 +137,7 @@ fn a_private_sync_changes_nothing_outside_the_private_folder() {
     );
     // And the private sync did fetch something different, or the test above proves nothing.
     assert_ne!(
-        sha256(&format!("{PRIVATE}sync/tidewise-test.db")),
+        sha256(&format!("{PRIVATE_LISTS}sync/tidewise-test.db")),
         sha256(&format!("{REAL_SYNC}/tidewise-test.db"))
     );
 }
@@ -212,11 +146,11 @@ fn a_private_sync_changes_nothing_outside_the_private_folder() {
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_stale_private_lock_stops_the_private_sync_and_a_dry_run_does_not_look_at_it() {
     start();
-    private_folder(PRIVATE, 0o711);
-    let first = private_pacman(PRIVATE, &["-Sy"]);
+    private_folder(PRIVATE_LISTS, 0o711);
+    let first = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(first.status.success(), "{}", text(&first));
-    change_repository_without_syncing();
-    fs::write(format!("{PRIVATE}db.lck"), b"").unwrap();
+    change_repository_without_syncing(LATER_PACKAGE);
+    fs::write(format!("{PRIVATE_LISTS}db.lck"), b"").unwrap();
 
     let lists_before = fingerprint(REAL_SYNC);
     let lists_in = |dir: &str| -> Vec<String> {
@@ -225,8 +159,8 @@ fn a_stale_private_lock_stops_the_private_sync_and_a_dry_run_does_not_look_at_it
             .filter(|line| !line.starts_with("download-"))
             .collect()
     };
-    let private_before = lists_in(&format!("{PRIVATE}sync"));
-    let locked = private_pacman(PRIVATE, &["-Sy"]);
+    let private_before = lists_in(&format!("{PRIVATE_LISTS}sync"));
+    let locked = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     eprintln!("stale private lock: {}", text(&locked));
     assert!(!locked.status.success());
     assert!(
@@ -235,13 +169,13 @@ fn a_stale_private_lock_stops_the_private_sync_and_a_dry_run_does_not_look_at_it
         text(&locked)
     );
     assert!(
-        Path::new(&format!("{PRIVATE}db.lck")).exists(),
+        Path::new(&format!("{PRIVATE_LISTS}db.lck")).exists(),
         "pacman removed the lock"
     );
     // The lists did not change. pacman makes its empty `download-XXXXXX` folder before it asks for the lock, so one
     // is left behind in the private `sync/` (it is empty, it is on tmpfs, the helper never reads or deletes it).
-    assert_eq!(lists_in(&format!("{PRIVATE}sync")), private_before);
-    let leftovers = fingerprint(&format!("{PRIVATE}sync"))
+    assert_eq!(lists_in(&format!("{PRIVATE_LISTS}sync")), private_before);
+    let leftovers = fingerprint(&format!("{PRIVATE_LISTS}sync"))
         .into_iter()
         .filter(|line| line.starts_with("download-"))
         .count();
@@ -250,7 +184,7 @@ fn a_stale_private_lock_stops_the_private_sync_and_a_dry_run_does_not_look_at_it
     assert!(!Path::new("/var/lib/pacman/db.lck").exists());
 
     // A dry run takes no lock (0007, fact 4).
-    let dry = private_pacman(PRIVATE, &["-Su", "--print"]);
+    let dry = private_pacman(PRIVATE_LISTS, &["-Su", "--print"]);
     assert!(dry.status.success(), "{}", text(&dry));
 }
 
@@ -258,12 +192,12 @@ fn a_stale_private_lock_stops_the_private_sync_and_a_dry_run_does_not_look_at_it
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn the_dbpath_works_with_and_without_the_trailing_slash() {
     start();
-    private_folder(PRIVATE, 0o711);
-    let with = private_pacman(PRIVATE, &["-Sy"]);
+    private_folder(PRIVATE_LISTS, 0o711);
+    let with = private_pacman(PRIVATE_LISTS, &["-Sy"]);
     assert!(with.status.success(), "{}", text(&with));
-    let without = private_pacman(PRIVATE.trim_end_matches('/'), &["-Syy"]);
+    let without = private_pacman(PRIVATE_LISTS.trim_end_matches('/'), &["-Syy"]);
     assert!(without.status.success(), "{}", text(&without));
-    assert!(Path::new(&format!("{PRIVATE}sync/tidewise-test.db")).is_file());
+    assert!(Path::new(&format!("{PRIVATE_LISTS}sync/tidewise-test.db")).is_file());
 }
 
 #[test]
@@ -381,7 +315,7 @@ fn pacman_leaves_a_stale_signature_next_to_a_new_unsigned_list() {
 
     // 2. The repository stops being signed AND changes: a new list arrives with no .sig.
     fs::remove_file(format!("{REPO_DIR}/tidewise-test.db.sig")).unwrap();
-    change_repository_without_syncing();
+    change_repository_without_syncing(LATER_PACKAGE);
     let unsigned = with_config(&["-Syy"]);
     let invalid = "invalid or corrupted database (PGP signature)";
     // pacman's own sync downloads the new list, does NOT remove the stale .sig, and then fails on the pair.
