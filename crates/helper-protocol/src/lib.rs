@@ -23,7 +23,7 @@
 //!    helper from waiting after that, and the job is not affected by it. So read on a thread of its own, never on the
 //!    one that draws the window.
 //! 3. **`Finished` is the only result.** If it never arrives, or only part of it does (a last line with no new line
-//!    at its end is not a result), the helper's exit code (0 ok, 1 the job ended with an error, 2 refused to start) and
+//!    at its end is not a result), or the helper lost a `Notice` and so did not write it at all, the helper's exit code (0 ok, 1 the job ended with an error, 2 refused to start) and
 //!    the journal entry still say how the job ended; do not guess from silence.
 //!
 //! The numbers (10 s, 5 s, a queue of 1024 lines and 1 MiB) are in `tidewise-helper`, `run.rs`, and pinned by a test

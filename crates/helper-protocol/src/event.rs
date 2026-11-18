@@ -26,13 +26,16 @@ pub enum Event {
     /// Something the user should know did not go as planned. Comes before `Finished`. Not best effort: it waits for
     /// room in the queue, but only inside one budget of 5 seconds in all, shared with `Finished` (so an app that reads
     /// quickly enough gets it; one that does not costs the helper 5 seconds once, and then the helper gives up and
-    /// exits). A notice can be lost while `Finished` still arrives, if room appears just after the budget is spent.
+    /// exits). If a notice is lost (no room inside the budget), the helper does not write `Finished` either, so the app
+    /// sees "no result" and never a result that hides what it was not told; the outcome is still in the exit code and
+    /// the journal.
     Notice(Notice),
     /// The last line: it worked, or why not. **The only result.** It waits for room like a `Notice`, inside the same
     /// 5 second budget. If it never arrives (the app stopped reading, fell too far behind, or died), the helper's exit
     /// code (0 ok, 1 the job ended with an error, 2 refused to start: the code is the outcome even when no line could be
     /// delivered) and its journal entry (`TIDEWISE_OUTCOME`) still say how the job ended: silence is neither success
-    /// nor failure. A last line that is cut short (no new line at its end) is not a result either.
+    /// nor failure. A last line that is cut short (no new line at its end) is not a result either. It is never written
+    /// after a lost `Notice`.
     Finished(Outcome),
 }
 
