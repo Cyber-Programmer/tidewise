@@ -145,6 +145,13 @@ pub fn record(caller: Option<u32>, stage: Stage, summary: Option<&str>) -> Vec<u
             &notes.events_dropped.to_string(),
         );
     }
+    if let Some(lists) = notes.lists {
+        let word = match lists {
+            ListsState::Moved => "moved",
+            ListsState::Untouched => "untouched",
+        };
+        add_field(&mut text, "TIDEWISE_LISTS", word);
+    }
 
     let label = match code {
         Some("ok_with_notices") => format!(
