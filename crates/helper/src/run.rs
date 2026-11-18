@@ -28,7 +28,8 @@
 //!
 //! Exit codes:
 //! - `0` the job finished: the final line is `{"finished":"ok"}`
-//! - `1` a final line with an error was printed on stdout (the request was refused, or the job stopped)
+//! - `1` the request was refused or the job stopped: the exit code is the outcome, whether or not the final line
+//!   saying so could be delivered (a caller that does not read can make it undeliverable)
 //! - `2` refused to start (see `StartRefusal`); `pkexec` itself uses 126 and 127 (`pkexec(1)`)
 //!
 //! Output never goes through `println!` and friends: they panic when stdout or stderr is closed or full. `write_line`
