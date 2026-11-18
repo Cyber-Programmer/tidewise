@@ -193,8 +193,9 @@ fn update_job(
     }
 
     let after_the_move = match runner.move_lists_in() {
-        // Shim of the red commit: any successful move counts as Moved. The fix counts the renames.
-        Ok(_renamed) => ListsState::Moved,
+        // Nothing to move (no list passed the allow-list) leaves the real lists as they were: say so (review R-05).
+        Ok(0) => ListsState::Untouched,
+        Ok(_) => ListsState::Moved,
         Err(MoveError { error, renamed }) => {
             // A move that stopped half way has changed the real lists, and the journal must say so.
             let state = if renamed > 0 {
