@@ -8,9 +8,13 @@
 //! 2 + 64 from `alpm_question_type_t` (`/usr/include/alpm.h`): it inverts the default answer of "replace this
 //! package?" (which pacman answers yes, and a replacement REMOVES the old package) and of "import this PGP key?" (yes
 //! by default under `--noconfirm`), so both become "no". See `docs/decisions/0006-pacman-noconfirm-ask.md`.
-//! `-y` appears only in `-Sy`, which is run once per update, never before a plain install (golden rule 4).
+//! `-y` appears only in `PrivateSync`, and there only with `--dbpath /run/tidewise-helper-lists/ --logfile /dev/null`: no
+//! command can refresh the real package lists (decision 0007, golden rule 4). The private copy is moved into place by
+//! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
+
+use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
 
 /// pacman, by absolute path (no `PATH` lookup, no shell).
@@ -21,8 +25,13 @@ pub const PACMAN: &str = "/usr/bin/pacman";
 pub enum PacmanCommand {
     /// `pacman -Qu`: pending updates (a read).
     PendingUpdates,
-    /// `pacman -Sy`: refresh the package lists. Once per update, never before a plain install.
-    Sync,
+    /// `pacman -Sy --dbpath /run/tidewise-helper-lists/ --logfile /dev/null`: refresh the PRIVATE copy of the package
+    /// lists. Once per update, never before a plain install. The real lists are never refreshed by any command.
+    PrivateSync,
+    /// `pacman -Su --print ... --dbpath /run/tidewise-helper-lists/ --logfile /dev/null [-- ...]`: what a full update
+    /// (plus these, if any) would do against the private copy (a read). Must equal the confirmed list before the
+    /// private lists are moved into place.
+    PrivateDryRunUpdate(Vec<PackageRef>),
     /// `pacman -S --print ...`: what installing these would do (a read).
     DryRunInstall(Vec<PackageRef>),
     /// `pacman -Su --print ...`: what a full update (plus these, if any) would do (a read).
@@ -53,7 +62,23 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
     let real = ["--noconfirm", "--ask", "66"];
     match command {
         PacmanCommand::PendingUpdates => Ok(fixed(&["-Qu"])),
-        PacmanCommand::Sync => Ok(fixed(&["-Sy"])),
+        PacmanCommand::PrivateSync => Ok(fixed(&[
+            "-Sy",
+            "--dbpath",
+            LISTS_DBPATH,
+            "--logfile",
+            "/dev/null",
+        ])),
+        PacmanCommand::PrivateDryRunUpdate(packages) => build(
+            &["-Su"],
+            &[
+                &dry_run[..],
+                &["--dbpath", LISTS_DBPATH, "--logfile", "/dev/null"],
+            ]
+            .concat(),
+            repo_and_name(packages)?,
+            Names::Optional,
+        ),
         PacmanCommand::DryRunInstall(packages) => {
             build(&["-S"], &dry_run, repo_and_name(packages)?, Names::Required)
         }
@@ -167,7 +192,9 @@ mod tests {
     fn all_commands() -> Vec<PacmanCommand> {
         vec![
             PacmanCommand::PendingUpdates,
-            PacmanCommand::Sync,
+            PacmanCommand::PrivateSync,
+            PacmanCommand::PrivateDryRunUpdate(two()),
+            PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::DryRunInstall(two()),
             PacmanCommand::DryRunUpdate(two()),
             PacmanCommand::DryRunUpdate(vec![]),
@@ -187,17 +214,18 @@ mod tests {
     fn kind(command: &PacmanCommand) -> usize {
         match command {
             PacmanCommand::PendingUpdates => 0,
-            PacmanCommand::Sync => 1,
+            PacmanCommand::PrivateSync => 1,
             PacmanCommand::DryRunInstall(_) => 2,
             PacmanCommand::DryRunUpdate(_) => 3,
             PacmanCommand::RealInstall(_) => 4,
             PacmanCommand::RealUpdate(_) => 5,
             PacmanCommand::MarkAsDeps(_) => 6,
             PacmanCommand::ListInstalled => 7,
+            PacmanCommand::PrivateDryRunUpdate(_) => 8,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 7;
+    const LAST: usize = 8;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -223,7 +251,45 @@ mod tests {
     fn the_exact_argument_list_of_every_command() {
         let cases: Vec<(PacmanCommand, Vec<String>)> = vec![
             (PacmanCommand::PendingUpdates, strings(&["-Qu"])),
-            (PacmanCommand::Sync, strings(&["-Sy"])),
+            (
+                PacmanCommand::PrivateSync,
+                strings(&[
+                    "-Sy",
+                    "--dbpath",
+                    "/run/tidewise-helper-lists/",
+                    "--logfile",
+                    "/dev/null",
+                ]),
+            ),
+            (
+                PacmanCommand::PrivateDryRunUpdate(two()),
+                strings(&[
+                    "-Su",
+                    "--print",
+                    "--print-format",
+                    "%r/%n %v",
+                    "--dbpath",
+                    "/run/tidewise-helper-lists/",
+                    "--logfile",
+                    "/dev/null",
+                    "--",
+                    "extra/dbeaver",
+                    "extra/jre-openjdk",
+                ]),
+            ),
+            (
+                PacmanCommand::PrivateDryRunUpdate(vec![]),
+                strings(&[
+                    "-Su",
+                    "--print",
+                    "--print-format",
+                    "%r/%n %v",
+                    "--dbpath",
+                    "/run/tidewise-helper-lists/",
+                    "--logfile",
+                    "/dev/null",
+                ]),
+            ),
             (
                 PacmanCommand::DryRunInstall(two()),
                 strings(&[
@@ -316,6 +382,12 @@ mod tests {
             "--ask",
             "66",
             "--asdeps",
+            // The two private commands only, and only these exact values (checked in
+            // `the_two_dangerous_looking_options_exist_only_with_their_fixed_values`).
+            "--dbpath",
+            "/run/tidewise-helper-lists/",
+            "--logfile",
+            "/dev/null",
         ];
         for command in all_commands() {
             let built = args(&command).unwrap();
@@ -341,8 +413,9 @@ mod tests {
                 command,
                 PacmanCommand::PendingUpdates
                     | PacmanCommand::ListInstalled
-                    | PacmanCommand::Sync
+                    | PacmanCommand::PrivateSync
                     | PacmanCommand::DryRunUpdate(_)
+                    | PacmanCommand::PrivateDryRunUpdate(_)
                     | PacmanCommand::RealUpdate(_)
             ) || built.contains(&"--".to_string());
             if names_given {
@@ -392,8 +465,16 @@ mod tests {
         ];
         for command in all_commands() {
             let built = args(&command).unwrap();
+            let private = matches!(
+                command,
+                PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
+            );
             for arg in &built {
                 for option in forbidden {
+                    // The two private commands carry these two, with fixed values (next test).
+                    if private && (option == "--dbpath" || option == "--logfile") {
+                        continue;
+                    }
                     assert!(
                         arg != option && !arg.starts_with(&format!("{option}=")),
                         "{command:?} contains {option}"
@@ -404,15 +485,33 @@ mod tests {
     }
 
     #[test]
-    fn y_is_only_in_the_sync_and_never_with_an_upgrade_or_a_install() {
+    fn the_two_dangerous_looking_options_exist_only_with_their_fixed_values() {
         for command in all_commands() {
             let built = args(&command).unwrap();
-            for arg in before_the_double_dash(&built) {
-                let has_y = arg.starts_with('-') && !arg.starts_with("--") && arg.contains('y');
-                if command == PacmanCommand::Sync {
-                    assert_eq!(arg == "-Sy", has_y, "{arg}");
+            let private = matches!(
+                command,
+                PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
+            );
+            for (option, value) in [
+                ("--dbpath", "/run/tidewise-helper-lists/"),
+                ("--logfile", "/dev/null"),
+            ] {
+                let at: Vec<usize> = built
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, arg)| *arg == option || arg.starts_with(&format!("{option}=")))
+                    .map(|(i, _)| i)
+                    .collect();
+                if private {
+                    assert_eq!(at.len(), 1, "{command:?}: {option}");
+                    assert_eq!(built.get(at[0]), Some(&option.to_string()));
+                    assert_eq!(
+                        built.get(at[0] + 1),
+                        Some(&value.to_string()),
+                        "{command:?}"
+                    );
                 } else {
-                    assert!(!has_y, "{command:?}: {arg}");
+                    assert!(at.is_empty(), "{command:?} carries {option}");
                 }
             }
         }
@@ -432,6 +531,7 @@ mod tests {
                 continue;
             }
             refreshes += 1;
+            assert_eq!(command, PacmanCommand::PrivateSync);
             assert!(
                 built
                     .windows(2)
@@ -475,7 +575,9 @@ mod tests {
             let built = args(&command).unwrap();
             let dry = matches!(
                 command,
-                PacmanCommand::DryRunInstall(_) | PacmanCommand::DryRunUpdate(_)
+                PacmanCommand::DryRunInstall(_)
+                    | PacmanCommand::DryRunUpdate(_)
+                    | PacmanCommand::PrivateDryRunUpdate(_)
             );
             assert_eq!(built.contains(&"--print".to_string()), dry, "{command:?}");
         }
@@ -487,6 +589,7 @@ mod tests {
         vec![
             PacmanCommand::DryRunInstall(vec![package.clone()]),
             PacmanCommand::DryRunUpdate(vec![package.clone()]),
+            PacmanCommand::PrivateDryRunUpdate(vec![package.clone()]),
             PacmanCommand::RealInstall(vec![package.clone()]),
             PacmanCommand::RealUpdate(vec![package.clone()]),
             PacmanCommand::MarkAsDeps(vec![package.clone()]),

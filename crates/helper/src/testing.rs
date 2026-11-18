@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::lists::{ListsError, MoveError};
 use crate::pacman_args::PacmanCommand;
 use crate::runner::{RunOutput, Runner, RunnerError};
 
@@ -14,6 +15,14 @@ pub struct Fake {
     pub lock: bool,
     pub script: VecDeque<Result<RunOutput, RunnerError>>,
     pub ran: Vec<PacmanCommand>,
+    /// The private `db.lck` is "there".
+    pub private_lock: bool,
+    /// What `prepare_private_lists` answers, and how often it was asked.
+    pub prepare_result: Result<(), ListsError>,
+    pub prepared: u32,
+    /// What `move_lists_in` answers; `moved_after` is how many commands had run when it was asked (None: never asked).
+    pub move_result: Result<(), MoveError>,
+    pub moved_after: Option<usize>,
 }
 
 impl Fake {
@@ -22,6 +31,11 @@ impl Fake {
             lock: false,
             script: script.into(),
             ran: Vec::new(),
+            private_lock: false,
+            prepare_result: Ok(()),
+            prepared: 0,
+            move_result: Ok(()),
+            moved_after: None,
         }
     }
 }
@@ -42,6 +56,20 @@ impl Runner for Fake {
 
     fn database_lock_present(&self) -> bool {
         self.lock
+    }
+
+    fn prepare_private_lists(&mut self) -> Result<(), ListsError> {
+        self.prepared += 1;
+        self.prepare_result
+    }
+
+    fn private_lock_present(&self) -> bool {
+        self.private_lock
+    }
+
+    fn move_lists_in(&mut self) -> Result<(), MoveError> {
+        self.moved_after = Some(self.ran.len());
+        self.move_result
     }
 }
 

@@ -1595,7 +1595,8 @@ mod tests {
         }
         let script = vec![
             ok(":: Synchronizing package databases...\n"),
-            ok(&print_text(&transaction)),
+            ok(&print_text(&transaction)), // the dry run on the private copy
+            ok(&print_text(&transaction)), // and on the real lists after the move
             ok("pacman 7.1.0-1\n"),
             ok(&real),
             ok(&installed_text(&transaction)),
@@ -1738,7 +1739,7 @@ mod tests {
         // The last package is not installed after the run: that is a notice ("1 not installed") the user needs.
         let mut big = big_update(1500);
         let all_but_one = big.transaction[..1499].to_vec();
-        big.script[4] = ok(&installed_text(&all_but_one));
+        big.script[5] = ok(&installed_text(&all_but_one));
         let (gate, release, seen) = Gate::new();
         let started = start_run(
             good_facts(&big.summary),
