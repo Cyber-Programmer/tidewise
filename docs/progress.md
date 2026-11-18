@@ -1152,3 +1152,43 @@ the red ones end to end); (2) the A-02 and `fits` tests (`e37d61b`) start green 
 no behaviour), named in its message and removed by the fix; (4) the container red evidence came from a throwaway worktree at `7bbd210` (the package build runs the unit tests, so a red unit commit cannot build the container image: accepted
 on 17 Nov); (5) `lib.rs` of `crates/helper` gained the one line that registers `writer.rs`; (6) comment-only edits in `crates/helper-protocol` (approved); (7) edits in `crates/helper*` were approved by you in this session, the last
 ones (A-02, `fits`, `run.rs:31`, A-04, the rustdoc) while you were away, as you instructed. The WBS sheet is yours: I did not touch it.
+
+## 2026-11-18 — 6.10b the update flow uses a private copy of the package lists (review 5.8 R-02; Q12, Q33)
+Done:
+- **Measurements first** (`49caeac`, `tests/container/tests/pacman_private_sync.rs`, 8 tests, green from the start): the download as `alpm` works through a 0711 folder and fails through 0700; a finished
+  list is `root:root 0644`; `--logfile /dev/null` keeps `pacman.log` clean; a private sync changes nothing outside its folder; a stale private lock stops the sync (and pacman had already left an
+  empty `download-*` there); `pacman -Sc` removes a staged `.tidewise-*.new`; **pacman leaves a stale `.sig` and then cannot read the pair** (read in `dload.c`, measured). One disagreement: **EXDEV
+  cannot be shown in the container** (its `/run` and `/var/lib/pacman` share a filesystem); on the host `/run` is tmpfs, `/` is ext4 and a rename gave errno 18. You decided: host measurement in 0007,
+  checklist item 12, and a permanent unit test (`a_rename_never_crosses_folders`). 0007 became **Accepted** (`2061f45`).
+- **Your three decisions of 18 Nov** went in: a look at the private `db.lck` before the sync (fixed text, `PacmanFailed`, no new `ErrorKind`); the `.sig` rule (the real folder has a `.sig` and the new
+  copy has none: refuse before staging); first-run folder at 0711, checked again, a planted one refused and never repaired.
+- **Red, then green, as planned.** Red alone: `bed620a` (both flows that sync), `82a2dec` (`-y` only with the private pair), `297493a` (3 container tests; the first showed `tidewise-test.db` with another
+  sha256 after a refusal), `05dc9f1` (`lists.rs` shim + 17 failing tests), `84dc04b` (journal). Green: `257a4cd` (`lists.rs`), `9947e08` (`PacmanCommand::Sync` is gone; `PrivateSync`,
+  `PrivateDryRunUpdate`; the Runner trait; `update_job` reorder), `474143b` (`TIDEWISE_LISTS=moved|untouched`), `aee6917` (container tests), `872282e` (clippy header comment).
+- **Both flows that sync** go through `update_job`; the red test runs both. A test proves `-y` exists only with `--dbpath /run/tidewise-helper-lists/ --logfile /dev/null`
+  (`y_only_ever_comes_with_the_private_dbpath_and_a_null_logfile`, exactly one command, `PrivateSync`).
+- **Review 6.10b** (`docs/security/reviews/6.10b-private-lists.md`, one fresh read-only reviewer): no High, **two Medium, both confirmed by me**, seven Low/Info. R-03 (the staged copy lost the list's
+  mtime, which pacman sends back as If-Modified-Since: confirmed in `dload.c`), R-05 (`moved` was logged for zero renames), R-06 (guard words) fixed in `f25f4d0`/`17f9901`, plus the 0600-leftover mode
+  test (mutation-checked). **R-01 (two helpers at once are not serialised during the private part) fixed** with your decision: `flock` on the private folder, close-on-exec, a child-process test
+  (mutation-checked), `4f23758` red then `ffad738`. **R-02 (a refusal cannot converge) shipped as a known limit** (your decision): see Next. R-04 (`.db` renamed before `.sig`; no order avoids the window)
+  and R-07..R-09 are documented.
+- **Docs:** threat model T-03, T-04, T-09, T-10, T-11, T-17 (the four kill points), T-20, new **T-24**, section 3.2, Q12 and Q33 answered, new Q38; pentest checklist items 10-13; 0007 "After the review".
+- **Checks on the last code commit (`ffad738`; nothing after it changes code):** `cargo fmt --all --check` and `fuzz/` fmt exit 0; clippy with a source file touched in every crate and `--keep-going`
+  `--all-targets -D warnings` exit 0 (0 findings); `cargo test --all` **924 passed, 0 failed, 91 ignored** (887/79 before); `cargo deny check` exit 0; `cargo build --release -p tidewise-app` exit 0;
+  container run without the package image (filter `_`): **70 passed, 0 failed** (helper 11, helper_jobs 29, pacman_private_sync 8, pacman_prompts 11, polkit 9, smoke 2); fuzz `output` 634 504 runs,
+  `progress` 23 969 669, `gate` 13 227 586, 601 s each, exit 0, `fuzz/artifacts/` has no files (the fuzzed modules `output.rs`, `progress.rs`, `gate.rs` and `helper-protocol` are unchanged from `main`).
+- **Not done: the package container tests.** `tests/container/run.sh` (full) built the package (its `check()` ran the 924 unit tests green) and then failed twice at the image's `pacman -S namcap ...`
+  step: archive.archlinux.org reset or timed out the downloads (network, not a test). `package` and `package_hostile` (16 tests) did not run on this code. Rerun `tests/container/run.sh` when the
+  archive answers.
+- **Mutations recorded** (applied to a copy, restored): `O_NOFOLLOW` off the staged open; `set_permissions(0o644)` removed; close-on-exec cleared on the folder descriptor (each fails exactly its test).
+Next:
+- **R-02, the known limit: a stale app list is refused again on every retry until something refreshes it** (the app builds its list from the real lists, which a refusal now leaves stale on purpose;
+  the old behaviour converged only because the refusal itself refreshed them, the partial-upgrade state this task removes). The `TransactionChanged` text is not changed here (split by case in WBS 6.5).
+  **The app-side private refresh (Q12 app side, your new WBS 6.11) must land before 6.5 and 6.6.**
+- Pentest checklist items 10-13 on a VM (alpm through 0711 on a real system, sha256 after a refusal, EXDEV on the host, a pacman killed mid private sync).
+- The app that starts the helper still follows the three rules in the helper-protocol rustdoc (6.10a).
+Blockers: the package container tests need archive.archlinux.org (see above).
+Rules bent: (1) the `lists.rs` and journal red commits carry compile shims (named in their messages), as in 6.10a; (2) `a_staged_name_that_is_a_symlink_...`, `a_leftover_with_another_mode_...` and
+`a_program_the_helper_starts_...` start green against their shims or stubs, each mutation-checked afterwards; (3) container red evidence came from filtered runs on the red commit itself
+(no throwaway worktree was needed: a filtered run does not build the package image); (4) edits outside the list you approved: none beyond `run.rs` and `testing.rs` (approved); the WBS sheet is yours:
+I did not touch it; (5) one commit (`ffad738`) was amended before any push, because its first message described docs that a failed script had not yet written.
