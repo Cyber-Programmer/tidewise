@@ -1282,6 +1282,43 @@ mod tests {
         );
     }
 
+    /// The folder the private copy of the package lists lives in (decision 0007).
+    const PRIVATE_LISTS: &str = "/run/tidewise-helper-lists/";
+
+    /// True if `command` refreshes package lists (`-y`, in any short option) anywhere but in the private copy.
+    fn refreshes_the_real_lists(command: &PacmanCommand) -> bool {
+        let args = crate::pacman_args::args(command).unwrap();
+        let before_the_names: Vec<&String> = args.iter().take_while(|a| *a != "--").collect();
+        let refreshes = before_the_names
+            .iter()
+            .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('y'));
+        let private = args
+            .windows(2)
+            .any(|pair| pair[0] == "--dbpath" && pair[1] == PRIVATE_LISTS);
+        refreshes && !private
+    }
+
+    #[test]
+    fn a_refused_update_does_not_leave_the_real_lists_refreshed() {
+        // Both flows that sync (review 5.8 R-02, golden rule 4): the dry run differs from the confirmed list, so the
+        // helper refuses, and no command it ran may have refreshed the real package lists.
+        for text in [UPDATE, BOTH] {
+            let request = request(text);
+            let mut items = transaction_of(&request);
+            items.pop();
+            let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
+            let (outcome, _) = go(&request, &mut fake);
+            assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
+            assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+            for command in &fake.ran {
+                assert!(
+                    !refreshes_the_real_lists(command),
+                    "a refused update refreshed the real package lists: {command:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn update_and_install_passes_the_targets_and_marks_the_providers() {
         let mut request = request(BOTH);
