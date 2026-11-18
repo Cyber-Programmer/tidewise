@@ -40,6 +40,8 @@ pub enum ListsError {
     StoppedSigning,
     /// A refreshed list is not a regular file owned by the expected user.
     BadFile,
+    /// Another helper holds the private folder (an exclusive `flock` on it, held for a whole job). Review 6.10b R-01.
+    Busy,
     /// Any other failure while reading or writing.
     Io,
 }
@@ -608,6 +610,55 @@ mod tests {
         assert!(
             !world.temp.join("nowhere").exists(),
             "the look created the target"
+        );
+    }
+
+    // ---- one helper at a time (review 6.10b R-01) ----------------------------------------------------------
+
+    #[test]
+    fn a_second_lists_on_the_same_folder_is_refused_while_the_first_holds_it() {
+        let world = World::empty("busy");
+        assert_eq!(world.lists.prepare(), Ok(()));
+        // Another helper: another open file description on the same folder, here in the same process (flock locks per
+        // open file description, so it conflicts exactly like a second process would).
+        let other = in_folder(&world.temp.0, me_for(&world.temp));
+        assert_eq!(other.prepare(), Err(ListsError::Busy));
+        // The refusal made and changed nothing, and the first helper is unharmed.
+        assert_eq!(world.lists.prepare(), Ok(()));
+        assert_eq!(listing(&world.private_sync()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_hold_ends_when_the_first_lists_is_dropped() {
+        // A killed helper's descriptors are closed by the kernel, which is what releases the lock; dropping is the same.
+        let world = World::empty("busy-drop");
+        let first = in_folder(&world.temp.0, me_for(&world.temp));
+        assert_eq!(first.prepare(), Ok(()));
+        let second = in_folder(&world.temp.0, me_for(&world.temp));
+        assert_eq!(second.prepare(), Err(ListsError::Busy));
+        drop(first);
+        assert_eq!(second.prepare(), Ok(()));
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "starts /usr/bin/ls once, to look at the descriptors a child of the helper would inherit (unit test)"
+    )]
+    fn a_program_the_helper_starts_does_not_inherit_the_folder() {
+        // pacman and its scriptlets must never hold the lock (or the folder) open: the descriptor is close-on-exec.
+        let world = World::empty("cloexec");
+        assert_eq!(world.lists.prepare(), Ok(()));
+        let listed = std::process::Command::new("/usr/bin/ls")
+            .args(["-l", "/proc/self/fd"])
+            .env_clear()
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&listed.stdout).into_owned();
+        assert!(listed.status.success(), "{text}");
+        assert!(
+            !text.contains("run-lists"),
+            "the child holds the private folder:\n{text}"
         );
     }
 

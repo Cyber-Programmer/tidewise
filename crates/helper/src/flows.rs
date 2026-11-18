@@ -467,6 +467,8 @@ fn lists_failure(error: ListsError) -> ErrorKind {
         ListsError::BadFile => {
             failed("a refreshed package list was not a file the helper could trust.")
         }
+        // Shim of the red commit: the fix maps this to DatabaseLocked.
+        ListsError::Busy => failed("the helper could not copy the refreshed package lists."),
         ListsError::Io => failed("the helper could not copy the refreshed package lists."),
     }
 }
@@ -1427,8 +1429,27 @@ mod tests {
         };
         assert!(details.as_str().contains("restart the computer"));
         assert!(details.as_str().contains("Nothing was changed"));
+        // While a helper holds the folder (flock), a private lock can only come from a killed sync: the text must not
+        // suggest that another update may be running (a running one would have been refused as Busy).
+        assert!(
+            !details.as_str().contains("still running"),
+            "{}",
+            details.as_str()
+        );
         assert_eq!(fake.ran, vec![]);
         assert_eq!(fake.prepared, 1);
+        assert_eq!(fake.moved_after, None);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+    }
+
+    #[test]
+    fn a_private_folder_held_by_another_helper_is_database_locked_and_nothing_runs() {
+        let request = request(UPDATE);
+        let mut fake = Fake::new(vec![]);
+        fake.prepare_result = Err(ListsError::Busy);
+        let (result, _) = go_full(&request, &mut fake);
+        assert_eq!(result.outcome, Outcome::Error(ErrorKind::DatabaseLocked));
+        assert_eq!(fake.ran, vec![]);
         assert_eq!(fake.moved_after, None);
         assert_eq!(result.lists, Some(ListsState::Untouched));
     }
