@@ -1108,3 +1108,47 @@ Rules bent: the container red evidence (SIGCHLD, limits, oom) came from a throwa
 build runs the workspace tests in `check()` and a red unit-test commit cannot build the package image (the human accepted this on 17 Nov 2026). The R-03 refinement's container
 expectations were checked in the green run only. The start-order rows of `dead6c8` and the R-06, R-07, R-14 guards start green (they pin behaviour that exists; each has a recorded
 mutation or follows from the order in `start()`). Edits in `crates/helper*` and `file_changes.rs` and `deny.toml` were approved by the human. The WBS sheet is yours.
+
+## 2026-11-18 — 6.10a R-04: the caller's stdout and stdin can no longer stop a job (6.10b, the private copy of the lists, is next)
+Done:
+- **Step 0, `66b73e0`:** "this host stops at 100" in the 5.8 follow-up entry above meant the *floor*, not the value sessions run at. Measured on the development machine:
+  `/proc/self/oom_score_adj` 200, the user's `systemd` 100, `user@.service` `OOMScoreAdjust=100`, `choom -n 100` exit 0, `choom -n 99` "Permission denied". **200 is the value session
+  processes run at** (the user manager's `DefaultOOMScoreAdjust`: its own 100 plus 100, systemd-system.conf(5), systemd 262.2). **100 is the floor** an ordinary process can lower itself to: the kernel says the
+  value "may be reduced no lower than the last value set by a CAP_SYS_RESOURCE process" (`Documentation/filesystems/proc.rst`, `/proc/<pid>/oom_score_adj`, page of kernel 7.4.0-rc3) and PID 1 set 100 from
+  `user@.service:35`. The `env.rs` comment, question 37 and checklist item 9 now name both. The rule (refuse above 200) is unchanged.
+- **Decision 0007** (`7bbd210`, **Proposed**): the update syncs a private copy of the lists in `/run/tidewise-helper-lists/` (0711), compares there, and only then moves the verified lists in. Read in the pacman 7.1.0
+  source: the download runs as `alpm` (so the folder must be searchable, not 0700), finished lists are chowned to root before they are moved (`dload.c:76-90`, to be measured), `pacman -Sc` removes a leftover
+  `.tidewise-<repo>.db.new` itself (`sync_cleandb`) and never sees the private folder. 6.10b measures the open points in the container before it becomes Accepted.
+- **R-04 fixed.** Red first: `ff21e96` (four `run.rs` tests, each bounded by a 10 s `recv_timeout` so a stuck helper fails the test and never hangs `cargo test`) and `6960fcf` (the byte cap); fix `af87555`.
+  `writer.rs` is a bounded queue (1024 lines and 1 MiB: a line may be 16 KiB, so the lines alone allowed 16 MiB) in front of the one thread that writes stdout. Progress lines use `offer` (never waits; dropped and counted);
+  notices and the final line use `deliver`, which waits for room inside **one 5 s budget shared by all of them**. stdin is read by `input::read_within` with a 10 s deadline for the whole request.
+  `TIDEWISE_EVENTS_DROPPED` in the journal, only when above 0, and it does not make an `ok` an `ok_with_notices`.
+- **Container tests** (`779074a`, `5e0bd56`): `a_caller_that_never_reads_stdout_does_not_stop_the_job` (a full pipe nobody reads; an update whose first progress line is written inside `-Sy`; one sync, new version installed; and the
+  helper process **exits** within 5 s + 5 s with exit code 0 while its writer thread is stuck), `a_silent_stdin_gives_up_after_the_deadline`, `a_request_larger_than_the_pipe_buffer_written_in_chunks_is_accepted_within_the_deadline`.
+  Red evidence from a throwaway worktree at `7bbd210`: the first stopped after the `accepted` journal entry for 120 s, the second never gave up, the third (a guard) passed.
+- **Why the exit cannot wait on the writer thread** (you asked me to name it): `std::rt::cleanup` calls `std::io::cleanup`, which takes std's stdout lock with `try_lock()` (Rust 1.99.1 `library/std/src/io/stdio.rs`,
+  read from the installed rust-docs because there is no `rust-src`: "someone might have leaked a StdoutLock, which would otherwise cause a deadlock here"), then `exit()`. Measured with a throwaway program: exit code kept, exit
+  at 0.52 s with 65 536 bytes unread in the pipe, 3 of 3. It cannot block, so I did not stop.
+- **Docs.** Protocol rustdoc "Talking to the helper" (`7b1cc35`, `1bb0692`, `17beb62`: write the request from a thread then close stdin; `Progress` is best effort; `Finished` is the only result; read on a thread of its own),
+  threat model A1, T-07, T-17, Q19 (a) superseded, **Q34 answered** with its residuals (`ad6550c`, `f1a8a2e`, `3ff473e`), 5.3a R-06 closed on its stdin half.
+- **Review 6.10a** (`docs/security/reviews/6.10a-output-input.md`, one fresh read-only reviewer): no High, no Medium, nine Low or Info. Checked by me: seven confirmed, **A-01 only partly right** (its mutant passes a container
+  test, because a progress line only waits when the queue is full; the unit test with 3003 events kills it: shown by running it), **A-07 rejected** (the helper holds no lock after pacman finishes). Fixed with your decisions of
+  18 Nov: A-02 and a surviving mutant in `fits` got proofs (`e37d61b`), A-08 the `run.rs:31` comment (`9ec4693`), and **A-04 is the one behaviour change from the review**: once a notice is lost, no final line is written
+  (`569c237` red, `44ca12f`), so the app never reads an `ok` that hides a lost notice.
+- **Checks on the last code commit (`44ca12f`; everything after it is docs and comments):** `cargo fmt --all --check` and `fuzz/` fmt exit 0; `cargo clippy --all-targets -- -D warnings` exit 0; `cargo test --all`
+  **887 passed, 0 failed, 79 ignored** (865 and 76 before; the 3 new ignored ones are the container tests); `cargo deny check` exit 0; `cargo build --release -p tidewise-app` exit 0; 25 repeated runs of the writer, input and
+  run timing tests: 0 failures; `tests/container/run.sh` on `3ff473e`, exit 0: **961 passed, 0 failed, 79 ignored** over all its result lines (the 74 container tests: `helper` 11, `helper_jobs` 25, `package` 15,
+  `package_hostile` 1, `pacman_prompts` 11, `polkit` 9, `smoke` 2); fuzz `gate` 12 619 114 runs and `request` 9 191 913 runs, 601 s each, exit 0, `fuzz/artifacts/` has no files (run on the code of `af87555`; the later
+  changes are in `writer.rs`, which neither target compiles).
+- **Mutations recorded** (each applied to a copy, restored, checksum compared): progress lines that wait, a final line that is offered, notices that are offered (each fails exactly one test); `in_hand` never set; `fits` without
+  its empty-queue clause; the A-04 flag never set, and set but never read.
+Next:
+- **6.10b** (from `main` after 6.10a is merged): the private copy of the lists. First the container measurements of 0007 (owner of a downloaded list: root, to be measured; the download as `alpm` through a 0711 folder;
+  `--logfile /dev/null`; a stale private lock; `.db.sig`; `pacman -Sc` with a leftover), then 0007 to Accepted, then red tests, `PacmanCommand` changes, `lists.rs`, the `update_job` reorder, the journal field `TIDEWISE_LISTS`.
+- M4/6.1/6.6: the app that starts the helper follows the three rules in the helper-protocol rustdoc, and the app's own unprivileged refresh (Q12, app side) is still not done.
+Blockers: none.
+Rules bent: (1) the `writer.rs`, `input.rs` and `journal.rs` tests (except the byte-cap test `6960fcf` and the A-04 test `569c237`) were written with the code, not red first (you accepted this on 18 Nov; the `run.rs` tests of `ff21e96` are
+the red ones end to end); (2) the A-02 and `fits` tests (`e37d61b`) start green because they pin behaviour that existed, each with a recorded mutation; (3) the first red commit carries a compile shim (`Deadlines`, `run_with`, four constants,
+no behaviour), named in its message and removed by the fix; (4) the container red evidence came from a throwaway worktree at `7bbd210` (the package build runs the unit tests, so a red unit commit cannot build the container image: accepted
+on 17 Nov); (5) `lib.rs` of `crates/helper` gained the one line that registers `writer.rs`; (6) comment-only edits in `crates/helper-protocol` (approved); (7) edits in `crates/helper*` were approved by you in this session, the last
+ones (A-02, `fits`, `run.rs:31`, A-04, the rustdoc) while you were away, as you instructed. The WBS sheet is yours: I did not touch it.
