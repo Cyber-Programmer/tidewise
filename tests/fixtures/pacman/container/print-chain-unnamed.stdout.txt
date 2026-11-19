@@ -1,0 +1,3 @@
+tidewise-test/tidewise-dummy-chain-b 1.0-1
+tidewise-test/tidewise-dummy-chain-a 1.0-1
+tidewise-test/tidewise-dummy-needs-chain 1.0-1

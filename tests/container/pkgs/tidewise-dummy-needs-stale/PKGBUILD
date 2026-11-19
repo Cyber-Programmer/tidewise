@@ -1,0 +1,14 @@
+# Dummy package for the Tidewise container tests (WBS 6.1). Contains one text file and nothing else.
+pkgname=tidewise-dummy-needs-stale
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test package that needs tidewise-stale>=2 (nothing provides it)"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+depends=('tidewise-stale>=2')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

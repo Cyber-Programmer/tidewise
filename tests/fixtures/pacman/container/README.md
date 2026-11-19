@@ -46,3 +46,19 @@ off a terminal. Packages: `tidewise-dummy-vprov-1/2/3` provide `tidewise-vvirtua
 | `print-vvirtual-unnamed.stdout.txt`, `print-virtual-unnamed.stdout.txt`, `print-one-unnamed.stdout.txt` | `pacman -S --print --print-format '%r/%n %v' needs-…` (0) | The dry run never asks: it takes the first provider (`vprov-2`, `prov-a`, `one-prov`), dependency first |
 | `noconfirm-vvirtual-unnamed.stdout.txt` | `pacman -S --noconfirm --ask 66 needs-vvirtual` (0), no stdin | The real run prints the same question, answers it with the default and installs the **same provider as the dry run** (`vprov-2`). The base case for review 5.8 R-08 |
 | `print-b-vprov-{1,2,3}-with-hello.stdout.txt` | `pacman -S --print --print-format '%r/%n %v' needs-vvirtual hello vprov-N` (0), **nothing installed** | Option (b) of the plan. Naming `vprov-1` (provides `=1`) makes pacman **add** `vprov-2`; naming `vprov-2` or `vprov-3` adds nothing |
+
+### Nothing satisfies a dependency, and a provider chain (6.1, 19 Nov 2026)
+
+`tidewise-dummy-stale-prov` provides `tidewise-stale=1`; `needs-stale` depends on `tidewise-stale>=2`. `chain-a` provides
+`tidewise-chain` **and depends on `chain-b`, which also provides it**; `chain-c` provides it plainly; `needs-chain` depends
+on `tidewise-chain`.
+
+| File | Command (exit code) | What it shows |
+|---|---|---|
+| `print-no-fit.stdout.txt` / `.stderr.txt` | `pacman -S --print … needs-stale` (1) | No provider fits (the only one is too old): stdout `:: unable to satisfy dependency 'tidewise-stale>=2' required by tidewise-dummy-needs-stale`, stderr `error: failed to prepare transaction (could not satisfy dependencies)`. No list, no provider question. The state "nothing provides X>=N" |
+| `print-no-fit-old-provider-named.*` | the same with `stale-prov` named too (1) | Naming the too-old provider does not help; same two lines |
+| `prompt-no-fit.stdout.txt` / `.stderr.txt` | `pacman -S needs-stale` (1), `n\n` | The real run says the same, with an extra "skip the above package?" question |
+| `provider-prompt-chain.*` | `pacman -S needs-chain` (1), `1\nn\n` | Three providers offered (a, b, c); default 1 = `chain-a`, which pulls in `chain-b` |
+| `print-chain-unnamed.stdout.txt` | `--print … needs-chain` (0) | `chain-b`, `chain-a`, `needs-chain`: **two providers of one name in the list**, because one is the other's dependency |
+| `print-chain-{a,b,c}-with-hello.stdout.txt` | `--print … needs-chain hello chain-N` (0) | All three are acceptable answers; `chain-a` brings `chain-b` along |
+| `print-chain-{a,b,c}-alone.stdout.txt` | `--print … chain-N` (0) | What the candidate needs by itself: `chain-a` → `chain-b`, `chain-a` |
