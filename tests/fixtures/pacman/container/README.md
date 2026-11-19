@@ -27,3 +27,22 @@ helper's dry-run and parser work (M3, M4) has real transaction text, including a
 
 To capture again: build the image with `tests/container/run.sh`, then run each command with
 `podman run --rm --pull=never --network=none <image> env -i LC_ALL=C /usr/bin/pacman …` and redirect to a file.
+
+## Providers (WBS 6.1, captured 19 Nov 2026)
+
+Captured by `tests/container/tests/pacman_providers.rs` (`measure_provider_prompts`) in a **throwaway layer** on the
+cached test image (the image rebuild could not reach the Arch Archive that day; the layer added the six packages offline,
+see `docs/progress.md`). Same pacman 7.1.0 and flags as above, but with a pipe on stdin: the prompts are printed even
+off a terminal. Packages: `tidewise-dummy-vprov-1/2/3` provide `tidewise-vvirtual=1/2/3`, `needs-vvirtual` depends on
+`tidewise-vvirtual>=2`, `needs-virtual` on `tidewise-virtual` (provided, unversioned, by `prov-a` and `prov-b`),
+`needs-one` on `tidewise-single` (provided only by `one-prov`). Nothing installed unless the file says so.
+
+| File | Command (exit code), stdin | What it shows |
+|---|---|---|
+| `provider-prompt-versioned.stdout.txt` / `.stderr.txt` | `pacman -S needs-vvirtual` (1), `1\nn\n` | **The prompt filters by version:** "There are 2 providers available for tidewise-vvirtual>=2: 1) vprov-2  2) vprov-3". `vprov-1` is not offered. The question text is on stdout, the "Enter a number" and "Proceed" prompts on stderr |
+| `provider-prompt-unversioned.stdout.txt` | `pacman -S needs-virtual` (1), `1\nn\n` | Without a version rule every provider is listed (`prov-a`, `prov-b`) |
+| `provider-prompt-single.*` | `pacman -S needs-one` (1), `n\n` | **One provider: no question**, the provider is just in the list |
+| `provider-prompt-eof.*` | `pacman -S needs-vvirtual` (1), stdin closed at once | The provider prompt takes its default (1), then "Proceed? [Y/n]" reads EOF and pacman ends with exit 1. No hang |
+| `print-vvirtual-unnamed.stdout.txt`, `print-virtual-unnamed.stdout.txt`, `print-one-unnamed.stdout.txt` | `pacman -S --print --print-format '%r/%n %v' needs-…` (0) | The dry run never asks: it takes the first provider (`vprov-2`, `prov-a`, `one-prov`), dependency first |
+| `noconfirm-vvirtual-unnamed.stdout.txt` | `pacman -S --noconfirm --ask 66 needs-vvirtual` (0), no stdin | The real run prints the same question, answers it with the default and installs the **same provider as the dry run** (`vprov-2`). The base case for review 5.8 R-08 |
+| `print-b-vprov-{1,2,3}-with-hello.stdout.txt` | `pacman -S --print --print-format '%r/%n %v' needs-vvirtual hello vprov-N` (0), **nothing installed** | Option (b) of the plan. Naming `vprov-1` (provides `=1`) makes pacman **add** `vprov-2`; naming `vprov-2` or `vprov-3` adds nothing |

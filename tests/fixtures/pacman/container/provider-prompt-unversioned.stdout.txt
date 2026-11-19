@@ -1,0 +1,14 @@
+resolving dependencies...
+:: There are 2 providers available for tidewise-virtual:
+:: Repository tidewise-test
+   1) tidewise-dummy-prov-a  2) tidewise-dummy-prov-b
+looking for conflicting packages...
+
+Package (2)                                 New Version  Net Change  Download Size
+
+tidewise-test/tidewise-dummy-prov-a         1.0-1          0.00 MiB       0.00 MiB
+tidewise-test/tidewise-dummy-needs-virtual  1.0-1          0.00 MiB       0.00 MiB
+
+Total Download Size:   0.00 MiB
+Total Installed Size:  0.00 MiB
+

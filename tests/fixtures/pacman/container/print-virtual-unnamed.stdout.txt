@@ -1,0 +1,2 @@
+tidewise-test/tidewise-dummy-prov-a 1.0-1
+tidewise-test/tidewise-dummy-needs-virtual 1.0-1
