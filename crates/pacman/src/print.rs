@@ -288,6 +288,19 @@ mod tests {
         assert!(parse_print("extra/zsh 5.9-1 18446744073709551615\n").is_ok());
     }
 
+    /// Found by the `print` fuzz target (19 Nov 2026): `08` was read as 8, so the accepted line did not write back
+    /// to the input. pacman prints a size as plain decimal, never with leading zeros.
+    #[test]
+    fn a_size_with_a_leading_zero_is_an_error() {
+        assert_eq!(bad_line("extra/zsh 5.9-1 08\n").0, 1);
+        assert_eq!(bad_line("extra/zsh 5.9-1 00\n").0, 1);
+        assert_eq!(bad_line("extra/zsh 5.9-1 0123456\n").0, 1);
+        assert_eq!(
+            parse_print("extra/zsh 5.9-1 0\n").unwrap(),
+            [package("extra", "zsh", "5.9-1", 0)]
+        );
+    }
+
     #[test]
     fn a_line_without_a_slash_or_with_a_bad_name_or_repository_is_an_error() {
         assert_eq!(bad_line("zsh 5.9-1 1\n").0, 1);
