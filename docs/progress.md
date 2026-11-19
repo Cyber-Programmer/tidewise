@@ -1177,9 +1177,9 @@ Done:
   `--all-targets -D warnings` exit 0 (0 findings); `cargo test --all` **924 passed, 0 failed, 91 ignored** (887/79 before); `cargo deny check` exit 0; `cargo build --release -p tidewise-app` exit 0;
   container run without the package image (filter `_`): **70 passed, 0 failed** (helper 11, helper_jobs 29, pacman_private_sync 8, pacman_prompts 11, polkit 9, smoke 2); fuzz `output` 634 504 runs,
   `progress` 23 969 669, `gate` 13 227 586, 601 s each, exit 0, `fuzz/artifacts/` has no files (the fuzzed modules `output.rs`, `progress.rs`, `gate.rs` and `helper-protocol` are unchanged from `main`).
-- **Not done: the package container tests.** `tests/container/run.sh` (full) built the package (its `check()` ran the 924 unit tests green) and then failed twice at the image's `pacman -S namcap ...`
-  step: archive.archlinux.org reset or timed out the downloads (network, not a test). `package` and `package_hostile` (16 tests) did not run on this code. Rerun `tests/container/run.sh` when the
-  archive answers.
+- **The full container run, by the human (19 Nov 2026, at `0131d8b`, through a VPN):** `tests/container/run.sh` exit 0; the package's `check()` ran **924 passed**; container tests
+  **86 passed, 0 failed**: helper 11, helper_jobs 29, package 15, package_hostile 1, pacman_private_sync 8, pacman_prompts 11, polkit 9, smoke 2. (My own two attempts on 18 Nov could not build the
+  package test image: archive.archlinux.org reset or timed out the `pacman -S namcap` download, so the 16 package tests only ran in this human run. Code after `ffad738` is docs only.)
 - **Mutations recorded** (applied to a copy, restored): `O_NOFOLLOW` off the staged open; `set_permissions(0o644)` removed; close-on-exec cleared on the folder descriptor (each fails exactly its test).
 Next:
 - **R-02, the known limit: a stale app list is refused again on every retry until something refreshes it** (the app builds its list from the real lists, which a refusal now leaves stale on purpose;
@@ -1187,7 +1187,7 @@ Next:
   **The app-side private refresh (Q12 app side, your new WBS 6.11) must land before 6.5 and 6.6.**
 - Pentest checklist items 10-13 on a VM (alpm through 0711 on a real system, sha256 after a refusal, EXDEV on the host, a pacman killed mid private sync).
 - The app that starts the helper still follows the three rules in the helper-protocol rustdoc (6.10a).
-Blockers: the package container tests need archive.archlinux.org (see above).
+Blockers: none.
 Rules bent: (1) the `lists.rs` and journal red commits carry compile shims (named in their messages), as in 6.10a; (2) `a_staged_name_that_is_a_symlink_...`, `a_leftover_with_another_mode_...` and
 `a_program_the_helper_starts_...` start green against their shims or stubs, each mutation-checked afterwards; (3) container red evidence came from filtered runs on the red commit itself
 (no throwaway worktree was needed: a filtered run does not build the package image); (4) edits outside the list you approved: none beyond `run.rs` and `testing.rs` (approved); the WBS sheet is yours:
