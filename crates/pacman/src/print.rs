@@ -146,8 +146,11 @@ fn parse_line(line: &str) -> Option<PrintedPackage> {
     let version = parts.next()?;
     let spec = parts.next()?;
     let (repo, name) = spec.split_once('/')?;
-    // `u64::from_str` also accepts a leading `+`; pacman prints digits only.
-    if size.is_empty() || !size.bytes().all(|byte| byte.is_ascii_digit()) {
+    // `u64::from_str` also accepts a leading `+`, and would read `08` as 8; pacman prints plain decimal digits, so
+    // what is accepted writes back to exactly the input (the `print` fuzz target checks it).
+    let plain =
+        size.bytes().all(|byte| byte.is_ascii_digit()) && (size == "0" || !size.starts_with('0'));
+    if size.is_empty() || !plain {
         return None;
     }
     let download_size = size.parse().ok()?;
