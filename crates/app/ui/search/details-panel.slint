@@ -82,7 +82,7 @@ component SizeBox inherits Rectangle {
     }
 }
 
-// The right-hand panel for the selected search result. Read-only in M2: no Install button yet.
+// The right-hand panel for the selected search result. Install (WBS 6.2) opens the install screen.
 export component SearchDetailsPanel inherits Rectangle {
     width: 340px;
     background: Theme.surface;
@@ -255,6 +255,15 @@ export component SearchDetailsPanel inherits Rectangle {
                 report: SearchBridge.details.error-report;
                 try-again => {
                     SearchBridge.details-try-again();
+                }
+            }
+
+            // Only for a package that is not installed (Rust leaves the label empty otherwise).
+            if SearchBridge.details.install-label != "": TwButton {
+                text: SearchBridge.details.install-label;
+                primary: true;
+                clicked => {
+                    SearchBridge.install-chosen();
                 }
             }
 
