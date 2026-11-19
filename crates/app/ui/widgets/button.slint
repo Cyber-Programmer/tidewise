@@ -14,7 +14,8 @@ export component TwButton inherits Rectangle {
     callback clicked();
 
     min-height: Theme.min-target;
-    min-width: Theme.min-target;
+    // Never narrower than its own text plus its padding, so a tight row cannot squeeze the words out of the border.
+    min-width: max(Theme.min-target, label.preferred-width + 2 * Theme.space-l);
     horizontal-stretch: 0;
     border-radius: Theme.radius-control;
     border-width: 1px;
@@ -66,7 +67,7 @@ export component TwButton inherits Rectangle {
         padding-left: Theme.space-l;
         padding-right: Theme.space-l;
         alignment: center;
-        Text {
+        label := Text {
             text: root.text;
             color: !root.enabled ? Theme.text-2 : root.primary ? Theme.on-accent : Theme.text;
             font-size: Theme.size-body;
