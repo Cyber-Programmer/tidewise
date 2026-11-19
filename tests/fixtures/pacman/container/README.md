@@ -62,3 +62,7 @@ on `tidewise-chain`.
 | `print-chain-unnamed.stdout.txt` | `--print … needs-chain` (0) | `chain-b`, `chain-a`, `needs-chain`: **two providers of one name in the list**, because one is the other's dependency |
 | `print-chain-{a,b,c}-with-hello.stdout.txt` | `--print … needs-chain hello chain-N` (0) | All three are acceptable answers; `chain-a` brings `chain-b` along |
 | `print-chain-{a,b,c}-alone.stdout.txt` | `--print … chain-N` (0) | What the candidate needs by itself: `chain-a` → `chain-b`, `chain-a` |
+
+The provider and failure fixtures from `provider-prompt-*` to `print-chain-*` are compared with what the image's pacman
+prints, on every container run, by `tests/container/tests/pacman_providers.rs` (`the_provider_fixtures_are_what_pacman_prints_now`,
+`the_failure_and_chain_fixtures_are_what_pacman_prints_now`): a pacman that changes its words fails there, not silently here.

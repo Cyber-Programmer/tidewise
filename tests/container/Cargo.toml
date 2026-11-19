@@ -13,6 +13,10 @@ description = "Tests that run real pacman as root. They only run inside the Tide
 [lints.clippy]
 disallowed_methods = "allow"
 
-# No dependencies on purpose: this crate runs inside a throwaway image, and every dependency would be one more thing
-# to build and review there.
+# Workspace path crates only, never crates.io. The install resolver tests (resolver.rs) run `tidewise-pacman` itself
+# against the real pacman in the container, so this crate depends on it (and, through it, on `tidewise-names`).
+# That adds no external code: the test binary is built on the host with the rest of the workspace and mounted into
+# the container read-only, so nothing is built or fetched inside the throwaway image. Keep it that way: a dependency
+# from crates.io here would need the human's approval like any other (CLAUDE.md).
 [dependencies]
+tidewise-pacman = { version = "0.1.0", path = "../../crates/pacman" }
