@@ -765,6 +765,49 @@ mod resolver_tests {
         );
     }
 
+    /// Not a check: prints what the resolver says on THIS machine, for a person to read (WBS 6.1, manual).
+    /// `cargo test -p tidewise-pacman -- --ignored --nocapture resolve_on_this_machine`. Read-only: dry runs only.
+    #[test]
+    #[ignore = "runs the real pacman on this machine (read-only); for a person to read"]
+    fn resolve_on_this_machine() {
+        let pick = |name: &str| -> Option<PackageRef> {
+            let found = search(&format!("^{name}$")).ok()?;
+            found.iter().find(|r| r.name == name).map(PackageRef::from)
+        };
+        for name in [
+            "zsh",
+            "dbeaver",
+            "cron",
+            "plasma-meta",
+            "tidewise-no-such-package",
+        ] {
+            let started = std::time::Instant::now();
+            let target = pick(name).unwrap_or(PackageRef {
+                repo: "extra".to_string(),
+                name: name.to_string(),
+            });
+            let input = ResolveInput {
+                targets: vec![target],
+                ..ResolveInput::default()
+            };
+            let result = resolve(&input);
+            println!("== {name}  ({:.1?})\n{result:#?}", started.elapsed());
+        }
+        let started = std::time::Instant::now();
+        let input = ResolveInput {
+            groups: vec!["plasma".to_string()],
+            ..ResolveInput::default()
+        };
+        println!(
+            "== group plasma ({:.1?})\n{:#?}",
+            started.elapsed(),
+            resolve(&input).map(|r| match r {
+                Resolution::NeedsAnswers(q) => format!("{} question(s)", q.len()),
+                other => format!("{other:?}"),
+            })
+        );
+    }
+
     // --- the public function ---
 
     #[test]
