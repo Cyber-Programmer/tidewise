@@ -1,0 +1,712 @@
+//! View model for the install screens (WBS 6.2): what is being installed, the questions the resolver asked, the
+//! answers so far, and which resolve is running. Plain Rust, no Slint, no threads, no clock. It never runs pacman;
+//! it hands out `Ticket`s and is handed the answers.
+//!
+//! One resolve runs at a time, like the search model: a ticket asked for while another runs waits, a newer waiting
+//! ticket replaces an older one, and an answer is used only if its number is the one wanted.
+
+use crate::error_words::ErrorText;
+use tidewise_pacman::{
+    Blocker, InstallPlan, PackageRef, PacmanError, Question, Resolution, ResolveInput,
+};
+
+/// What the user asked to install (from Search). The answers are kept apart, in `Step`s.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Request {
+    pub targets: Vec<PackageRef>,
+    pub groups: Vec<String>,
+}
+
+/// One resolve to run: the number says which wish the answer belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ticket {
+    pub number: u64,
+    pub input: ResolveInput,
+    /// The first resolve of an install first asks whether the system needs updating (`pacman -Qu`).
+    pub check_lists: bool,
+}
+
+/// What a worker found out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkAnswer {
+    /// `pacman -Qu` says updates are waiting: the resolver was not run.
+    MustUpdate,
+    Resolved(Resolution),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Phase {
+    #[default]
+    Closed,
+    /// A resolve is wanted.
+    Working,
+    /// A question is shown (`steps[current]`).
+    Asking,
+    /// The system must be updated first.
+    Stale,
+    Blocked(Vec<Blocker>),
+    Failed {
+        text: ErrorText,
+        can_retry: bool,
+    },
+    /// Every question is answered; 6.3 shows the review.
+    Ready(Box<InstallPlan>),
+}
+
+/// The user's answer to one question, changed while it is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Draft {
+    /// The chosen candidate.
+    Provider(usize),
+    /// One flag per group member, in the question's order. Installed members are never ticked.
+    Members(Vec<bool>),
+    /// Installed, same version: leave it or reinstall.
+    Installed { reinstall: bool },
+    /// Installed, another version than the repository's: it is left out; there is nothing to choose.
+    Differs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    /// The resolve call that asked it (`ResolveInput::round`).
+    pub round: u32,
+    pub question: Question,
+    pub draft: Draft,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Back {
+    /// Still on the install screen.
+    Stayed,
+    /// Back to Search.
+    Closed,
+}
+
+#[derive(Debug, Default)]
+#[expect(
+    dead_code,
+    reason = "red-phase shim: the ticket fields are used by the green commit (6.2)"
+)]
+pub struct InstallModel {
+    phase: Phase,
+    request: Request,
+    steps: Vec<Step>,
+    current: usize,
+    last_number: u64,
+    wanted: Option<u64>,
+    running: Option<Ticket>,
+    pending: Option<Ticket>,
+    slow: bool,
+    focus_serial: u32,
+}
+
+impl InstallModel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn phase(&self) -> &Phase {
+        &self.phase
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.phase != Phase::Closed
+    }
+
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+
+    pub fn steps(&self) -> &[Step] {
+        &self.steps
+    }
+
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    pub fn is_slow(&self) -> bool {
+        self.slow
+    }
+
+    /// Changes whenever a new card is shown, so the window can move the focus to it.
+    pub fn focus_serial(&self) -> u32 {
+        self.focus_serial
+    }
+
+    /// The input for the next resolve: the request plus every answer given so far.
+    pub fn input(&self) -> ResolveInput {
+        ResolveInput::default()
+    }
+
+    /// Install this package. `Some(ticket)`: start the worker now; `None`: it waits for the running one.
+    pub fn open(&mut self, target: PackageRef) -> Option<Ticket> {
+        let _ = target;
+        None
+    }
+
+    /// Install a whole group (reached only through the debug entry until WBS 6.12).
+    pub fn open_group(&mut self, group: &str) -> Option<Ticket> {
+        let _ = group;
+        None
+    }
+
+    /// Picks candidate `index` of the provider question shown, or the option of an installed-package question
+    /// (0 = leave it, 1 = reinstall).
+    pub fn choose(&mut self, index: usize) {
+        let _ = index;
+    }
+
+    /// Flips one member of the group question shown. Installed members cannot be ticked.
+    pub fn toggle(&mut self, index: usize) {
+        let _ = index;
+    }
+
+    pub fn select_all(&mut self) {}
+
+    pub fn select_none(&mut self) {}
+
+    /// The primary button of a question: the next question, or after the last one a new resolve.
+    pub fn go_on(&mut self) -> Option<Ticket> {
+        None
+    }
+
+    /// The secondary button: one question back, or out of the install screen. A wanted resolve is dropped.
+    pub fn back(&mut self) -> Back {
+        Back::Stayed
+    }
+
+    /// Leaves the install screen, whatever it shows. A wanted resolve is dropped.
+    pub fn cancel(&mut self) {}
+
+    /// "Install cronie instead": starts again with the replacement.
+    pub fn install_instead(&mut self) -> Option<Ticket> {
+        None
+    }
+
+    /// "Try again" after a failure.
+    pub fn try_again(&mut self) -> Option<Ticket> {
+        None
+    }
+
+    pub fn mark_slow(&mut self) {}
+
+    /// The worker answered the ticket `number`. Returns the waiting ticket to start next, if any.
+    pub fn done(&mut self, number: u64, result: Result<WorkAnswer, PacmanError>) -> Option<Ticket> {
+        let _ = (number, result);
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tidewise_pacman::{
+        Candidate, GroupAnswer, GroupChoice, InstallDecision, PlanItem, ProviderAnswer, Role,
+    };
+
+    fn pkg(name: &str) -> PackageRef {
+        PackageRef {
+            repo: "extra".to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn provider(dependency: &str, names: &[&str], default: usize) -> Question {
+        Question::ChooseProvider {
+            dependency: dependency.to_string(),
+            candidates: names
+                .iter()
+                .map(|name| Candidate {
+                    package: pkg(name),
+                    version: "1-1".to_string(),
+                    description: format!("{name} description"),
+                })
+                .collect(),
+            default,
+        }
+    }
+
+    fn group(name: &str, members: &[(&str, Option<&str>)]) -> Question {
+        Question::ChooseGroupMembers {
+            group: name.to_string(),
+            members: members
+                .iter()
+                .map(|(member, installed)| GroupChoice {
+                    package: pkg(member),
+                    version: "2-1".to_string(),
+                    installed_version: installed.map(str::to_string),
+                })
+                .collect(),
+        }
+    }
+
+    fn installed(name: &str, differs: bool) -> Question {
+        Question::AlreadyInstalled {
+            target: pkg(name),
+            installed_version: "1.0-1".to_string(),
+            repo_version: if differs { "0.9-1" } else { "1.0-1" }.to_string(),
+            differs_without_update: differs,
+        }
+    }
+
+    fn plan(decision: InstallDecision) -> InstallPlan {
+        InstallPlan {
+            decision,
+            targets: vec![pkg("dbeaver")],
+            providers: vec![ProviderAnswer {
+                dependency: "java-runtime".to_string(),
+                chosen: pkg("jre-openjdk"),
+            }],
+            items: vec![PlanItem {
+                package: pkg("dbeaver"),
+                version: "25-1".to_string(),
+                role: Role::Target,
+                installed_version: None,
+                download_size: 100,
+                installed_size: 200,
+            }],
+            download_total: 100,
+            installed_total: 200,
+        }
+    }
+
+    fn ready() -> Result<WorkAnswer, PacmanError> {
+        Ok(WorkAnswer::Resolved(Resolution::Ready(plan(
+            InstallDecision::Allowed { ignored: 0 },
+        ))))
+    }
+
+    fn asks(questions: Vec<Question>) -> Result<WorkAnswer, PacmanError> {
+        Ok(WorkAnswer::Resolved(Resolution::NeedsAnswers(questions)))
+    }
+
+    fn blocked(blockers: Vec<Blocker>) -> Result<WorkAnswer, PacmanError> {
+        Ok(WorkAnswer::Resolved(Resolution::Blocked(blockers)))
+    }
+
+    /// A model with `dbeaver` opened and the first resolve answered with these questions.
+    fn asking(questions: Vec<Question>) -> InstallModel {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        assert_eq!(model.done(ticket.number, asks(questions)), None);
+        assert_eq!(*model.phase(), Phase::Asking);
+        model
+    }
+
+    #[test]
+    fn a_new_model_is_closed() {
+        let model = InstallModel::new();
+        assert!(!model.is_open());
+        assert_eq!(*model.phase(), Phase::Closed);
+    }
+
+    #[test]
+    fn opening_asks_for_a_first_ticket_that_checks_the_lists() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        assert_eq!(ticket.number, 1);
+        assert!(ticket.check_lists);
+        assert_eq!(ticket.input.targets, [pkg("dbeaver")]);
+        assert_eq!(ticket.input.round, 0);
+        assert!(ticket.input.groups.is_empty());
+        assert_eq!(*model.phase(), Phase::Working);
+        assert_eq!(model.request().targets, [pkg("dbeaver")]);
+    }
+
+    #[test]
+    fn opening_a_group_asks_about_the_group() {
+        let mut model = InstallModel::new();
+        let ticket = model.open_group("plasma").unwrap();
+        assert_eq!(ticket.input.groups, ["plasma"]);
+        assert!(ticket.input.targets.is_empty());
+    }
+
+    #[test]
+    fn waiting_updates_means_the_system_must_be_updated_first() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
+        assert_eq!(*model.phase(), Phase::Stale);
+    }
+
+    #[test]
+    fn a_plan_that_needs_an_update_is_the_same_card() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        let stale = InstallDecision::MustUpdateSystem {
+            count: 3,
+            ignored: 0,
+        };
+        let answer = Ok(WorkAnswer::Resolved(Resolution::Ready(plan(stale))));
+        model.done(ticket.number, answer);
+        assert_eq!(*model.phase(), Phase::Stale);
+    }
+
+    #[test]
+    fn a_plan_that_is_allowed_is_ready() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, ready());
+        assert!(matches!(model.phase(), Phase::Ready(p) if p.items.len() == 1));
+    }
+
+    #[test]
+    fn blockers_are_kept_for_the_screen() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        let blockers = vec![Blocker::NotFound(vec!["dbeaver".to_string()])];
+        model.done(ticket.number, blocked(blockers.clone()));
+        assert_eq!(*model.phase(), Phase::Blocked(blockers));
+    }
+
+    #[test]
+    fn a_pacman_failure_can_be_tried_again_but_a_bug_cannot() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        let failed = PacmanError::Failed {
+            code: Some(1),
+            stderr: "boom".to_string(),
+        };
+        model.done(ticket.number, Err(failed));
+        assert!(
+            matches!(model.phase(), Phase::Failed { can_retry: true, text }
+            if text.title == "pacman couldn't work out what to install")
+        );
+        let ticket = model.try_again().unwrap();
+        assert_eq!(ticket.number, 2);
+        assert!(!ticket.check_lists);
+        model.done(ticket.number, Err(PacmanError::TooManyRounds { limit: 5 }));
+        assert!(matches!(
+            model.phase(),
+            Phase::Failed {
+                can_retry: false,
+                ..
+            }
+        ));
+        assert_eq!(model.try_again(), None);
+    }
+
+    #[test]
+    fn questions_become_steps_that_start_at_pacmans_default() {
+        let model = asking(vec![
+            provider("java-runtime", &["jre-openjdk", "jre21-openjdk"], 1),
+            group("plasma", &[("kwin", None), ("kate", Some("1-1"))]),
+            installed("zsh", false),
+            installed("vlc", true),
+        ]);
+        let drafts: Vec<&Draft> = model.steps().iter().map(|s| &s.draft).collect();
+        assert_eq!(
+            drafts,
+            [
+                &Draft::Provider(1),
+                &Draft::Members(vec![true, false]),
+                &Draft::Installed { reinstall: false },
+                &Draft::Differs,
+            ]
+        );
+        assert_eq!(model.current(), 0);
+        assert!(model.steps().iter().all(|s| s.round == 0));
+    }
+
+    #[test]
+    fn the_input_holds_every_answer_given() {
+        let mut model = asking(vec![
+            provider("java-runtime", &["jre-openjdk", "jre21-openjdk"], 0),
+            group(
+                "plasma",
+                &[("kwin", None), ("kate", Some("1-1")), ("konsole", None)],
+            ),
+        ]);
+        model.choose(1);
+        model.go_on();
+        model.toggle(2);
+        let input = model.input();
+        assert_eq!(input.targets, [pkg("dbeaver")]);
+        assert_eq!(
+            input.provider_answers,
+            [ProviderAnswer {
+                dependency: "java-runtime".to_string(),
+                chosen: pkg("jre21-openjdk"),
+            }]
+        );
+        assert_eq!(
+            input.group_answers,
+            [GroupAnswer {
+                group: "plasma".to_string(),
+                members: vec![pkg("kwin")],
+            }]
+        );
+        assert_eq!(input.round, 1);
+    }
+
+    #[test]
+    fn leaving_an_installed_package_removes_it_and_reinstalling_names_it() {
+        let mut model = asking(vec![installed("dbeaver", false)]);
+        assert!(model.input().targets.contains(&pkg("dbeaver")));
+        assert!(model.input().reinstall.is_empty());
+        // choose(0) = leave it, choose(1) = reinstall
+        model.choose(1);
+        assert_eq!(model.input().reinstall, [pkg("dbeaver")]);
+        assert_eq!(model.input().targets, [pkg("dbeaver")]);
+        model.choose(0);
+        assert!(model.input().targets.is_empty());
+        assert!(model.input().reinstall.is_empty());
+    }
+
+    #[test]
+    fn an_installed_package_of_another_version_is_left_out() {
+        let model = asking(vec![installed("dbeaver", true)]);
+        assert!(model.input().targets.is_empty());
+    }
+
+    #[test]
+    fn next_goes_through_the_steps_and_sends_one_resolve_after_the_last() {
+        let mut model = asking(vec![
+            provider("a", &["a1", "a2"], 0),
+            provider("b", &["b1", "b2"], 0),
+        ]);
+        assert_eq!(model.go_on(), None);
+        assert_eq!(model.current(), 1);
+        let ticket = model.go_on().unwrap();
+        assert_eq!(ticket.number, 2);
+        assert!(!ticket.check_lists);
+        assert_eq!(ticket.input.round, 1);
+        assert_eq!(ticket.input.provider_answers.len(), 2);
+        assert_eq!(*model.phase(), Phase::Working);
+    }
+
+    #[test]
+    fn a_new_round_adds_steps_after_the_answered_ones() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        let ticket = model.go_on().unwrap();
+        model.done(
+            ticket.number,
+            asks(vec![
+                provider("b", &["b1", "b2"], 1),
+                provider("c", &["c1", "c2"], 0),
+            ]),
+        );
+        assert_eq!(*model.phase(), Phase::Asking);
+        assert_eq!(model.steps().len(), 3);
+        assert_eq!(model.current(), 1);
+        let rounds: Vec<u32> = model.steps().iter().map(|s| s.round).collect();
+        assert_eq!(rounds, [0, 1, 1]);
+    }
+
+    #[test]
+    fn going_back_keeps_the_answers() {
+        let mut model = asking(vec![
+            provider("a", &["a1", "a2"], 0),
+            provider("b", &["b1", "b2"], 0),
+        ]);
+        model.choose(1);
+        model.go_on();
+        assert_eq!(model.back(), Back::Stayed);
+        assert_eq!(model.current(), 0);
+        assert_eq!(model.steps()[0].draft, Draft::Provider(1));
+    }
+
+    #[test]
+    fn back_on_the_first_question_leaves_the_install() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        assert_eq!(model.back(), Back::Closed);
+        assert!(!model.is_open());
+    }
+
+    #[test]
+    fn changing_an_earlier_answer_drops_the_later_rounds() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        let ticket = model.go_on().unwrap();
+        model.done(ticket.number, asks(vec![provider("b", &["b1", "b2"], 0)]));
+        model.choose(1);
+        assert_eq!(model.steps().len(), 2);
+        // back to round 0, change the answer: the round-1 step and its answer are gone
+        model.back();
+        model.choose(1);
+        assert_eq!(model.steps().len(), 1);
+        assert_eq!(model.input().provider_answers.len(), 1);
+        assert_eq!(model.input().round, 1);
+    }
+
+    #[test]
+    fn repeating_an_answer_keeps_the_later_rounds() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        let ticket = model.go_on().unwrap();
+        model.done(ticket.number, asks(vec![provider("b", &["b1", "b2"], 0)]));
+        model.back();
+        model.choose(0);
+        assert_eq!(model.steps().len(), 2);
+    }
+
+    #[test]
+    fn a_group_cannot_continue_with_no_members_ticked() {
+        let mut model = asking(vec![group("plasma", &[("kwin", None), ("kate", None)])]);
+        model.select_none();
+        assert_eq!(model.steps()[0].draft, Draft::Members(vec![false, false]));
+        assert_eq!(model.go_on(), None);
+        assert_eq!(*model.phase(), Phase::Asking);
+        model.select_all();
+        assert_eq!(model.steps()[0].draft, Draft::Members(vec![true, true]));
+        assert!(model.go_on().is_some());
+    }
+
+    #[test]
+    fn installed_members_are_never_ticked() {
+        let mut model = asking(vec![group(
+            "plasma",
+            &[("kwin", Some("1-1")), ("kate", None)],
+        )]);
+        model.toggle(0);
+        model.select_all();
+        assert_eq!(model.steps()[0].draft, Draft::Members(vec![false, true]));
+        model.toggle(1);
+        assert_eq!(model.steps()[0].draft, Draft::Members(vec![false, false]));
+    }
+
+    #[test]
+    fn the_only_target_of_another_version_has_no_way_on() {
+        let mut model = asking(vec![installed("dbeaver", true)]);
+        assert_eq!(model.go_on(), None);
+        assert_eq!(*model.phase(), Phase::Asking);
+    }
+
+    #[test]
+    fn an_answer_for_an_old_ticket_is_ignored() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).unwrap();
+        model.cancel();
+        assert!(!model.is_open());
+        // asked again while the first still runs: it waits
+        assert_eq!(model.open(pkg("vlc")), None);
+        // the first one finishes; its answer is dropped, and the waiting one starts
+        let second = model.done(first.number, ready()).unwrap();
+        assert_eq!(second.input.targets, [pkg("vlc")]);
+        assert_eq!(*model.phase(), Phase::Working);
+    }
+
+    #[test]
+    fn a_second_ticket_waits_while_one_runs() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("a")).unwrap();
+        assert_eq!(model.open(pkg("b")), None);
+        assert_eq!(first.number, 1);
+        // the running one is still the only one that ran
+        let waiting = model.done(first.number, ready());
+        assert_eq!(waiting.map(|t| t.number), Some(2));
+    }
+
+    #[test]
+    fn a_third_ticket_replaces_the_waiting_second() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("a")).unwrap();
+        assert_eq!(model.open(pkg("b")), None);
+        assert_eq!(model.open(pkg("c")), None);
+        let next = model.done(first.number, ready()).unwrap();
+        assert_eq!(next.number, 3);
+        assert_eq!(next.input.targets, [pkg("c")]);
+        // never two at once: nothing else waits
+        assert_eq!(model.done(next.number, ready()), None);
+    }
+
+    #[test]
+    fn an_answer_that_is_not_running_changes_nothing() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("a")).unwrap();
+        assert_eq!(model.done(99, ready()), None);
+        assert_eq!(*model.phase(), Phase::Working);
+        model.done(first.number, ready());
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+        // a second answer for the same ticket is ignored
+        model.done(first.number, Ok(WorkAnswer::MustUpdate));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+    }
+
+    #[test]
+    fn going_back_while_working_drops_the_answer() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        let ticket = model.go_on().unwrap();
+        assert_eq!(model.back(), Back::Stayed);
+        assert_eq!(*model.phase(), Phase::Asking);
+        assert_eq!(model.current(), 0);
+        model.done(ticket.number, ready());
+        assert_eq!(*model.phase(), Phase::Asking);
+    }
+
+    #[test]
+    fn back_from_a_result_returns_to_the_last_question_or_leaves() {
+        let mut model = asking(vec![provider("a", &["a1", "a2"], 0)]);
+        let ticket = model.go_on().unwrap();
+        model.done(ticket.number, ready());
+        assert_eq!(model.back(), Back::Stayed);
+        assert_eq!(*model.phase(), Phase::Asking);
+        assert_eq!(model.current(), 0);
+
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, ready());
+        assert_eq!(model.back(), Back::Closed);
+        assert!(!model.is_open());
+    }
+
+    #[test]
+    fn install_instead_starts_again_with_the_replacement() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("cron")).unwrap();
+        let blockers = vec![Blocker::ReplacedBy {
+            requested: pkg("cron"),
+            by: vec![pkg("cronie")],
+        }];
+        model.done(ticket.number, blocked(blockers));
+        let ticket = model.install_instead().unwrap();
+        assert_eq!(ticket.input.targets, [pkg("cronie")]);
+        assert_eq!(ticket.input.round, 0);
+        assert!(!ticket.check_lists);
+        assert_eq!(model.request().targets, [pkg("cronie")]);
+        assert!(model.steps().is_empty());
+    }
+
+    #[test]
+    fn install_instead_needs_exactly_one_replacement() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("cron")).unwrap();
+        let blockers = vec![Blocker::ReplacedBy {
+            requested: pkg("cron"),
+            by: vec![pkg("cronie"), pkg("fcron")],
+        }];
+        model.done(ticket.number, blocked(blockers));
+        assert_eq!(model.install_instead(), None);
+    }
+
+    #[test]
+    fn slow_counts_only_while_a_resolve_is_wanted() {
+        let mut model = InstallModel::new();
+        model.mark_slow();
+        assert!(!model.is_slow());
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.mark_slow();
+        assert!(model.is_slow());
+        model.done(ticket.number, ready());
+        assert!(!model.is_slow());
+    }
+
+    #[test]
+    fn every_new_card_moves_the_focus() {
+        let mut model = InstallModel::new();
+        let start = model.focus_serial();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        let working = model.focus_serial();
+        assert_ne!(start, working);
+        model.done(
+            ticket.number,
+            asks(vec![
+                provider("a", &["a1", "a2"], 0),
+                provider("b", &["b1", "b2"], 0),
+            ]),
+        );
+        let first = model.focus_serial();
+        assert_ne!(working, first);
+        model.go_on();
+        assert_ne!(first, model.focus_serial());
+    }
+}
