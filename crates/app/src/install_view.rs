@@ -56,6 +56,16 @@ pub struct InstalledRow {
     pub version: String,
 }
 
+/// Which element takes the keyboard focus when a card appears.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusTarget {
+    /// The radio group, or the first checkbox.
+    List,
+    #[default]
+    Primary,
+    Secondary,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct InstallView {
     pub open: bool,
@@ -98,6 +108,7 @@ pub struct InstallView {
     /// Behind the "Technical details" toggle.
     pub technical: Vec<String>,
     pub focus_serial: u32,
+    pub focus: FocusTarget,
 }
 
 pub fn install_view(model: &InstallModel) -> InstallView {
@@ -1045,6 +1056,47 @@ mod tests {
         let mut model = InstallModel::new();
         model.open_group("plasma");
         assert_eq!(install_view(&model).heading, "Install plasma");
+    }
+
+    #[test]
+    fn focus_goes_to_the_list_or_else_the_first_usable_button() {
+        let list = |questions| install_view(&asking("dbeaver", questions)).focus;
+        assert_eq!(
+            list(vec![provider("a", &["a1", "a2"], 0)]),
+            FocusTarget::List
+        );
+        assert_eq!(list(vec![installed("zsh", false)]), FocusTarget::List);
+        assert_eq!(list(vec![group(&[("a", None)])]), FocusTarget::List);
+        // nothing to pick in a group of installed members: the only button
+        assert_eq!(
+            list(vec![group(&[("a", Some("1-1"))])]),
+            FocusTarget::Secondary
+        );
+        // a button that is off cannot take it
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
+        assert_eq!(install_view(&model).focus, FocusTarget::Secondary);
+        assert_eq!(
+            install_view(&asking("vlc", vec![installed("vlc", true)])).focus,
+            FocusTarget::Secondary
+        );
+        assert_eq!(
+            install_view(&asking(
+                "dbeaver",
+                vec![installed("vlc", true), provider("a", &["a1", "a2"], 0)]
+            ))
+            .focus,
+            FocusTarget::Primary
+        );
+        let renamed = blocked(
+            "cron",
+            vec![Blocker::ReplacedBy {
+                requested: pkg("cron"),
+                by: vec![pkg("cronie")],
+            }],
+        );
+        assert_eq!(install_view(&renamed).focus, FocusTarget::Primary);
     }
 
     #[test]
