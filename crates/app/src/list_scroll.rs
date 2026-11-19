@@ -144,6 +144,18 @@ mod tests {
     }
 
     #[test]
+    fn a_long_choice_list_in_a_bounded_box_follows_the_focused_row() {
+        // The install screens' lists: 44px rows plus a 1px separator = 45px, in a box that shows 3 rows (135px).
+        // 62 group members (the real `plasma`) must all be reachable by Tab.
+        const PITCH: f32 = 45.0;
+        assert_eq!(scroll_to_show(2, PITCH, 135.0, 0.0), 0.0);
+        assert_eq!(scroll_to_show(3, PITCH, 135.0, 0.0), 45.0);
+        assert_eq!(scroll_to_show(61, PITCH, 135.0, 0.0), 62.0 * PITCH - 135.0);
+        // Shift+Tab back to the top row
+        assert_eq!(scroll_to_show(0, PITCH, 135.0, 2_655.0), 0.0);
+    }
+
+    #[test]
     fn content_y_is_the_negative_of_the_offset() {
         assert_eq!(offset_to_content_y(300.0), -300.0);
         assert_eq!(offset_to_content_y(0.0), 0.0);
