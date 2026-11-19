@@ -19,6 +19,7 @@
 
 mod error;
 mod partial;
+mod print;
 mod qi;
 mod qq;
 mod qu;
@@ -33,6 +34,7 @@ mod testing;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
+pub use print::{PrintedPackage, parse_print};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
 pub use qu::{PendingUpdate, parse_qu};
