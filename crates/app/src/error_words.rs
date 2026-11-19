@@ -131,6 +131,20 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
+        // The install screens (WBS 6.2) will show these; the words are plain placeholders until they are designed.
+        PacmanError::TooManyRounds { .. } => ErrorText {
+            title: "This install needs too many questions".to_string(),
+            body: "Tidewise stopped asking. Nothing was changed. Choose fewer packages at once and try again."
+                .to_string(),
+            technical: error.to_string(),
+        },
+        PacmanError::BadDbPath { .. } | PacmanError::Inconsistent { .. } => ErrorText {
+            title: "Tidewise couldn't work out what to install".to_string(),
+            body: "pacman's answers didn't add up, so Tidewise did not go on. Nothing was changed. \
+                   This is a bug in Tidewise, not something you did. Please report it."
+                .to_string(),
+            technical: error.to_string(),
+        },
     }
 }
 
@@ -235,5 +249,22 @@ mod tests {
             "pacman's answer looked wrong, so Tidewise can't tell how new your \
              package lists are."
         );
+    }
+
+    #[test]
+    fn the_install_resolver_errors_have_words_and_keep_the_technical_line() {
+        for error in [
+            PacmanError::TooManyRounds { limit: 5 },
+            PacmanError::BadDbPath {
+                reason: "not absolute",
+            },
+            PacmanError::Inconsistent {
+                reason: "a provider stays unnamed",
+            },
+        ] {
+            let text = error_text(&error, Doing::LookingUp);
+            assert!(!text.title.is_empty() && !text.body.is_empty());
+            assert_eq!(text.technical, error.to_string());
+        }
     }
 }

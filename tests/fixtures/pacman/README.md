@@ -57,6 +57,8 @@ full package list. Every package named here, including names in `Required By`, `
 | `print-broken-truncated.txt` | *hand-made*: first 2 lines of `print-plasma.txt` plus the first 22 bytes of line 3 | **Deliberately broken.** Ends inside a package name, no final newline. The parser must report an error, not panic |
 | `print-bad-byte.bin` | *hand-made*: `print-cron.txt` with the `i` of `cronie` changed to `0xFF` | A stray non-UTF-8 byte inside a name. `.bin` because it is not valid text; tests decode lossily, as `run.rs` does, so the name must be refused |
 | `sg-broken.txt` | *hand-made*: two good `sg-plasma.txt` lines, a line with no member, a line with two spaces, one more good line | **Deliberately broken.** The parser must report the first bad line, not panic |
+| `print-renamed-iptables-nft.txt` | `LC_ALL=C pacman -S --print --print-format '%r/%n %v %s' -- iptables-nft </dev/null` (WBS 6.1) | A **plain name that is no package any more**: pacman answers with `core/iptables` (which `Provides` and `Replaces` `iptables-nft`). A `repo/name` target for it would not come back under its own name |
+| `si-iptables.txt` | `LC_ALL=C pacman -Si core/iptables` | The package that replaced it: `Provides : iptables-nft …`, `Replaces : iptables-nft` |
 
 ## Refreshing
 

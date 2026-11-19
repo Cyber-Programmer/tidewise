@@ -1,0 +1,19 @@
+Repository      : core
+Name            : iptables
+Version         : 1:1.8.13-1
+Description     : Linux kernel packet control tool (using nft interface)
+Architecture    : x86_64
+URL             : https://www.netfilter.org/projects/iptables/index.html
+Licenses        : GPL-2.0-only
+Groups          : None
+Provides        : iptables-nft  libip4tc.so=2-64  libip6tc.so=2-64  libipq.so=0-64  libxtables.so=12-64  arptables  ebtables
+Depends On      : bash  glibc  libmnl  libnetfilter_conntrack  libnfnetlink  libnftnl  libpcap  nftables
+Optional Deps   : None
+Conflicts With  : arptables  ebtables
+Replaces        : iptables-nft
+Download Size   : 421.14 KiB
+Installed Size  : 2407.91 KiB
+Packager        : Felix Yan <felixonmars@archlinux.org>
+Build Date      : Thu Apr  9 14:36:39 2026
+Validated By    : SHA-256 Sum  Signature
+
