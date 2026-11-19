@@ -142,10 +142,14 @@ impl World {
         }
     }
 
+    /// Adds `index` after its dependencies. All targets are in the transaction before any dependency is resolved
+    /// (the container fixtures `print-b-vprov-*-with-hello` show it): a dependency that a target satisfies is
+    /// satisfied, and that target is added first.
     fn add_to_list(
         &self,
         index: usize,
         list: &mut Vec<usize>,
+        targets: &[usize],
         unsatisfied: &mut Vec<(String, String)>,
     ) {
         if list.contains(&index) {
@@ -153,14 +157,25 @@ impl World {
         }
         let pkg = &self.pkgs[index];
         for dependency in &pkg.depends {
-            let in_list = list
-                .iter()
-                .any(|&i| Self::satisfies(dependency, &self.pkgs[i].name, &self.pkgs[i].provides));
+            let satisfied_by = |i: &usize| {
+                Self::satisfies(dependency, &self.pkgs[*i].name, &self.pkgs[*i].provides)
+            };
+            if list.iter().any(satisfied_by) {
+                continue;
+            }
             let installed = self
                 .installed
                 .iter()
                 .any(|(name, _, provides)| Self::satisfies(dependency, name, provides));
-            if in_list || installed {
+            if installed {
+                continue;
+            }
+            if let Some(target) = targets
+                .iter()
+                .copied()
+                .find(|i| *i != index && satisfied_by(i))
+            {
+                self.add_to_list(target, list, targets, unsatisfied);
                 continue;
             }
             match self
@@ -168,7 +183,7 @@ impl World {
                 .iter()
                 .position(|p| Self::satisfies(dependency, &p.name, &p.provides))
             {
-                Some(provider) => self.add_to_list(provider, list, unsatisfied),
+                Some(provider) => self.add_to_list(provider, list, targets, unsatisfied),
                 None => unsatisfied.push((dependency.clone(), pkg.name.clone())),
             }
         }
@@ -221,11 +236,15 @@ impl Facts for World {
             );
         }
         wanted.extend(targets.iter().cloned());
+        let mut indexes = Vec::new();
         for target in &wanted {
             match self.find(target) {
-                Some(index) => self.add_to_list(index, &mut list, &mut unsatisfied),
+                Some(index) => indexes.push(index),
                 None => not_found.push(target.rsplit('/').next().unwrap().to_string()),
             }
+        }
+        for &index in &indexes {
+            self.add_to_list(index, &mut list, &indexes, &mut unsatisfied);
         }
         if !not_found.is_empty() {
             return Ok(DryRun::Failed(PrintFailure::NotFound(not_found)));
@@ -564,10 +583,15 @@ fn an_answered_provider_is_named_after_the_targets_in_the_dry_run() {
         [("prov-b", Role::Provider), ("needs-virt", Role::Target)]
     );
     assert_eq!(plan.providers, [answer("virt", "prov-b")]);
-    // The last dry run is the one the helper will redo: targets first, then the chosen providers.
-    assert_eq!(
-        world.runs.borrow().last().unwrap().1,
-        ["test/needs-virt", "test/prov-b"]
+    // The list was made by the dry run the helper will redo: targets first, then the chosen providers.
+    assert!(
+        world
+            .runs
+            .borrow()
+            .iter()
+            .any(|(_, names)| names == &["test/needs-virt", "test/prov-b"]),
+        "{:?}",
+        world.runs.borrow()
     );
 }
 
@@ -590,20 +614,29 @@ fn a_versioned_dependency_offers_only_the_providers_pacman_accepts_with_the_othe
         the_provider_question(&found),
         ("vvirt", vec!["vprov-2", "vprov-3"], 0)
     );
-    let candidate_runs: Vec<Vec<String>> = world
-        .runs
-        .borrow()
-        .iter()
-        .map(|(_, names)| names.clone())
-        .filter(|names| names.iter().any(|n| n.starts_with("test/vprov-")))
-        .collect();
-    assert!(!candidate_runs.is_empty());
-    for names in candidate_runs {
+    // Every candidate is judged by a dry run of ALL the user's targets plus the candidate. (A second run of the
+    // candidate alone tells what it brings along by itself; it is the only run that omits the other targets.)
+    let runs: Vec<Vec<String>> = world.runs.borrow().iter().map(|(_, n)| n.clone()).collect();
+    for candidate in ["vprov-1", "vprov-2", "vprov-3"] {
+        let spec = format!("test/{candidate}");
+        let judged = runs.iter().any(|names| {
+            names.contains(&spec)
+                && names.contains(&"test/hello".to_string())
+                && names.contains(&"test/needs-vvirt".to_string())
+        });
         assert!(
-            names.contains(&"test/hello".to_string())
-                && names.contains(&"test/needs-vvirt".to_string()),
-            "a candidate run without the other targets: {names:?}"
+            judged,
+            "{candidate} was never judged with the other targets: {runs:?}"
         );
+        for names in runs.iter().filter(|names| names.contains(&spec)) {
+            let alone = names.len() == 1;
+            let with_everything = names.contains(&"test/hello".to_string())
+                && names.contains(&"test/needs-vvirt".to_string());
+            assert!(
+                alone || with_everything,
+                "a candidate run without the other targets: {names:?}"
+            );
+        }
     }
 }
 
@@ -667,13 +700,34 @@ fn a_shared_library_provided_by_soname_is_never_a_provider_choice() {
 
 #[test]
 fn the_same_dry_run_is_never_asked_twice_in_one_call() {
+    // With an answer, the judging run of the chosen provider and the final run are the same dry run.
     let world = World::base();
-    let _ = resolve_with(&want(&["needs-vvirt", "hello"]), &world);
+    let mut input = want(&["needs-virt", "hello"]);
+    input.provider_answers = vec![answer("virt", "prov-b")];
+    let _ = plan(resolve_with(&input, &world));
     let runs = world.runs.borrow();
     let mut seen = std::collections::HashSet::new();
     for run in runs.iter() {
         assert!(seen.insert(run.clone()), "asked twice: {run:?}");
     }
+    assert!(runs.len() >= 2, "{runs:?}");
+}
+
+#[test]
+fn the_package_list_folder_is_part_of_what_a_cached_dry_run_is_for() {
+    let world = World::base();
+    let mut engine = Engine::new(&world, Some(PathBuf::from("/var/lib/pacman/")));
+    let targets = ["test/hello".to_string()];
+    engine.dry_run(false, &targets).unwrap();
+    engine.dry_run(false, &targets).unwrap();
+    assert_eq!(world.runs.borrow().len(), 1, "same folder: one pacman run");
+    engine.dbpath = Some(PathBuf::from("/run/tidewise-helper-lists/"));
+    engine.dry_run(false, &targets).unwrap();
+    assert_eq!(
+        world.runs.borrow().len(),
+        2,
+        "another folder: a new pacman run"
+    );
 }
 
 // ---- rounds ---------------------------------------------------------------------------------------------------
