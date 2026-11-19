@@ -117,8 +117,10 @@ pub struct DetailsView {
     pub provides: Vec<String>,
     /// "and 2 more", or empty.
     pub provides_more: String,
-    /// "Looking only. Installing comes in Tidewise 0.1."
+    /// "Looking only. Installing comes in Tidewise 0.1." Under the Install button: what happens next.
     pub note: String,
+    /// "Install vlc" for a found package that is not installed; empty otherwise (no button).
+    pub install_label: String,
     /// The amber error words when `kind` is `Failed`.
     pub error: Option<ErrorView>,
     /// Behind the "Technical details" toggle, one line each.
@@ -171,6 +173,7 @@ impl Default for DetailsView {
             provides: Vec::new(),
             provides_more: String::new(),
             note: String::new(),
+            install_label: String::new(),
             error: None,
             technical: Vec::new(),
         }
@@ -923,6 +926,42 @@ mod tests {
                 "Package lists  : 2025-10-14 00:00:00 UTC"
             ]
         );
+    }
+
+    #[test]
+    fn a_found_package_that_is_not_installed_offers_install() {
+        let mut model = answered("vlc", vec![extra("vlc", "Video player")]);
+        give_details(&mut model, details_of("vlc"));
+        let details = view(&model).details.unwrap();
+        assert_eq!(details.install_label, "Install vlc");
+        assert_eq!(
+            details.note,
+            "Next you'll see everything that would be installed, and the total size, \
+             before anything happens."
+        );
+    }
+
+    #[test]
+    fn no_install_button_while_loading_for_a_missing_package_or_an_installed_one() {
+        let mut vlc = extra("vlc", "Video player");
+        let loading = answered("vlc", vec![vlc.clone()]);
+        assert_eq!(view(&loading).details.unwrap().install_label, "");
+        vlc.installed_version = Some("1.0-1".to_string());
+        let mut installed = answered("vlc", vec![vlc]);
+        give_details(&mut installed, details_of("vlc"));
+        let details = view(&installed).details.unwrap();
+        assert_eq!(details.kind, DetailsKind::Found);
+        assert_eq!(details.install_label, "");
+        let mut gone = answered("vlc", vec![extra("vlc", "Video player")]);
+        let package = gone.request_details().unwrap();
+        gone.details_done(
+            &package,
+            Ok(DetailsLookup {
+                found: Vec::new(),
+                not_found: vec![package.clone()],
+            }),
+        );
+        assert_eq!(view(&gone).details.unwrap().install_label, "");
     }
 
     #[test]
