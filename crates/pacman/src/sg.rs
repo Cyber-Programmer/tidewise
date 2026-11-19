@@ -1,6 +1,9 @@
 //! Parser for `pacman -Sg <group>`: the members of a package group (WBS 6.1).
 
+use std::collections::HashSet;
+
 use crate::ParseError;
+use tidewise_names::is_valid_package_name;
 
 /// One line of `-Sg`: a package that belongs to a group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,11 +16,35 @@ pub struct GroupMember {
 ///
 /// Empty text means no members. The first bad line (counted from 1) is an error.
 pub fn parse_sg(text: &str) -> Result<Vec<GroupMember>, ParseError> {
-    // Red-phase shim (6.1): refuses everything. The real parser comes in the next commit.
-    let _ = text;
-    Err(ParseError::BadGroupLine {
-        line_number: 0,
-        line: String::new(),
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = text.strip_suffix('\n').unwrap_or(text);
+    let mut members: Vec<GroupMember> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (index, line) in body.split('\n').enumerate() {
+        let member = parse_line(line)
+            // A member listed twice would be shown twice in the picker.
+            .filter(|member| seen.insert(member.name.clone()))
+            .ok_or_else(|| ParseError::BadGroupLine {
+                line_number: index + 1,
+                line: line.to_string(),
+            })?;
+        members.push(member);
+    }
+    Ok(members)
+}
+
+/// One line, or `None` if it is not exactly `group member` with one space.
+fn parse_line(line: &str) -> Option<GroupMember> {
+    let (group, name) = line.split_once(' ')?;
+    // Group names follow the package-name rule in practice (`kf6`, `xorg-drivers`, `base-devel`).
+    if !is_valid_package_name(group) || !is_valid_package_name(name) {
+        return None;
+    }
+    Some(GroupMember {
+        group: group.to_string(),
+        name: name.to_string(),
     })
 }
 
