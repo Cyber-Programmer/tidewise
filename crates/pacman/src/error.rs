@@ -142,6 +142,13 @@ pub enum PacmanError {
     /// A package list (`<repo>.db`) exists but its details could not be read (for example permission denied).
     /// A list that is simply not there is not an error: see `SyncLists::missing`.
     ReadLists { path: PathBuf, source: io::Error },
+    /// The install resolver was asked for a question round after the last one it allows (`MAX_ROUNDS`).
+    TooManyRounds { limit: u32 },
+    /// The package-list folder given to the resolver is not an absolute path made of plain text.
+    BadDbPath { reason: &'static str },
+    /// pacman's answers did not add up (for example a provider that stays unnamed). A bug or a changed pacman,
+    /// never the user's doing; the plan is not offered.
+    Inconsistent { reason: &'static str },
 }
 
 impl From<ParseError> for PacmanError {
@@ -174,6 +181,14 @@ impl fmt::Display for PacmanError {
                     path.display()
                 )
             }
+            Self::TooManyRounds { limit } => write!(
+                f,
+                "the install needs more than {limit} rounds of questions; it was stopped"
+            ),
+            Self::BadDbPath { reason } => write!(f, "package list folder not accepted: {reason}"),
+            Self::Inconsistent { reason } => {
+                write!(f, "pacman's answers do not add up: {reason}")
+            }
         }
     }
 }
@@ -186,7 +201,10 @@ impl std::error::Error for PacmanError {
             Self::NotFound { .. }
             | Self::Failed { .. }
             | Self::BadQuery { .. }
-            | Self::BadPackageRef { .. } => None,
+            | Self::BadPackageRef { .. }
+            | Self::TooManyRounds { .. }
+            | Self::BadDbPath { .. }
+            | Self::Inconsistent { .. } => None,
         }
     }
 }
