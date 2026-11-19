@@ -16,10 +16,6 @@ use crate::{
     PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, parse_qi, parse_qu, parse_si,
     parse_ss,
 };
-#[expect(
-    unused_imports,
-    reason = "the red-phase shims below do not parse yet (6.1)"
-)]
 use crate::{parse_print, parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -371,41 +367,70 @@ pub fn resolve(input: &ResolveInput) -> Result<Resolution, PacmanError> {
 
 /// Puts `--dbpath <folder>` before the `--` that starts the names (an option after it would be a package name),
 /// or at the end when there are no names. No folder: unchanged.
-fn with_dbpath(dbpath: Option<&Path>, args: Vec<String>) -> Vec<String> {
-    // Red-phase shim (6.1): changes nothing.
-    let _ = dbpath;
+///
+/// The folder was checked by `resolve` (absolute, plain text, no control character) before any command is built.
+fn with_dbpath(dbpath: Option<&Path>, mut args: Vec<String>) -> Vec<String> {
+    if let Some(folder) = dbpath {
+        let at = args
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(args.len());
+        args.splice(
+            at..at,
+            [
+                "--dbpath".to_string(),
+                folder.to_string_lossy().into_owned(),
+            ],
+        );
+    }
     args
 }
 
 /// `-S --print` (`-Su` for "Update system and install") of these targets, one `repo/name version size` line each.
+/// Never `-y`: installing against the current lists, or a full update, never a refresh followed by an install.
 fn dry_run_args(update: bool, targets: &[String]) -> Vec<String> {
-    // Red-phase shim (6.1).
-    let _ = (update, targets);
-    Vec::new()
+    let mut args: Vec<String> = [
+        if update { "-Su" } else { "-S" },
+        "--print",
+        "--print-format",
+        "%r/%n %v %s",
+    ]
+    .iter()
+    .map(|arg| arg.to_string())
+    .collect();
+    if !targets.is_empty() {
+        args.push("--".to_string());
+        args.extend(targets.iter().cloned());
+    }
+    args
 }
 
 /// `-Sg <group>`.
 fn group_args(group: &str) -> Vec<String> {
-    // Red-phase shim (6.1).
-    let _ = group;
-    Vec::new()
+    vec!["-Sg".to_string(), "--".to_string(), group.to_string()]
 }
 
 /// `-Ss -- '^name$'`: the packages with exactly this name, or providing it.
 fn exact_search_args(name: &str) -> Vec<String> {
-    // Red-phase shim (6.1).
-    let _ = name;
-    Vec::new()
+    vec![
+        "-Ss".to_string(),
+        "--".to_string(),
+        format!("^{}$", escape_ere(name)),
+    ]
 }
 
 /// A dry run's result: the list, or one of the failures the resolver has a state for. Anything else is an error
 /// with pacman's own words.
 fn dry_run_from_output(output: &Output) -> Result<DryRun, PacmanError> {
-    // Red-phase shim (6.1).
-    let _ = output;
-    Err(PacmanError::Inconsistent {
-        reason: "not built yet",
-    })
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if output.status.code() == Some(1) {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(failure) = parse_print_failure(&stdout, &stderr) {
+            return Ok(DryRun::Failed(failure));
+        }
+    }
+    check_exit(output)?;
+    Ok(DryRun::Listed(parse_print(&stdout)?))
 }
 
 /// The members of a group, or `None` when pacman says the group does not exist.
@@ -413,11 +438,17 @@ fn group_from_output(
     output: &Output,
     group: &str,
 ) -> Result<Option<Vec<GroupMember>>, PacmanError> {
-    // Red-phase shim (6.1).
-    let _ = (output, group);
-    Err(PacmanError::Inconsistent {
-        reason: "not built yet",
-    })
+    // Only pacman's exact sentence for this group, on stderr alone, means "no such group".
+    let unknown = format!("error: package group '{group}' was not found");
+    if output.status.code() == Some(1)
+        && output.stdout.is_empty()
+        && String::from_utf8_lossy(&output.stderr).trim_end_matches('\n') == unknown
+    {
+        return Ok(None);
+    }
+    check_exit(output)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(Some(parse_sg(&stdout)?))
 }
 
 /// The resolver's view of pacman. `run` starts the program with these arguments (a function, so a test can record
@@ -572,8 +603,17 @@ mod resolver_tests {
     fn an_update_and_install_dry_run_is_su_and_never_sy() {
         let args = dry_run_args(true, &strings(&["extra/zsh"]));
         assert_eq!(args.first().map(String::as_str), Some("-Su"));
-        assert!(!args.iter().any(|a| a.contains('y')) || args.contains(&"%r/%n %v %s".to_string()));
-        assert_eq!(args.iter().filter(|a| a.as_str() == "-Sy").count(), 0);
+        // Golden rule 4: no refresh (-y, -yy, -Sy, -Syu) anywhere in a command that installs.
+        assert!(
+            args.iter()
+                .all(|arg| !arg.starts_with("-Sy") && !arg.starts_with("-y"))
+        );
+        let plain = dry_run_args(false, &strings(&["extra/zsh"]));
+        assert!(
+            plain
+                .iter()
+                .all(|arg| !arg.starts_with("-Sy") && !arg.starts_with("-y"))
+        );
     }
 
     #[test]
