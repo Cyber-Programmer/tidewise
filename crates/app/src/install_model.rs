@@ -898,6 +898,16 @@ mod tests {
     }
 
     #[test]
+    fn leaving_out_a_package_that_is_not_the_only_target_still_goes_on() {
+        // dbeaver is the request; the question is about another package (say a dependency's installed copy)
+        let model = asking(vec![
+            installed("vlc", true),
+            provider("a", &["a1", "a2"], 0),
+        ]);
+        assert!(model.can_go_on());
+    }
+
+    #[test]
     fn an_answer_for_an_old_ticket_is_ignored() {
         let mut model = InstallModel::new();
         let first = model.open(pkg("dbeaver")).unwrap();
