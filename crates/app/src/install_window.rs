@@ -120,9 +120,17 @@ pub fn start(window: &MainWindow) -> Install {
         }
     });
     let handle = screen.clone();
-    bridge.on_toggle(move |index| {
-        if let Ok(index) = usize::try_from(index) {
-            handle.borrow_mut().model.toggle(index);
+    bridge.on_toggle(move |row| {
+        // The row's number is not the member's: installed members have no row.
+        let member = usize::try_from(row).ok().and_then(|row| {
+            let state = handle.borrow();
+            state
+                .shown_options
+                .get(row)
+                .and_then(|option| option.member)
+        });
+        if let Some(member) = member {
+            handle.borrow_mut().model.toggle(member);
         }
         repaint(&handle);
     });

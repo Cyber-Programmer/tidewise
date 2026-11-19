@@ -305,12 +305,13 @@ fn asking(view: &mut InstallView, model: &InstallModel, step: &Step, label: &str
                 .filter(|member| member.installed_version.is_none())
                 .count();
             let have = members.len() - missing;
-            for (member, on) in members.iter().zip(ticked) {
+            for (position, (member, on)) in members.iter().zip(ticked).enumerate() {
                 match &member.installed_version {
                     None => view.options.push(OptionView {
                         label: member.package.name.clone(),
                         meta: member.version.clone(),
                         checked: *on,
+                        member: Some(position),
                         ..OptionView::default()
                     }),
                     Some(version) => view.installed_rows.push(InstalledRow {

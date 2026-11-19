@@ -203,7 +203,7 @@ export component RadioList inherits Rectangle {
     }
 }
 
-// One checkbox row: its own Tab stop; Space or a click flips it.
+// One checkbox row: its own Tab stop; Space, Enter or a click flips it.
 export component CheckRow inherits Rectangle {
     in property <ChoiceOption> option;
     in property <bool> autofocus: false;
@@ -252,7 +252,7 @@ export component CheckRow inherits Rectangle {
             root.toggled();
         }
         key-pressed(event) => {
-            if (event.text == " ") {
+            if (event.text == " " || event.text == Key.Return) {
                 root.toggled();
                 return accept;
             } else if (event.text == Key.UpArrow) {
