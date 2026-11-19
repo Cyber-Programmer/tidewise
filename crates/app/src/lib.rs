@@ -16,6 +16,7 @@ pub mod apps_model;
 pub mod apps_view;
 pub mod error_words;
 pub mod install_model;
+pub mod install_view;
 pub mod list_scroll;
 pub mod search_model;
 pub mod search_view;
