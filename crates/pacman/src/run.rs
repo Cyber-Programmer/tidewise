@@ -9,11 +9,18 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
-    DetailsLookup, InstalledPackage, PackageRef, PacmanError, ParseError, PendingUpdate,
-    SearchResult, SyncLists, parse_qi, parse_qu, parse_si, parse_ss,
+    DetailsLookup, GroupMember, InstalledPackage, PackageRef, PacmanError, ParseError,
+    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, parse_qi, parse_qu, parse_si,
+    parse_ss,
 };
+#[expect(
+    unused_imports,
+    reason = "the red-phase shims below do not parse yet (6.1)"
+)]
+use crate::{parse_print, parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// Absolute path: never looked up through `PATH`.
@@ -343,6 +350,406 @@ fn dbpath_from_output(output: &Output) -> Result<PathBuf, PacmanError> {
 fn repos_from_output(output: &Output) -> Result<Vec<String>, PacmanError> {
     check_exit(output)?;
     Ok(parse_repo_list(&String::from_utf8_lossy(&output.stdout))?)
+}
+
+// ---- the install resolver's pacman (WBS 6.1) ----------------------------------------------------------------
+
+/// Resolves an install request against the real pacman: see `ResolveInput` and `Resolution`.
+///
+/// Read-only, no root: dry runs (`-S --print`), `-Sg`, `-Ss`, `-Si`, `-Qi` and `-Qu`, every one with
+/// `--dbpath <input.dbpath>` when a folder is given. Blocks until pacman finishes (no timeout yet).
+pub fn resolve(input: &ResolveInput) -> Result<Resolution, PacmanError> {
+    let facts = RealFacts {
+        dbpath: input.dbpath.clone(),
+        run: &|args: &[String]| {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            run(Path::new(PACMAN), &args)
+        },
+    };
+    resolve_with(input, &facts)
+}
+
+/// Puts `--dbpath <folder>` before the `--` that starts the names (an option after it would be a package name),
+/// or at the end when there are no names. No folder: unchanged.
+fn with_dbpath(dbpath: Option<&Path>, args: Vec<String>) -> Vec<String> {
+    // Red-phase shim (6.1): changes nothing.
+    let _ = dbpath;
+    args
+}
+
+/// `-S --print` (`-Su` for "Update system and install") of these targets, one `repo/name version size` line each.
+fn dry_run_args(update: bool, targets: &[String]) -> Vec<String> {
+    // Red-phase shim (6.1).
+    let _ = (update, targets);
+    Vec::new()
+}
+
+/// `-Sg <group>`.
+fn group_args(group: &str) -> Vec<String> {
+    // Red-phase shim (6.1).
+    let _ = group;
+    Vec::new()
+}
+
+/// `-Ss -- '^name$'`: the packages with exactly this name, or providing it.
+fn exact_search_args(name: &str) -> Vec<String> {
+    // Red-phase shim (6.1).
+    let _ = name;
+    Vec::new()
+}
+
+/// A dry run's result: the list, or one of the failures the resolver has a state for. Anything else is an error
+/// with pacman's own words.
+fn dry_run_from_output(output: &Output) -> Result<DryRun, PacmanError> {
+    // Red-phase shim (6.1).
+    let _ = output;
+    Err(PacmanError::Inconsistent {
+        reason: "not built yet",
+    })
+}
+
+/// The members of a group, or `None` when pacman says the group does not exist.
+fn group_from_output(
+    output: &Output,
+    group: &str,
+) -> Result<Option<Vec<GroupMember>>, PacmanError> {
+    // Red-phase shim (6.1).
+    let _ = (output, group);
+    Err(PacmanError::Inconsistent {
+        reason: "not built yet",
+    })
+}
+
+/// The resolver's view of pacman. `run` starts the program with these arguments (a function, so a test can record
+/// them); every command line goes through `with_dbpath`.
+struct RealFacts<'a> {
+    dbpath: Option<PathBuf>,
+    run: &'a dyn Fn(&[String]) -> Result<Output, PacmanError>,
+}
+
+impl RealFacts<'_> {
+    fn go(&self, args: Vec<String>) -> Result<Output, PacmanError> {
+        (self.run)(&with_dbpath(self.dbpath.as_deref(), args))
+    }
+}
+
+impl Facts for RealFacts<'_> {
+    fn dry_run(&self, update: bool, targets: &[String]) -> Result<DryRun, PacmanError> {
+        dry_run_from_output(&self.go(dry_run_args(update, targets))?)
+    }
+
+    fn details(&self, refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError> {
+        let request = details_request(refs)?;
+        if request.is_empty() {
+            return Ok(DetailsLookup {
+                found: Vec::new(),
+                not_found: Vec::new(),
+            });
+        }
+        lookup_from_output(&self.go(details_args(&request))?, &request)
+    }
+
+    fn search_exact(&self, name: &str) -> Result<Vec<SearchResult>, PacmanError> {
+        results_from_output(&self.go(exact_search_args(name))?)
+    }
+
+    fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError> {
+        group_from_output(&self.go(group_args(group))?, group)
+    }
+
+    fn installed(&self) -> Result<Vec<InstalledPackage>, PacmanError> {
+        packages_from_output(&self.go(vec!["-Qi".to_string()])?)
+    }
+
+    fn pending_updates(&self) -> Result<Vec<PendingUpdate>, PacmanError> {
+        updates_from_output(&self.go(vec!["-Qu".to_string()])?)
+    }
+}
+
+#[cfg(test)]
+mod resolver_tests {
+    use super::*;
+    use crate::PrintFailure;
+    use std::cell::RefCell;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    const SG_PLASMA: &str = include_str!("../../../tests/fixtures/pacman/sg-plasma.txt");
+    const CRON: &str = include_str!("../../../tests/fixtures/pacman/print-cron.txt");
+    const NOT_FOUND: &str =
+        include_str!("../../../tests/fixtures/pacman/print-not-found.stderr.txt");
+    const NO_FIT_OUT: &str =
+        include_str!("../../../tests/fixtures/pacman/container/print-no-fit.stdout.txt");
+    const NO_FIT_ERR: &str =
+        include_str!("../../../tests/fixtures/pacman/container/print-no-fit.stderr.txt");
+    const GROUP_NOT_FOUND: &str =
+        include_str!("../../../tests/fixtures/pacman/sg-not-found.stderr.txt");
+
+    fn fake_output(code: i32, stdout: &str, stderr: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    // --- with_dbpath ---
+
+    #[test]
+    fn the_folder_goes_before_the_double_dash() {
+        let args = with_dbpath(
+            Some(Path::new("/run/lists/")),
+            strings(&["-S", "--print", "--", "extra/zsh"]),
+        );
+        assert_eq!(
+            args,
+            strings(&[
+                "-S",
+                "--print",
+                "--dbpath",
+                "/run/lists/",
+                "--",
+                "extra/zsh"
+            ])
+        );
+    }
+
+    #[test]
+    fn without_names_the_folder_goes_last() {
+        let args = with_dbpath(Some(Path::new("/run/lists/")), strings(&["-Qu"]));
+        assert_eq!(args, strings(&["-Qu", "--dbpath", "/run/lists/"]));
+    }
+
+    #[test]
+    fn no_folder_changes_nothing() {
+        let args = strings(&["-S", "--", "extra/zsh"]);
+        assert_eq!(with_dbpath(None, args.clone()), args);
+    }
+
+    #[test]
+    fn a_name_that_looks_like_the_option_stays_after_the_double_dash() {
+        // Only the first `--` counts: what follows is names, whatever it looks like.
+        let args = with_dbpath(
+            Some(Path::new("/run/lists/")),
+            strings(&["-S", "--", "--dbpath", "extra/zsh"]),
+        );
+        assert_eq!(
+            args,
+            strings(&[
+                "-S",
+                "--dbpath",
+                "/run/lists/",
+                "--",
+                "--dbpath",
+                "extra/zsh"
+            ])
+        );
+    }
+
+    // --- the argument lists ---
+
+    #[test]
+    fn a_dry_run_prints_repo_name_version_and_size() {
+        assert_eq!(
+            dry_run_args(false, &strings(&["extra/zsh", "extra/bc"])),
+            strings(&[
+                "-S",
+                "--print",
+                "--print-format",
+                "%r/%n %v %s",
+                "--",
+                "extra/zsh",
+                "extra/bc"
+            ])
+        );
+    }
+
+    #[test]
+    fn an_update_and_install_dry_run_is_su_and_never_sy() {
+        let args = dry_run_args(true, &strings(&["extra/zsh"]));
+        assert_eq!(args.first().map(String::as_str), Some("-Su"));
+        assert!(!args.iter().any(|a| a.contains('y')) || args.contains(&"%r/%n %v %s".to_string()));
+        assert_eq!(args.iter().filter(|a| a.as_str() == "-Sy").count(), 0);
+    }
+
+    #[test]
+    fn a_group_is_asked_after_the_double_dash() {
+        assert_eq!(group_args("plasma"), strings(&["-Sg", "--", "plasma"]));
+    }
+
+    #[test]
+    fn an_exact_search_matches_the_whole_name_and_escapes_it() {
+        assert_eq!(
+            exact_search_args("java-runtime"),
+            strings(&["-Ss", "--", "^java-runtime$"])
+        );
+        assert_eq!(
+            exact_search_args("libfoo.so+x"),
+            strings(&["-Ss", "--", "^libfoo\\.so\\+x$"])
+        );
+    }
+
+    // --- every command line carries the folder ---
+
+    #[test]
+    fn every_pacman_call_of_the_resolver_carries_the_folder_before_any_double_dash() {
+        let recorded: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let run = |args: &[String]| -> Result<Output, PacmanError> {
+            recorded.borrow_mut().push(args.to_vec());
+            Ok(fake_output(0, "", ""))
+        };
+        let facts = RealFacts {
+            dbpath: Some(PathBuf::from("/run/lists/")),
+            run: &run,
+        };
+        let item = PackageRef {
+            repo: "extra".to_string(),
+            name: "zsh".to_string(),
+        };
+        let _ = facts.dry_run(false, &strings(&["extra/zsh"]));
+        let _ = facts.dry_run(true, &strings(&["extra/zsh"]));
+        let _ = facts.details(&[item]);
+        let _ = facts.search_exact("cron");
+        let _ = facts.group_members("plasma");
+        let _ = facts.installed();
+        let _ = facts.pending_updates();
+        let recorded = recorded.borrow();
+        assert_eq!(recorded.len(), 7, "{recorded:?}");
+        for args in recorded.iter() {
+            let at = args.iter().position(|a| a == "--dbpath");
+            let names_at = args.iter().position(|a| a == "--");
+            assert!(at.is_some(), "no --dbpath in {args:?}");
+            assert_eq!(
+                args.get(at.unwrap_or(0) + 1).map(String::as_str),
+                Some("/run/lists/")
+            );
+            if let (Some(at), Some(names_at)) = (at, names_at) {
+                assert!(at < names_at, "--dbpath after the names in {args:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_folder_means_no_dbpath_option_anywhere() {
+        let recorded: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let run = |args: &[String]| -> Result<Output, PacmanError> {
+            recorded.borrow_mut().push(args.to_vec());
+            Ok(fake_output(0, "", ""))
+        };
+        let facts = RealFacts {
+            dbpath: None,
+            run: &run,
+        };
+        let _ = facts.dry_run(false, &strings(&["extra/zsh"]));
+        let _ = facts.installed();
+        let _ = facts.pending_updates();
+        assert!(recorded.borrow().iter().flatten().all(|a| a != "--dbpath"));
+    }
+
+    // --- reading the answers ---
+
+    #[test]
+    fn a_dry_run_that_worked_is_the_list() {
+        let DryRun::Listed(list) = dry_run_from_output(&fake_output(0, CRON, "")).unwrap() else {
+            panic!("expected a list");
+        };
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1].name, "cronie");
+    }
+
+    #[test]
+    fn a_dry_run_that_failed_in_a_known_way_is_a_state_not_an_error() {
+        let not_found = dry_run_from_output(&fake_output(1, "", NOT_FOUND)).unwrap();
+        assert!(matches!(
+            not_found,
+            DryRun::Failed(PrintFailure::NotFound(_))
+        ));
+        let no_fit = dry_run_from_output(&fake_output(1, NO_FIT_OUT, NO_FIT_ERR)).unwrap();
+        assert!(matches!(
+            no_fit,
+            DryRun::Failed(PrintFailure::Unsatisfiable(_))
+        ));
+    }
+
+    #[test]
+    fn a_dry_run_that_failed_in_an_unknown_way_keeps_pacmans_words() {
+        let lock = "error: failed to init transaction (unable to lock database)\n";
+        let error = dry_run_from_output(&fake_output(1, "", lock))
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&error, PacmanError::Failed { code: Some(1), stderr } if stderr.contains("unable to lock")),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_dry_run_whose_list_cannot_be_read_is_a_parse_error() {
+        let error = dry_run_from_output(&fake_output(0, "extra/zsh 5.9-1\n", ""))
+            .err()
+            .unwrap();
+        assert!(matches!(error, PacmanError::Parse(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_group_is_its_members_or_none_when_pacman_does_not_know_it() {
+        let members = group_from_output(&fake_output(0, SG_PLASMA, ""), "plasma")
+            .unwrap()
+            .unwrap();
+        assert_eq!(members.len(), 68);
+        assert_eq!(
+            group_from_output(&fake_output(1, "", GROUP_NOT_FOUND), "no-such-group-zz").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn only_the_exact_group_not_found_sentence_means_none() {
+        // Another group's name, extra words, or output on stdout are failures.
+        assert!(group_from_output(&fake_output(1, "", GROUP_NOT_FOUND), "other").is_err());
+        let extra = format!("{GROUP_NOT_FOUND}warning: something\n");
+        assert!(group_from_output(&fake_output(1, "", &extra), "no-such-group-zz").is_err());
+        assert!(
+            group_from_output(
+                &fake_output(1, "plasma x\n", GROUP_NOT_FOUND),
+                "no-such-group-zz"
+            )
+            .is_err()
+        );
+        assert!(
+            group_from_output(&fake_output(2, "", GROUP_NOT_FOUND), "no-such-group-zz").is_err()
+        );
+    }
+
+    // --- the public function ---
+
+    #[test]
+    fn a_folder_that_is_not_absolute_is_refused_before_pacman_runs() {
+        let input = ResolveInput {
+            targets: vec![PackageRef {
+                repo: "extra".to_string(),
+                name: "zsh".to_string(),
+            }],
+            dbpath: Some(PathBuf::from("relative/lists/")),
+            ..ResolveInput::default()
+        };
+        assert!(matches!(
+            resolve(&input),
+            Err(PacmanError::BadDbPath { .. })
+        ));
+    }
+
+    #[test]
+    fn nothing_to_install_never_starts_pacman() {
+        assert!(matches!(
+            resolve(&ResolveInput::default()),
+            Ok(Resolution::Blocked(_))
+        ));
+    }
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ pub use resolve::{
     Blocker, Candidate, GroupAnswer, GroupChoice, InstallPlan, MAX_ROUNDS, PlanItem,
     ProviderAnswer, Question, Resolution, ResolveInput, Role,
 };
-pub use run::{installed_packages, package_details, pending_updates, search, sync_lists};
+pub use run::{installed_packages, package_details, pending_updates, resolve, search, sync_lists};
 pub use sg::{GroupMember, parse_sg};
 pub use si::{
     Comparison, Dependency, DetailsLookup, OptionalDependency, PackageDetails, PackageRef,

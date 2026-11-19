@@ -10,11 +10,6 @@
 //! several providers of its own), so the caller asks again with the answers so far and `round` raised, at most
 //! `MAX_ROUNDS` times.
 
-#![allow(
-    dead_code,
-    reason = "the wiring to the real pacman comes in the next commit (6.1)"
-)]
-
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -194,6 +189,10 @@ pub(crate) trait Facts {
 }
 
 #[derive(Clone)]
+#[allow(
+    dead_code,
+    reason = "the red-phase shims in run.rs do not build one yet (6.1)"
+)]
 pub(crate) enum DryRun {
     Listed(Vec<PrintedPackage>),
     Failed(PrintFailure),
