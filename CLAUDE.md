@@ -153,12 +153,15 @@ Details in `fuzz/README.md`.
 ```
 cargo fmt --manifest-path fuzz/Cargo.toml --check       # root fmt doesn't cover fuzz/
 cargo +nightly fuzz build
-mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress fuzz/corpus/gate
+mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/print fuzz/corpus/sg fuzz/corpus/print_failure fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress fuzz/corpus/gate
 cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run si fuzz/corpus/si tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run qu fuzz/corpus/qu tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run print fuzz/corpus/print tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run sg fuzz/corpus/sg tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
+cargo +nightly fuzz run print_failure fuzz/corpus/print_failure -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run request fuzz/corpus/request tests/fixtures/helper-protocol -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run output fuzz/corpus/output tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"
 cargo +nightly fuzz run progress fuzz/corpus/progress tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"

@@ -80,3 +80,24 @@ path = "fuzz_targets/gate.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "print"
+path = "fuzz_targets/print.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "print_failure"
+path = "fuzz_targets/print_failure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sg"
+path = "fuzz_targets/sg.rs"
+test = false
+doc = false
+bench = false
