@@ -430,6 +430,12 @@ fn details_view(model: &SearchModel, ranked: &RankedResult) -> DetailsView {
         DetailsState::Found(details) => {
             view.kind = DetailsKind::Found;
             fill_found(&mut view, details);
+            if result.installed_version.is_none() {
+                view.install_label = format!("Install {}", result.name);
+                view.note = "Next you'll see everything that would be installed, and the total \
+                             size, before anything happens."
+                    .to_string();
+            }
             technical.extend(found_technical(details));
         }
     }
