@@ -124,6 +124,54 @@ fn a_named_provider_is_never_asked_and_the_dry_run_never_asks() {
     assert_eq!(installed_version("tidewise-dummy-prov-a"), None);
 }
 
+/// Review 5.8 R-08, golden rule 10 ("providers named explicitly"). The helper's real run uses `--noconfirm`, the
+/// dry run does not; each takes pacman's default for a provider nobody named. This shows they take the *same* one, for
+/// an unversioned virtual name, a versioned one (`>=2`, where the default must skip the provider that is too old) and
+/// a provider that brings another provider of the same name along. The install resolver names every provider anyway
+/// (`crates/pacman/src/resolve.rs`); this is the backstop for the day one is missed.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_unnamed_provider_is_the_same_package_in_the_dry_run_and_the_real_run() {
+    assert_inside_the_test_container();
+    for (target, expected_default) in [
+        ("needs-virtual", "tidewise-dummy-prov-a"),
+        ("needs-vvirtual", "tidewise-dummy-vprov-2"),
+        ("needs-chain", "tidewise-dummy-chain-a"),
+        ("needs-one", "tidewise-dummy-one-prov"),
+    ] {
+        reset_world();
+        let name = qualified(target);
+        let dry = pacman(&["-S", "--print", "--print-format", "%n", "--", &name]);
+        assert!(dry.status.success(), "{target}");
+        let mut listed: Vec<String> = String::from_utf8_lossy(&dry.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect();
+        assert!(
+            listed.iter().any(|n| n == expected_default),
+            "{target}: the dry run took {listed:?}, expected {expected_default}"
+        );
+
+        let real = pacman(&["-S", "--noconfirm", "--ask", "66", "--", &name]);
+        assert!(
+            real.status.success(),
+            "{target}: {}",
+            String::from_utf8_lossy(&real.stderr)
+        );
+        let mut installed: Vec<String> = pacman_stdout(&["-Qq"])
+            .lines()
+            .filter(|n| n.starts_with("tidewise-dummy-"))
+            .map(str::to_string)
+            .collect();
+        listed.sort();
+        installed.sort();
+        assert_eq!(
+            installed, listed,
+            "{target}: the real run installed something other than the dry run listed"
+        );
+    }
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_replacement_is_declined_by_ask_66_and_happens_without_it() {

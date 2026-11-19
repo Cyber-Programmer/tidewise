@@ -1,4 +1,12 @@
-//! What real pacman does with providers (WBS 6.1, Step 0 measurement; becomes permanent tests as the resolver is built).
+//! What real pacman does with providers (WBS 6.1), as permanent tests.
+//!
+//! The install resolver (`crates/pacman/src/resolve.rs`) rests on facts about pacman that its unit tests only
+//! *model*: that the "N providers available" prompt filters by version, that a dry run never asks and takes the first
+//! provider, that naming a provider that does not fit makes pacman add another one, and what pacman prints when
+//! nothing satisfies a dependency. The saved outputs in `tests/fixtures/pacman/container/` are what the unit tests
+//! read. This file runs the same commands again in the container and compares, so a pacman that changes its words
+//! fails here instead of silently making the fixtures (and the resolver's reading of them) stale (review 5.8 R-09,
+//! the cheap first step). R-08 is in `pacman_prompts.rs`.
 //!
 //! Real pacman, as root, inside the Tidewise test container only (`tests/container/run.sh`).
 
@@ -13,7 +21,7 @@ fn qualified(name: &str) -> String {
 }
 
 /// Runs pacman with `answers` written to its stdin (then stdin is closed), like a person typing.
-fn pacman_typing(args: &[&str], answers: &str) -> (i32, String, String) {
+fn pacman_typing(args: &[String], answers: &str) -> (String, String) {
     let mut child = Command::new("/usr/bin/pacman")
         .args(args)
         .env_clear()
@@ -32,177 +40,223 @@ fn pacman_typing(args: &[&str], answers: &str) -> (i32, String, String) {
         .unwrap();
     let output = child.wait_with_output().unwrap();
     (
-        output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
 }
 
-fn show(title: &str, args: &[&str], answers: &str) {
-    let (code, out, err) = pacman_typing(args, answers);
-    println!(
-        "@@@ {title}\n@@@ args: {args:?} stdin: {answers:?}\n@@@ exit {code}\n@@@ stdout\n{out}@@@ stderr\n{err}@@@ end"
+macro_rules! fixture {
+    ($stem:literal, $stream:literal) => {
+        include_str!(concat!(
+            "../../fixtures/pacman/container/",
+            $stem,
+            ".",
+            $stream,
+            ".txt"
+        ))
+    };
+}
+
+/// Runs the command and compares what it printed with the saved fixture(s).
+fn same_as_fixture(stem: &str, args: &[String], answers: &str, stdout: &str, stderr: Option<&str>) {
+    let (out, err) = pacman_typing(args, answers);
+    assert_eq!(
+        out, stdout,
+        "stdout of {stem} ({args:?}) is not the fixture any more"
     );
+    if let Some(expected) = stderr {
+        assert_eq!(
+            err, expected,
+            "stderr of {stem} ({args:?}) is not the fixture any more"
+        );
+    }
+}
+
+fn strings(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| arg.to_string()).collect()
+}
+
+/// `pacman -S --print --print-format '%r/%n %v' -- <targets>` as the fixtures were captured.
+fn print_args(targets: &[String]) -> Vec<String> {
+    let mut args = strings(&["-S", "--print", "--print-format", "%r/%n %v", "--"]);
+    args.extend_from_slice(targets);
+    args
+}
+
+fn real_args(target: &str) -> Vec<String> {
+    strings(&["-S", "--", target])
 }
 
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn measure_provider_prompts() {
+fn the_provider_fixtures_are_what_pacman_prints_now() {
     assert_inside_the_test_container();
     reset_world();
-    let versioned = qualified("needs-vvirtual");
-    let single = qualified("needs-one");
-    let plain = qualified("needs-virtual");
 
-    // 1. The prompt for a versioned dependency (>=2): which providers does it list? Answer 1, then no at "Proceed?".
-    show(
-        "prompt, tidewise-vvirtual>=2",
-        &["-S", "--", &versioned],
+    // The prompt filters by version: for `>=2` it offers vprov-2 and vprov-3 and not vprov-1.
+    same_as_fixture(
+        "provider-prompt-versioned",
+        &real_args(&qualified("needs-vvirtual")),
         "1\nn\n",
+        fixture!("provider-prompt-versioned", "stdout"),
+        Some(fixture!("provider-prompt-versioned", "stderr")),
     );
-    // The same without a version: all providers should be listed.
-    show(
-        "prompt, tidewise-virtual (no version)",
-        &["-S", "--", &plain],
+    // Without a version rule every provider is offered.
+    same_as_fixture(
+        "provider-prompt-unversioned",
+        &real_args(&qualified("needs-virtual")),
         "1\nn\n",
+        fixture!("provider-prompt-unversioned", "stdout"),
+        None,
     );
-    // 2. A single provider: does pacman ask at all?
-    show("prompt, single provider", &["-S", "--", &single], "n\n");
-    // 3. What --print picks.
-    for target in [&versioned, &single, &plain] {
-        show(
-            "dry run, unnamed",
-            &["-S", "--print", "--print-format", "%r/%n %v", "--", target],
-            "",
-        );
-    }
-    // 4. EOF on stdin at the prompt.
-    show(
-        "prompt, stdin closed at once",
-        &["-S", "--", &versioned],
-        "",
-    );
-    // 5. --noconfirm without --print: which one is taken (not installed: only the dry run of it is kept, then reset).
-    show(
-        "noconfirm, unnamed, versioned",
-        &["-S", "--noconfirm", "--ask", "66", "--", &versioned],
-        "",
-    );
-    // Step 5 installed packages. Nothing may be installed for the option (b) cases: an installed provider that fits
-    // would answer the dependency by itself and there would be no provider question.
-    reset_world();
-    println!(
-        "@@@ installed before option (b): {:?}",
-        pacman_stdout(&["-Qq"])
-            .lines()
-            .filter(|l| l.contains("tidewise-dummy"))
-            .collect::<Vec<_>>()
-    );
-    // 6. Option (b), nothing installed that fits: one dry run per candidate, with the user's other target (hello) in
-    // the same request. A candidate that does not satisfy `>=2` must make pacman add another provider.
-    for candidate in ["vprov-1", "vprov-2", "vprov-3"] {
-        show(
-            &format!("option (b): needs-vvirtual + hello + {candidate}"),
-            &[
-                "-S",
-                "--print",
-                "--print-format",
-                "%r/%n %v",
-                "--",
-                &versioned,
-                &qualified("hello"),
-                &qualified(candidate),
-            ],
-            "",
-        );
-    }
-    // 7. Why did naming vprov-1 add nothing? Other orders, no other target, and a real run that is answered "n".
-    let (v, p1) = (qualified("needs-vvirtual"), qualified("vprov-1"));
-    fn with<'a>(targets: &[&'a str]) -> Vec<&'a str> {
-        let mut args = vec!["-S", "--print", "--print-format", "%r/%n %v", "--"];
-        args.extend_from_slice(targets);
-        args
-    }
-    show(
-        "probe: vprov-1 first, then needs-vvirtual",
-        &with(&[&p1, &v]),
-        "",
-    );
-    show(
-        "probe: needs-vvirtual + vprov-1 only",
-        &with(&[&v, &p1]),
-        "",
-    );
-    show(
-        "probe: real run, needs-vvirtual + vprov-1, answer n",
-        &["-S", "--", &v, &p1],
+    // One provider: no question at all.
+    same_as_fixture(
+        "provider-prompt-single",
+        &real_args(&qualified("needs-one")),
         "n\n",
+        fixture!("provider-prompt-single", "stdout"),
+        Some(fixture!("provider-prompt-single", "stderr")),
     );
-    show("probe: only vprov-1 (provider of =1)", &with(&[&p1]), "");
-    println!(
-        "@@@ installed after: {}",
-        pacman_stdout(&["-Q"])
-            .lines()
-            .filter(|l| l.contains("tidewise-dummy"))
-            .collect::<Vec<_>>()
-            .join(", ")
+    // The dry run never asks: it takes the first matching provider.
+    for (stem, target, expected) in [
+        (
+            "print-vvirtual-unnamed",
+            "needs-vvirtual",
+            fixture!("print-vvirtual-unnamed", "stdout"),
+        ),
+        (
+            "print-one-unnamed",
+            "needs-one",
+            fixture!("print-one-unnamed", "stdout"),
+        ),
+        (
+            "print-virtual-unnamed",
+            "needs-virtual",
+            fixture!("print-virtual-unnamed", "stdout"),
+        ),
+    ] {
+        same_as_fixture(stem, &print_args(&[qualified(target)]), "", expected, None);
+    }
+    // EOF at the prompt: the default, then "Proceed?" reads EOF and pacman ends.
+    same_as_fixture(
+        "provider-prompt-eof",
+        &real_args(&qualified("needs-vvirtual")),
+        "",
+        fixture!("provider-prompt-eof", "stdout"),
+        Some(fixture!("provider-prompt-eof", "stderr")),
     );
+    // The real run answers the same question with the default and installs what the dry run listed.
+    same_as_fixture(
+        "noconfirm-vvirtual-unnamed",
+        &strings(&[
+            "-S",
+            "--noconfirm",
+            "--ask",
+            "66",
+            "--",
+            &qualified("needs-vvirtual"),
+        ]),
+        "",
+        fixture!("noconfirm-vvirtual-unnamed", "stdout"),
+        None,
+    );
+
+    // Option (b), with nothing installed: naming a provider that does not fit makes pacman add another one.
+    reset_world();
+    for (stem, candidate, expected) in [
+        (
+            "print-b-vprov-1-with-hello",
+            "vprov-1",
+            fixture!("print-b-vprov-1-with-hello", "stdout"),
+        ),
+        (
+            "print-b-vprov-2-with-hello",
+            "vprov-2",
+            fixture!("print-b-vprov-2-with-hello", "stdout"),
+        ),
+        (
+            "print-b-vprov-3-with-hello",
+            "vprov-3",
+            fixture!("print-b-vprov-3-with-hello", "stdout"),
+        ),
+    ] {
+        let targets = [
+            qualified("needs-vvirtual"),
+            qualified("hello"),
+            qualified(candidate),
+        ];
+        same_as_fixture(stem, &print_args(&targets), "", expected, None);
+    }
 }
 
-/// Two more cases (6.1): a dependency nothing in the repositories can satisfy, and a provider whose own dependency
-/// provides the same name (the edge case of the option (b) fit rule).
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn measure_provider_edge_cases() {
+fn the_failure_and_chain_fixtures_are_what_pacman_prints_now() {
     assert_inside_the_test_container();
     reset_world();
-    let print = |targets: &[&str]| {
-        let mut args = vec!["-S", "--print", "--print-format", "%r/%n %v", "--"];
-        args.extend_from_slice(targets);
-        args.iter().map(|a| a.to_string()).collect::<Vec<_>>()
-    };
-    let run = |title: &str, args: Vec<String>, answers: &str| {
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        show(title, &args, answers);
-    };
 
-    // 1. Nothing satisfies the dependency (the only provider is too old).
+    // Nothing satisfies the dependency (the only provider is too old): the same two lines, whatever else is named.
     let stale = qualified("needs-stale");
-    run("no fit: dry run", print(&[&stale]), "");
-    run(
-        "no fit: real run",
-        vec!["-S".into(), "--".into(), stale.clone()],
+    same_as_fixture(
+        "print-no-fit",
+        &print_args(std::slice::from_ref(&stale)),
+        "",
+        fixture!("print-no-fit", "stdout"),
+        Some(fixture!("print-no-fit", "stderr")),
+    );
+    same_as_fixture(
+        "prompt-no-fit",
+        &real_args(&stale),
         "n\n",
+        fixture!("prompt-no-fit", "stdout"),
+        Some(fixture!("prompt-no-fit", "stderr")),
     );
-    run(
-        "no fit: the old provider named too",
-        print(&[&stale, &qualified("stale-prov")]),
+    same_as_fixture(
+        "print-no-fit-old-provider-named",
+        &print_args(&[stale, qualified("stale-prov")]),
         "",
-    );
-    run(
-        "no fit: dry run, unknown dependency name",
-        print(&[&qualified("needs-nothing")]),
-        "",
+        fixture!("print-no-fit-old-provider-named", "stdout"),
+        Some(fixture!("print-no-fit-old-provider-named", "stderr")),
     );
 
-    // 2. chain-a provides tidewise-chain and depends on chain-b, which provides it too.
+    // chain-a provides tidewise-chain and needs chain-b, which provides it too.
     let needs = qualified("needs-chain");
-    run(
-        "chain: prompt",
-        vec!["-S".into(), "--".into(), needs.clone()],
+    same_as_fixture(
+        "provider-prompt-chain",
+        &real_args(&needs),
         "1\nn\n",
+        fixture!("provider-prompt-chain", "stdout"),
+        None,
     );
-    run("chain: unnamed", print(&[&needs]), "");
-    for candidate in ["chain-a", "chain-b", "chain-c"] {
-        run(
-            &format!("chain: {candidate} named, with hello"),
-            print(&[&needs, &qualified("hello"), &qualified(candidate)]),
-            "",
-        );
-        run(
-            &format!("chain: {candidate} alone"),
-            print(&[&qualified(candidate)]),
-            "",
-        );
+    same_as_fixture(
+        "print-chain-unnamed",
+        &print_args(std::slice::from_ref(&needs)),
+        "",
+        fixture!("print-chain-unnamed", "stdout"),
+        None,
+    );
+    for (stem, candidate, with_hello, alone) in [
+        (
+            "chain-a",
+            "chain-a",
+            fixture!("print-chain-a-with-hello", "stdout"),
+            fixture!("print-chain-a-alone", "stdout"),
+        ),
+        (
+            "chain-b",
+            "chain-b",
+            fixture!("print-chain-b-with-hello", "stdout"),
+            fixture!("print-chain-b-alone", "stdout"),
+        ),
+        (
+            "chain-c",
+            "chain-c",
+            fixture!("print-chain-c-with-hello", "stdout"),
+            fixture!("print-chain-c-alone", "stdout"),
+        ),
+    ] {
+        let with = [needs.clone(), qualified("hello"), qualified(candidate)];
+        same_as_fixture(stem, &print_args(&with), "", with_hello, None);
+        same_as_fixture(stem, &print_args(&[qualified(candidate)]), "", alone, None);
     }
 }
