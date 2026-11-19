@@ -12,15 +12,17 @@
 
 #![allow(
     dead_code,
-    reason = "the engine and its wiring to pacman come in the next commits (6.1)"
+    reason = "the wiring to the real pacman comes in the next commit (6.1)"
 )]
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::{
-    DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageRef, PacmanError,
-    PendingUpdate, PrintFailure, PrintedPackage, SearchResult,
+    DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageDetails, PackageRef,
+    PacmanError, PendingUpdate, PrintFailure, PrintedPackage, SearchResult, install_decision,
 };
+use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// Most rounds of questions one install may take. A sixth round is an error, not a sixth dialog.
 pub const MAX_ROUNDS: u32 = 5;
@@ -191,21 +193,571 @@ pub(crate) trait Facts {
     fn pending_updates(&self) -> Result<Vec<PendingUpdate>, PacmanError>;
 }
 
+#[derive(Clone)]
 pub(crate) enum DryRun {
     Listed(Vec<PrintedPackage>),
     Failed(PrintFailure),
 }
+
+/// Most passes of "dry run, find the choices, name the single ones" in one call. Each pass names at least one more
+/// provider, so this is only a stop for a pacman that keeps changing its mind.
+const MAX_PASSES: usize = 8;
+
+/// Most provider answers the helper accepts in one request (`MAX_PROVIDERS` in `helper-protocol`).
+const MAX_PROVIDERS: usize = 100;
 
 /// One resolve call against `facts`.
 pub(crate) fn resolve_with(
     input: &ResolveInput,
     facts: &dyn Facts,
 ) -> Result<Resolution, PacmanError> {
-    // Red-phase shim (6.1): does nothing. The engine comes in the next commit.
-    let _ = (input, facts);
-    Err(PacmanError::Inconsistent {
-        reason: "the resolver is not built yet",
-    })
+    check_input(input)?;
+    if input.targets.is_empty() && input.groups.is_empty() {
+        return Ok(Resolution::Blocked(vec![Blocker::NothingToInstall]));
+    }
+    Engine::new(facts, input.dbpath.clone()).run(input)
+}
+
+/// Refuses names that could not come from pacman, before anything runs.
+fn check_input(input: &ResolveInput) -> Result<(), PacmanError> {
+    let bad = |reason| Err(PacmanError::BadPackageRef { reason });
+    let refs = input
+        .targets
+        .iter()
+        .chain(&input.reinstall)
+        .chain(input.group_answers.iter().flat_map(|a| &a.members))
+        .chain(input.provider_answers.iter().map(|a| &a.chosen));
+    for item in refs {
+        if !is_valid_repo_name(&item.repo) {
+            return bad("the repository name is not valid");
+        }
+        if !is_valid_package_name(&item.name) {
+            return bad("the package name is not valid");
+        }
+    }
+    let names = input
+        .groups
+        .iter()
+        .chain(input.group_answers.iter().map(|a| &a.group))
+        .chain(input.provider_answers.iter().map(|a| &a.dependency));
+    for name in names {
+        if !is_valid_package_name(name) {
+            return bad("a group or dependency name is not valid");
+        }
+    }
+    if let Some(path) = &input.dbpath {
+        let text = path.to_str().ok_or(PacmanError::BadDbPath {
+            reason: "it is not plain text",
+        })?;
+        if !text.starts_with('/') || text.chars().any(char::is_control) {
+            return Err(PacmanError::BadDbPath {
+                reason: "it is not an absolute path",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// What one call remembers so that no dry run, details lookup or search is asked twice. Dropped at the end of the
+/// call ("per round"). The key of a dry run holds everything that decides its answer: the package-list folder, the
+/// update flag and the full target list in order (targets, group members and answers included).
+struct Engine<'a> {
+    facts: &'a dyn Facts,
+    dbpath: Option<PathBuf>,
+    runs: HashMap<RunKey, DryRun>,
+    details: HashMap<PackageRef, PackageDetails>,
+    unknown: HashSet<PackageRef>,
+    searches: HashMap<String, Vec<SearchResult>>,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct RunKey {
+    dbpath: Option<PathBuf>,
+    update: bool,
+    targets: Vec<String>,
+}
+
+fn spec(item: &PackageRef) -> String {
+    format!("{}/{}", item.repo, item.name)
+}
+
+fn blockers_of(failure: PrintFailure) -> Vec<Blocker> {
+    match failure {
+        PrintFailure::NotFound(names) => vec![Blocker::NotFound(names)],
+        PrintFailure::UnknownRepo(repo) => vec![Blocker::UnknownRepo(repo)],
+        PrintFailure::Unsatisfiable(list) => list
+            .into_iter()
+            .map(|item| Blocker::NothingProvides {
+                dependency: item.dependency,
+                required_by: item.required_by,
+            })
+            .collect(),
+    }
+}
+
+/// Shared libraries are provided by `soname` (`libz.so=1-64`): every package that links one would be a "provider
+/// choice" otherwise. They are never a choice the user can make.
+fn is_soname(name: &str) -> bool {
+    name.ends_with(".so") || name.contains(".so.")
+}
+
+impl<'a> Engine<'a> {
+    fn new(facts: &'a dyn Facts, dbpath: Option<PathBuf>) -> Self {
+        Self {
+            facts,
+            dbpath,
+            runs: HashMap::new(),
+            details: HashMap::new(),
+            unknown: HashSet::new(),
+            searches: HashMap::new(),
+        }
+    }
+
+    fn dry_run(&mut self, update: bool, targets: &[String]) -> Result<DryRun, PacmanError> {
+        let key = RunKey {
+            dbpath: self.dbpath.clone(),
+            update,
+            targets: targets.to_vec(),
+        };
+        if let Some(known) = self.runs.get(&key) {
+            return Ok(known.clone());
+        }
+        let result = self.facts.dry_run(update, targets)?;
+        self.runs.insert(key, result.clone());
+        Ok(result)
+    }
+
+    /// Looks up the packages not known yet, in one call.
+    fn load_details(&mut self, refs: &[PackageRef]) -> Result<(), PacmanError> {
+        let mut missing: Vec<PackageRef> = Vec::new();
+        for item in refs {
+            if !self.details.contains_key(item)
+                && !self.unknown.contains(item)
+                && !missing.contains(item)
+            {
+                missing.push(item.clone());
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let lookup = self.facts.details(&missing)?;
+        for details in lookup.found {
+            let item = PackageRef {
+                repo: details.repo.clone(),
+                name: details.name.clone(),
+            };
+            self.details.insert(item, details);
+        }
+        self.unknown.extend(lookup.not_found);
+        Ok(())
+    }
+
+    fn details_of(&self, item: &PackageRef) -> Option<&PackageDetails> {
+        self.details.get(item)
+    }
+
+    fn search(&mut self, name: &str) -> Result<Vec<SearchResult>, PacmanError> {
+        if let Some(known) = self.searches.get(name) {
+            return Ok(known.clone());
+        }
+        let found = self.facts.search_exact(name)?;
+        self.searches.insert(name.to_string(), found.clone());
+        Ok(found)
+    }
+
+    fn needs(&self, questions: Vec<Question>, round: u32) -> Result<Resolution, PacmanError> {
+        if round >= MAX_ROUNDS {
+            return Err(PacmanError::TooManyRounds { limit: MAX_ROUNDS });
+        }
+        Ok(Resolution::NeedsAnswers(questions))
+    }
+
+    fn run(&mut self, input: &ResolveInput) -> Result<Resolution, PacmanError> {
+        let installed: HashMap<String, String> = self
+            .facts
+            .installed()?
+            .into_iter()
+            .map(|package| (package.name, package.version))
+            .collect();
+        let pending = self.facts.pending_updates()?;
+        let decision = install_decision(&pending);
+        let update = matches!(decision, InstallDecision::MustUpdateSystem { .. });
+        let updating: HashSet<&str> = pending
+            .iter()
+            .filter(|item| !item.ignored)
+            .map(|item| item.name.as_str())
+            .collect();
+
+        // Groups and installed targets come first: the providers depend on which packages are wanted.
+        let mut open = Vec::new();
+        let mut requested: Vec<PackageRef> = Vec::new();
+        for item in &input.targets {
+            if !requested.contains(item) {
+                requested.push(item.clone());
+            }
+        }
+        for group in &input.groups {
+            if let Some(answer) = input.group_answers.iter().find(|a| a.group == *group) {
+                for member in &answer.members {
+                    if !requested.contains(member) {
+                        requested.push(member.clone());
+                    }
+                }
+                continue;
+            }
+            match self.group_question(update, group, &installed)? {
+                Ok(question) => open.push(question),
+                Err(blocked) => return Ok(blocked),
+            }
+        }
+        for item in &input.targets {
+            let Some(installed_version) = installed.get(&item.name) else {
+                continue;
+            };
+            if input.reinstall.contains(item) || updating.contains(item.name.as_str()) {
+                continue;
+            }
+            self.load_details(std::slice::from_ref(item))?;
+            if let Some(details) = self.details_of(item) {
+                open.push(Question::AlreadyInstalled {
+                    target: item.clone(),
+                    installed_version: installed_version.clone(),
+                    repo_version: details.version.clone(),
+                    differs_without_update: *installed_version != details.version,
+                });
+            }
+        }
+        if !open.is_empty() {
+            return self.needs(open, input.round);
+        }
+
+        let base: Vec<String> = requested.iter().map(spec).collect();
+        let mut providers =
+            self.kept_answers(update, &base, &input.provider_answers, &installed)?;
+        for _ in 0..MAX_PASSES {
+            let mut names = base.clone();
+            names.extend(providers.iter().map(|a| spec(&a.chosen)));
+            let list = match self.dry_run(update, &names)? {
+                DryRun::Listed(list) => list,
+                DryRun::Failed(failure) => return Ok(Resolution::Blocked(blockers_of(failure))),
+            };
+            let mut asked: Vec<PackageRef> = requested.clone();
+            asked.extend(providers.iter().map(|a| a.chosen.clone()));
+            let listed: Vec<PackageRef> = list.iter().map(printed_ref).collect();
+            self.load_details(&listed)?;
+            if let Some(blocked) = self.requested_missing(&asked, &listed) {
+                return Ok(blocked);
+            }
+
+            let picks = self.picks(&list, &asked, &providers, &installed);
+            if picks.is_empty() {
+                return Ok(Resolution::Ready(self.plan(
+                    decision, &requested, providers, &list, &installed, &updating,
+                )));
+            }
+            let mut questions = Vec::new();
+            for (dependency, default) in picks {
+                let candidates = self.candidates(&dependency)?;
+                let fitting: Vec<SearchResult> = if candidates.len() <= 1 {
+                    candidates
+                } else {
+                    let mut fitting = Vec::new();
+                    for candidate in candidates {
+                        if self.fits(
+                            update,
+                            &base,
+                            &providers,
+                            &dependency,
+                            &PackageRef::from(&candidate),
+                            &installed,
+                        )? {
+                            fitting.push(candidate);
+                        }
+                    }
+                    fitting
+                };
+                match fitting.as_slice() {
+                    [] => providers.push(ProviderAnswer {
+                        dependency,
+                        chosen: default,
+                    }),
+                    [only] => providers.push(ProviderAnswer {
+                        dependency,
+                        chosen: PackageRef::from(only),
+                    }),
+                    _ => {
+                        let default_index = fitting
+                            .iter()
+                            .position(|c| PackageRef::from(c) == default)
+                            .unwrap_or(0);
+                        questions.push(Question::ChooseProvider {
+                            dependency,
+                            candidates: fitting
+                                .iter()
+                                .map(|c| Candidate {
+                                    package: PackageRef::from(c),
+                                    version: c.version.clone(),
+                                    description: c.description.clone(),
+                                })
+                                .collect(),
+                            default: default_index,
+                        });
+                    }
+                }
+            }
+            if !questions.is_empty() {
+                return self.needs(questions, input.round);
+            }
+            if providers.len() > MAX_PROVIDERS {
+                return Err(PacmanError::Inconsistent {
+                    reason: "more provider choices than the helper accepts",
+                });
+            }
+        }
+        Err(PacmanError::Inconsistent {
+            reason: "the provider choices did not settle",
+        })
+    }
+
+    /// The question for a group, or the reason it cannot be asked.
+    fn group_question(
+        &mut self,
+        update: bool,
+        group: &str,
+        installed: &HashMap<String, String>,
+    ) -> Result<Result<Question, Resolution>, PacmanError> {
+        let Some(members) = self.facts.group_members(group)? else {
+            return Ok(Err(Resolution::Blocked(vec![Blocker::UnknownGroup(
+                group.to_string(),
+            )])));
+        };
+        // `-Sg` gives names only; the repository and version come from a dry run of the names.
+        let names: Vec<String> = members.iter().map(|m| m.name.clone()).collect();
+        let list = match self.dry_run(update, &names)? {
+            DryRun::Listed(list) => list,
+            DryRun::Failed(failure) => {
+                return Ok(Err(Resolution::Blocked(blockers_of(failure))));
+            }
+        };
+        let choices = members
+            .iter()
+            .filter_map(|member| {
+                let printed = list.iter().find(|p| p.name == member.name)?;
+                Some(GroupChoice {
+                    package: printed_ref(printed),
+                    version: printed.version.clone(),
+                    installed_version: installed.get(&member.name).cloned(),
+                })
+            })
+            .collect();
+        Ok(Ok(Question::ChooseGroupMembers {
+            group: group.to_string(),
+            members: choices,
+        }))
+    }
+
+    /// The answers that really satisfy their dependency; the others are dropped, so the question is asked again.
+    fn kept_answers(
+        &mut self,
+        update: bool,
+        base: &[String],
+        answers: &[ProviderAnswer],
+        installed: &HashMap<String, String>,
+    ) -> Result<Vec<ProviderAnswer>, PacmanError> {
+        let mut kept = Vec::new();
+        for (index, answer) in answers.iter().enumerate() {
+            let others: Vec<ProviderAnswer> = answers
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != index)
+                .map(|(_, other)| other.clone())
+                .collect();
+            if self.fits(
+                update,
+                base,
+                &others,
+                &answer.dependency,
+                &answer.chosen,
+                installed,
+            )? {
+                kept.push(answer.clone());
+            }
+        }
+        Ok(kept)
+    }
+
+    /// The packages that could answer a question about `dependency`: those that provide the name.
+    fn candidates(&mut self, dependency: &str) -> Result<Vec<SearchResult>, PacmanError> {
+        let found = self.search(dependency)?;
+        let refs: Vec<PackageRef> = found.iter().map(PackageRef::from).collect();
+        self.load_details(&refs)?;
+        Ok(found
+            .into_iter()
+            .filter(|result| {
+                self.details_of(&PackageRef::from(result))
+                    .is_some_and(|details| details.provides.iter().any(|p| p.name == dependency))
+            })
+            .collect())
+    }
+
+    /// Whether naming `candidate` for `dependency` works, with pacman as the judge: in a dry run of everything else
+    /// asked plus the candidate, every package that provides `dependency` is the candidate or something the candidate
+    /// brings along by itself (its own dry run). Installed packages never count.
+    fn fits(
+        &mut self,
+        update: bool,
+        base: &[String],
+        others: &[ProviderAnswer],
+        dependency: &str,
+        candidate: &PackageRef,
+        installed: &HashMap<String, String>,
+    ) -> Result<bool, PacmanError> {
+        let mut names = base.to_vec();
+        names.extend(others.iter().map(|a| spec(&a.chosen)));
+        names.push(spec(candidate));
+        let DryRun::Listed(with_all) = self.dry_run(update, &names)? else {
+            return Ok(false);
+        };
+        let DryRun::Listed(alone) = self.dry_run(update, &[spec(candidate)])? else {
+            return Ok(false);
+        };
+        let refs: Vec<PackageRef> = with_all.iter().chain(&alone).map(printed_ref).collect();
+        self.load_details(&refs)?;
+        let providers_in = |engine: &Self, list: &[PrintedPackage]| -> Vec<String> {
+            list.iter()
+                .filter(|p| !installed.contains_key(&p.name))
+                .filter(|p| engine.provides(&printed_ref(p), dependency))
+                .map(|p| p.name.clone())
+                .collect()
+        };
+        let mut allowed = providers_in(self, &alone);
+        allowed.push(candidate.name.clone());
+        Ok(providers_in(self, &with_all)
+            .iter()
+            .all(|name| allowed.contains(name)))
+    }
+
+    fn provides(&self, item: &PackageRef, dependency: &str) -> bool {
+        self.details_of(item)
+            .is_some_and(|d| d.provides.iter().any(|p| p.name == dependency))
+    }
+
+    /// The names a dry run satisfied through `Provides` with a package nobody named, where the answer is not given
+    /// yet: `(dependency, the provider pacman took)`. The last provider in the list is the one pacman took for the
+    /// dependency (what it needs comes first).
+    fn picks(
+        &self,
+        list: &[PrintedPackage],
+        asked: &[PackageRef],
+        answers: &[ProviderAnswer],
+        installed: &HashMap<String, String>,
+    ) -> Vec<(String, PackageRef)> {
+        let mut found: Vec<(String, PackageRef)> = Vec::new();
+        for needer in list {
+            let Some(needer_details) = self.details_of(&printed_ref(needer)) else {
+                continue;
+            };
+            for dependency in &needer_details.depends_on {
+                let name = &dependency.name;
+                if is_soname(name)
+                    || answers.iter().any(|a| a.dependency == *name)
+                    || found.iter().any(|(n, _)| n == name)
+                {
+                    continue;
+                }
+                let provider = list.iter().rev().find(|p| {
+                    p.name != needer.name
+                        && p.name != *name
+                        && !installed.contains_key(&p.name)
+                        && !asked.contains(&printed_ref(p))
+                        && self.provides(&printed_ref(p), name)
+                });
+                if let Some(provider) = provider {
+                    found.push((name.clone(), printed_ref(provider)));
+                }
+            }
+        }
+        found
+    }
+
+    /// A requested package that is not in the list under its own name is never silently dropped.
+    fn requested_missing(&self, asked: &[PackageRef], listed: &[PackageRef]) -> Option<Resolution> {
+        let mut blockers = Vec::new();
+        for item in asked.iter().filter(|item| !listed.contains(item)) {
+            let by: Vec<PackageRef> = listed
+                .iter()
+                .filter(|other| !asked.contains(other))
+                .filter(|other| {
+                    self.details_of(other).is_some_and(|d| {
+                        d.provides
+                            .iter()
+                            .chain(&d.replaces)
+                            .any(|p| p.name == item.name)
+                    })
+                })
+                .cloned()
+                .collect();
+            blockers.push(if by.is_empty() {
+                Blocker::MissingFromList {
+                    requested: item.clone(),
+                }
+            } else {
+                Blocker::ReplacedBy {
+                    requested: item.clone(),
+                    by,
+                }
+            });
+        }
+        (!blockers.is_empty()).then_some(Resolution::Blocked(blockers))
+    }
+
+    fn plan(
+        &self,
+        decision: InstallDecision,
+        requested: &[PackageRef],
+        providers: Vec<ProviderAnswer>,
+        list: &[PrintedPackage],
+        installed: &HashMap<String, String>,
+        updating: &HashSet<&str>,
+    ) -> InstallPlan {
+        let mut items = Vec::new();
+        for printed in list {
+            let package = printed_ref(printed);
+            let role = if requested.contains(&package) {
+                Role::Target
+            } else if providers.iter().any(|a| a.chosen == package) {
+                Role::Provider
+            } else if updating.contains(printed.name.as_str()) {
+                Role::Update
+            } else {
+                Role::Dependency
+            };
+            items.push(PlanItem {
+                installed_version: installed.get(&printed.name).cloned(),
+                download_size: printed.download_size,
+                installed_size: self.details_of(&package).map_or(0, |d| d.installed_size),
+                version: printed.version.clone(),
+                package,
+                role,
+            });
+        }
+        InstallPlan {
+            decision,
+            targets: requested.to_vec(),
+            providers,
+            download_total: items.iter().map(|i| i.download_size).sum(),
+            installed_total: items.iter().map(|i| i.installed_size).sum(),
+            items,
+        }
+    }
+}
+
+fn printed_ref(printed: &PrintedPackage) -> PackageRef {
+    PackageRef {
+        repo: printed.repo.clone(),
+        name: printed.name.clone(),
+    }
 }
 
 #[cfg(test)]
