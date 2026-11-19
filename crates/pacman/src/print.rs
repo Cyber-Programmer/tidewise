@@ -1,6 +1,9 @@
 //! Parser for `pacman -S --print --print-format '%r/%n %v %s'`: the list a dry run would install (WBS 6.1).
 
+use std::collections::HashSet;
+
 use crate::ParseError;
+use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// One line of a dry run: a package pacman would download and install.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,12 +21,69 @@ pub struct PrintedPackage {
 /// Every line must be `repo/name version size`. Empty text means nothing to install. The first bad line
 /// (counted from 1), or a package printed twice, is an error.
 pub fn parse_print(text: &str) -> Result<Vec<PrintedPackage>, ParseError> {
-    // Red-phase shim (6.1): refuses everything. The real parser comes in the next commit.
-    let _ = text;
-    Err(ParseError::BadPrintLine {
-        line_number: 0,
-        line: String::new(),
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    // One final newline is pacman's; a second one is a blank line, which is an error.
+    let body = text.strip_suffix('\n').unwrap_or(text);
+    let mut packages: Vec<PrintedPackage> = Vec::new();
+    let mut names: HashSet<String> = HashSet::new();
+    for (index, line) in body.split('\n').enumerate() {
+        let package = parse_line(line).ok_or_else(|| ParseError::BadPrintLine {
+            line_number: index + 1,
+            line: line.to_string(),
+        })?;
+        // A transaction holds one package of each name.
+        if !names.insert(package.name.clone()) {
+            return Err(ParseError::UnexpectedPackage {
+                repo: package.repo,
+                name: package.name,
+            });
+        }
+        packages.push(package);
+    }
+    Ok(packages)
+}
+
+/// One line, or `None` if it is not exactly `repo/name version size`.
+///
+/// It is read from the right: the size and the version never contain a space, so whatever is left is
+/// `repo/name`, even for a repository whose name has a space in it.
+fn parse_line(line: &str) -> Option<PrintedPackage> {
+    let mut parts = line.rsplitn(3, ' ');
+    let size = parts.next()?;
+    let version = parts.next()?;
+    let spec = parts.next()?;
+    let (repo, name) = spec.split_once('/')?;
+    // `u64::from_str` also accepts a leading `+`; pacman prints digits only.
+    if size.is_empty() || !size.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let download_size = size.parse().ok()?;
+    if !is_valid_repo_name(repo)
+        || repo.starts_with(' ')
+        || repo.ends_with(' ')
+        || !is_valid_package_name(name)
+        || !is_valid_version(version)
+    {
+        return None;
+    }
+    Some(PrintedPackage {
+        repo: repo.to_string(),
+        name: name.to_string(),
+        version: version.to_string(),
+        download_size,
     })
+}
+
+/// A version as pacman prints it (`epoch:version-release`): ASCII letters and digits and `. _ + ~ : -`, not empty
+/// and not starting with `-`. The same rule the helper applies to a confirmed line (`helper-protocol`).
+fn is_valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && !version.starts_with('-')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '~' | ':' | '-'))
 }
 
 #[cfg(test)]
