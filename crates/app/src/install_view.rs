@@ -177,6 +177,14 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             view.secondary = button(back_label(model), true);
         }
     }
+    view.focus = match view.kind {
+        CardKind::Provider | CardKind::Choice => FocusTarget::List,
+        CardKind::Members if !view.options.is_empty() => FocusTarget::List,
+        _ => match &view.primary {
+            Some(primary) if primary.enabled => FocusTarget::Primary,
+            _ => FocusTarget::Secondary,
+        },
+    };
     view
 }
 
