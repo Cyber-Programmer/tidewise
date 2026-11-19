@@ -5,9 +5,10 @@
 //! One resolve runs at a time, like the search model: a ticket asked for while another runs waits, a newer waiting
 //! ticket replaces an older one, and an answer is used only if its number is the one wanted.
 
-use crate::error_words::ErrorText;
+use crate::error_words::{Doing, ErrorText, error_text};
 use tidewise_pacman::{
-    Blocker, InstallPlan, PackageRef, PacmanError, Question, Resolution, ResolveInput,
+    Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
+    Question, Resolution, ResolveInput,
 };
 
 /// What the user asked to install (from Search). The answers are kept apart, in `Step`s.
@@ -83,10 +84,6 @@ pub enum Back {
 }
 
 #[derive(Debug, Default)]
-#[expect(
-    dead_code,
-    reason = "red-phase shim: the ticket fields are used by the green commit (6.2)"
-)]
 pub struct InstallModel {
     phase: Phase,
     request: Request,
@@ -98,6 +95,26 @@ pub struct InstallModel {
     pending: Option<Ticket>,
     slow: bool,
     focus_serial: u32,
+}
+
+impl Draft {
+    /// The answer a question starts with: pacman's own choice, every missing member, "leave it".
+    fn first_for(question: &Question) -> Self {
+        match question {
+            Question::ChooseProvider { default, .. } => Self::Provider(*default),
+            Question::ChooseGroupMembers { members, .. } => Self::Members(
+                members
+                    .iter()
+                    .map(|member| member.installed_version.is_none())
+                    .collect(),
+            ),
+            Question::AlreadyInstalled {
+                differs_without_update: true,
+                ..
+            } => Self::Differs,
+            Question::AlreadyInstalled { .. } => Self::Installed { reinstall: false },
+        }
+    }
 }
 
 impl InstallModel {
@@ -134,67 +151,375 @@ impl InstallModel {
         self.focus_serial
     }
 
+    fn refocus(&mut self) {
+        self.focus_serial = self.focus_serial.wrapping_add(1);
+    }
+
     /// The input for the next resolve: the request plus every answer given so far.
     pub fn input(&self) -> ResolveInput {
-        ResolveInput::default()
+        let mut input = ResolveInput {
+            targets: self.request.targets.clone(),
+            groups: self.request.groups.clone(),
+            ..ResolveInput::default()
+        };
+        for step in &self.steps {
+            match (&step.question, &step.draft) {
+                (
+                    Question::ChooseProvider {
+                        dependency,
+                        candidates,
+                        ..
+                    },
+                    Draft::Provider(index),
+                ) => {
+                    if let Some(candidate) = candidates.get(*index) {
+                        input.provider_answers.push(ProviderAnswer {
+                            dependency: dependency.clone(),
+                            chosen: candidate.package.clone(),
+                        });
+                    }
+                }
+                (Question::ChooseGroupMembers { group, members }, Draft::Members(ticked)) => {
+                    input.group_answers.push(GroupAnswer {
+                        group: group.clone(),
+                        members: members
+                            .iter()
+                            .zip(ticked)
+                            .filter(|(_, on)| **on)
+                            .map(|(member, _)| member.package.clone())
+                            .collect(),
+                    });
+                }
+                (
+                    Question::AlreadyInstalled { target, .. },
+                    Draft::Installed { reinstall: true },
+                ) => input.reinstall.push(target.clone()),
+                (Question::AlreadyInstalled { target, .. }, _) => {
+                    input.targets.retain(|other| other != target);
+                }
+                _ => {}
+            }
+        }
+        // The first resolve is round 0; after answers, the round after the newest one asked.
+        input.round = self
+            .steps
+            .iter()
+            .map(|s| s.round)
+            .max()
+            .map_or(0, |r| r + 1);
+        input
+    }
+
+    /// Wants a resolve of `input()`. One runs at a time: with one running, the new ticket waits (and replaces
+    /// an older waiting one).
+    fn start(&mut self, check_lists: bool) -> Option<Ticket> {
+        self.last_number += 1;
+        let ticket = Ticket {
+            number: self.last_number,
+            input: self.input(),
+            check_lists,
+        };
+        self.wanted = Some(ticket.number);
+        self.slow = false;
+        self.phase = Phase::Working;
+        self.refocus();
+        if self.running.is_some() {
+            self.pending = Some(ticket);
+            None
+        } else {
+            self.running = Some(ticket.clone());
+            Some(ticket)
+        }
+    }
+
+    fn begin(&mut self, request: Request, check_lists: bool) -> Option<Ticket> {
+        self.request = request;
+        self.steps.clear();
+        self.current = 0;
+        self.start(check_lists)
     }
 
     /// Install this package. `Some(ticket)`: start the worker now; `None`: it waits for the running one.
     pub fn open(&mut self, target: PackageRef) -> Option<Ticket> {
-        let _ = target;
-        None
+        self.begin(
+            Request {
+                targets: vec![target],
+                groups: Vec::new(),
+            },
+            true,
+        )
     }
 
     /// Install a whole group (reached only through the debug entry until WBS 6.12).
     pub fn open_group(&mut self, group: &str) -> Option<Ticket> {
-        let _ = group;
-        None
+        self.begin(
+            Request {
+                targets: Vec::new(),
+                groups: vec![group.to_string()],
+            },
+            true,
+        )
+    }
+
+    /// Replaces the answer of the question shown. An earlier round's answer that really changes makes the
+    /// later rounds out of date: their questions and answers go, and the resolver asks again.
+    fn change(&mut self, draft: Draft) {
+        if self.phase != Phase::Asking {
+            return;
+        }
+        let Some(step) = self.steps.get_mut(self.current) else {
+            return;
+        };
+        if step.draft == draft {
+            return;
+        }
+        step.draft = draft;
+        let round = step.round;
+        self.steps.retain(|other| other.round <= round);
     }
 
     /// Picks candidate `index` of the provider question shown, or the option of an installed-package question
     /// (0 = leave it, 1 = reinstall).
     pub fn choose(&mut self, index: usize) {
-        let _ = index;
+        let Some(step) = self.steps.get(self.current) else {
+            return;
+        };
+        let draft = match &step.question {
+            Question::ChooseProvider { candidates, .. } if index < candidates.len() => {
+                Draft::Provider(index)
+            }
+            Question::AlreadyInstalled {
+                differs_without_update: false,
+                ..
+            } if index <= 1 => Draft::Installed {
+                reinstall: index == 1,
+            },
+            _ => return,
+        };
+        self.change(draft);
     }
 
     /// Flips one member of the group question shown. Installed members cannot be ticked.
     pub fn toggle(&mut self, index: usize) {
-        let _ = index;
+        let Some(Step {
+            question: Question::ChooseGroupMembers { members, .. },
+            draft: Draft::Members(ticked),
+            ..
+        }) = self.steps.get(self.current)
+        else {
+            return;
+        };
+        if members
+            .get(index)
+            .is_none_or(|member| member.installed_version.is_some())
+        {
+            return;
+        }
+        let mut ticked = ticked.clone();
+        if let Some(flag) = ticked.get_mut(index) {
+            *flag = !*flag;
+        }
+        self.change(Draft::Members(ticked));
     }
 
-    pub fn select_all(&mut self) {}
+    fn set_all_members(&mut self, on: bool) {
+        let Some(Step {
+            question: Question::ChooseGroupMembers { members, .. },
+            ..
+        }) = self.steps.get(self.current)
+        else {
+            return;
+        };
+        let ticked = members
+            .iter()
+            .map(|member| on && member.installed_version.is_none())
+            .collect();
+        self.change(Draft::Members(ticked));
+    }
 
-    pub fn select_none(&mut self) {}
+    pub fn select_all(&mut self) {
+        self.set_all_members(true);
+    }
+
+    pub fn select_none(&mut self) {
+        self.set_all_members(false);
+    }
+
+    /// Can the question shown be left with its answer? No members ticked, or the only package asked for left
+    /// out, give nothing to go on with.
+    pub fn can_go_on(&self) -> bool {
+        let Some(step) = self.steps.get(self.current) else {
+            return false;
+        };
+        match &step.draft {
+            Draft::Members(ticked) => ticked.iter().any(|on| *on),
+            Draft::Differs => !(self.request.targets.len() == 1 && self.request.groups.is_empty()),
+            Draft::Provider(_) | Draft::Installed { .. } => true,
+        }
+    }
 
     /// The primary button of a question: the next question, or after the last one a new resolve.
     pub fn go_on(&mut self) -> Option<Ticket> {
-        None
+        if self.phase != Phase::Asking || !self.can_go_on() {
+            return None;
+        }
+        if self.current + 1 < self.steps.len() {
+            self.current += 1;
+            self.refocus();
+            return None;
+        }
+        self.start(false)
+    }
+
+    /// Stops wanting a resolve. A worker that is running finishes unseen.
+    fn drop_wanted(&mut self) {
+        self.wanted = None;
+        self.pending = None;
+        self.slow = false;
     }
 
     /// The secondary button: one question back, or out of the install screen. A wanted resolve is dropped.
     pub fn back(&mut self) -> Back {
-        Back::Stayed
+        match self.phase {
+            Phase::Closed => Back::Closed,
+            Phase::Asking if self.current > 0 => {
+                self.current -= 1;
+                self.refocus();
+                Back::Stayed
+            }
+            Phase::Asking => {
+                self.cancel();
+                Back::Closed
+            }
+            _ if self.steps.is_empty() => {
+                self.cancel();
+                Back::Closed
+            }
+            _ => {
+                self.drop_wanted();
+                self.current = self.steps.len() - 1;
+                self.phase = Phase::Asking;
+                self.refocus();
+                Back::Stayed
+            }
+        }
     }
 
     /// Leaves the install screen, whatever it shows. A wanted resolve is dropped.
-    pub fn cancel(&mut self) {}
+    pub fn cancel(&mut self) {
+        self.drop_wanted();
+        self.phase = Phase::Closed;
+        self.request = Request::default();
+        self.steps.clear();
+        self.current = 0;
+        self.refocus();
+    }
 
     /// "Install cronie instead": starts again with the replacement.
     pub fn install_instead(&mut self) -> Option<Ticket> {
-        None
+        let Phase::Blocked(blockers) = &self.phase else {
+            return None;
+        };
+        let [Blocker::ReplacedBy { requested, by }] = blockers.as_slice() else {
+            return None;
+        };
+        let [replacement] = by.as_slice() else {
+            return None;
+        };
+        let mut request = self.request.clone();
+        for target in &mut request.targets {
+            if target == requested {
+                target.clone_from(replacement);
+            }
+        }
+        self.begin(request, false)
     }
 
     /// "Try again" after a failure.
     pub fn try_again(&mut self) -> Option<Ticket> {
-        None
+        if matches!(
+            self.phase,
+            Phase::Failed {
+                can_retry: true,
+                ..
+            }
+        ) {
+            self.start(false)
+        } else {
+            None
+        }
     }
 
-    pub fn mark_slow(&mut self) {}
+    pub fn mark_slow(&mut self) {
+        if self.wanted.is_some() {
+            self.slow = true;
+        }
+    }
 
-    /// The worker answered the ticket `number`. Returns the waiting ticket to start next, if any.
+    /// The worker answered the ticket `number`. An answer that is not the one wanted is dropped. Returns the
+    /// waiting ticket to start next, if any.
     pub fn done(&mut self, number: u64, result: Result<WorkAnswer, PacmanError>) -> Option<Ticket> {
-        let _ = (number, result);
-        None
+        let ticket = self.running.take()?;
+        if ticket.number != number {
+            self.running = Some(ticket);
+            return None;
+        }
+        if self.wanted == Some(number) {
+            self.wanted = None;
+            self.slow = false;
+            self.apply(ticket.input.round, result);
+        }
+        let next = self.pending.take();
+        self.running.clone_from(&next);
+        next
+    }
+
+    fn apply(&mut self, round: u32, result: Result<WorkAnswer, PacmanError>) {
+        self.phase = match result {
+            Ok(WorkAnswer::MustUpdate) => Phase::Stale,
+            Ok(WorkAnswer::Resolved(Resolution::Ready(plan))) => {
+                if matches!(plan.decision, InstallDecision::MustUpdateSystem { .. }) {
+                    Phase::Stale
+                } else {
+                    Phase::Ready(Box::new(plan))
+                }
+            }
+            Ok(WorkAnswer::Resolved(Resolution::NeedsAnswers(questions))) => {
+                if questions.is_empty() {
+                    failed(&PacmanError::Inconsistent {
+                        reason: "pacman asked for answers but named no question",
+                    })
+                } else {
+                    self.current = self.steps.len();
+                    for question in questions {
+                        self.steps.push(Step {
+                            round,
+                            draft: Draft::first_for(&question),
+                            question,
+                        });
+                    }
+                    Phase::Asking
+                }
+            }
+            Ok(WorkAnswer::Resolved(Resolution::Blocked(blockers))) => Phase::Blocked(blockers),
+            Err(error) => failed(&error),
+        };
+        self.refocus();
+    }
+}
+
+/// A failed resolve. Bugs (a limit, a path, an answer that does not add up) are not worth a second try.
+fn failed(error: &PacmanError) -> Phase {
+    let can_retry = !matches!(
+        error,
+        PacmanError::TooManyRounds { .. }
+            | PacmanError::BadDbPath { .. }
+            | PacmanError::Inconsistent { .. }
+            | PacmanError::BadPackageRef { .. }
+    );
+    Phase::Failed {
+        text: error_text(error, Doing::Resolving),
+        can_retry,
     }
 }
 
@@ -443,7 +768,8 @@ mod tests {
     #[test]
     fn leaving_an_installed_package_removes_it_and_reinstalling_names_it() {
         let mut model = asking(vec![installed("dbeaver", false)]);
-        assert!(model.input().targets.contains(&pkg("dbeaver")));
+        // "Leave it as it is" is the starting answer
+        assert!(model.input().targets.is_empty());
         assert!(model.input().reinstall.is_empty());
         // choose(0) = leave it, choose(1) = reinstall
         model.choose(1);
