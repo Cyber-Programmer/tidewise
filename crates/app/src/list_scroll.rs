@@ -144,6 +144,24 @@ mod tests {
     }
 
     #[test]
+    fn the_arrow_keys_between_checkbox_rows_move_one_row_and_stop_at_the_ends() {
+        // Up/Down on a checkbox row move the focus with the same function as the package list's selection.
+        // Documenting cases for the group card: they pass already, `moved_selection` is the one function.
+        // first row, Up: stays
+        assert_eq!(moved_selection(Some(0), 62, -1), Some(0));
+        // last row, Down: stays (the real `plasma` has 62 members)
+        assert_eq!(moved_selection(Some(61), 62, 1), Some(61));
+        // in the middle
+        assert_eq!(moved_selection(Some(30), 62, 1), Some(31));
+        assert_eq!(moved_selection(Some(30), 62, -1), Some(29));
+        // a single row: both keys stay on it
+        assert_eq!(moved_selection(Some(0), 1, 1), Some(0));
+        assert_eq!(moved_selection(Some(0), 1, -1), Some(0));
+        // no rows: nothing to focus
+        assert_eq!(moved_selection(Some(0), 0, 1), None);
+    }
+
+    #[test]
     fn a_long_choice_list_in_a_bounded_box_follows_the_focused_row() {
         // The install screens' lists: 44px rows plus a 1px separator = 45px, in a box that shows 3 rows (135px).
         // 62 group members (the real `plasma`) must all be reachable by Tab.
