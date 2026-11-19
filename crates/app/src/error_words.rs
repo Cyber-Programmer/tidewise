@@ -75,7 +75,8 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     Doing::ListingInstalled => "pacman couldn't list your packages",
                     Doing::CheckingLists => "pacman couldn't check the package lists",
                     Doing::Searching => "pacman couldn't finish the search",
-                    Doing::LookingUp | Doing::Resolving => "pacman couldn't look up this package",
+                    Doing::LookingUp => "pacman couldn't look up this package",
+                    Doing::Resolving => "pacman couldn't work out what to install",
                 }
                 .to_string(),
                 body: "pacman stopped with an error before it finished. \
@@ -103,9 +104,13 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     "The search results from pacman looked incomplete, so Tidewise shows none \
                      rather than a list with packages missing."
                 }
-                Doing::LookingUp | Doing::Resolving => {
+                Doing::LookingUp => {
                     "The details from pacman looked incomplete, so Tidewise shows none \
                      rather than details with something missing."
+                }
+                Doing::Resolving => {
+                    "pacman's answer looked incomplete, so Tidewise shows no list \
+                     rather than a list with packages missing."
                 }
             }
             .to_string(),
@@ -133,17 +138,18 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                 .to_string(),
             technical: error.to_string(),
         },
-        // The install screens (WBS 6.2) will show these; the words are plain placeholders until they are designed.
+        // The install screens (WBS 6.2). Words from the M4 board; "Nothing was changed" is added by the screen.
         PacmanError::TooManyRounds { .. } => ErrorText {
             title: "This install needs too many questions".to_string(),
-            body: "Tidewise stopped asking. Nothing was changed. Choose fewer packages at once and try again."
+            body: "Each answer led to more choices, so Tidewise stopped asking. \
+                   Try installing fewer packages at once."
                 .to_string(),
             technical: error.to_string(),
         },
         PacmanError::BadDbPath { .. } | PacmanError::Inconsistent { .. } => ErrorText {
             title: "Tidewise couldn't work out what to install".to_string(),
-            body: "pacman's answers didn't add up, so Tidewise did not go on. Nothing was changed. \
-                   This is a bug in Tidewise, not something you did. Please report it."
+            body: "pacman's answers didn't add up, so Tidewise did not go on. \
+                   This is a bug in Tidewise, not something you did."
                 .to_string(),
             technical: error.to_string(),
         },
