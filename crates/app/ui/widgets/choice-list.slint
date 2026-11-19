@@ -211,6 +211,16 @@ export component CheckRow inherits Rectangle {
     callback toggled();
     // The row got the keyboard focus (Tab or a click): the list around it scrolls to show it.
     callback focused();
+    // Up (-1) or Down (+1) was pressed on the row: Rust says which row is next (`focus-row`).
+    callback moved(int);
+    in property <int> row-index;
+    in property <int> focus-row: -1;
+    in property <int> focus-row-request: 0;
+    changed focus-row-request => {
+        if (root.focus-row == root.row-index) {
+            focus.focus();
+        }
+    }
 
     height: Theme.choice-check-row;
     background: Theme.surface;
@@ -244,6 +254,12 @@ export component CheckRow inherits Rectangle {
         key-pressed(event) => {
             if (event.text == " ") {
                 root.toggled();
+                return accept;
+            } else if (event.text == Key.UpArrow) {
+                root.moved(-1);
+                return accept;
+            } else if (event.text == Key.DownArrow) {
+                root.moved(1);
                 return accept;
             }
             return reject;

@@ -61,6 +61,9 @@ export global Theme {
     out property <length> page-padding-x: 40px;
     out property <length> section-gap: 24px;
     out property <length> min-target: 44px;
+    // Content stretches up to this width and is centred beyond it (docs/design/tokens.md, "Layout rules").
+    // crates/app/tests/theme_layout.rs reads this line: keep it one `Npx` value per line.
+    out property <length> content-max-width: 1000px;
     // The visible square of a small icon button (the target around it stays min-target).
     out property <length> size-icon-button: 28px;
     // One line of the package list. Rust reads this too, to scroll the selected row into view.

@@ -191,6 +191,9 @@ export component InstallCard inherits Rectangle {
 
                                     CheckRow {
                                         option: option;
+                                        row-index: index;
+                                        focus-row: InstallBridge.focus-row;
+                                        focus-row-request: InstallBridge.focus-row-request;
                                         autofocus: index == 0 && InstallBridge.focus == InstallFocus.list;
                                         focus-request: InstallBridge.focus-serial;
                                         toggled => {
@@ -198,6 +201,9 @@ export component InstallCard inherits Rectangle {
                                         }
                                         focused => {
                                             InstallBridge.row-focused(index);
+                                        }
+                                        moved(delta) => {
+                                            InstallBridge.row-moved(index, delta);
                                         }
                                     }
                                 }
