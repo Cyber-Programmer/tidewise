@@ -148,3 +148,61 @@ fn measure_provider_prompts() {
             .join(", ")
     );
 }
+
+/// Two more cases (6.1): a dependency nothing in the repositories can satisfy, and a provider whose own dependency
+/// provides the same name (the edge case of the option (b) fit rule).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn measure_provider_edge_cases() {
+    assert_inside_the_test_container();
+    reset_world();
+    let print = |targets: &[&str]| {
+        let mut args = vec!["-S", "--print", "--print-format", "%r/%n %v", "--"];
+        args.extend_from_slice(targets);
+        args.iter().map(|a| a.to_string()).collect::<Vec<_>>()
+    };
+    let run = |title: &str, args: Vec<String>, answers: &str| {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        show(title, &args, answers);
+    };
+
+    // 1. Nothing satisfies the dependency (the only provider is too old).
+    let stale = qualified("needs-stale");
+    run("no fit: dry run", print(&[&stale]), "");
+    run(
+        "no fit: real run",
+        vec!["-S".into(), "--".into(), stale.clone()],
+        "n\n",
+    );
+    run(
+        "no fit: the old provider named too",
+        print(&[&stale, &qualified("stale-prov")]),
+        "",
+    );
+    run(
+        "no fit: dry run, unknown dependency name",
+        print(&[&qualified("needs-nothing")]),
+        "",
+    );
+
+    // 2. chain-a provides tidewise-chain and depends on chain-b, which provides it too.
+    let needs = qualified("needs-chain");
+    run(
+        "chain: prompt",
+        vec!["-S".into(), "--".into(), needs.clone()],
+        "1\nn\n",
+    );
+    run("chain: unnamed", print(&[&needs]), "");
+    for candidate in ["chain-a", "chain-b", "chain-c"] {
+        run(
+            &format!("chain: {candidate} named, with hello"),
+            print(&[&needs, &qualified("hello"), &qualified(candidate)]),
+            "",
+        );
+        run(
+            &format!("chain: {candidate} alone"),
+            print(&[&qualified(candidate)]),
+            "",
+        );
+    }
+}

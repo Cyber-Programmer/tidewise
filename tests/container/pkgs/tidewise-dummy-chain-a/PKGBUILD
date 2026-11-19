@@ -1,0 +1,15 @@
+# Dummy package for the Tidewise container tests (WBS 6.1). Contains one text file and nothing else.
+pkgname=tidewise-dummy-chain-a
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test provider of tidewise-chain that depends on another provider of it"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+provides=('tidewise-chain')
+depends=('tidewise-dummy-chain-b')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

@@ -1,0 +1,15 @@
+resolving dependencies...
+:: There are 3 providers available for tidewise-chain:
+:: Repository tidewise-test
+   1) tidewise-dummy-chain-a  2) tidewise-dummy-chain-b  3) tidewise-dummy-chain-c
+looking for conflicting packages...
+
+Package (3)                               New Version  Net Change  Download Size
+
+tidewise-test/tidewise-dummy-chain-a      1.0-1          0.00 MiB       0.00 MiB
+tidewise-test/tidewise-dummy-chain-b      1.0-1          0.00 MiB       0.00 MiB
+tidewise-test/tidewise-dummy-needs-chain  1.0-1          0.00 MiB       0.00 MiB
+
+Total Download Size:   0.01 MiB
+Total Installed Size:  0.00 MiB
+

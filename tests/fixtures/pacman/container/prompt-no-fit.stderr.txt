@@ -1,0 +1,3 @@
+warning: cannot resolve "tidewise-stale>=2", a dependency of "tidewise-dummy-needs-stale"
+:: Do you want to skip the above package for this upgrade? [y/N] n
+error: failed to prepare transaction (could not satisfy dependencies)
