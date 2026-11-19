@@ -42,6 +42,9 @@ pub struct OptionView {
     /// "pacman's default", or empty.
     pub tag: String,
     pub checked: bool,
+    /// For a group member: its position among ALL the group's members (installed ones included, which have no row).
+    /// The model's `toggle` takes this number, not the row's.
+    pub member: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -285,6 +288,7 @@ fn asking(view: &mut InstallView, model: &InstallModel, step: &Step, label: &str
                         String::new()
                     },
                     checked: index == *picked,
+                    member: None,
                 })
                 .collect();
             let name = candidates
@@ -690,6 +694,7 @@ mod tests {
                     detail: "jre-openjdk runtime".to_string(),
                     tag: "pacman's default".to_string(),
                     checked: true,
+                    member: None,
                 },
                 OptionView {
                     label: "jre21-openjdk".to_string(),
@@ -697,6 +702,7 @@ mod tests {
                     detail: "jre21-openjdk runtime".to_string(),
                     tag: String::new(),
                     checked: false,
+                    member: None,
                 },
             ]
         );
@@ -790,6 +796,28 @@ mod tests {
             }]
         );
         assert_eq!(view.primary, button("Continue with 2 packages", true));
+    }
+
+    #[test]
+    fn a_member_row_knows_its_place_among_all_members_so_the_right_box_is_ticked() {
+        let mut model = asking(
+            "plasma",
+            vec![group(&[
+                ("kwin", Some("6.5-1")),
+                ("kate", Some("6.5-1")),
+                ("plasma-desktop", None),
+                ("kscreen", None),
+            ])],
+        );
+        let view = install_view(&model);
+        let members: Vec<Option<usize>> = view.options.iter().map(|o| o.member).collect();
+        // two rows, for members 2 and 3 (0 and 1 are installed and have no row)
+        assert_eq!(members, [Some(2), Some(3)]);
+        // the window toggles by that number: row 1 (kscreen) goes off, row 0 stays on
+        model.toggle(view.options[1].member.unwrap());
+        let view = install_view(&model);
+        assert!(view.options[0].checked);
+        assert!(!view.options[1].checked);
     }
 
     #[test]
