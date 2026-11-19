@@ -20,7 +20,9 @@ use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer}
 use tidewise_app::install_view::{
     CardKind, FocusTarget, InstallView, InstalledRow, OptionView, install_view,
 };
-use tidewise_app::list_scroll::{content_y_to_offset, offset_to_content_y, scroll_to_show};
+use tidewise_app::list_scroll::{
+    content_y_to_offset, moved_selection, offset_to_content_y, scroll_to_show,
+};
 use tidewise_pacman::{InstallDecision, PackageRef, PacmanError, install_decision};
 
 use crate::{
@@ -90,6 +92,21 @@ pub fn start(window: &MainWindow) -> Install {
             (usize::try_from(index), handle.borrow().window.upgrade())
         {
             keep_in_view(&window, handle.borrow().shown_kind, Some(index));
+        }
+    });
+    let handle = screen.clone();
+    bridge.on_row_moved(move |index, delta| {
+        let Some(window) = handle.borrow().window.upgrade() else {
+            return;
+        };
+        let count = handle.borrow().shown_options.len();
+        let current = usize::try_from(index).ok();
+        let target = moved_selection(current, count, if delta < 0 { -1 } else { 1 })
+            .and_then(|row| i32::try_from(row).ok());
+        if let Some(target) = target {
+            let bridge = window.global::<InstallBridge>();
+            bridge.set_focus_row(target);
+            bridge.set_focus_row_request(bridge.get_focus_row_request().wrapping_add(1));
         }
     });
     let handle = screen.clone();

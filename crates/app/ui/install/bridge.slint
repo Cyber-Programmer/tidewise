@@ -71,8 +71,13 @@ export global InstallBridge {
 
     // A radio option was chosen, a checkbox flipped.
     callback choose(int);
+    // The row that takes the keyboard focus when `focus-row-request` changes (Up and Down between checkbox rows).
+    in property <int> focus-row: -1;
+    in property <int> focus-row-request;
     // A checkbox row got the keyboard focus.
     callback row-focused(int);
+    // Up (-1) or Down (+1) on a checkbox row.
+    callback row-moved(int, int);
     // The visible part of the list changed size (first layout, window resized).
     callback list-resized();
     callback toggle(int);
