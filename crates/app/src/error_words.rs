@@ -44,6 +44,8 @@ pub enum Doing {
     LookingUp,
     /// How new the package lists are: `pacman-conf` and the files in the sync folder.
     CheckingLists,
+    /// Working out what an install needs: the dry runs of the resolver (WBS 6.2).
+    Resolving,
 }
 
 /// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
@@ -73,7 +75,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     Doing::ListingInstalled => "pacman couldn't list your packages",
                     Doing::CheckingLists => "pacman couldn't check the package lists",
                     Doing::Searching => "pacman couldn't finish the search",
-                    Doing::LookingUp => "pacman couldn't look up this package",
+                    Doing::LookingUp | Doing::Resolving => "pacman couldn't look up this package",
                 }
                 .to_string(),
                 body: "pacman stopped with an error before it finished. \
@@ -101,7 +103,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     "The search results from pacman looked incomplete, so Tidewise shows none \
                      rather than a list with packages missing."
                 }
-                Doing::LookingUp => {
+                Doing::LookingUp | Doing::Resolving => {
                     "The details from pacman looked incomplete, so Tidewise shows none \
                      rather than details with something missing."
                 }
@@ -252,9 +254,35 @@ mod tests {
     }
 
     #[test]
-    fn the_install_resolver_errors_have_words_and_keep_the_technical_line() {
+    fn a_failed_resolve_says_pacman_could_not_work_out_what_to_install() {
+        let text = error_text(&failed(), Doing::Resolving);
+        assert_eq!(text.title, "pacman couldn't work out what to install");
+        assert_eq!(text.body, FAILED_BODY);
+        let text = error_text(&parse_failed(), Doing::Resolving);
+        assert_eq!(text.title, "Tidewise couldn't read pacman's answer");
+        assert_eq!(
+            text.body,
+            "pacman's answer looked incomplete, so Tidewise shows no list \
+             rather than a list with packages missing."
+        );
+    }
+
+    #[test]
+    fn too_many_rounds_has_the_designed_words() {
+        let error = PacmanError::TooManyRounds { limit: 5 };
+        let text = error_text(&error, Doing::Resolving);
+        assert_eq!(text.title, "This install needs too many questions");
+        assert_eq!(
+            text.body,
+            "Each answer led to more choices, so Tidewise stopped asking. \
+             Try installing fewer packages at once."
+        );
+        assert_eq!(text.technical, error.to_string());
+    }
+
+    #[test]
+    fn resolver_bugs_have_the_designed_words_and_keep_the_technical_line() {
         for error in [
-            PacmanError::TooManyRounds { limit: 5 },
             PacmanError::BadDbPath {
                 reason: "not absolute",
             },
@@ -262,8 +290,13 @@ mod tests {
                 reason: "a provider stays unnamed",
             },
         ] {
-            let text = error_text(&error, Doing::LookingUp);
-            assert!(!text.title.is_empty() && !text.body.is_empty());
+            let text = error_text(&error, Doing::Resolving);
+            assert_eq!(text.title, "Tidewise couldn't work out what to install");
+            assert_eq!(
+                text.body,
+                "pacman's answers didn't add up, so Tidewise did not go on. \
+                 This is a bug in Tidewise, not something you did."
+            );
             assert_eq!(text.technical, error.to_string());
         }
     }
