@@ -351,10 +351,14 @@ impl InstallModel {
         let Some(step) = self.steps.get(self.current) else {
             return false;
         };
-        match &step.draft {
-            Draft::Members(ticked) => ticked.iter().any(|on| *on),
-            Draft::Differs => !(self.request.targets.len() == 1 && self.request.groups.is_empty()),
-            Draft::Provider(_) | Draft::Installed { .. } => true,
+        match (&step.draft, &step.question) {
+            (Draft::Members(ticked), _) => ticked.iter().any(|on| *on),
+            (Draft::Differs, Question::AlreadyInstalled { target, .. }) => {
+                // Leaving out the one package asked for would leave nothing to install.
+                !(self.request.groups.is_empty()
+                    && self.request.targets.as_slice() == std::slice::from_ref(target))
+            }
+            _ => true,
         }
     }
 
