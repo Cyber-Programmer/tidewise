@@ -37,6 +37,8 @@ pub enum ParseError {
     MissingPackage { repo: String, name: String },
     /// A `-Qu` line that is not `name old -> new` (optionally followed by ` [ignored]`).
     BadUpdateLine { line_number: usize, line: String },
+    /// A line of `pacman -S --print --print-format '%r/%n %v %s'` that is not `repo/name version size`.
+    BadPrintLine { line_number: usize, line: String },
     /// A line of `pacman-conf` output (`what` says which setting) that can't be used.
     BadConfigLine {
         what: &'static str,
@@ -90,6 +92,10 @@ impl fmt::Display for ParseError {
             Self::BadUpdateLine { line_number, line } => {
                 write!(f, "line {line_number} is not \"name old -> new\": {line:?}")
             }
+            Self::BadPrintLine { line_number, line } => write!(
+                f,
+                "line {line_number} is not \"repo/name version size\": {line:?}"
+            ),
             Self::BadConfigLine {
                 what,
                 line_number,
