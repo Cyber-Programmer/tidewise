@@ -12,6 +12,11 @@ ARG ARCHIVE_DAY=2026/11/08
 COPY pkgs /tmp/pkgs
 COPY pkgs-later /tmp/pkgs-later
 
+# --disable-download-timeout is used only on the pacman calls of this file, which run while the image is BUILT (two
+# here: the full upgrade and the refresh of the lists): the Arch Archive server is slow at times and pacman gives up on
+# a download that moves less than 1 byte per second for 10 seconds ("Operation too slow", seen on 19 Nov 2026 and on
+# every build attempt on 16 Nov 2026). It is never used in the helper, in the tests, or in anything that runs at test
+# time, and the tests still run with --network=none. (Containerfile.package does the same for its own build.)
 # One RUN so no half-finished layer is kept. Steps:
 #  1. point pacman at the archive snapshot and do a FULL upgrade (-Syu, never -Sy alone: golden rule 4), plus
 #     fakeroot, which makepkg needs, and polkit and libxml2, which the polkit policy test needs (5.4: polkitd,
@@ -26,7 +31,7 @@ COPY pkgs-later /tmp/pkgs-later
 # /srv/tidewise-later. They are NOT in the repository database: a test adds one with `repo-add` (and `pacman -Sy`) to
 # make an update or a replacement appear at test time, offline.
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DAY" > /etc/pacman.d/mirrorlist \
- && pacman -Syu --noconfirm --needed fakeroot polkit libxml2 \
+ && pacman -Syu --disable-download-timeout --noconfirm --needed fakeroot polkit libxml2 \
  && useradd --create-home builder \
  && mkdir -p /srv/tidewise-test /srv/tidewise-later \
  && chown -R builder /tmp/pkgs /tmp/pkgs-later /srv/tidewise-test /srv/tidewise-later \
@@ -40,7 +45,7 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
  && chown -R root:root /srv/tidewise-test /srv/tidewise-later \
  && chmod -R a+rX /srv/tidewise-test /srv/tidewise-later \
  && printf '\n[tidewise-test]\nSigLevel = Never\nServer = file:///srv/tidewise-test\n' >> /etc/pacman.conf \
- && pacman -Sy \
+ && pacman -Sy --disable-download-timeout \
  && userdel --remove builder \
  && rm -rf /tmp/pkgs /tmp/pkgs-later /var/cache/pacman/pkg/*
 
