@@ -39,6 +39,8 @@ pub enum ParseError {
     BadUpdateLine { line_number: usize, line: String },
     /// A line of `pacman -S --print --print-format '%r/%n %v %s'` that is not `repo/name version size`.
     BadPrintLine { line_number: usize, line: String },
+    /// A line of `pacman -Sg <group>` that is not `group member`.
+    BadGroupLine { line_number: usize, line: String },
     /// A line of `pacman-conf` output (`what` says which setting) that can't be used.
     BadConfigLine {
         what: &'static str,
@@ -96,6 +98,9 @@ impl fmt::Display for ParseError {
                 f,
                 "line {line_number} is not \"repo/name version size\": {line:?}"
             ),
+            Self::BadGroupLine { line_number, line } => {
+                write!(f, "line {line_number} is not \"group member\": {line:?}")
+            }
             Self::BadConfigLine {
                 what,
                 line_number,

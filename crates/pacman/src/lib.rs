@@ -25,6 +25,7 @@ mod qq;
 mod qu;
 mod record;
 mod run;
+mod sg;
 mod si;
 mod size;
 mod ss;
@@ -39,6 +40,7 @@ pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
 pub use qu::{PendingUpdate, parse_qu};
 pub use run::{installed_packages, package_details, pending_updates, search, sync_lists};
+pub use sg::{GroupMember, parse_sg};
 pub use si::{
     Comparison, Dependency, DetailsLookup, OptionalDependency, PackageDetails, PackageRef,
     VersionRule, parse_si,
