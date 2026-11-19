@@ -1,0 +1,42 @@
+Repository      : extra
+Name            : jre-openjdk
+Version         : 27.0.1.0.3.u1-1
+Description     : OpenJDK Java 27 full runtime environment
+Architecture    : x86_64
+URL             : https://openjdk.java.net/
+Licenses        : LicenseRef-Java
+Groups          : None
+Provides        : java-runtime=27  java-runtime-openjdk=27  jre27-openjdk=27.0.1.0.3.u1-1  java-runtime-headless=27  java-runtime-headless-openjdk=27  jre27-openjdk-headless=27.0.1.0.3.u1-1
+Depends On      : java-runtime-common>=3  ca-certificates-utils  freetype2  glibc  harfbuzz  lcms2  libfreetype.so=6-64  libgcc  libharfbuzz.so=0-64  libjpeg.so=8-64  libjpeg-turbo  liblcms2.so=2-64  libnet  libstdc++  nss  giflib  libgif.so=7-64  libpng
+Optional Deps   : alsa-lib: for basic sound support
+                  gtk3: for the Gtk+ 3 look and feel - desktop usage
+Conflicts With  : jdk-openjdk  jre-openjdk-headless
+Replaces        : None
+Download Size   : 31.21 MiB
+Installed Size  : 175.57 MiB
+Packager        : Frederik Schwan <freswa@archlinux.org>
+Build Date      : Sun Oct 25 14:31:39 2026
+Validated By    : SHA-256 Sum  Signature
+
+Repository      : extra
+Name            : jre8-openjdk
+Version         : 8.512.u09-1
+Description     : OpenJDK Java 8 full runtime environment
+Architecture    : x86_64
+URL             : https://openjdk.java.net/
+Licenses        : LicenseRef-Java
+Groups          : None
+Provides        : java-runtime=8  java-runtime-openjdk=8
+Depends On      : jre8-openjdk-headless=8.512.u09-1  giflib  hicolor-icon-theme  xdg-utils
+Optional Deps   : icedtea-web: web browser plugin + Java Web Start
+                  alsa-lib: for basic sound support
+                  gtk3: for the Gtk+ look and feel - desktop usage
+                  java8-openjfx: for JavaFX GUI components support
+Conflicts With  : None
+Replaces        : jre8-openjdk-wm
+Download Size   : 184.12 KiB
+Installed Size  : 423.79 KiB
+Packager        : Frederik Schwan <freswa@archlinux.org>
+Build Date      : Wed Nov  4 17:17:11 2026
+Validated By    : SHA-256 Sum  Signature
+

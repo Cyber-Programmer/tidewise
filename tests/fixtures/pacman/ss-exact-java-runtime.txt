@@ -1,0 +1,22 @@
+extra/jdk-openjdk 27.0.1.0.3.u1-1 [installed]
+    OpenJDK Java 27 development kit
+extra/jdk11-openjdk 11.0.33.u10-1
+    OpenJDK Java 11 development kit
+extra/jdk17-openjdk 17.0.21.0.3.u1-1 [installed]
+    OpenJDK Java 17 development kit
+extra/jdk21-openjdk 21.0.13.0.3.u1-1
+    OpenJDK Java 21 development kit
+extra/jdk25-openjdk 25.0.5.0.3.u1-1
+    OpenJDK Java 25 development kit
+extra/jre-openjdk 27.0.1.0.3.u1-1
+    OpenJDK Java 27 full runtime environment
+extra/jre11-openjdk 11.0.33.u10-1
+    OpenJDK Java 11 full runtime environment
+extra/jre17-openjdk 17.0.21.0.3.u1-1
+    OpenJDK Java 17 full runtime environment
+extra/jre21-openjdk 21.0.13.0.3.u1-1
+    OpenJDK Java 21 full runtime environment
+extra/jre25-openjdk 25.0.5.0.3.u1-1
+    OpenJDK Java 25 full runtime environment
+extra/jre8-openjdk 8.512.u09-1
+    OpenJDK Java 8 full runtime environment
