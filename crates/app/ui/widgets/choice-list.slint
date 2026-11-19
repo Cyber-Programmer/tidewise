@@ -1,3 +1,4 @@
+import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 
 // One option of a radio list or a checkbox list. Rust fills it from `InstallView` (crates/app/src/install_view.rs).
@@ -15,7 +16,7 @@ component RadioRow inherits Rectangle {
     in property <ChoiceOption> option;
     callback pressed();
 
-    min-height: 56px;
+    height: Theme.choice-radio-row;
     background: root.option.checked ? Theme.surface-2 : Theme.surface;
 
     // The group (one Tab stop) is what has the focus; the rows are read as radio buttons inside it.
@@ -105,7 +106,7 @@ component RadioRow inherits Rectangle {
                 text: root.option.detail;
                 color: Theme.text-3;
                 font-size: Theme.size-label;
-                wrap: word-wrap;
+                overflow: elide;
             }
         }
     }
@@ -122,7 +123,13 @@ export component RadioList inherits Rectangle {
     // Takes the focus when it appears and whenever `focus-request` changes (a new question replaced the old one).
     in property <bool> autofocus: true;
     in property <int> focus-request: 0;
+    // Where the list is scrolled to (Slint's content-y: 0 at the top, negative when scrolled down), and how much
+    // of it shows. Rust reads both to keep the chosen row in view. The parent sets `height`; a long list scrolls.
+    in-out property <length> scroll-y;
+    in-out property <length> visible-height;
     callback chosen(int);
+    // The visible part of the list changed size (first layout, window resized).
+    callback resized();
 
     background: Theme.surface;
     border-radius: Theme.radius-control;
@@ -163,18 +170,26 @@ export component RadioList inherits Rectangle {
         }
     }
 
-    VerticalLayout {
-        for option[index] in root.options: VerticalLayout {
-            if index > 0: Rectangle {
-                height: 1px;
-                background: Theme.border;
-            }
+    ScrollView {
+        content-y <=> root.scroll-y;
+        changed visible-height => {
+            root.visible-height = self.visible-height;
+            root.resized();
+        }
 
-            RadioRow {
-                option: option;
-                pressed => {
-                    focus.focus();
-                    root.chosen(index);
+        VerticalLayout {
+            for option[index] in root.options: VerticalLayout {
+                if index > 0: Rectangle {
+                    height: 1px;
+                    background: Theme.border;
+                }
+
+                RadioRow {
+                    option: option;
+                    pressed => {
+                        focus.focus();
+                        root.chosen(index);
+                    }
                 }
             }
         }
@@ -194,9 +209,18 @@ export component CheckRow inherits Rectangle {
     in property <bool> autofocus: false;
     in property <int> focus-request: 0;
     callback toggled();
+    // The row got the keyboard focus (Tab or a click): the list around it scrolls to show it.
+    callback focused();
 
-    min-height: Theme.min-target;
+    height: Theme.choice-check-row;
     background: Theme.surface;
+
+    property <bool> has-focus: focus.has-focus;
+    changed has-focus => {
+        if (root.has-focus) {
+            root.focused();
+        }
+    }
 
     init => {
         if (root.autofocus) {

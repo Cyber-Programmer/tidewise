@@ -1267,3 +1267,19 @@ Rules bent: (1) **UI-only work, no automated window test**: the manual checklist
 7. Orca: each new card is announced; radios and checkboxes read as such with their state; the grey button reads as unavailable. Keyboard only through 2–5; Escape = Back/Cancel.
 8. Stale lists: if `pacman -Qu` lists updates on this machine, the install shows "Your system needs updating first" with the button off.
 9. Idle CPU on the install screen < 2 %.
+
+### 2026-11-19 — 6.2 follow-up: long lists no longer push the buttons out of the window
+**Manual check result (you, 19 Nov 2026):** items 1, 2, 4, 6, 9 pass; 3 not reachable here (every needed provider is installed: covered by tests only); 8 tests only (the system is up to date); 7 (Orca) still to do. **Item 5 failed:** with `TIDEWISE_DEBUG_INSTALL_GROUP=plasma` the card listed 62 installed members, "Continue with 6 packages" was below the window and the page could not scroll to it.
+Done (the design rule you added to card 2 of the M4 board):
+- **The buttons are pinned** in a footer at the bottom of the card; they never scroll away.
+- **Each long list scrolls inside its own bounded box:** the members to install in one, the already-installed ones in a second, smaller one (`install-card.slint`). The summary line and Select all / Select none stay above the box. The provider radios get the same (11 Java runtimes). Box heights come from the card's available height (about 3 rows at the least, 7 at the most).
+- **If the window is still too short**, the card's body scrolls, and the whole install screen scrolls too (`ScrollView`s), so nothing is unreachable by mouse.
+- **Keyboard:** Tab still reaches every checkbox and the buttons. A focused checkbox row, or the row chosen with the arrows in a radio list, is scrolled into view by Rust with the package list's maths (`list_scroll::scroll_to_show`, new test `a_long_choice_list_in_a_bounded_box_follows_the_focused_row`, which passed at once because it reuses tested code: it pins the 62-member case). Rows now have fixed heights (`Theme.choice-check-row` 44, `choice-radio-row` 64, plus a 1px separator), so the pitch is known; a radio option's description is now one line, cut with "…" when long (a change from the first version, which wrapped).
+- A new card starts its list at the top; the radio list shows the chosen row once it has been laid out (`list-resized`).
+- **Not verified by me:** the layout itself (nobody can unit-test it, and I did not look at the window). Smoke run of the debug build with the plasma entry, 12 s: nothing on stderr. Checks: fmt, clippy `-D warnings`, `cargo test --all`, `cargo deny check`, release build all exit 0; `strings target/release/tidewise | grep -c TIDEWISE_DEBUG` → 0.
+- **The window cannot go to 800×600:** `main.slint` has `min-width: 1100px; min-height: 640px` (unchanged), so the smallest size to check is 1100×640.
+Next: you re-check item 5 and add the checklist line below.
+Blockers: none.
+Rules bent: the layout is UI-only (manual check stands in); the new scroll test is a documenting test that passed at once (no red step).
+
+**Added to the 6.2 manual checklist (10):** make the window as small as it goes (1100×640) and, for every card (group members with `plasma`, a provider question, each alert), check the buttons are reachable: visible at the bottom of the card, Tab reaches every checkbox and scrolls its box, the mouse wheel scrolls a list and then the card.

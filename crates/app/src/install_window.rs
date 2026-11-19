@@ -20,11 +20,12 @@ use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer}
 use tidewise_app::install_view::{
     CardKind, FocusTarget, InstallView, InstalledRow, OptionView, install_view,
 };
+use tidewise_app::list_scroll::{content_y_to_offset, offset_to_content_y, scroll_to_show};
 use tidewise_pacman::{InstallDecision, PackageRef, PacmanError, install_decision};
 
 use crate::{
     ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, MainWindow,
-    NavBridge, Screen as NavScreen,
+    NavBridge, Screen as NavScreen, Theme,
 };
 
 /// After this long the card adds "This is taking longer than usual."
@@ -42,6 +43,11 @@ struct Screen {
     installed_rows: Rc<VecModel<InstalledRowData>>,
     mailbox: (mpsc::Sender<Answer>, mpsc::Receiver<Answer>),
     slow_timer: Timer,
+    /// The card, and the number of its last focus move, as last painted: a new card starts its list at the top.
+    shown_kind: CardKind,
+    shown_serial: u32,
+    /// Position of the row to keep in view in a radio list (the chosen one); `None` for other cards.
+    chosen_row: Option<usize>,
 }
 
 /// How other screens start an install.
@@ -66,6 +72,9 @@ pub fn start(window: &MainWindow) -> Install {
         installed_rows,
         mailbox: mpsc::channel(),
         slow_timer: Timer::default(),
+        shown_kind: CardKind::Closed,
+        shown_serial: 0,
+        chosen_row: None,
     }));
 
     let handle = screen.clone();
@@ -74,6 +83,24 @@ pub fn start(window: &MainWindow) -> Install {
             handle.borrow_mut().model.choose(index);
         }
         repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_row_focused(move |index| {
+        if let (Ok(index), Some(window)) =
+            (usize::try_from(index), handle.borrow().window.upgrade())
+        {
+            keep_in_view(&window, handle.borrow().shown_kind, Some(index));
+        }
+    });
+    let handle = screen.clone();
+    bridge.on_list_resized(move || {
+        let (window, kind, chosen) = {
+            let state = handle.borrow();
+            (state.window.upgrade(), state.shown_kind, state.chosen_row)
+        };
+        if let Some(window) = window {
+            keep_in_view(&window, kind, chosen);
+        }
     });
     let handle = screen.clone();
     bridge.on_toggle(move |index| {
@@ -241,6 +268,40 @@ fn repaint(screen: &Rc<RefCell<Screen>>) {
             .collect::<Vec<_>>(),
     );
     state.shown_options = view.options;
+
+    // A new card starts its list at the top; a radio list then shows the chosen row.
+    if view.focus_serial != state.shown_serial || view.kind != state.shown_kind {
+        bridge.set_list_y(0.0);
+    }
+    state.shown_serial = view.focus_serial;
+    state.shown_kind = view.kind;
+    state.chosen_row = match view.kind {
+        CardKind::Provider | CardKind::Choice => {
+            state.shown_options.iter().position(|option| option.checked)
+        }
+        _ => None,
+    };
+    keep_in_view(&window, state.shown_kind, state.chosen_row);
+}
+
+/// Scrolls the list in the card the smallest amount that shows row `index` completely: the same maths as the
+/// package list (`list_scroll`). Rows have fixed heights (`Theme`) with a 1px separator between them.
+fn keep_in_view(window: &MainWindow, kind: CardKind, index: Option<usize>) {
+    let Some(index) = index else {
+        return;
+    };
+    let theme = window.global::<Theme>();
+    let row = match kind {
+        CardKind::Members => theme.get_choice_check_row(),
+        CardKind::Provider | CardKind::Choice => theme.get_choice_radio_row(),
+        _ => return,
+    } + 1.0;
+    let bridge = window.global::<InstallBridge>();
+    let current = content_y_to_offset(bridge.get_list_y());
+    let wanted = scroll_to_show(index, row, bridge.get_list_visible_height(), current);
+    if wanted != current {
+        bridge.set_list_y(offset_to_content_y(wanted));
+    }
 }
 
 fn set_texts(bridge: &InstallBridge, view: &InstallView) {

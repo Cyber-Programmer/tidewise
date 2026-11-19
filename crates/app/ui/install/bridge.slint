@@ -62,11 +62,19 @@ export global InstallBridge {
     in property <string> hint;
     in property <string> report;
     in property <[string]> technical;
+    // Where the list in the card is scrolled to (content-y) and how much of it shows. Rust keeps the focused or
+    // chosen row in view with the package list's scrolling maths.
+    in-out property <length> list-y;
+    in-out property <length> list-visible-height;
     in property <InstallFocus> focus;
     in property <int> focus-serial;
 
     // A radio option was chosen, a checkbox flipped.
     callback choose(int);
+    // A checkbox row got the keyboard focus.
+    callback row-focused(int);
+    // The visible part of the list changed size (first layout, window resized).
+    callback list-resized();
     callback toggle(int);
     callback select-all();
     callback select-none();

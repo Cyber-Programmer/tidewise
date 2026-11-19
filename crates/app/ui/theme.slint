@@ -65,4 +65,8 @@ export global Theme {
     out property <length> size-icon-button: 28px;
     // One line of the package list. Rust reads this too, to scroll the selected row into view.
     out property <length> row-height: 64px;
+    // The rows of the install screens' lists. Fixed heights, so Rust can keep the focused row in view with the
+    // same scrolling maths as the package list (a 1px separator sits between rows).
+    out property <length> choice-check-row: 44px;
+    out property <length> choice-radio-row: 64px;
 }
