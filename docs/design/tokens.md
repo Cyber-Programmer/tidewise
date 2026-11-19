@@ -74,6 +74,29 @@ unmodified; see `crates/app/ui/fonts/OFL.txt`). No other fonts.
 - Touch targets at least **44 px**.
 - Small icon buttons (e.g. clear search) draw a **28 px** square (`size-icon-button`, radius 4) inside a 44 px target.
 - One list row is **64 px** (`row-height`); the app reads it to scroll the selected row into view.
+- The install screens' list rows are fixed: **44 px** checkbox rows (`choice-check-row`), **64 px** radio rows
+  (`choice-radio-row`), plus a 1 px separator between rows; the app reads both to keep the focused row in view.
+- Content stretches to **1000 px** (`content-max-width`, tested to stay between 960 and 1040) and is centred beyond it.
+
+## Layout rules
+
+Decided 19 Nov 2026 after the 6.2 manual checks. They apply to the **install screens now**; the other screens follow
+in a later task (the Search header, which spreads spare height between its title, subtitle and search box, is not
+part of this one).
+
+1. **A button is never narrower than its text** plus its padding (`min-width` = the label's width + 2 × `space-l`,
+   at least 44 px). A row that is too narrow moves things onto another line; it never squeezes a button.
+2. **Content stretches up to a maximum width, then is centred** with equal margins (`content-max-width`). Things that
+   belong to the content's right edge (the step indicator) line up with it, not with the window.
+3. **Lists take the spare height.** Long lists sit in their own bounded boxes, direct children of the card's layout:
+   each starts at a minimum (3 rows, or 96 px for a secondary list), the spare height is shared by `vertical-stretch`
+   (65 for the main list, 35 for the secondary one), and no box grows past its content, so a short list stays short.
+   The card's height comes from the layout, never from a subtraction of guessed sizes.
+4. **Rows wrap instead of squeezing.** A summary line that does not fit beside its buttons stacks above them (compared
+   with measured widths, no fixed breakpoint); long text wraps; a one-line description is cut with "…" only where the
+   row height is fixed.
+5. **The screen scrolls only when nothing else fits.** The card's buttons stay at the bottom of the card; the screen's
+   scroll view is the last resort for a window shorter than the smallest card, so nothing is unreachable.
 
 ## Contrast pairs (text on the surfaces it actually appears on)
 
