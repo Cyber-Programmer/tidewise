@@ -4,23 +4,85 @@ import { TwButton } from "../widgets/button.slint";
 import { RadioList, CheckRow } from "../widgets/choice-list.slint";
 import { InstallBridge, InstallCardKind, InstallFocus } from "bridge.slint";
 
+// Select all / Select none.
+component SelectButtons inherits HorizontalLayout {
+    spacing: Theme.space-s;
+    alignment: end;
+    TwButton {
+        text: "Select all";
+        clicked => {
+            InstallBridge.select-all();
+        }
+    }
+
+    TwButton {
+        text: "Select none";
+        clicked => {
+            InstallBridge.select-none();
+        }
+    }
+}
+
+// "62 of 62 selected · 3 already installed" with Select all / Select none. Side by side while the summary fits on
+// one line next to the buttons; otherwise the buttons go below it. No fixed threshold: it compares the row's width
+// with the summary's one-line width plus the buttons' preferred width. The two are placed by hand (one instance of
+// each, so there is one Tab stop per button) and the row reports its own height, so the card's layout never depends
+// on which arrangement is shown.
+component SummaryRow inherits Rectangle {
+    in property <string> summary;
+    in property <bool> show-buttons;
+
+    property <length> buttons-width: root.show-buttons ? buttons.preferred-width : 0px;
+    property <bool> stacked: root.show-buttons && root.width < label.preferred-width + root.buttons-width + Theme.space-m;
+    property <length> label-height: label.preferred-height;
+
+    min-height: root.stacked ? root.label-height + Theme.space-s + buttons.preferred-height : max(root.label-height, buttons.preferred-height);
+    preferred-height: self.min-height;
+    max-height: self.min-height;
+
+    label := Text {
+        x: 0px;
+        y: root.stacked || !root.show-buttons ? 0px : (root.height - self.height) / 2;
+        width: root.stacked ? root.width : max(0px, root.width - root.buttons-width - Theme.space-m);
+        text: root.summary;
+        color: Theme.text-2;
+        font-size: Theme.size-label;
+        wrap: word-wrap;
+        accessible-role: text;
+    }
+
+    buttons := SelectButtons {
+        visible: root.show-buttons;
+        x: root.stacked ? 0px : root.width - self.preferred-width;
+        y: root.stacked ? root.label-height + Theme.space-s : (root.height - self.preferred-height) / 2;
+        width: self.preferred-width;
+        height: self.preferred-height;
+        alignment: start;
+    }
+}
+
 // The one card of the install screen. What it shows depends on `InstallBridge.kind`; every word and flag comes
 // from Rust. Focus: the element named by `InstallBridge.focus` takes it when the card appears and whenever
 // `focus-serial` changes (a new question, a new result).
 //
-// Layout rule (design M4, card 2): the buttons are pinned at the bottom of the card and always visible. Everything
-// above them scrolls (so nothing is unreachable in a short window), and each long list scrolls inside its own
-// bounded box: the members to install in one, the already-installed ones in a smaller second one.
+// Layout rules (docs/design/tokens.md, "Layout rules"): the card's height comes from the layout, not from a
+// subtraction. Long lists sit in their own bounded boxes, direct children of the card's layout: they start at
+// their smallest size (3 rows, or 96px for the already-installed list) and share the spare height 65 / 35, but
+// never grow past their content, so short lists stay short. The buttons are the last child and keep their size.
 export component InstallCard inherits Rectangle {
-    // The most height the card may take; the screen sets it from the window's height.
-    in property <length> available-height: 600px;
-    height: min(body.preferred-height + footer.preferred-height, root.available-height);
+    property <length> check-pitch: Theme.choice-check-row + 1px;
+    property <length> radio-pitch: Theme.choice-radio-row + 1px;
+    // The height of each list when it shows every row (rows, separators between them, 1px border).
+    property <length> members-full: InstallBridge.kind == InstallCardKind.members && InstallBridge.options.length > 0 ? InstallBridge.options.length * root.check-pitch + 1px : 0px;
+    property <length> installed-full: InstallBridge.kind == InstallCardKind.members && InstallBridge.installed-rows.length > 0 ? InstallBridge.installed-rows.length * 30px + 2 * Theme.space-m - Theme.space-s + 2px : 0px;
+    property <length> radio-full: InstallBridge.kind == InstallCardKind.provider || InstallBridge.kind == InstallCardKind.choice ? InstallBridge.options.length * root.radio-pitch + 1px : 0px;
+    property <length> members-min: min(root.members-full, 3 * root.check-pitch);
+    property <length> installed-min: min(root.installed-full, 96px);
+    property <length> radio-min: min(root.radio-full, 3 * root.radio-pitch);
 
-    // Room for lists: what is left of the card after the buttons and the fixed words, shared 65 / 35.
-    property <length> list-room: root.available-height - 360px;
-    property <length> members-max: max(3 * (Theme.choice-check-row + 1px), min(320px, root.list-room * 0.65));
-    property <length> installed-max: max(96px, min(160px, root.list-room * 0.35));
-    property <length> radio-max: max(3 * (Theme.choice-radio-row + 1px), min(360px, root.list-room));
+    // The layout starts every list at its smallest size, so the card's own preferred height is the smallest one;
+    // its most is that plus what the lists need to show every row (short cards stay short).
+    max-height: content.preferred-height + (root.members-full - root.members-min) + (root.installed-full - root.installed-min) + (root.radio-full - root.radio-min);
 
     background: Theme.surface;
     border-radius: Theme.radius-panel;
@@ -30,340 +92,323 @@ export component InstallCard inherits Rectangle {
     // View state only: is the "Technical details" part open?
     property <bool> technical-open: false;
 
-    VerticalLayout {
-        ScrollView {
-            body := VerticalLayout {
-                padding: 28px;
-                padding-bottom: Theme.space-m;
-                spacing: Theme.space-l;
+    content := VerticalLayout {
+        padding: 28px;
+        spacing: Theme.space-l;
+
+        // "Question 2 of 3" and one bar per question.
+        if InstallBridge.step-text != "": HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-s;
+            Text {
+                text: InstallBridge.step-text;
+                color: Theme.text-2;
+                font-size: Theme.size-label;
+                font-weight: Theme.weight-semibold;
+                vertical-alignment: center;
+            }
+
+            Rectangle { }
+
+            for dot in InstallBridge.dots: Rectangle {
+                width: 28px;
+                height: 6px;
+                border-radius: 3px;
+                y: (parent.height - self.height) / 2;
+                background: dot == 0 ? Theme.accent : dot == 1 ? Theme.text-2 : Theme.control-border;
+            }
+        }
+
+        // Title: an amber mark for the cards that stop the install, then the words.
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+            alignment: start;
+
+            if InstallBridge.kind == InstallCardKind.alert || InstallBridge.kind == InstallCardKind.stale || InstallBridge.kind == InstallCardKind.differs: VerticalLayout {
                 alignment: start;
-
-                // "Question 2 of 3" and one bar per question.
-                if InstallBridge.step-text != "": HorizontalLayout {
-                    spacing: Theme.space-s;
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: Theme.warning-bg;
                     Text {
-                        text: InstallBridge.step-text;
-                        color: Theme.text-2;
-                        font-size: Theme.size-label;
+                        text: "!";
+                        color: Theme.warning;
                         font-weight: Theme.weight-semibold;
-                        vertical-alignment: center;
-                    }
-
-                    Rectangle { }
-
-                    for dot in InstallBridge.dots: Rectangle {
-                        width: 28px;
-                        height: 6px;
-                        border-radius: 3px;
-                        y: (parent.height - self.height) / 2;
-                        background: dot == 0 ? Theme.accent : dot == 1 ? Theme.text-2 : Theme.control-border;
-                    }
-                }
-
-                // Title: an amber mark for the cards that stop the install, then the words.
-                HorizontalLayout {
-                    spacing: Theme.space-m;
-                    alignment: start;
-
-                    if InstallBridge.kind == InstallCardKind.alert || InstallBridge.kind == InstallCardKind.stale || InstallBridge.kind == InstallCardKind.differs: VerticalLayout {
-                        alignment: start;
-                        Rectangle {
-                            width: 28px;
-                            height: 28px;
-                            border-radius: 14px;
-                            background: Theme.warning-bg;
-                            Text {
-                                text: "!";
-                                color: Theme.warning;
-                                font-weight: Theme.weight-semibold;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: InstallBridge.title-before;
-                        color: Theme.text;
-                        font-size: Theme.size-dialog-title;
-                        font-weight: Theme.weight-semibold;
-                        wrap: InstallBridge.title-mono == "" ? word-wrap : no-wrap;
-                        horizontal-stretch: InstallBridge.title-mono == "" ? 1 : 0;
-                        vertical-alignment: center;
-                    }
-
-                    if InstallBridge.title-mono != "": Text {
-                        text: InstallBridge.title-mono;
-                        color: Theme.text;
-                        font-family: Theme.font-mono;
-                        font-size: Theme.size-row-title;
-                        font-weight: Theme.weight-medium;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-
-                    if InstallBridge.title-after != "": Text {
-                        text: InstallBridge.title-after;
-                        color: Theme.text;
-                        font-size: Theme.size-dialog-title;
-                        font-weight: Theme.weight-semibold;
+                        horizontal-alignment: center;
                         vertical-alignment: center;
                     }
                 }
+            }
 
-                if InstallBridge.body != "": Text {
-                    text: InstallBridge.body;
-                    color: Theme.text-2;
-                    font-size: Theme.size-body;
-                    wrap: word-wrap;
-                }
+            Text {
+                text: InstallBridge.title-before;
+                color: Theme.text;
+                font-size: Theme.size-dialog-title;
+                font-weight: Theme.weight-semibold;
+                wrap: InstallBridge.title-mono == "" ? word-wrap : no-wrap;
+                horizontal-stretch: InstallBridge.title-mono == "" ? 1 : 0;
+                vertical-alignment: center;
+            }
 
-                // Provider or installed-package question.
-                if InstallBridge.kind == InstallCardKind.provider || InstallBridge.kind == InstallCardKind.choice: RadioList {
-                    height: min(InstallBridge.options.length * (Theme.choice-radio-row + 1px) + 1px, root.radio-max);
-                    scroll-y <=> InstallBridge.list-y;
-                    visible-height <=> InstallBridge.list-visible-height;
+            if InstallBridge.title-mono != "": Text {
+                text: InstallBridge.title-mono;
+                color: Theme.text;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-row-title;
+                font-weight: Theme.weight-medium;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if InstallBridge.title-after != "": Text {
+                text: InstallBridge.title-after;
+                color: Theme.text;
+                font-size: Theme.size-dialog-title;
+                font-weight: Theme.weight-semibold;
+                vertical-alignment: center;
+            }
+        }
+
+        if InstallBridge.body != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.body;
+            color: Theme.text-2;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
+
+        // Provider or installed-package question.
+        if InstallBridge.kind == InstallCardKind.provider || InstallBridge.kind == InstallCardKind.choice: RadioList {
+            vertical-stretch: 1;
+            min-height: root.radio-min;
+            preferred-height: root.radio-min;
+            max-height: root.radio-full;
+            scroll-y <=> InstallBridge.list-y;
+            visible-height <=> InstallBridge.list-visible-height;
             resized => {
                 InstallBridge.list-resized();
             }
-                    options: InstallBridge.options;
-                    selected: InstallBridge.selected-index;
-                    label: InstallBridge.group-label;
-                    autofocus: InstallBridge.focus == InstallFocus.list;
-                    focus-request: InstallBridge.focus-serial;
-                    chosen(index) => {
-                        InstallBridge.choose(index);
-                    }
+            options: InstallBridge.options;
+            selected: InstallBridge.selected-index;
+            label: InstallBridge.group-label;
+            autofocus: InstallBridge.focus == InstallFocus.list;
+            focus-request: InstallBridge.focus-serial;
+            chosen(index) => {
+                InstallBridge.choose(index);
+            }
+        }
+
+        // Group members: the summary and Select all / none stay above the box.
+        if InstallBridge.kind == InstallCardKind.members && InstallBridge.selection-text != "": SummaryRow {
+            vertical-stretch: 0;
+            summary: InstallBridge.selection-text;
+            show-buttons: InstallBridge.show-select-buttons;
+        }
+
+        // The members to install: the larger share of the spare height (65).
+        if InstallBridge.kind == InstallCardKind.members && InstallBridge.options.length > 0: Rectangle {
+            vertical-stretch: 65;
+            min-height: root.members-min;
+            preferred-height: root.members-min;
+            max-height: root.members-full;
+            background: Theme.surface;
+            border-radius: Theme.radius-control;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+            accessible-role: groupbox;
+            accessible-label: InstallBridge.group-label;
+            ScrollView {
+                content-y <=> InstallBridge.list-y;
+                changed visible-height => {
+                    InstallBridge.list-visible-height = self.visible-height;
+                    InstallBridge.list-resized();
                 }
 
-                // Group members.
-                if InstallBridge.kind == InstallCardKind.members: VerticalLayout {
-                    spacing: Theme.space-m;
-                    if InstallBridge.selection-text != "": HorizontalLayout {
-                        spacing: Theme.space-s;
-                        Text {
-                            text: InstallBridge.selection-text;
-                            color: Theme.text-2;
-                            font-size: Theme.size-label;
-                            vertical-alignment: center;
-                            accessible-role: text;
+                VerticalLayout {
+                    for option[index] in InstallBridge.options: VerticalLayout {
+                        if index > 0: Rectangle {
+                            height: 1px;
+                            background: Theme.rule;
                         }
 
-                        Rectangle { }
-
-                        if InstallBridge.show-select-buttons: TwButton {
-                            text: "Select all";
-                            clicked => {
-                                InstallBridge.select-all();
+                        CheckRow {
+                            option: option;
+                            row-index: index;
+                            focus-row: InstallBridge.focus-row;
+                            focus-row-request: InstallBridge.focus-row-request;
+                            autofocus: index == 0 && InstallBridge.focus == InstallFocus.list;
+                            focus-request: InstallBridge.focus-serial;
+                            toggled => {
+                                InstallBridge.toggle(index);
                             }
-                        }
-
-                        if InstallBridge.show-select-buttons: TwButton {
-                            text: "Select none";
-                            clicked => {
-                                InstallBridge.select-none();
+                            focused => {
+                                InstallBridge.row-focused(index);
                             }
-                        }
-                    }
-
-                    if InstallBridge.options.length > 0: Rectangle {
-                        height: min(InstallBridge.options.length * (Theme.choice-check-row + 1px) + 1px, root.members-max);
-                        background: Theme.surface;
-                        border-radius: Theme.radius-control;
-                        border-width: 1px;
-                        border-color: Theme.border;
-                        clip: true;
-                        accessible-role: groupbox;
-                        accessible-label: InstallBridge.group-label;
-                        ScrollView {
-                            content-y <=> InstallBridge.list-y;
-                            changed visible-height => {
-                                InstallBridge.list-visible-height = self.visible-height;
-                            InstallBridge.list-resized();
-                            }
-
-                            VerticalLayout {
-                                for option[index] in InstallBridge.options: VerticalLayout {
-                                    if index > 0: Rectangle {
-                                        height: 1px;
-                                        background: Theme.rule;
-                                    }
-
-                                    CheckRow {
-                                        option: option;
-                                        row-index: index;
-                                        focus-row: InstallBridge.focus-row;
-                                        focus-row-request: InstallBridge.focus-row-request;
-                                        autofocus: index == 0 && InstallBridge.focus == InstallFocus.list;
-                                        focus-request: InstallBridge.focus-serial;
-                                        toggled => {
-                                            InstallBridge.toggle(index);
-                                        }
-                                        focused => {
-                                            InstallBridge.row-focused(index);
-                                        }
-                                        moved(delta) => {
-                                            InstallBridge.row-moved(index, delta);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if InstallBridge.installed-rows.length > 0: VerticalLayout {
-                        spacing: Theme.space-s;
-                        Text {
-                            text: InstallBridge.installed-heading;
-                            color: Theme.text-2;
-                            font-size: Theme.size-label;
-                            font-weight: Theme.weight-semibold;
-                        }
-
-                        Rectangle {
-                            height: min(InstallBridge.installed-rows.length * 30px + 2 * Theme.space-m, root.installed-max);
-                            background: Theme.bg;
-                            border-radius: Theme.radius-control;
-                            border-width: 1px;
-                            border-color: Theme.border;
-                            clip: true;
-                            ScrollView {
-                                VerticalLayout {
-                                    padding: Theme.space-m;
-                                    spacing: Theme.space-s;
-                                    for row in InstallBridge.installed-rows: HorizontalLayout {
-                                        height: 22px;
-                                        spacing: Theme.space-m;
-                                        Text {
-                                            text: row.name;
-                                            color: Theme.text-2;
-                                            font-family: Theme.font-mono;
-                                            font-size: Theme.size-label;
-                                            horizontal-stretch: 1;
-                                            vertical-alignment: center;
-                                        }
-
-                                        Text {
-                                            text: row.version;
-                                            color: Theme.text-3;
-                                            font-family: Theme.font-mono;
-                                            font-size: 12px;
-                                            vertical-alignment: center;
-                                        }
-
-                                        Text {
-                                            text: "installed";
-                                            color: Theme.text-2;
-                                            font-size: 12px;
-                                            font-weight: Theme.weight-semibold;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                }
+                            moved(delta) => {
+                                InstallBridge.row-moved(index, delta);
                             }
                         }
                     }
                 }
+            }
+        }
 
-                // A monospaced block that explains the card (versions, what was needed).
-                if InstallBridge.code-lines.length > 0: Rectangle {
-                    background: Theme.bg;
-                    border-radius: Theme.radius-chip;
-                    VerticalLayout {
-                        padding: Theme.space-m;
-                        for line in InstallBridge.code-lines: Text {
-                            text: line;
+        // The members you already have: a second, smaller box (35).
+        if InstallBridge.kind == InstallCardKind.members && InstallBridge.installed-rows.length > 0: Text {
+            vertical-stretch: 0;
+            text: InstallBridge.installed-heading;
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+            font-weight: Theme.weight-semibold;
+        }
+
+        if InstallBridge.kind == InstallCardKind.members && InstallBridge.installed-rows.length > 0: Rectangle {
+            vertical-stretch: 35;
+            min-height: root.installed-min;
+            preferred-height: root.installed-min;
+            max-height: root.installed-full;
+            background: Theme.bg;
+            border-radius: Theme.radius-control;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+            ScrollView {
+                VerticalLayout {
+                    padding: Theme.space-m;
+                    spacing: Theme.space-s;
+                    for row in InstallBridge.installed-rows: HorizontalLayout {
+                        height: 22px;
+                        spacing: Theme.space-m;
+                        Text {
+                            text: row.name;
                             color: Theme.text-2;
                             font-family: Theme.font-mono;
                             font-size: Theme.size-label;
-                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: row.version;
+                            color: Theme.text-3;
+                            font-family: Theme.font-mono;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "installed";
+                            color: Theme.text-2;
+                            font-size: 12px;
+                            font-weight: Theme.weight-semibold;
+                            vertical-alignment: center;
                         }
                     }
                 }
+            }
+        }
 
-                if InstallBridge.unchanged != "": Text {
-                    text: InstallBridge.unchanged;
+        // A monospaced block that explains the card (versions, what was needed).
+        if InstallBridge.code-lines.length > 0: Rectangle {
+            vertical-stretch: 0;
+            background: Theme.bg;
+            border-radius: Theme.radius-chip;
+            VerticalLayout {
+                padding: Theme.space-m;
+                for line in InstallBridge.code-lines: Text {
+                    text: line;
                     color: Theme.text-2;
-                    font-size: Theme.size-label;
-                    font-weight: Theme.weight-medium;
-                    wrap: word-wrap;
-                }
-
-                if InstallBridge.slow-note != "": Text {
-                    text: InstallBridge.slow-note;
-                    color: Theme.text-2;
-                    font-size: Theme.size-body;
-                    wrap: word-wrap;
-                }
-
-                if InstallBridge.hint != "": Text {
-                    text: InstallBridge.hint;
-                    color: Theme.text-2;
-                    font-size: Theme.size-body;
-                    wrap: word-wrap;
-                }
-
-                if InstallBridge.technical.length > 0: HorizontalLayout {
-                    TwButton {
-                        text: root.technical-open ? "Hide technical details" : "Technical details";
-                        clicked => {
-                            root.technical-open = !root.technical-open;
-                        }
-                    }
-
-                    Rectangle { }
-                }
-
-                if root.technical-open && InstallBridge.technical.length > 0: VerticalLayout {
-                    spacing: Theme.space-xs;
-                    for line in InstallBridge.technical: Text {
-                        text: line;
-                        color: Theme.text-2;
-                        font-family: Theme.font-mono;
-                        font-size: Theme.size-label;
-                        wrap: word-wrap;
-                    }
-                }
-
-                if InstallBridge.report != "": Text {
-                    text: InstallBridge.report;
-                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
                     font-size: Theme.size-label;
                     wrap: word-wrap;
                 }
             }
         }
 
-        // Pinned: the buttons never scroll away.
-        footer := Rectangle {
-            VerticalLayout {
-                padding: 28px;
-                padding-top: Theme.space-m;
-                HorizontalLayout {
-                    spacing: Theme.space-m;
-                    alignment: start;
+        if InstallBridge.unchanged != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.unchanged;
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+            font-weight: Theme.weight-medium;
+            wrap: word-wrap;
+        }
 
-                    if InstallBridge.has-primary: TwButton {
-                        text: InstallBridge.primary-text;
-                        primary: true;
-                        enabled: InstallBridge.primary-enabled;
-                        autofocus: InstallBridge.focus == InstallFocus.primary;
-                        focus-request: InstallBridge.focus-serial;
-                        clicked => {
-                            InstallBridge.primary();
-                        }
-                    }
+        if InstallBridge.slow-note != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.slow-note;
+            color: Theme.text-2;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
 
-                    if InstallBridge.has-secondary: TwButton {
-                        text: InstallBridge.secondary-text;
-                        autofocus: InstallBridge.focus == InstallFocus.secondary;
-                        focus-request: InstallBridge.focus-serial;
-                        clicked => {
-                            InstallBridge.secondary();
-                        }
-                    }
+        if InstallBridge.hint != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.hint;
+            color: Theme.text-2;
+            font-size: Theme.size-body;
+            wrap: word-wrap;
+        }
+
+        if InstallBridge.technical.length > 0: HorizontalLayout {
+            vertical-stretch: 0;
+            TwButton {
+                text: root.technical-open ? "Hide technical details" : "Technical details";
+                clicked => {
+                    root.technical-open = !root.technical-open;
                 }
+            }
 
+            Rectangle { }
+        }
+
+        if root.technical-open && InstallBridge.technical.length > 0: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-xs;
+            for line in InstallBridge.technical: Text {
+                text: line;
+                color: Theme.text-2;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-label;
+                wrap: word-wrap;
+            }
+        }
+
+        if InstallBridge.report != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.report;
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+            wrap: word-wrap;
+        }
+
+        // The buttons: the last child, they keep their size.
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+            alignment: start;
+
+            if InstallBridge.has-primary: TwButton {
+                text: InstallBridge.primary-text;
+                primary: true;
+                enabled: InstallBridge.primary-enabled;
+                autofocus: InstallBridge.focus == InstallFocus.primary;
+                focus-request: InstallBridge.focus-serial;
+                clicked => {
+                    InstallBridge.primary();
+                }
+            }
+
+            if InstallBridge.has-secondary: TwButton {
+                text: InstallBridge.secondary-text;
+                autofocus: InstallBridge.focus == InstallFocus.secondary;
+                focus-request: InstallBridge.focus-serial;
+                clicked => {
+                    InstallBridge.secondary();
+                }
             }
         }
     }
