@@ -39,9 +39,72 @@ pub struct UnsatisfiedDependency {
 /// Reads what a failed dry run (`-S --print`, exit 1) printed. `None` if it is anything but the failures above:
 /// every non-empty line of both streams must be recognised, so a lock error or a warning is never mistaken for one.
 pub fn parse_print_failure(stdout: &str, stderr: &str) -> Option<PrintFailure> {
-    // Red-phase shim (6.1): recognises nothing. The real parser comes in the next commit.
-    let _ = (stdout, stderr);
-    None
+    let out = non_empty_lines(stdout);
+    let err = non_empty_lines(stderr);
+    if !out.is_empty() {
+        // Unsatisfied dependencies: the details on stdout, and nothing but the summary line on stderr.
+        if err != ["error: failed to prepare transaction (could not satisfy dependencies)"] {
+            return None;
+        }
+        let found = out
+            .iter()
+            .map(|line| parse_unsatisfied(line))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(PrintFailure::Unsatisfiable(found));
+    }
+    if let [line] = err.as_slice()
+        && let Some(repo) = line.strip_prefix("error: database not found: ")
+    {
+        return if is_valid_repo_name(repo) && !repo.starts_with(' ') && !repo.ends_with(' ') {
+            Some(PrintFailure::UnknownRepo(repo.to_string()))
+        } else {
+            None
+        };
+    }
+    if err.is_empty() {
+        return None;
+    }
+    let names = err
+        .iter()
+        .map(|line| {
+            line.strip_prefix("error: target not found: ")
+                .filter(|name| is_valid_package_name(name))
+                .map(str::to_string)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(PrintFailure::NotFound(names))
+}
+
+fn non_empty_lines(text: &str) -> Vec<&str> {
+    text.split('\n').filter(|line| !line.is_empty()).collect()
+}
+
+/// `:: unable to satisfy dependency 'x>=2' required by y`.
+fn parse_unsatisfied(line: &str) -> Option<UnsatisfiedDependency> {
+    let rest = line.strip_prefix(":: unable to satisfy dependency '")?;
+    let (dependency, required_by) = rest.split_once("' required by ")?;
+    if !is_valid_dependency(dependency) || !is_valid_package_name(required_by) {
+        return None;
+    }
+    Some(UnsatisfiedDependency {
+        dependency: dependency.to_string(),
+        required_by: required_by.to_string(),
+    })
+}
+
+/// A dependency as pacman prints it: a package name, optionally followed by `=`, `<`, `<=`, `>` or `>=` and a version.
+fn is_valid_dependency(dependency: &str) -> bool {
+    let name_end = dependency.find(['<', '>', '=']).unwrap_or(dependency.len());
+    let (name, rule) = dependency.split_at(name_end);
+    if !is_valid_package_name(name) {
+        return false;
+    }
+    if rule.is_empty() {
+        return true;
+    }
+    let version = rule.trim_start_matches(['<', '>', '=']);
+    let operator = rule.len() - version.len();
+    matches!(rule.get(..operator), Some("=" | "<" | "<=" | ">" | ">=")) && is_valid_version(version)
 }
 
 /// Parses the stdout of the dry run into packages, in pacman's order (dependencies first).
