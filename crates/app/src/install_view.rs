@@ -2,7 +2,12 @@
 //! No Slint types here, so every string the window displays is unit-tested. Words follow the design boards
 //! "M2 Install flow" and "M4 Install questions".
 
-use crate::install_model::InstallModel;
+use crate::error_words::{Doing, error_text, error_view};
+use crate::install_model::{Draft, InstallModel, Phase, Step};
+use tidewise_pacman::{Blocker, PackageRef, PacmanError, Question};
+
+const UNCHANGED: &str = "Nothing was installed and nothing on your system changed.";
+const REPORT: &str = "Report problems at github.com/Cyber-Programmer/tidewise/issues";
 
 /// Which card fills the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -96,8 +101,390 @@ pub struct InstallView {
 }
 
 pub fn install_view(model: &InstallModel) -> InstallView {
-    let _ = model;
-    InstallView::default()
+    if !model.is_open() {
+        return InstallView::default();
+    }
+    let label = request_label(model);
+    let mut view = InstallView {
+        open: true,
+        heading: format!("Install {label}"),
+        crumb: label.clone(),
+        focus_serial: model.focus_serial(),
+        ..InstallView::default()
+    };
+    match model.phase() {
+        Phase::Closed => {}
+        Phase::Working => {
+            view.kind = CardKind::Working;
+            view.title_before = format!("Working out what {label} needs…");
+            view.body = "Asking pacman for a dry run. Nothing is installed yet.".to_string();
+            if model.is_slow() {
+                view.slow_note = "This is taking longer than usual.".to_string();
+            }
+            view.secondary = button("Cancel", true);
+        }
+        Phase::Asking => {
+            if let Some(step) = model.steps().get(model.current()) {
+                asking(&mut view, model, step, &label);
+            }
+        }
+        Phase::Stale => {
+            view.kind = CardKind::Stale;
+            view.title_before = "Your system needs updating first".to_string();
+            view.body = format!(
+                "Arch only supports adding apps to an up-to-date system. \
+                 Installing {label} alone could break other apps."
+            );
+            view.primary = button(&format!("Update system and install {label}"), false);
+            view.secondary = button(back_label(model), true);
+            view.hint = "Coming soon: Tidewise will update and install in one go. For now, \
+                         update your system in a terminal with sudo pacman -Syu, then come back."
+                .to_string();
+        }
+        Phase::Blocked(blockers) => blocked(&mut view, model, blockers),
+        Phase::Failed { text, can_retry } => {
+            view.kind = CardKind::Alert;
+            view.title_before.clone_from(&text.title);
+            view.body.clone_from(&text.body);
+            view.technical = vec![text.technical.clone()];
+            view.unchanged = UNCHANGED.to_string();
+            view.report = error_view(text).report;
+            if *can_retry {
+                view.primary = button("Try again", true);
+            }
+            view.secondary = button(back_label(model), true);
+        }
+        Phase::Ready(plan) => {
+            let count = plan.items.len();
+            view.kind = CardKind::Ready;
+            view.current_pill = 1;
+            view.title_before = "The list is ready".to_string();
+            view.body = format!(
+                "Tidewise knows exactly what it would install: {}. The review screen comes next.",
+                packages(count)
+            );
+            view.secondary = button(back_label(model), true);
+        }
+    }
+    view
+}
+
+fn button(label: &str, enabled: bool) -> Option<ButtonView> {
+    Some(ButtonView {
+        label: label.to_string(),
+        enabled,
+    })
+}
+
+/// "1 package", "5 packages".
+fn packages(count: usize) -> String {
+    if count == 1 {
+        "1 package".to_string()
+    } else {
+        format!("{count} packages")
+    }
+}
+
+/// "a", "a and b", "a, b and c".
+fn names_text(names: &[String]) -> String {
+    match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+fn spec(item: &PackageRef) -> String {
+    format!("{}/{}", item.repo, item.name)
+}
+
+/// What the screen calls the thing being installed.
+fn request_label(model: &InstallModel) -> String {
+    let request = model.request();
+    match (request.targets.as_slice(), request.groups.as_slice()) {
+        ([only], []) => only.name.clone(),
+        ([], [only]) => only.clone(),
+        _ => packages(request.targets.len() + request.groups.len()),
+    }
+}
+
+/// Where the secondary button of a result card goes: back to the last question, or out to the details.
+fn back_label(model: &InstallModel) -> &'static str {
+    if model.steps().is_empty() {
+        "Back to details"
+    } else {
+        "Back"
+    }
+}
+
+fn asking(view: &mut InstallView, model: &InstallModel, step: &Step, label: &str) {
+    let total = model.steps().len();
+    let current = model.current();
+    let last = current + 1 == total;
+    let prefix = if total > 1 {
+        view.step_text = format!("Question {} of {total}", current + 1);
+        view.dots = (0..total)
+            .map(|index| match index.cmp(&current) {
+                std::cmp::Ordering::Less => 0,
+                std::cmp::Ordering::Equal => 1,
+                std::cmp::Ordering::Greater => 2,
+            })
+            .collect();
+        format!("{}. ", view.step_text)
+    } else {
+        String::new()
+    };
+    view.secondary = button(if current == 0 { "Cancel" } else { "Back" }, true);
+    let next = |text: String| button(if last { &text } else { "Next question" }, true);
+    match (&step.question, &step.draft) {
+        (
+            Question::ChooseProvider {
+                dependency,
+                candidates,
+                default,
+            },
+            Draft::Provider(picked),
+        ) => {
+            view.kind = CardKind::Provider;
+            view.title_before = format!("Installing {label} needs ");
+            view.title_mono.clone_from(dependency);
+            view.title_after = ": pick one".to_string();
+            view.body = "Any of them works. If you're not sure, keep the one marked as pacman's \
+                         default."
+                .to_string();
+            view.group_label = format!("{prefix}Pick a package for {dependency}");
+            view.options = candidates
+                .iter()
+                .enumerate()
+                .map(|(index, candidate)| OptionView {
+                    label: candidate.package.name.clone(),
+                    meta: candidate.version.clone(),
+                    detail: candidate.description.clone(),
+                    tag: if index == *default {
+                        "pacman's default".to_string()
+                    } else {
+                        String::new()
+                    },
+                    checked: index == *picked,
+                })
+                .collect();
+            let name = candidates
+                .get(*picked)
+                .map_or("this one", |candidate| candidate.package.name.as_str());
+            view.primary = next(format!("Continue with {name}"));
+        }
+        (Question::ChooseGroupMembers { group, members }, Draft::Members(ticked)) => {
+            view.kind = CardKind::Members;
+            view.title_before = format!("{group} is a group of packages");
+            view.group_label = format!("{prefix}Members to install");
+            let missing = members
+                .iter()
+                .filter(|member| member.installed_version.is_none())
+                .count();
+            let have = members.len() - missing;
+            for (member, on) in members.iter().zip(ticked) {
+                match &member.installed_version {
+                    None => view.options.push(OptionView {
+                        label: member.package.name.clone(),
+                        meta: member.version.clone(),
+                        checked: *on,
+                        ..OptionView::default()
+                    }),
+                    Some(version) => view.installed_rows.push(InstalledRow {
+                        name: member.package.name.clone(),
+                        version: version.clone(),
+                    }),
+                }
+            }
+            if have > 0 {
+                view.installed_heading = "Already installed, not installed again".to_string();
+            }
+            if missing == 0 {
+                view.body = format!(
+                    "Every member of {group} is already installed, so there is nothing to add."
+                );
+            } else {
+                let count = ticked.iter().filter(|on| **on).count();
+                view.body = if have > 0 {
+                    "All members you don't have yet are selected; untick any you don't want. \
+                     Members you already have stay as they are."
+                } else {
+                    "All are selected; untick any you don't want."
+                }
+                .to_string();
+                view.selection_text = format!("{count} of {missing} selected");
+                if have > 0 {
+                    view.selection_text
+                        .push_str(&format!(" · {have} already installed"));
+                }
+                view.show_select_buttons = true;
+                view.primary = button(
+                    &if last {
+                        format!("Continue with {}", packages(count))
+                    } else {
+                        "Next question".to_string()
+                    },
+                    count > 0,
+                );
+            }
+        }
+        (
+            Question::AlreadyInstalled {
+                target,
+                installed_version,
+                repo_version,
+                ..
+            },
+            Draft::Differs,
+        ) => {
+            view.kind = CardKind::Differs;
+            let name = &target.name;
+            view.title_before = format!("Your {name} is a different version from the repository's");
+            view.body = format!(
+                "You have {installed_version}; the repository has {repo_version}. \
+                 Installing it would replace yours, so Tidewise leaves {name} out."
+            );
+            view.code_lines = vec![
+                format!("{:<10} {name} {installed_version}", "installed"),
+                format!("{:<10} {name} {repo_version}", target.repo),
+            ];
+            if model.can_go_on() {
+                view.primary = button(&format!("Continue without {name}"), true);
+            }
+        }
+        (
+            Question::AlreadyInstalled {
+                target,
+                installed_version,
+                ..
+            },
+            Draft::Installed { reinstall },
+        ) => {
+            view.kind = CardKind::Choice;
+            let name = &target.name;
+            view.title_before = format!("{name} is already installed");
+            view.body = format!(
+                "You have {installed_version}, the same version the repository has. \
+                 There's usually nothing to do."
+            );
+            view.group_label = format!("{prefix}What to do with {name}");
+            view.options = vec![
+                OptionView {
+                    label: "Leave it as it is".to_string(),
+                    detail: format!("Recommended. {name} is not in the list."),
+                    checked: !reinstall,
+                    ..OptionView::default()
+                },
+                OptionView {
+                    label: "Reinstall it".to_string(),
+                    detail: "Writes the same version's files again. Useful if they were damaged."
+                        .to_string(),
+                    checked: *reinstall,
+                    ..OptionView::default()
+                },
+            ];
+            view.primary = next("Continue".to_string());
+        }
+        // A draft that does not belong to its question cannot happen; show nothing rather than guess.
+        _ => {}
+    }
+}
+
+fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
+    view.kind = CardKind::Alert;
+    view.unchanged = UNCHANGED.to_string();
+    view.secondary = button(back_label(model), true);
+    view.technical = blockers.iter().map(technical_line).collect();
+    match blockers.first() {
+        Some(Blocker::ReplacedBy { requested, by }) => {
+            let names: Vec<String> = by.iter().map(|item| item.name.clone()).collect();
+            let specs: Vec<String> = by.iter().map(spec).collect();
+            view.title_before = format!(
+                "{} is now provided by {}",
+                requested.name,
+                names_text(&names)
+            );
+            view.body = format!(
+                "You picked {}, but pacman would install {} for it. \
+                 Tidewise only installs what you see, so it stopped here.",
+                spec(requested),
+                names_text(&specs)
+            );
+            view.unchanged = String::new();
+            if let ([_], [only]) = (blockers, by.as_slice()) {
+                view.primary = button(&format!("Install {} instead", only.name), true);
+            }
+        }
+        Some(Blocker::NothingProvides {
+            dependency,
+            required_by,
+        }) => {
+            view.title_before = format!(
+                "Nothing in the repositories gives {required_by} the {dependency} it needs"
+            );
+            view.body = format!(
+                "{required_by} needs {dependency}, and none of the packages in the repositories \
+                 fits. This usually sorts itself out when the repositories update."
+            );
+            view.code_lines = vec![format!("needed:   {dependency}   (by {required_by})")];
+        }
+        Some(Blocker::NotFound(names)) => {
+            view.title_before = format!("pacman doesn't know {}", names_text(names));
+            view.body = unknown_body();
+        }
+        Some(Blocker::UnknownRepo(repo)) => {
+            view.title_before = format!("pacman doesn't know the repository {repo}");
+            view.body = unknown_body();
+        }
+        Some(Blocker::UnknownGroup(group)) => {
+            view.title_before = format!("pacman doesn't know the group {group}");
+            view.body = unknown_body();
+        }
+        Some(Blocker::MissingFromList { .. }) => {
+            // The same words as any other "pacman's answers did not add up" stop.
+            let text = error_text(
+                &PacmanError::Inconsistent {
+                    reason: "a requested package is missing from the list",
+                },
+                Doing::Resolving,
+            );
+            view.title_before = text.title;
+            view.body = text.body;
+            view.report = REPORT.to_string();
+        }
+        Some(Blocker::NothingToInstall) | None => {
+            view.title_before = "Nothing to install".to_string();
+            view.body = "Everything you chose stays as it is.".to_string();
+        }
+    }
+}
+
+fn unknown_body() -> String {
+    "The package lists may have changed since you searched. \
+     Search again to see what is there now."
+        .to_string()
+}
+
+/// One line of the technical details for a blocker.
+fn technical_line(blocker: &Blocker) -> String {
+    match blocker {
+        Blocker::NothingToInstall => "nothing to install".to_string(),
+        Blocker::NotFound(names) => format!("not found: {}", names.join(", ")),
+        Blocker::UnknownRepo(repo) => format!("unknown repository: {repo}"),
+        Blocker::UnknownGroup(group) => format!("unknown group: {group}"),
+        Blocker::NothingProvides {
+            dependency,
+            required_by,
+        } => format!("{required_by} needs {dependency}: nothing provides it"),
+        Blocker::ReplacedBy { requested, by } => format!(
+            "{} is provided by {}",
+            spec(requested),
+            by.iter().map(spec).collect::<Vec<_>>().join(", ")
+        ),
+        Blocker::MissingFromList { requested } => {
+            format!("missing from pacman's list: {}", spec(requested))
+        }
+    }
 }
 
 #[cfg(test)]
