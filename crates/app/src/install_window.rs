@@ -1,0 +1,328 @@
+//! Glue between the install screens and the tested code. It decides nothing about wording or state:
+//! `InstallModel` holds the state, `install_view` words it, and this file copies the result into Slint and runs
+//! pacman on a worker thread.
+//!
+//! Threads: a resolve (`pacman -Qu` once, then `tidewise_pacman::resolve`, about 1.5–5 s) runs on a worker thread.
+//! The `InstallModel` never leaves the UI thread, and it lets only one worker run at a time (a newer wish waits,
+//! see its docs). The worker puts its answer in a mailbox (a channel) and asks the UI thread, through a weak window
+//! handle, to fire `resolve-done`; the UI thread then gives the model every answer in the mailbox.
+//!
+//! One timer: after 10 s of waiting the card adds "This is taking longer than usual." (pacman is not stopped).
+//! Only read-only pacman commands run here (`-Qu`, and the resolver's `--print`, `-Si`, `-Ss`, `-Sg`, `-Qi`).
+
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
+use std::sync::mpsc;
+use std::time::Duration;
+
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
+use tidewise_app::install_view::{
+    CardKind, FocusTarget, InstallView, InstalledRow, OptionView, install_view,
+};
+use tidewise_pacman::{InstallDecision, PackageRef, PacmanError, install_decision};
+
+use crate::{
+    ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, MainWindow,
+    NavBridge, Screen as NavScreen,
+};
+
+/// After this long the card adds "This is taking longer than usual."
+const SLOW_AFTER: Duration = Duration::from_secs(10);
+
+type Answer = (u64, Result<WorkAnswer, PacmanError>);
+
+/// Everything the install screens own. Lives on the UI thread only.
+struct Screen {
+    window: slint::Weak<MainWindow>,
+    model: InstallModel,
+    /// The options Slint is showing now, to work out the smallest update (so a toggled row keeps the focus).
+    shown_options: Vec<OptionView>,
+    options: Rc<VecModel<ChoiceOption>>,
+    installed_rows: Rc<VecModel<InstalledRowData>>,
+    mailbox: (mpsc::Sender<Answer>, mpsc::Receiver<Answer>),
+    slow_timer: Timer,
+}
+
+/// How other screens start an install.
+#[derive(Clone)]
+pub struct Install {
+    screen: Rc<RefCell<Screen>>,
+}
+
+/// Connects the window to the model.
+pub fn start(window: &MainWindow) -> Install {
+    let options = Rc::new(VecModel::default());
+    let installed_rows = Rc::new(VecModel::default());
+    let bridge = window.global::<InstallBridge>();
+    bridge.set_options(ModelRc::from(options.clone()));
+    bridge.set_installed_rows(ModelRc::from(installed_rows.clone()));
+
+    let screen = Rc::new(RefCell::new(Screen {
+        window: window.as_weak(),
+        model: InstallModel::new(),
+        shown_options: Vec::new(),
+        options,
+        installed_rows,
+        mailbox: mpsc::channel(),
+        slow_timer: Timer::default(),
+    }));
+
+    let handle = screen.clone();
+    bridge.on_choose(move |index| {
+        if let Ok(index) = usize::try_from(index) {
+            handle.borrow_mut().model.choose(index);
+        }
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_toggle(move |index| {
+        if let Ok(index) = usize::try_from(index) {
+            handle.borrow_mut().model.toggle(index);
+        }
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_select_all(move || {
+        handle.borrow_mut().model.select_all();
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_select_none(move || {
+        handle.borrow_mut().model.select_none();
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_primary(move || primary(&handle));
+    let handle = screen.clone();
+    bridge.on_secondary(move || {
+        let _: Back = handle.borrow_mut().model.back();
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_cancel(move || {
+        handle.borrow_mut().model.cancel();
+        repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_resolve_done(move || resolve_done(&handle));
+
+    repaint(&screen);
+    Install { screen }
+}
+
+impl Install {
+    /// The Install button of Search details: opens the install screen for this package.
+    pub fn open_package(&self, package: PackageRef) {
+        let ticket = self.screen.borrow_mut().model.open(package);
+        self.show(ticket);
+    }
+
+    /// The debug entry's way in (WBS 6.12 adds the real one): install a whole group.
+    #[cfg(debug_assertions)]
+    pub fn open_group(&self, group: &str) {
+        let ticket = self.screen.borrow_mut().model.open_group(group);
+        self.show(ticket);
+    }
+
+    fn show(&self, ticket: Option<Ticket>) {
+        if let Some(window) = self.screen.borrow().window.upgrade() {
+            window.global::<NavBridge>().set_current(NavScreen::Search);
+        }
+        if let Some(ticket) = ticket {
+            spawn_worker(&self.screen, ticket);
+        }
+        repaint(&self.screen);
+    }
+}
+
+/// The main button of the card: the next question, "Install … instead" or "Try again", by what is shown.
+fn primary(screen: &Rc<RefCell<Screen>>) {
+    let ticket = {
+        let model = &mut screen.borrow_mut().model;
+        match model.phase() {
+            Phase::Asking => model.go_on(),
+            Phase::Blocked(_) => model.install_instead(),
+            Phase::Failed { .. } => model.try_again(),
+            _ => None,
+        }
+    };
+    if let Some(ticket) = ticket {
+        spawn_worker(screen, ticket);
+    }
+    repaint(screen);
+}
+
+fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
+    let (sender, window) = {
+        let state = screen.borrow();
+        (state.mailbox.0.clone(), state.window.clone())
+    };
+    std::thread::spawn(move || {
+        let result = work(&ticket);
+        // If the window closed meanwhile, nobody reads this and that is fine.
+        let _ = sender.send((ticket.number, result));
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(window) = window.upgrade() {
+                window.global::<InstallBridge>().invoke_resolve_done();
+            }
+        });
+    });
+
+    let target: Weak<RefCell<Screen>> = Rc::downgrade(screen);
+    // Starting the same timer again restarts it, so an older resolve's timer can never fire.
+    screen
+        .borrow()
+        .slow_timer
+        .start(TimerMode::SingleShot, SLOW_AFTER, move || {
+            if let Some(screen) = target.upgrade() {
+                screen.borrow_mut().model.mark_slow();
+                repaint(&screen);
+            }
+        });
+}
+
+/// What the worker thread does for one ticket: read-only pacman only.
+fn work(ticket: &Ticket) -> Result<WorkAnswer, PacmanError> {
+    if ticket.check_lists {
+        // Updates waiting: Tidewise only installs on an up-to-date system, so do not even resolve.
+        let pending = tidewise_pacman::pending_updates()?;
+        if matches!(
+            install_decision(&pending),
+            InstallDecision::MustUpdateSystem { .. }
+        ) {
+            return Ok(WorkAnswer::MustUpdate);
+        }
+    }
+    tidewise_pacman::resolve(&ticket.input).map(WorkAnswer::Resolved)
+}
+
+/// A worker has answered: hand every answer in the mailbox to the model.
+fn resolve_done(screen: &Rc<RefCell<Screen>>) {
+    let answers: Vec<Answer> = {
+        let state = screen.borrow();
+        state.mailbox.1.try_iter().collect()
+    };
+    for (number, result) in answers {
+        let next = screen.borrow_mut().model.done(number, result);
+        if let Some(next) = next {
+            spawn_worker(screen, next);
+        }
+    }
+    repaint(screen);
+}
+
+/// Copies the current view into the Slint window.
+fn repaint(screen: &Rc<RefCell<Screen>>) {
+    let mut state = screen.borrow_mut();
+    let Some(window) = state.window.upgrade() else {
+        return;
+    };
+    let view = install_view(&state.model);
+    let bridge = window.global::<InstallBridge>();
+    set_texts(&bridge, &view);
+
+    // Patch only the rows that changed, so a ticked checkbox keeps the keyboard focus.
+    if state.shown_options.len() == view.options.len() {
+        for (index, (before, after)) in state.shown_options.iter().zip(&view.options).enumerate() {
+            if before != after {
+                state.options.set_row_data(index, choice_option(after));
+            }
+        }
+    } else {
+        state
+            .options
+            .set_vec(view.options.iter().map(choice_option).collect::<Vec<_>>());
+    }
+    state.installed_rows.set_vec(
+        view.installed_rows
+            .iter()
+            .map(installed_row)
+            .collect::<Vec<_>>(),
+    );
+    state.shown_options = view.options;
+}
+
+fn set_texts(bridge: &InstallBridge, view: &InstallView) {
+    bridge.set_open(view.open);
+    bridge.set_heading(view.heading.as_str().into());
+    bridge.set_crumb(view.crumb.as_str().into());
+    bridge.set_current_pill(i32::try_from(view.current_pill).unwrap_or(0));
+    bridge.set_kind(match view.kind {
+        CardKind::Closed => InstallCardKind::Closed,
+        CardKind::Working => InstallCardKind::Working,
+        CardKind::Stale => InstallCardKind::Stale,
+        CardKind::Provider => InstallCardKind::Provider,
+        CardKind::Members => InstallCardKind::Members,
+        CardKind::Choice => InstallCardKind::Choice,
+        CardKind::Differs => InstallCardKind::Differs,
+        CardKind::Alert => InstallCardKind::Alert,
+        CardKind::Ready => InstallCardKind::Ready,
+    });
+    bridge.set_step_text(view.step_text.as_str().into());
+    bridge.set_dots(ModelRc::new(VecModel::from(view.dots.clone())));
+    bridge.set_title_before(view.title_before.as_str().into());
+    bridge.set_title_mono(view.title_mono.as_str().into());
+    bridge.set_title_after(view.title_after.as_str().into());
+    bridge.set_body(view.body.as_str().into());
+    bridge.set_group_label(view.group_label.as_str().into());
+    let selected = view
+        .options
+        .iter()
+        .position(|option| option.checked)
+        .and_then(|index| i32::try_from(index).ok());
+    bridge.set_selected_index(selected.unwrap_or(-1));
+    bridge.set_selection_text(view.selection_text.as_str().into());
+    bridge.set_show_select_buttons(view.show_select_buttons);
+    bridge.set_installed_heading(view.installed_heading.as_str().into());
+    bridge.set_code_lines(strings(&view.code_lines));
+    bridge.set_has_primary(view.primary.is_some());
+    bridge.set_primary_text(
+        view.primary
+            .as_ref()
+            .map_or("", |button| button.label.as_str())
+            .into(),
+    );
+    bridge.set_primary_enabled(view.primary.as_ref().is_some_and(|button| button.enabled));
+    bridge.set_has_secondary(view.secondary.is_some());
+    bridge.set_secondary_text(
+        view.secondary
+            .as_ref()
+            .map_or("", |button| button.label.as_str())
+            .into(),
+    );
+    bridge.set_unchanged(view.unchanged.as_str().into());
+    bridge.set_slow_note(view.slow_note.as_str().into());
+    bridge.set_hint(view.hint.as_str().into());
+    bridge.set_report(view.report.as_str().into());
+    bridge.set_technical(strings(&view.technical));
+    bridge.set_focus(match view.focus {
+        FocusTarget::List => InstallFocus::List,
+        FocusTarget::Primary => InstallFocus::Primary,
+        FocusTarget::Secondary => InstallFocus::Secondary,
+    });
+    // Last, so every property the new card needs is already set when the focus moves.
+    bridge.set_focus_serial(i32::try_from(view.focus_serial).unwrap_or(0));
+}
+
+fn choice_option(option: &OptionView) -> ChoiceOption {
+    ChoiceOption {
+        label: option.label.as_str().into(),
+        meta: option.meta.as_str().into(),
+        detail: option.detail.as_str().into(),
+        tag: option.tag.as_str().into(),
+        checked: option.checked,
+    }
+}
+
+fn installed_row(row: &InstalledRow) -> InstalledRowData {
+    InstalledRowData {
+        name: row.name.as_str().into(),
+        version: row.version.as_str().into(),
+    }
+}
+
+fn strings(items: &[String]) -> ModelRc<SharedString> {
+    let items: Vec<SharedString> = items.iter().map(|s| s.as_str().into()).collect();
+    ModelRc::new(VecModel::from(items))
+}

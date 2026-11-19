@@ -4,6 +4,9 @@ import { Sidebar } from "nav/sidebar.slint";
 import { NavBridge, Screen } from "nav/bridge.slint";
 import { SearchScreen } from "search/search-screen.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
+import { InstallScreen } from "install/install-screen.slint";
+import { InstallBridge, InstallCardKind, InstallFocus, InstalledRowData } from "install/bridge.slint";
+import { ChoiceOption } from "widgets/choice-list.slint";
 import { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow } from "apps/bridge.slint";
 import { ResultRow, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind } from "search/bridge.slint";
 
@@ -13,7 +16,7 @@ import "./fonts/IBMPlexSans-SemiBold.ttf";
 import "./fonts/IBMPlexMono-Regular.ttf";
 
 // Rust reaches these through the generated code, so they are re-exported here.
-export { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow, ResultRow, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme }
+export { AppsBridge, BodyKind, ChoiceOption, DetailsData, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, ListKey, NavBridge, PackageRow, ResultRow, Screen, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme }
 
 export component MainWindow inherits Window {
     in property <string> app-name;
@@ -38,7 +41,12 @@ export component MainWindow inherits Window {
             horizontal-stretch: 1;
         }
 
-        if NavBridge.current == Screen.search: SearchScreen {
+        // An open install replaces the Search screen; Search's state lives in Rust, so it comes back as it was.
+        if NavBridge.current == Screen.search && !InstallBridge.open: SearchScreen {
+            horizontal-stretch: 1;
+        }
+
+        if NavBridge.current == Screen.search && InstallBridge.open: InstallScreen {
             horizontal-stretch: 1;
         }
     }

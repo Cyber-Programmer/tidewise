@@ -1,0 +1,81 @@
+// The only place Rust and the install screens meet. Rust fills the `in` properties (all decided and worded in
+// crates/app/src/install_view.rs); the screen only lays them out and reports clicks and keys back.
+import { ChoiceOption } from "../widgets/choice-list.slint";
+
+// Which card fills the screen.
+export enum InstallCardKind {
+    closed,
+    working,
+    stale,
+    provider,
+    members,
+    choice,
+    differs,
+    alert,
+    ready,
+}
+
+// Which element takes the keyboard focus when a card appears.
+export enum InstallFocus {
+    list,
+    primary,
+    secondary,
+}
+
+export struct InstalledRowData {
+    name: string,
+    version: string,
+}
+
+export global InstallBridge {
+    in property <bool> open;
+    in property <string> heading;
+    // What follows "Search ›" in the breadcrumb.
+    in property <string> crumb;
+    // Which of Choose / Review / Install is current.
+    in property <int> current-pill;
+    in property <InstallCardKind> kind;
+    in property <string> step-text;
+    // One per question: 0 answered, 1 shown, 2 to come.
+    in property <[int]> dots;
+    // The title in three pieces; the middle one is monospaced.
+    in property <string> title-before;
+    in property <string> title-mono;
+    in property <string> title-after;
+    in property <string> body;
+    in property <string> group-label;
+    in property <[ChoiceOption]> options;
+    // Position of the checked option of a radio list, or -1.
+    in property <int> selected-index;
+    in property <string> selection-text;
+    in property <bool> show-select-buttons;
+    in property <string> installed-heading;
+    in property <[InstalledRowData]> installed-rows;
+    in property <[string]> code-lines;
+    in property <bool> has-primary;
+    in property <string> primary-text;
+    in property <bool> primary-enabled;
+    in property <bool> has-secondary;
+    in property <string> secondary-text;
+    in property <string> unchanged;
+    in property <string> slow-note;
+    in property <string> hint;
+    in property <string> report;
+    in property <[string]> technical;
+    in property <InstallFocus> focus;
+    in property <int> focus-serial;
+
+    // A radio option was chosen, a checkbox flipped.
+    callback choose(int);
+    callback toggle(int);
+    callback select-all();
+    callback select-none();
+    // The main button of the card, whatever it is for (next, continue, install instead, try again).
+    callback primary();
+    // Cancel or Back (also Escape).
+    callback secondary();
+    // The "Search" part of the breadcrumb: leave the install.
+    callback cancel();
+    // Fired on the UI thread when the worker thread has put its answer in its mailbox.
+    callback resolve-done();
+}

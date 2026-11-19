@@ -55,6 +55,8 @@ export struct SearchDetailsData {
     provides: [string],
     provides-more: string,
     note: string,
+    // "Install vlc" for a package that is not installed; empty: no button.
+    install-label: string,
     // The amber words when the lookup failed.
     error-title: string,
     error-body: string,
@@ -113,6 +115,8 @@ export global SearchBridge {
     // The visible part of the list changed size (first layout, window resized).
     callback list-resized();
     callback clear-search();
+    // The Install button of the details panel.
+    callback install-chosen();
     // "Try again" after a failed search, and after a failed details lookup.
     callback try-again();
     callback details-try-again();

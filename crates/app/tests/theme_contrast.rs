@@ -7,7 +7,7 @@ use tidewise_core::contrast::{contrast_ratio, parse_hex};
 const MIN_RATIO: f64 = 4.5;
 
 /// (text token, background token), from the "Contrast pairs" table in docs/design/tokens.md.
-const PAIRS: [(&str, &str); 16] = [
+const PAIRS: [(&str, &str); 18] = [
     ("text", "bg"),
     ("text", "surface"),
     ("text-2", "surface"),
@@ -24,6 +24,8 @@ const PAIRS: [(&str, &str); 16] = [
     ("on-danger", "danger"),
     ("text-2", "chip"),
     ("text", "nav-active"),
+    ("text-2", "control-border"),
+    ("accent-hover", "tide-fill"),
 ];
 
 /// Reads `out property <color> name: #RRGGBB;` lines from ui/theme.slint.

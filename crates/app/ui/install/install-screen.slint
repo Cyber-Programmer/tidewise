@@ -1,0 +1,110 @@
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { InstallBridge } from "bridge.slint";
+import { InstallCard } from "install-card.slint";
+
+// The install screen: breadcrumb, heading, the three steps, then one card. It replaces the Search screen while an
+// install is open; Search keeps its results meanwhile (they live in Rust, not here). Escape = the secondary button.
+export component InstallScreen inherits Rectangle {
+    background: Theme.bg;
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                InstallBridge.secondary();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding-left: Theme.page-padding-x;
+            padding-right: Theme.page-padding-x;
+            padding-top: Theme.page-padding-y;
+            padding-bottom: Theme.page-padding-y;
+            spacing: Theme.section-gap;
+            alignment: start;
+
+            HorizontalLayout {
+                alignment: start;
+                VerticalLayout {
+                    max-width: 860px;
+                    horizontal-stretch: 1;
+                    spacing: Theme.space-l;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-m;
+                        VerticalLayout {
+                            spacing: Theme.space-xs;
+                            alignment: start;
+                            HorizontalLayout {
+                                alignment: start;
+                                spacing: Theme.space-xs;
+                                // "Search" leaves the install; the rest is only the name.
+                                TwButton {
+                                    text: "Search";
+                                    clicked => {
+                                        InstallBridge.cancel();
+                                    }
+                                }
+
+                                Text {
+                                    text: "› " + InstallBridge.crumb;
+                                    color: Theme.text-3;
+                                    font-size: Theme.size-body;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: InstallBridge.heading;
+                                color: Theme.text;
+                                font-size: Theme.size-page-title;
+                                font-weight: Theme.weight-semibold;
+                                accessible-role: text;
+                            }
+                        }
+
+                        Rectangle { }
+
+                        // The three steps; only the first two can be current in this task.
+                        HorizontalLayout {
+                            spacing: Theme.space-s;
+                            alignment: end;
+                            for name[index] in ["Choose", "Review", "Install"]: Rectangle {
+                                height: 28px;
+                                y: 8px;
+                                border-radius: 14px;
+                                background: index == InstallBridge.current-pill ? Theme.nav-active : transparent;
+                                accessible-role: text;
+                                accessible-label: (index + 1) + " " + name + (index == InstallBridge.current-pill ? ", current step" : "");
+                                HorizontalLayout {
+                                    padding-left: Theme.space-m;
+                                    padding-right: Theme.space-m;
+                                    spacing: Theme.space-xs;
+                                    Text {
+                                        text: index + 1;
+                                        color: index == InstallBridge.current-pill ? Theme.text : Theme.text-3;
+                                        font-family: Theme.font-mono;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Text {
+                                        text: name;
+                                        color: index == InstallBridge.current-pill ? Theme.text : Theme.text-3;
+                                        font-size: Theme.size-label;
+                                        font-weight: index == InstallBridge.current-pill ? Theme.weight-semibold : Theme.weight-regular;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    InstallCard { }
+                }
+            }
+        }
+    }
+}

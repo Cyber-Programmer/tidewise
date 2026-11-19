@@ -26,6 +26,7 @@ use tidewise_app::search_view::{
 };
 use tidewise_pacman::{DetailsLookup, PackageRef, PacmanError, SearchResult, SyncLists};
 
+use crate::install_window::Install;
 use crate::{
     ListKey, MainWindow, ResultRow, SearchBodyKind, SearchBridge, SearchDetailsData,
     SearchDetailsKind, Theme,
@@ -63,7 +64,7 @@ struct Screen {
 }
 
 /// Connects the window to the model and checks the package lists.
-pub fn start(window: &MainWindow) {
+pub fn start(window: &MainWindow, install: Install) {
     let rows = Rc::new(VecModel::default());
     let bridge = window.global::<SearchBridge>();
     bridge.set_rows(ModelRc::from(rows.clone()));
@@ -113,6 +114,13 @@ pub fn start(window: &MainWindow) {
         };
         if let Some(window) = window {
             keep_in_view(&window, selected);
+        }
+    });
+    let handle = screen.clone();
+    bridge.on_install_chosen(move || {
+        let package = handle.borrow().model.selected_ref();
+        if let Some(package) = package {
+            install.open_package(package);
         }
     });
     let handle = screen.clone();
@@ -477,6 +485,7 @@ fn show_details(bridge: &SearchBridge, details: Option<&DetailsView>) {
         provides: strings(&details.provides),
         provides_more: details.provides_more.as_str().into(),
         note: details.note.as_str().into(),
+        install_label: details.install_label.as_str().into(),
         error_title: error_title.into(),
         error_body: error_body.into(),
         error_technical: error_technical.into(),

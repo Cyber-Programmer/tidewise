@@ -98,5 +98,7 @@ get the same test when dark mode is built.
 | on-danger on danger | 6.54 | 5.44 |
 | text-2 on chip | 8.94 | 8.71 |
 | text on nav-active | 13.93 | 11.95 |
+| text-2 on control-border (a disabled button) | 7.34 | n/a until dark mode (M9) |
+| accent-hover on tide-fill (the "pacman's default" tag) | 6.44 | n/a until dark mode (M9) |
 
 Every pair is at least 4.5:1 (WCAG 2.x AA for normal text).
