@@ -1,0 +1,1 @@
+error: package group 'no-such-group-zz' was not found

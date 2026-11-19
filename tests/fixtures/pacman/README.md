@@ -44,6 +44,19 @@ full package list. Every package named here, including names in `Required By`, `
 | `qu-bad-byte.bin` | *hand-made*: `qu-sample.txt` with the `z` of `bluez` changed to `0xFF` | A stray non-UTF-8 byte inside a package name. `.bin` because it is not valid text. Tests read it with `include_bytes!` and decode lossily, as `run.rs` does, so the name must be refused |
 | `pacman-conf-dbpath.txt` | `LC_ALL=C pacman-conf DBPath` (WBS 4.5) | Real output: one absolute path with a trailing `/` and a final newline. The sync databases are in its `sync/` folder |
 | `pacman-conf-repo-list.txt` | `LC_ALL=C pacman-conf --repo-list` (WBS 4.5) | Real output: the configured repositories, one per line (`core`, `extra`, `multilib`). Each repo's list is `<DBPath>/sync/<repo>.db` |
+| `print-cron.txt` | `LC_ALL=C pacman -S --print --print-format '%r/%n %v %s' -- cron </dev/null` (WBS 6.1; pacman 7.1.0.r9) | A **virtual name** (no package is called `cron`): pacman silently takes the first of two providers, `cronie`, and its dependency `run-parts` comes first. `%s` is the download size in bytes |
+| `print-reinstall-zsh.txt` | the same with `zsh`, which is installed at that version | An installed package at the repository's version is listed like a new one (a reinstall). Nothing in the line says so |
+| `print-plasma.txt` | the same with the group `plasma` | A **group** target: all 68 members plus dependencies (75 lines) with no question. `%s` is 0 for files already in this machine's cache |
+| `print-not-found.stderr.txt` | stderr of the same with `no-such-pkg-zz` (exit 1) | `error: target not found: …`; stdout empty, also when mixed with a good name |
+| `print-db-not-found.stderr.txt` | stderr of the same with `bogus/zsh` (exit 1) | An unknown repository in a `repo/name` target: `error: database not found: bogus` |
+| `sg-plasma.txt` | `LC_ALL=C pacman -Sg plasma` | One `group member` line per member, a single space between them |
+| `sg-not-found.stderr.txt` | stderr of `pacman -Sg no-such-group-zz` (exit 1) | `error: package group 'no-such-group-zz' was not found` |
+| `ss-exact-cron.txt` | `LC_ALL=C pacman -Ss '^cron$'` | `-Ss` matches **Provides** too: `^cron$` finds `cronie` and `fcron`, which is how provider candidates are found |
+| `ss-exact-java-runtime.txt` | `LC_ALL=C pacman -Ss '^java-runtime$'` | Eleven `jre*` and `jdk*` packages provide `java-runtime` (22 lines) |
+| `si-java-runtime-providers.txt` | `LC_ALL=C pacman -Si extra/jre-openjdk extra/jre8-openjdk` | Versioned provides: `java-runtime=27` against `java-runtime=8` |
+| `print-broken-truncated.txt` | *hand-made*: first 2 lines of `print-plasma.txt` plus the first 22 bytes of line 3 | **Deliberately broken.** Ends inside a package name, no final newline. The parser must report an error, not panic |
+| `print-bad-byte.bin` | *hand-made*: `print-cron.txt` with the `i` of `cronie` changed to `0xFF` | A stray non-UTF-8 byte inside a name. `.bin` because it is not valid text; tests decode lossily, as `run.rs` does, so the name must be refused |
+| `sg-broken.txt` | *hand-made*: two good `sg-plasma.txt` lines, a line with no member, a line with two spaces, one more good line | **Deliberately broken.** The parser must report the first bad line, not panic |
 
 ## Refreshing
 
