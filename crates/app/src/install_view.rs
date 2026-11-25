@@ -4,8 +4,11 @@
 
 use crate::error_words::{Doing, error_text, error_view};
 use crate::install_model::{Draft, InstallModel, Phase, Step};
+use crate::size_text::{format_size, split_size};
 use crate::update_check::ListsNote;
-use tidewise_pacman::{Blocker, NotFresh, PackageRef, PacmanError, Question};
+use tidewise_pacman::{
+    Blocker, InstallPlan, NotFresh, PackageRef, PacmanError, PlanItem, Question, Role,
+};
 
 const UNCHANGED: &str = "Nothing was installed and nothing on your system changed.";
 const REPORT: &str = "Report problems at github.com/Cyber-Programmer/tidewise/issues";
@@ -199,21 +202,11 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             }
             view.secondary = button(back_label(model), true);
         }
-        Phase::Ready(plan) => {
-            let count = plan.items.len();
-            view.kind = CardKind::Review;
-            view.current_pill = 1;
-            view.title_before = "The list is ready".to_string();
-            view.body = format!(
-                "Tidewise knows exactly what it would install: {}. The review screen comes next.",
-                packages(count)
-            );
-            view.secondary = button(back_label(model), true);
-        }
+        Phase::Ready(plan) => review(&mut view, model, plan, &label),
     }
     view.lists_note = model.lists_note().map(lists_note).unwrap_or_default();
     view.focus = match view.kind {
-        CardKind::Provider | CardKind::Choice => FocusTarget::List,
+        CardKind::Provider | CardKind::Choice | CardKind::Review => FocusTarget::List,
         CardKind::Members if !view.options.is_empty() => FocusTarget::List,
         _ => match &view.primary {
             Some(primary) if primary.enabled => FocusTarget::Primary,
@@ -460,6 +453,139 @@ fn asking(view: &mut InstallView, model: &InstallModel, step: &Step, label: &str
         // A draft that does not belong to its question cannot happen; show nothing rather than guess.
         _ => {}
     }
+}
+
+/// The review: what `plan` would install, why each package is there, and what it costs.
+fn review(view: &mut InstallView, model: &InstallModel, plan: &InstallPlan, label: &str) {
+    view.kind = CardKind::Review;
+    view.current_pill = 1;
+    view.title_before = format!("Review: install {label}");
+    view.body = "Nothing will be removed. This is the exact list pacman would install.".to_string();
+    view.rows = plan
+        .items
+        .iter()
+        .map(|item| review_row(model, item))
+        .collect();
+    let disk = disk_tile(&plan.items);
+    view.technical = plan.items.iter().map(technical_item).collect();
+    view.technical.push(format!(
+        "The {} total is added up from pacman's rounded figures.",
+        disk.label
+    ));
+    view.technical
+        .push("pacman counts in MiB (1 MiB = 1,048,576 bytes)".to_string());
+    view.tiles = vec![
+        TileView {
+            label: "Packages".to_string(),
+            number: plan.items.len().to_string(),
+            ..TileView::default()
+        },
+        download_tile(plan.download_total),
+        disk,
+    ];
+    // Installing arrives with WBS 6.4.
+    view.primary = button(&format!("Install {}", packages(plan.items.len())), false);
+    view.primary_note =
+        "Tidewise can't install yet: this step comes in a later version.".to_string();
+    view.secondary = button(back_label(model), true);
+    view.hint = "Your desktop asks for your password once.".to_string();
+}
+
+fn review_row(model: &InstallModel, item: &PlanItem) -> ReviewRow {
+    let asked = model.request().targets.contains(&item.package);
+    // A group's kept members are targets nobody named one by one; a provider counts only if the user was asked.
+    let picked = match item.role {
+        Role::Target => !asked,
+        Role::Provider => was_picked(model, &item.package),
+        // `Update` cannot reach the review yet: such a plan shows "needs updating first" (6.6 gives it a row).
+        Role::Dependency | Role::Update => false,
+    };
+    let why = if asked {
+        "You asked for this"
+    } else if picked {
+        "You picked this"
+    } else {
+        "Needed by what you're installing"
+    };
+    ReviewRow {
+        name: item.package.name.clone(),
+        version: item.version.clone(),
+        why: why.to_string(),
+        // `%s` is what is still to download: 0 for a file that is in the cache already.
+        size: if item.download_size == 0 {
+            "Already downloaded".to_string()
+        } else {
+            format_size(item.download_size)
+        },
+        bold: asked || picked,
+    }
+}
+
+/// Was this package the answer to a provider question?
+fn was_picked(model: &InstallModel, package: &PackageRef) -> bool {
+    model
+        .steps()
+        .iter()
+        .any(|step| match (&step.question, &step.draft) {
+            (Question::ChooseProvider { candidates, .. }, Draft::Provider(index)) => candidates
+                .get(*index)
+                .is_some_and(|candidate| candidate.package == *package),
+            _ => false,
+        })
+}
+
+fn size_tile(label: &str, bytes: u64) -> TileView {
+    let (number, unit) = split_size(&format_size(bytes));
+    TileView {
+        label: label.to_string(),
+        number,
+        unit,
+        words: false,
+    }
+}
+
+fn download_tile(bytes: u64) -> TileView {
+    if bytes == 0 {
+        TileView {
+            label: "Download".to_string(),
+            number: "Nothing to download".to_string(),
+            words: true,
+            ..TileView::default()
+        }
+    } else {
+        size_tile("Download", bytes)
+    }
+}
+
+/// New installed sizes less what the installed versions take now (pacman's "Net Upgrade Size").
+fn disk_tile(items: &[PlanItem]) -> TileView {
+    let new = items
+        .iter()
+        .fold(0u64, |sum, item| sum.saturating_add(item.installed_size));
+    let now = items.iter().fold(0u64, |sum, item| {
+        sum.saturating_add(item.current_size.unwrap_or(0))
+    });
+    let label = if new < now {
+        "Disk space freed"
+    } else {
+        "Extra disk space"
+    };
+    size_tile(label, new.abs_diff(now))
+}
+
+/// pacman's own figures for one package.
+fn technical_item(item: &PlanItem) -> String {
+    let installed = if item.installed_size_text.is_empty() {
+        "unknown"
+    } else {
+        &item.installed_size_text
+    };
+    format!(
+        "{} {} · download {} bytes · Installed Size : {installed}",
+        spec(&item.package),
+        item.version,
+        item.download_size
+    )
 }
 
 fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
