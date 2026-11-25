@@ -161,6 +161,10 @@ pub struct PlanItem {
     pub installed_version: Option<String>,
     pub download_size: u64,
     pub installed_size: u64,
+    /// pacman's own words for `installed_size` (`-Si`, like `6.94 MiB`); empty if `-Si` had no record.
+    pub installed_size_text: String,
+    /// Bytes the version installed now takes (`-Qi`); `None` when the package is not installed.
+    pub current_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -736,6 +740,8 @@ impl<'a> Engine<'a> {
                 installed_version: installed.get(&printed.name).cloned(),
                 download_size: printed.download_size,
                 installed_size: self.details_of(&package).map_or(0, |d| d.installed_size),
+                installed_size_text: String::new(),
+                current_size: None,
                 version: printed.version.clone(),
                 package,
                 role,

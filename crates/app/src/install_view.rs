@@ -598,6 +598,8 @@ mod tests {
                     installed_version: None,
                     download_size: 1,
                     installed_size: 1,
+                    installed_size_text: String::new(),
+                    current_size: None,
                 })
                 .collect(),
             download_total: 0,
