@@ -1317,3 +1317,26 @@ Done: `cargo deny check` failed on RUSTSEC-2026-0592 (`url` 2.5.8: `Url::origin(
 Next: push and open the PR (you).
 Blockers: none.
 Rules bent: no red test first (the failing `cargo deny check` stands in); WBS not updated, as you asked.
+
+## 2026-11-25 — 6.11 App's own private list refresh: measurements only (stopped here, as asked)
+Done:
+- Approved plan: option A (fakeroot); option B (user namespace) measured beside it. Branch `feat/6.11-app-private-lists`.
+- `7938efc` `tests/container/tests/app_private_lists.rs` (13 measurements, pacman run as `nobody`) and four `refresh-*`
+  fixtures. Green in four setups: committed image and a throwaway one at the 23 Nov Archive snapshot (the host's pacman
+  `-4` and fakeroot 1.37.2), each with and without `no-new-privileges`; and through `run.sh app_private`.
+- **`--disable-sandbox-filesystem` is needed** without `no-new-privileges` (Landlock "Operation not permitted"); the
+  syscall sandbox stays on. **`run.sh` sets that bit, so it alone never shows this.**
+- fakeroot needs no `PATH`. Real lists, `pacman.log`, local db unchanged. Stale private lock: exit 1, kept. Failed
+  download: old list kept, no lock left.
+- **pacman outlives a killed `fakeroot`** (TERM and KILL) and keeps the private `db.lck`; after KILL `faked` stays too.
+  An `flock` on the folder, handed to the child as its stdin, stays held until pacman ends; `faked` does not hold it.
+- Option B works only with `--disable-sandbox` (both sandboxes off; no download-user switch).
+- Option C: `-Qu` on the helper's copy works as a user once it exists; fails when it does not.
+- Checks: fmt, clippy `-D warnings`, `cargo test --all` (1071 passed, 0 failed, 114 ignored), release build exit 0.
+  **`cargo deny check` fails**: advisories, RUSTSEC-2026-0592 (`url` 2.5.8 via slint); `Cargo.lock` unchanged, so `main`
+  has it too.
+Next: the human reads the results; then steps 2-6 of the plan, with the design changes they confirm. Not started:
+decision 0008, threat model, PKGBUILD line. WBS sheet not touched (as asked).
+Blockers: the `cargo deny` advisory will fail CI on the PR.
+Rules bent: measurement tests, so no red step. The throwaway image and the runs without `no-new-privileges` were started
+by hand, not by `run.sh`.
