@@ -1340,3 +1340,39 @@ decision 0008, threat model, PKGBUILD line. WBS sheet not touched (as asked).
 Blockers: the `cargo deny` advisory will fail CI on the PR.
 Rules bent: measurement tests, so no red step. The throwaway image and the runs without `no-new-privileges` were started
 by hand, not by `run.sh`.
+
+## 2026-11-25 — 6.11 App's own private list refresh: built (steps 2-6)
+Done:
+- **Your decisions:** sandbox on via `setpriv --no-new-privs` (measured, `7b60020`: Landlock applied, ABI 11; the
+  `--disable-sandbox-filesystem` fallback is not used); locked folder handed to pacman as stdin; 60 s, then real lists;
+  no user namespace; `run.sh` runs only `app_private*` without `no-new-privileges`.
+- **`tidewise-pacman`** (`private_lists.rs`): `refresh_private_lists`, `pending_updates_in`. Red/green: command, result and
+  policy (`dd5931c`/`c9c9b16`, 10 red), folder, lock, stale lock, sequence (`b18f976`/`95b4bc1`, 15 red), no fakeroot
+  (`76ffd1f`/`4267e16`). End to end as `nobody` in the container (`8a0fe0e`), written after the code.
+- **App** (`9c912e7` 10 red, `394f10c`): the "updates waiting?" check uses the private copy; the card says how old the
+  real lists are when there is no fresh one. Plain installs still resolve against the real lists.
+- **Docs** (`9f54d53`): decision 0008, threat model T-25 and question 12 (c).
+- **Packaging** (`a764752` red, `56de4b9`, `3c23286`): `util-linux` and `fakeroot` in `depends` and `.SRCINFO`.
+  `util-linux` because arch-wiki-docs 20261101-1, "PKGBUILD", depends: "should list all direct first level dependencies
+  even when some are already declared transitively" (no rule there about `base` members).
+- Checks on the final code: fmt, clippy `-D warnings`, release build exit 0; `cargo test --all` 1111 passed, 0 failed,
+  121 ignored (1071 before). Container: 99 non-package tests and 16 package tests passed. One package image build
+  failed on an Arch Archive download error and passed on the second run. Smoke run 8 s, nothing on stderr.
+  **`cargo deny check` still fails** on RUSTSEC-2026-0592 (`url`, via slint): fixed in a separate task.
+- No fuzz target: pacman's refresh output is read by exit code and one fixed phrase, there is no parser.
+Next: the manual check below (nothing has run on a real machine); rebase on `main` once the advisory fix is there; PR.
+6.5 must call `refresh_private_lists(AfterRefusal)`; 6.6 must resolve update lists with `ResolveInput::dbpath`.
+Blockers: the advisory, for CI.
+Rules bent: (1) rule 3: `/usr/bin/fakeroot` is a POSIX shell script (decision 0008). (2) The window part (the note on the
+card, the worker) has no automated test. (3) Container measurements and the end-to-end test have no red step.
+(4) Two reds pass partly by shim (named in `dd5931c`). (5) `crates/helper/tests/packaging.rs` changed, with your OK.
+(6) No WBS sheet update (as asked).
+
+**Manual check (you).** This is the first time the refresh runs outside the container.
+1. `stat -c '%y %n' /var/lib/pacman/sync/*.db`, then `cargo run -p tidewise-app`, Search, Install something you don't
+   have. Expect "Your system needs updating first" or the usual screens. `ls -la $XDG_RUNTIME_DIR/tidewise/lists/sync`
+   shows lists; the `stat` output is unchanged. (If the real lists already show updates, nothing is downloaded.)
+2. Offline: `touch -d @0 $XDG_RUNTIME_DIR/tidewise/lists/refreshed`, disconnect, Install again. The card ends with
+   "Couldn't get newer ones."
+3. Busy: `flock $XDG_RUNTIME_DIR/tidewise/lists sleep 90` in a terminal, then Install. After about 60 s the card says
+   another refresh is still running.
