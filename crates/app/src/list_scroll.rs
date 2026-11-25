@@ -55,14 +55,17 @@ pub enum ScrollKey {
 }
 
 /// The scroll offset after `key`: a line, a visible page or an end, never past the content.
-pub fn scroll_by_key(
-    _key: ScrollKey,
-    current: f32,
-    _line: f32,
-    _content: f32,
-    _visible: f32,
-) -> f32 {
-    current
+pub fn scroll_by_key(key: ScrollKey, current: f32, line: f32, content: f32, visible: f32) -> f32 {
+    let furthest = (content - visible).max(0.0);
+    let wanted = match key {
+        ScrollKey::Up => current - line,
+        ScrollKey::Down => current + line,
+        ScrollKey::PageUp => current - visible,
+        ScrollKey::PageDown => current + visible,
+        ScrollKey::Home => 0.0,
+        ScrollKey::End => furthest,
+    };
+    wanted.clamp(0.0, furthest)
 }
 
 /// Slint's `content-y` for a positive scroll offset.
