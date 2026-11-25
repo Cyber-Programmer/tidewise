@@ -1,0 +1,3 @@
+error: restricting filesystem access failed because the Landlock ruleset could not be applied: Operation not permitted
+error: switching to sandbox user 'alpm' failed!
+error: failed to synchronize all databases (failed to retrieve some files)

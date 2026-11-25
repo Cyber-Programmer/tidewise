@@ -1,0 +1,2 @@
+error: failed retrieving file 'tidewise-test.db' from disk : Could not open file /srv/tidewise-test/tidewise-test.db
+error: failed to synchronize all databases (failed to retrieve some files)
