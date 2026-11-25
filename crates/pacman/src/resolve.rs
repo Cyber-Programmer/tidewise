@@ -377,11 +377,11 @@ impl<'a> Engine<'a> {
     }
 
     fn run(&mut self, input: &ResolveInput) -> Result<Resolution, PacmanError> {
-        let installed: HashMap<String, String> = self
+        let installed: HashMap<String, InstalledPackage> = self
             .facts
             .installed()?
             .into_iter()
-            .map(|package| (package.name, package.version))
+            .map(|package| (package.name.clone(), package))
             .collect();
         let pending = self.facts.pending_updates()?;
         let decision = install_decision(&pending);
@@ -415,7 +415,7 @@ impl<'a> Engine<'a> {
             }
         }
         for item in &input.targets {
-            let Some(installed_version) = installed.get(&item.name) else {
+            let Some(current) = installed.get(&item.name) else {
                 continue;
             };
             if input.reinstall.contains(item) || updating.contains(item.name.as_str()) {
@@ -425,9 +425,9 @@ impl<'a> Engine<'a> {
             if let Some(details) = self.details_of(item) {
                 open.push(Question::AlreadyInstalled {
                     target: item.clone(),
-                    installed_version: installed_version.clone(),
+                    installed_version: current.version.clone(),
                     repo_version: details.version.clone(),
-                    differs_without_update: *installed_version != details.version,
+                    differs_without_update: current.version != details.version,
                 });
             }
         }
@@ -528,7 +528,7 @@ impl<'a> Engine<'a> {
         &mut self,
         update: bool,
         group: &str,
-        installed: &HashMap<String, String>,
+        installed: &HashMap<String, InstalledPackage>,
     ) -> Result<Result<Question, Resolution>, PacmanError> {
         let Some(members) = self.facts.group_members(group)? else {
             return Ok(Err(Resolution::Blocked(vec![Blocker::UnknownGroup(
@@ -550,7 +550,7 @@ impl<'a> Engine<'a> {
                 Some(GroupChoice {
                     package: printed_ref(printed),
                     version: printed.version.clone(),
-                    installed_version: installed.get(&member.name).cloned(),
+                    installed_version: installed.get(&member.name).map(|p| p.version.clone()),
                 })
             })
             .collect();
@@ -566,7 +566,7 @@ impl<'a> Engine<'a> {
         update: bool,
         base: &[String],
         answers: &[ProviderAnswer],
-        installed: &HashMap<String, String>,
+        installed: &HashMap<String, InstalledPackage>,
     ) -> Result<Vec<ProviderAnswer>, PacmanError> {
         let mut kept = Vec::new();
         for (index, answer) in answers.iter().enumerate() {
@@ -614,7 +614,7 @@ impl<'a> Engine<'a> {
         others: &[ProviderAnswer],
         dependency: &str,
         candidate: &PackageRef,
-        installed: &HashMap<String, String>,
+        installed: &HashMap<String, InstalledPackage>,
     ) -> Result<bool, PacmanError> {
         let mut names = base.to_vec();
         names.extend(others.iter().map(|a| spec(&a.chosen)));
@@ -654,7 +654,7 @@ impl<'a> Engine<'a> {
         list: &[PrintedPackage],
         asked: &[PackageRef],
         answers: &[ProviderAnswer],
-        installed: &HashMap<String, String>,
+        installed: &HashMap<String, InstalledPackage>,
     ) -> Vec<(String, PackageRef)> {
         let mut found: Vec<(String, PackageRef)> = Vec::new();
         for needer in list {
@@ -721,7 +721,7 @@ impl<'a> Engine<'a> {
         requested: &[PackageRef],
         providers: Vec<ProviderAnswer>,
         list: &[PrintedPackage],
-        installed: &HashMap<String, String>,
+        installed: &HashMap<String, InstalledPackage>,
         updating: &HashSet<&str>,
     ) -> InstallPlan {
         let mut items = Vec::new();
@@ -736,12 +736,16 @@ impl<'a> Engine<'a> {
             } else {
                 Role::Dependency
             };
+            let current = installed.get(&printed.name);
+            let details = self.details_of(&package);
             items.push(PlanItem {
-                installed_version: installed.get(&printed.name).cloned(),
+                installed_version: current.map(|p| p.version.clone()),
                 download_size: printed.download_size,
-                installed_size: self.details_of(&package).map_or(0, |d| d.installed_size),
-                installed_size_text: String::new(),
-                current_size: None,
+                installed_size: details.map_or(0, |d| d.installed_size),
+                installed_size_text: details
+                    .map(|d| d.installed_size_text.clone())
+                    .unwrap_or_default(),
+                current_size: current.map(|p| p.installed_size),
                 version: printed.version.clone(),
                 package,
                 role,
