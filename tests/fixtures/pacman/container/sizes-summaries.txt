@@ -1,0 +1,85 @@
+# case 1
+resolving dependencies...
+looking for conflicting packages...
+
+Package (2)           New Version  Net Change  Download Size
+
+measure/measure-data  1.0-1          6.68 MiB       0.00 MiB
+measure/measure-big   1.0-1          3.18 MiB       3.18 MiB
+
+Total Download Size:   3.19 MiB
+Total Installed Size:  9.85 MiB
+
+:: Proceed with installation? [Y/n] n
+
+# case 2
+resolving dependencies...
+looking for conflicting packages...
+
+Package (2)           New Version  Net Change  Download Size
+
+measure/measure-data  1.0-1          6.68 MiB               
+measure/measure-big   1.0-1          3.18 MiB       3.18 MiB
+
+Total Download Size:   3.18 MiB
+Total Installed Size:  9.85 MiB
+
+:: Proceed with installation? [Y/n] n
+
+# case 3
+resolving dependencies...
+looking for conflicting packages...
+
+Package (2)           New Version  Net Change
+
+measure/measure-data  1.0-1          6.68 MiB
+measure/measure-big   1.0-1          3.18 MiB
+
+Total Installed Size:  9.85 MiB
+
+:: Proceed with installation? [Y/n] n
+
+# case 3b
+resolving dependencies...
+looking for conflicting packages...
+
+Package (2)           New Version  Net Change  Download Size
+
+measure/measure-data  1.0-1          6.68 MiB               
+measure/measure-big   1.0-1          3.18 MiB       2.23 MiB
+
+Total Download Size:   2.23 MiB
+Total Installed Size:  9.85 MiB
+
+:: Proceed with installation? [Y/n] n
+
+# case 4
+warning: measure-big-1.0-1 is up to date -- reinstalling
+warning: measure-data-1.0-1 is up to date -- reinstalling
+resolving dependencies...
+looking for conflicting packages...
+
+Package (2)           Old Version  New Version  Net Change
+
+measure/measure-big   1.0-1        1.0-1          0.00 MiB
+measure/measure-data  1.0-1        1.0-1          0.00 MiB
+
+Total Installed Size:  9.85 MiB
+Net Upgrade Size:      0.00 MiB
+
+:: Proceed with installation? [Y/n] n
+
+# case 5
+resolving dependencies...
+looking for conflicting packages...
+
+Package (1)          Old Version  New Version  Net Change  Download Size
+
+measure/measure-big  1.0-1        2.0-1          2.12 MiB       5.30 MiB
+
+Total Download Size:   5.30 MiB
+Total Installed Size:  5.30 MiB
+Net Upgrade Size:      2.12 MiB
+
+:: Proceed with installation? [Y/n] n
+

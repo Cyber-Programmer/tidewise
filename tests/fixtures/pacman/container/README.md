@@ -66,3 +66,22 @@ on `tidewise-chain`.
 The provider and failure fixtures from `provider-prompt-*` to `print-chain-*` are compared with what the image's pacman
 prints, on every container run, by `tests/container/tests/pacman_providers.rs` (`the_provider_fixtures_are_what_pacman_prints_now`,
 `the_failure_and_chain_fixtures_are_what_pacman_prints_now`): a pacman that changes its words fails there, not silently here.
+
+## Sizes for the review screen (WBS 6.3)
+
+Captured 2026-11-25 in a throwaway container from the cached test image (`localhost/tidewise-test:61b4198a3314`,
+`--network=none`, `no-new-privileges`, nothing mounted, `LC_ALL=C`). Two throwaway packages were built inside it in a
+local repository `measure`, because the dummy packages are too small to show rounding: `measure-data` 1.0 (7 000 001
+zero bytes installed, 2 644 bytes to download) and `measure-big` 1.0 / 2.0 (3 333 333 / 5 555 555 random bytes
+installed; 3 337 523 / 5 560 348 bytes to download). `measure-big` depends on `measure-data`. These files are not
+compared with the image on container runs. `FMT` is `'%r/%n %v %s'`.
+
+| File | Command (exit code) | What it shows |
+|---|---|---|
+| `sizes-print-cold.txt` | `pacman -S --print --print-format FMT -- measure-big` (0), empty cache | `%s` is the package file's size in bytes (equal to `stat`) |
+| `sizes-print-dep-cached.txt` | the same after `pacman -Sw measure-data` (0) | `%s` is **0** for the file already in the cache, unchanged for the other |
+| `sizes-print-all-cached.txt` | the same after `pacman -Sw measure-big` (0) | `%s` is 0 for both |
+| `sizes-print-partial.txt` | the same with the first 1 000 000 bytes of `measure-big` left as a `.part` file (0) | `%s` is what is **still to download** (3 337 523 − 1 000 000) |
+| `sizes-print-upgrade.txt` | the same with 1.0 installed and 2.0 in the lists (0) | The list says nothing about the installed version |
+| `sizes-si.txt` | `pacman -Si measure-big measure-data` (0) | `Installed Size` is rounded to 2 decimals, in pacman's choice of unit (`6835.94 KiB`). `Download Size` is the whole file, **cached or not** |
+| `sizes-summaries.txt` | `printf 'n\n' \| pacman -S …` for: 1 empty cache, 2 dependency cached, 3 all cached, 3b partial, 4 reinstall, 5 upgrade (1) | pacman's own totals: `Total Download Size` follows `%s` (line absent when 0); `Total Installed Size` is the new packages' sizes; `Net Upgrade Size` (new − old) appears only when something installed is replaced: 0.00 MiB on a reinstall, 2.12 MiB on the upgrade |
