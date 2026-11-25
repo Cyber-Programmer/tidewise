@@ -20,6 +20,7 @@
 mod error;
 mod partial;
 mod print;
+mod private_lists;
 mod qi;
 mod qq;
 mod qu;
