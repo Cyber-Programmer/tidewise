@@ -5,7 +5,9 @@
 # reads it and allows it, with a reason, in one function. Where they are allowed today:
 #   Command::new    crates/pacman/src/run.rs (the read-only pacman runner), crates/helper/src/runner.rs (the helper's
 #                   pacman runner), and tests (their own helper functions and crates/helper/tests/not_root.rs).
-#   remove_*        crates/helper/src/removal.rs (the helper's one deletion point), and the TempDir of each crate's tests.
+#   remove_*        crates/helper/src/removal.rs (the helper's one deletion point); crates/pacman/src/private_lists.rs
+#                   `remove_stale_lock` only (6.11, decision 0008): the left-over db.lck of the app's own private list
+#                   folder, never any other path; and the TempDir of each crate's tests.
 #   rename          crates/helper/src/lists.rs `replace_list` only (6.10b, decision 0007): one rename of a staged pacman list
 #                   over the real one, inside the real /var/lib/pacman/sync folder (cache-class data, not a user file).
 #   rustix unlink*, rmdir, rename*   nowhere today: nothing calls them.
