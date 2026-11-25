@@ -53,7 +53,7 @@ const EXPECTED_FILES: [(&str, u32); 5] = [
 
 /// namcap lines that are accepted, each with the reason (the human accepted the first three kinds on 16 Nov 2026).
 /// Any other line fails the test. Matched as text inside the line.
-const ACCEPTED_NAMCAP: [(&str, &str); 13] = [
+const ACCEPTED_NAMCAP: [(&str, &str); 15] = [
     (
         "W: Missing Maintainer tag",
         "the maintainer's name and contact are the human's choice, made when the package goes to the AUR",
@@ -69,6 +69,14 @@ const ACCEPTED_NAMCAP: [(&str, &str); 13] = [
     (
         "W: Dependency included, but may not be needed ('polkit')",
         "pkexec, polkitd and the policy folder, not a library",
+    ),
+    (
+        "W: Dependency included, but may not be needed ('util-linux')",
+        "the app runs /usr/bin/setpriv for its list refresh (6.11), not a library; listed although base brings it",
+    ),
+    (
+        "W: Dependency included, but may not be needed ('fakeroot')",
+        "the app runs /usr/bin/fakeroot for its list refresh (6.11, decision 0008), not a library",
     ),
     (
         "W: Dependency included, but may not be needed ('libxkbcommon')",
