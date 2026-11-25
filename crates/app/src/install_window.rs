@@ -20,17 +20,18 @@ use std::time::{Duration, SystemTime};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
 use tidewise_app::install_view::{
-    CardKind, FocusTarget, InstallView, InstalledRow, OptionView, install_view,
+    CardKind, FocusTarget, InstallView, InstalledRow, OptionView, ReviewRow, TileView, install_view,
 };
 use tidewise_app::list_scroll::{
-    content_y_to_offset, moved_selection, offset_to_content_y, scroll_to_show,
+    ScrollKey, content_y_to_offset, moved_selection, offset_to_content_y, scroll_by_key,
+    scroll_to_show,
 };
 use tidewise_app::update_check::{ListsNote, check_for_updates};
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::{
     ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, MainWindow,
-    NavBridge, Screen as NavScreen, Theme,
+    NavBridge, ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData,
 };
 
 /// After this long the card adds "This is taking longer than usual."
@@ -141,6 +142,12 @@ pub fn start(window: &MainWindow) -> Install {
             handle.borrow_mut().model.toggle(member);
         }
         repaint(&handle);
+    });
+    let handle = screen.clone();
+    bridge.on_review_key(move |key, content| {
+        if let Some(window) = handle.borrow().window.upgrade() {
+            scroll_review(&window, key, content);
+        }
     });
     let handle = screen.clone();
     bridge.on_select_all(move || {
@@ -334,6 +341,29 @@ fn repaint(screen: &Rc<RefCell<Screen>>) {
     keep_in_view(&window, state.shown_kind, state.chosen_row);
 }
 
+/// A scrolling key on the review list: `content` is the height of everything in it.
+fn scroll_review(window: &MainWindow, key: ReviewKey, content: f32) {
+    let key = match key {
+        ReviewKey::Up => ScrollKey::Up,
+        ReviewKey::Down => ScrollKey::Down,
+        ReviewKey::PageUp => ScrollKey::PageUp,
+        ReviewKey::PageDown => ScrollKey::PageDown,
+        ReviewKey::Home => ScrollKey::Home,
+        ReviewKey::End => ScrollKey::End,
+    };
+    let line = window.global::<Theme>().get_review_row() + 1.0;
+    let bridge = window.global::<InstallBridge>();
+    let current = content_y_to_offset(bridge.get_list_y());
+    let wanted = scroll_by_key(
+        key,
+        current,
+        line,
+        content,
+        bridge.get_list_visible_height(),
+    );
+    bridge.set_list_y(offset_to_content_y(wanted));
+}
+
 /// Scrolls the list in the card the smallest amount that shows row `index` completely: the same maths as the
 /// package list (`list_scroll`). Rows have fixed heights (`Theme`) with a 1px separator between them.
 fn keep_in_view(window: &MainWindow, kind: CardKind, index: Option<usize>) {
@@ -408,6 +438,13 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
     bridge.set_lists_note(view.lists_note.as_str().into());
     bridge.set_report(view.report.as_str().into());
     bridge.set_technical(strings(&view.technical));
+    bridge.set_tiles(ModelRc::new(VecModel::from(
+        view.tiles.iter().map(tile).collect::<Vec<_>>(),
+    )));
+    bridge.set_review_rows(ModelRc::new(VecModel::from(
+        view.rows.iter().map(review_row).collect::<Vec<_>>(),
+    )));
+    bridge.set_primary_note(view.primary_note.as_str().into());
     bridge.set_focus(match view.focus {
         FocusTarget::List => InstallFocus::List,
         FocusTarget::Primary => InstallFocus::Primary,
@@ -424,6 +461,25 @@ fn choice_option(option: &OptionView) -> ChoiceOption {
         detail: option.detail.as_str().into(),
         tag: option.tag.as_str().into(),
         checked: option.checked,
+    }
+}
+
+fn tile(tile: &TileView) -> TileData {
+    TileData {
+        label: tile.label.as_str().into(),
+        number: tile.number.as_str().into(),
+        unit: tile.unit.as_str().into(),
+        words: tile.words,
+    }
+}
+
+fn review_row(row: &ReviewRow) -> ReviewRowData {
+    ReviewRowData {
+        name: row.name.as_str().into(),
+        version: row.version.as_str().into(),
+        why: row.why.as_str().into(),
+        size: row.size.as_str().into(),
+        bold: row.bold,
     }
 }
 

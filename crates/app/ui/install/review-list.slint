@@ -1,0 +1,194 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { InstallBridge, InstallFocus, ReviewKey, TileData } from "bridge.slint";
+
+// One of the three figures of the review. A sentence ("Nothing to download") is smaller than a number and wraps.
+export component ReviewTile inherits Rectangle {
+    in property <TileData> tile;
+
+    horizontal-stretch: 1;
+    background: Theme.bg;
+    border-radius: Theme.radius-control;
+    accessible-role: text;
+    accessible-label: root.tile.label + ": " + root.tile.number + " " + root.tile.unit;
+
+    VerticalLayout {
+        padding: Theme.space-m;
+        spacing: 2px;
+        alignment: start;
+        Text {
+            text: root.tile.label;
+            color: Theme.text-3;
+            font-size: 12px;
+        }
+
+        if root.tile.words: Text {
+            text: root.tile.number;
+            color: Theme.text;
+            font-size: Theme.size-row-title;
+            font-weight: Theme.weight-medium;
+            wrap: word-wrap;
+        }
+
+        if !root.tile.words: HorizontalLayout {
+            alignment: start;
+            spacing: 6px;
+            Text {
+                text: root.tile.number;
+                color: Theme.text;
+                font-family: Theme.font-mono;
+                font-size: 24px;
+                vertical-alignment: bottom;
+            }
+
+            Text {
+                text: root.tile.unit;
+                color: Theme.text-3;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-body;
+                vertical-alignment: bottom;
+            }
+        }
+    }
+}
+
+// The review's one bounded box: the packages, or pacman's own figures while "Technical details" is open. It is one
+// Tab stop; Up, Down, Page Up, Page Down, Home and End scroll it (the maths is in list_scroll.rs).
+export component ReviewList inherits Rectangle {
+    in property <bool> technical;
+
+    background: Theme.surface;
+    border-radius: Theme.radius-control;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    init => {
+        if (InstallBridge.focus == InstallFocus.list) {
+            focus.focus();
+        }
+    }
+    property <int> focus-request: InstallBridge.focus-serial;
+    changed focus-request => {
+        if (InstallBridge.focus == InstallFocus.list) {
+            focus.focus();
+        }
+    }
+
+    focus := FocusScope {
+        accessible-role: list;
+        accessible-label: root.technical ? "Technical details" : "Packages to install";
+        key-pressed(event) => {
+            if (event.text == Key.UpArrow) {
+                InstallBridge.review-key(ReviewKey.up, scroll.content-height);
+            } else if (event.text == Key.DownArrow) {
+                InstallBridge.review-key(ReviewKey.down, scroll.content-height);
+            } else if (event.text == Key.PageUp) {
+                InstallBridge.review-key(ReviewKey.page-up, scroll.content-height);
+            } else if (event.text == Key.PageDown) {
+                InstallBridge.review-key(ReviewKey.page-down, scroll.content-height);
+            } else if (event.text == Key.Home) {
+                InstallBridge.review-key(ReviewKey.home, scroll.content-height);
+            } else if (event.text == Key.End) {
+                InstallBridge.review-key(ReviewKey.end, scroll.content-height);
+            } else {
+                return reject;
+            }
+            return accept;
+        }
+    }
+
+    scroll := ScrollView {
+        content-y <=> InstallBridge.list-y;
+        changed visible-height => {
+            InstallBridge.list-visible-height = self.visible-height;
+        }
+        init => {
+            InstallBridge.list-visible-height = self.visible-height;
+        }
+
+        VerticalLayout {
+            alignment: start;
+
+            if !root.technical: VerticalLayout {
+                for row[index] in InstallBridge.review-rows: VerticalLayout {
+                    if index > 0: Rectangle {
+                        height: 1px;
+                        background: Theme.rule;
+                    }
+
+                    Rectangle {
+                        height: Theme.review-row;
+                        accessible-role: list-item;
+                        accessible-label: row.name + " " + row.version + ", " + row.why + ", " + row.size;
+
+                        HorizontalLayout {
+                            padding-left: Theme.space-l;
+                            padding-right: Theme.space-l;
+                            spacing: Theme.space-m;
+
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 2px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: Theme.space-m;
+                                    Text {
+                                        text: row.name;
+                                        color: Theme.text;
+                                        font-size: Theme.size-body;
+                                        font-weight: row.bold ? Theme.weight-semibold : Theme.weight-regular;
+                                        vertical-alignment: bottom;
+                                    }
+
+                                    Text {
+                                        text: row.version;
+                                        color: Theme.text-3;
+                                        font-family: Theme.font-mono;
+                                        font-size: 12px;
+                                        vertical-alignment: bottom;
+                                    }
+                                }
+
+                                Text {
+                                    text: row.why;
+                                    color: Theme.text-3;
+                                    font-size: 12px;
+                                }
+                            }
+
+                            Text {
+                                text: row.size;
+                                color: Theme.text-2;
+                                font-family: Theme.font-mono;
+                                font-size: Theme.size-label;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.technical: VerticalLayout {
+                padding: Theme.space-m;
+                spacing: Theme.space-xs;
+                for line in InstallBridge.technical: Text {
+                    text: line;
+                    color: Theme.text-2;
+                    font-family: Theme.font-mono;
+                    font-size: Theme.size-label;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
+    // Focus ring, drawn over the list.
+    Rectangle {
+        border-radius: Theme.radius-control;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}

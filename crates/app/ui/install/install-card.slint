@@ -3,6 +3,7 @@ import { Theme } from "../theme.slint";
 import { TwButton } from "../widgets/button.slint";
 import { RadioList, CheckRow } from "../widgets/choice-list.slint";
 import { InstallBridge, InstallCardKind, InstallFocus } from "bridge.slint";
+import { ReviewList, ReviewTile } from "review-list.slint";
 
 // Select all / Select none.
 component SelectButtons inherits HorizontalLayout {
@@ -80,9 +81,17 @@ export component InstallCard inherits Rectangle {
     property <length> installed-min: min(root.installed-full, 96px);
     property <length> radio-min: min(root.radio-full, 3 * root.radio-pitch);
 
+    property <bool> review: InstallBridge.kind == InstallCardKind.review;
+    property <length> review-full: root.review ? InstallBridge.review-rows.length * (Theme.review-row + 1px) + 1px : 0px;
+    property <length> review-min: min(root.review-full, 3 * (Theme.review-row + 1px));
+
     // The layout starts every list at its smallest size, so the card's own preferred height is the smallest one;
     // its most is that plus what the lists need to show every row (short cards stay short).
-    max-height: content.preferred-height + (root.members-full - root.members-min) + (root.installed-full - root.installed-min) + (root.radio-full - root.radio-min);
+    max-height: content.preferred-height + (root.members-full - root.members-min) + (root.installed-full - root.installed-min) + (root.radio-full - root.radio-min) + (root.review-full - root.review-min);
+
+    // The review always takes the full width up to the maximum: otherwise opening its technical details, whose
+    // lines are longer, would make the card jump wider.
+    preferred-width: root.review ? Theme.content-max-width : content.preferred-width;
 
     background: Theme.surface;
     border-radius: Theme.radius-panel;
@@ -93,8 +102,12 @@ export component InstallCard inherits Rectangle {
     property <bool> technical-open: false;
 
     content := VerticalLayout {
-        padding: 28px;
-        spacing: Theme.space-l;
+        // The review holds the most, so it is a little tighter: it has to fit the smallest window.
+        padding-left: root.review ? Theme.space-xl : 28px;
+        padding-right: root.review ? Theme.space-xl : 28px;
+        padding-top: root.review ? Theme.space-l : 28px;
+        padding-bottom: root.review ? Theme.space-l : 28px;
+        spacing: root.review ? Theme.space-m : Theme.space-l;
 
         // "Question 2 of 3" and one bar per question.
         if InstallBridge.step-text != "": HorizontalLayout {
@@ -177,6 +190,23 @@ export component InstallCard inherits Rectangle {
             color: Theme.text-2;
             font-size: Theme.size-body;
             wrap: word-wrap;
+        }
+
+        // The review: three figures, then the list.
+        if root.review: HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+            for tile in InstallBridge.tiles: ReviewTile {
+                tile: tile;
+            }
+        }
+
+        if root.review: ReviewList {
+            vertical-stretch: 1;
+            min-height: root.review-min;
+            preferred-height: root.review-min;
+            max-height: root.review-full;
+            technical: root.technical-open;
         }
 
         // Provider or installed-package question.
@@ -353,7 +383,8 @@ export component InstallCard inherits Rectangle {
             wrap: word-wrap;
         }
 
-        if InstallBridge.hint != "": Text {
+        // On the review the hint sits beside the buttons.
+        if InstallBridge.hint != "" && !root.review: Text {
             vertical-stretch: 0;
             text: InstallBridge.hint;
             color: Theme.text-2;
@@ -361,7 +392,8 @@ export component InstallCard inherits Rectangle {
             wrap: word-wrap;
         }
 
-        if InstallBridge.technical.length > 0: HorizontalLayout {
+        // On the review the toggle is under the buttons and swaps what the list box shows.
+        if InstallBridge.technical.length > 0 && !root.review: HorizontalLayout {
             vertical-stretch: 0;
             TwButton {
                 text: root.technical-open ? "Hide technical details" : "Technical details";
@@ -373,7 +405,7 @@ export component InstallCard inherits Rectangle {
             Rectangle { }
         }
 
-        if root.technical-open && InstallBridge.technical.length > 0: VerticalLayout {
+        if root.technical-open && InstallBridge.technical.length > 0 && !root.review: VerticalLayout {
             vertical-stretch: 0;
             spacing: Theme.space-xs;
             for line in InstallBridge.technical: Text {
@@ -393,7 +425,7 @@ export component InstallCard inherits Rectangle {
             wrap: word-wrap;
         }
 
-        // The buttons: the last child, they keep their size.
+        // The buttons: they stay at the bottom of the card and keep their size.
         HorizontalLayout {
             vertical-stretch: 0;
             spacing: Theme.space-m;
@@ -416,6 +448,35 @@ export component InstallCard inherits Rectangle {
                 focus-request: InstallBridge.focus-serial;
                 clicked => {
                     InstallBridge.secondary();
+                }
+            }
+
+            if root.review: Text {
+                text: InstallBridge.hint;
+                color: Theme.text-3;
+                font-size: Theme.size-label;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        if root.review: HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+            Text {
+                horizontal-stretch: 1;
+                text: InstallBridge.primary-note;
+                color: Theme.text-2;
+                font-size: Theme.size-label;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+
+            TwButton {
+                text: root.technical-open ? "Hide technical details" : "Technical details";
+                clicked => {
+                    InstallBridge.list-y = 0px;
+                    root.technical-open = !root.technical-open;
                 }
             }
         }
