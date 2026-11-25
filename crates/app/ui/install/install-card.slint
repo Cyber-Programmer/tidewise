@@ -345,6 +345,14 @@ export component InstallCard inherits Rectangle {
             wrap: word-wrap;
         }
 
+        if InstallBridge.lists-note != "": Text {
+            vertical-stretch: 0;
+            text: InstallBridge.lists-note;
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+            wrap: word-wrap;
+        }
+
         if InstallBridge.hint != "": Text {
             vertical-stretch: 0;
             text: InstallBridge.hint;

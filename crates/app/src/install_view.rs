@@ -4,7 +4,8 @@
 
 use crate::error_words::{Doing, error_text, error_view};
 use crate::install_model::{Draft, InstallModel, Phase, Step};
-use tidewise_pacman::{Blocker, PackageRef, PacmanError, Question};
+use crate::update_check::ListsNote;
+use tidewise_pacman::{Blocker, NotFresh, PackageRef, PacmanError, Question};
 
 const UNCHANGED: &str = "Nothing was installed and nothing on your system changed.";
 const REPORT: &str = "Report problems at github.com/Cyber-Programmer/tidewise/issues";
@@ -182,6 +183,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             view.secondary = button(back_label(model), true);
         }
     }
+    view.lists_note = model.lists_note().map(lists_note).unwrap_or_default();
     view.focus = match view.kind {
         CardKind::Provider | CardKind::Choice => FocusTarget::List,
         CardKind::Members if !view.options.is_empty() => FocusTarget::List,
@@ -191,6 +193,22 @@ pub fn install_view(model: &InstallModel) -> InstallView {
         },
     };
     view
+}
+
+/// How old the lists are that the updates check had to use, and why no newer ones. No `fakeroot` (or no session
+/// folder) is not a problem to report: only the age is said.
+fn lists_note(note: ListsNote) -> String {
+    let age = match note.age_days {
+        None => "Checked with the package lists already on this computer.".to_string(),
+        Some(0) => "Checked with the package lists updated today.".to_string(),
+        Some(1) => "Checked with the package lists updated 1 day ago.".to_string(),
+        Some(days) => format!("Checked with the package lists updated {days} days ago."),
+    };
+    match note.why {
+        NotFresh::Unavailable => age,
+        NotFresh::Busy => format!("{age} Another refresh of the package lists is still running."),
+        NotFresh::Failed => format!("{age} Couldn't get newer ones."),
+    }
 }
 
 fn button(label: &str, enabled: bool) -> Option<ButtonView> {
@@ -1154,9 +1172,6 @@ mod tests {
 
     #[test]
     fn the_card_says_which_lists_were_used_when_they_are_not_fresh() {
-        use crate::update_check::ListsNote;
-        use tidewise_pacman::NotFresh;
-
         let shown = |why, age_days| {
             let mut model = InstallModel::new();
             let ticket = model.open(pkg("dbeaver")).expect("starts at once");

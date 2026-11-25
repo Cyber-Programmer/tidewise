@@ -2,18 +2,20 @@
 //! `InstallModel` holds the state, `install_view` words it, and this file copies the result into Slint and runs
 //! pacman on a worker thread.
 //!
-//! Threads: a resolve (`pacman -Qu` once, then `tidewise_pacman::resolve`, about 1.5–5 s) runs on a worker thread.
+//! Threads: a resolve (the updates check once, then `tidewise_pacman::resolve`, about 1.5–5 s plus any download of the
+//! lists) runs on a worker thread.
 //! The `InstallModel` never leaves the UI thread, and it lets only one worker run at a time (a newer wish waits,
 //! see its docs). The worker puts its answer in a mailbox (a channel) and asks the UI thread, through a weak window
 //! handle, to fire `resolve-done`; the UI thread then gives the model every answer in the mailbox.
 //!
 //! One timer: after 10 s of waiting the card adds "This is taking longer than usual." (pacman is not stopped).
-//! Only read-only pacman commands run here (`-Qu`, and the resolver's `--print`, `-Si`, `-Ss`, `-Sg`, `-Qi`).
+//! pacman only reads here (`-Qu`, and the resolver's `--print`, `-Si`, `-Ss`, `-Sg`, `-Qi`), except the refresh of the
+//! app's own private copy of the package lists (`refresh_private_lists`).
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
@@ -23,7 +25,8 @@ use tidewise_app::install_view::{
 use tidewise_app::list_scroll::{
     content_y_to_offset, moved_selection, offset_to_content_y, scroll_to_show,
 };
-use tidewise_pacman::{InstallDecision, PackageRef, PacmanError, install_decision};
+use tidewise_app::update_check::{ListsNote, check_for_updates};
+use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::{
     ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, MainWindow,
@@ -33,7 +36,12 @@ use crate::{
 /// After this long the card adds "This is taking longer than usual."
 const SLOW_AFTER: Duration = Duration::from_secs(10);
 
-type Answer = (u64, Result<WorkAnswer, PacmanError>);
+/// The ticket's number, what the lists check had to say (`None`: it was not asked), and the answer.
+type Answer = (
+    u64,
+    Option<Option<ListsNote>>,
+    Result<WorkAnswer, PacmanError>,
+);
 
 /// Everything the install screens own. Lives on the UI thread only.
 struct Screen {
@@ -211,9 +219,9 @@ fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
         (state.mailbox.0.clone(), state.window.clone())
     };
     std::thread::spawn(move || {
-        let result = work(&ticket);
+        let (checked, result) = work(&ticket);
         // If the window closed meanwhile, nobody reads this and that is fine.
-        let _ = sender.send((ticket.number, result));
+        let _ = sender.send((ticket.number, checked, result));
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(window) = window.upgrade() {
                 window.global::<InstallBridge>().invoke_resolve_done();
@@ -234,19 +242,33 @@ fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
         });
 }
 
-/// What the worker thread does for one ticket: read-only pacman only.
-fn work(ticket: &Ticket) -> Result<WorkAnswer, PacmanError> {
+/// What the worker thread does for one ticket. pacman only reads here, except that the updates check may refresh the
+/// app's own private copy of the package lists (WBS 6.11): as the user, no password, up to 60 s of waiting.
+fn work(ticket: &Ticket) -> (Option<Option<ListsNote>>, Result<WorkAnswer, PacmanError>) {
+    let mut checked = None;
     if ticket.check_lists {
         // Updates waiting: Tidewise only installs on an up-to-date system, so do not even resolve.
-        let pending = tidewise_pacman::pending_updates()?;
-        if matches!(
-            install_decision(&pending),
-            InstallDecision::MustUpdateSystem { .. }
-        ) {
-            return Ok(WorkAnswer::MustUpdate);
+        let check = check_for_updates(
+            tidewise_pacman::pending_updates_in,
+            || tidewise_pacman::refresh_private_lists(RefreshWhy::Opening),
+            || {
+                tidewise_pacman::sync_lists()
+                    .ok()
+                    .and_then(|lists| lists.newest)
+            },
+            SystemTime::now(),
+        );
+        match check {
+            Ok(check) if check.must_update => {
+                return (Some(check.note), Ok(WorkAnswer::MustUpdate));
+            }
+            Ok(check) => checked = Some(check.note),
+            Err(error) => return (checked, Err(error)),
         }
     }
-    tidewise_pacman::resolve(&ticket.input).map(WorkAnswer::Resolved)
+    // Against the real lists: those are what the helper installs from.
+    let result = tidewise_pacman::resolve(&ticket.input).map(WorkAnswer::Resolved);
+    (checked, result)
 }
 
 /// A worker has answered: hand every answer in the mailbox to the model.
@@ -255,7 +277,10 @@ fn resolve_done(screen: &Rc<RefCell<Screen>>) {
         let state = screen.borrow();
         state.mailbox.1.try_iter().collect()
     };
-    for (number, result) in answers {
+    for (number, checked, result) in answers {
+        if let Some(note) = checked {
+            screen.borrow_mut().model.lists_checked(number, note);
+        }
         let next = screen.borrow_mut().model.done(number, result);
         if let Some(next) = next {
             spawn_worker(screen, next);
@@ -380,6 +405,7 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
     bridge.set_unchanged(view.unchanged.as_str().into());
     bridge.set_slow_note(view.slow_note.as_str().into());
     bridge.set_hint(view.hint.as_str().into());
+    bridge.set_lists_note(view.lists_note.as_str().into());
     bridge.set_report(view.report.as_str().into());
     bridge.set_technical(strings(&view.technical));
     bridge.set_focus(match view.focus {

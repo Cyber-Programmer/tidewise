@@ -29,15 +29,41 @@ pub struct UpdateCheck {
 
 /// `pending` is `pacman -Qu` against a database folder (`None`: the real one), `refresh` brings the private copy up to
 /// date, `real_newest` is the time of the newest real list.
+///
+/// When the real lists already say "update first" nothing is downloaded. When there is no fresh copy, the real answer
+/// stands, with a note; that is not an error.
 pub fn check_for_updates(
-    _pending: impl Fn(Option<&Path>) -> Result<Vec<PendingUpdate>, PacmanError>,
-    _refresh: impl FnOnce() -> Lists,
-    _real_newest: impl FnOnce() -> Option<SystemTime>,
-    _now: SystemTime,
+    pending: impl Fn(Option<&Path>) -> Result<Vec<PendingUpdate>, PacmanError>,
+    refresh: impl FnOnce() -> Lists,
+    real_newest: impl FnOnce() -> Option<SystemTime>,
+    now: SystemTime,
 ) -> Result<UpdateCheck, PacmanError> {
+    let waiting = |updates: &[PendingUpdate]| {
+        matches!(
+            install_decision(updates),
+            InstallDecision::MustUpdateSystem { .. }
+        )
+    };
+    let answer = |must_update| UpdateCheck {
+        must_update,
+        note: None,
+    };
+    if waiting(&pending(None)?) {
+        return Ok(answer(true));
+    }
+    let why = match refresh() {
+        Lists::Private(folder) => match pending(Some(&folder)) {
+            Ok(updates) => return Ok(answer(waiting(&updates))),
+            Err(_) => NotFresh::Failed,
+        },
+        Lists::Real(why) => why,
+    };
     Ok(UpdateCheck {
         must_update: false,
-        note: None,
+        note: Some(ListsNote {
+            why,
+            age_days: real_newest().map(|newest| whole_days(newest, now)),
+        }),
     })
 }
 

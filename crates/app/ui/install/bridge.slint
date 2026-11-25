@@ -60,6 +60,8 @@ export global InstallBridge {
     in property <string> unchanged;
     in property <string> slow-note;
     in property <string> hint;
+    // Said when the updates check could only use older package lists.
+    in property <string> lists-note;
     in property <string> report;
     in property <[string]> technical;
     // Where the list in the card is scrolled to (content-y) and how much of it shows. Rust keeps the focused or
