@@ -76,6 +76,7 @@ unmodified; see `crates/app/ui/fonts/OFL.txt`). No other fonts.
 - One list row is **64 px** (`row-height`); the app reads it to scroll the selected row into view.
 - The install screens' list rows are fixed: **44 px** checkbox rows (`choice-check-row`), **64 px** radio rows
   (`choice-radio-row`), plus a 1 px separator between rows; the app reads both to keep the focused row in view.
+- A review list row is **52 px** (`review-row`) plus its separator; the app reads it to scroll by one line.
 - Content stretches to **1000 px** (`content-max-width`, tested to stay between 960 and 1040) and is centred beyond it.
 
 ## Layout rules

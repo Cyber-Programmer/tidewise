@@ -22,6 +22,33 @@ export enum InstallFocus {
     secondary,
 }
 
+// A key that scrolls the review list.
+export enum ReviewKey {
+    up,
+    down,
+    page-up,
+    page-down,
+    home,
+    end,
+}
+
+// One of the review's three figures. `words`: `number` is a sentence.
+export struct TileData {
+    label: string,
+    number: string,
+    unit: string,
+    words: bool,
+}
+
+// One package of the review list.
+export struct ReviewRowData {
+    name: string,
+    version: string,
+    why: string,
+    size: string,
+    bold: bool,
+}
+
 export struct InstalledRowData {
     name: string,
     version: string,
@@ -64,6 +91,10 @@ export global InstallBridge {
     in property <string> lists-note;
     in property <string> report;
     in property <[string]> technical;
+    in property <[TileData]> tiles;
+    in property <[ReviewRowData]> review-rows;
+    // Under the buttons: why the primary one is off.
+    in property <string> primary-note;
     // Where the list in the card is scrolled to (content-y) and how much of it shows. Rust keeps the focused or
     // chosen row in view with the package list's scrolling maths.
     in-out property <length> list-y;
@@ -83,6 +114,8 @@ export global InstallBridge {
     // The visible part of the list changed size (first layout, window resized).
     callback list-resized();
     callback toggle(int);
+    // A scrolling key on the review list, with the height of everything in it.
+    callback review-key(ReviewKey, length);
     callback select-all();
     callback select-none();
     // The main button of the card, whatever it is for (next, continue, install instead, try again).
