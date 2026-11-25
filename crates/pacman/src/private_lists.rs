@@ -287,6 +287,16 @@ fn refresh_in(
     }
 }
 
+/// What this session needs for a private copy. `None`: it can't have one, which is not an error.
+fn usable_folder(
+    _runtime_dir: Option<&Path>,
+    _programs: [&Path; 2],
+    _local_db: &Path,
+    _uid: u32,
+) -> Option<PrivateFolder> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -783,5 +793,23 @@ mod tests {
         );
         first.join().unwrap();
         assert_eq!((lists, started.get()), (private(&folder), false));
+    }
+
+    #[test]
+    fn without_fakeroot_setpriv_or_a_runtime_folder_there_is_no_private_copy_and_nothing_is_made() {
+        let session = Session::new("usable");
+        let there = session.runtime.with_file_name("program");
+        fs::write(&there, b"").unwrap();
+        let missing = session.runtime.with_file_name("missing");
+        let runtime = Some(session.runtime.as_path());
+        let usable = |runtime, programs| {
+            usable_folder(runtime, programs, &session.local_db, session.uid).is_some()
+        };
+        assert!(!usable(runtime, [&there, &missing]), "no fakeroot");
+        assert!(!usable(runtime, [&missing, &there]), "no setpriv");
+        assert!(!usable(None, [&there, &there]), "no XDG_RUNTIME_DIR");
+        assert!(!session.runtime.join("tidewise").exists());
+        assert!(usable(runtime, [&there, &there]));
+        assert!(session.lists().is_dir());
     }
 }
