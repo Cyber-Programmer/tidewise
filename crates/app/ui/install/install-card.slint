@@ -87,7 +87,7 @@ export component InstallCard inherits Rectangle {
     background: Theme.surface;
     border-radius: Theme.radius-panel;
     border-width: 1px;
-    border-color: InstallBridge.kind == InstallCardKind.ready ? Theme.control-border : Theme.border;
+    border-color: InstallBridge.kind == InstallCardKind.review ? Theme.control-border : Theme.border;
 
     // View state only: is the "Technical details" part open?
     property <bool> technical-open: false;

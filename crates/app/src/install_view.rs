@@ -29,8 +29,8 @@ pub enum CardKind {
     Differs,
     /// Blocked or failed: amber words.
     Alert,
-    /// The placeholder where 6.2 stops.
-    Ready,
+    /// The review: the exact list pacman would install (WBS 6.3).
+    Review,
 }
 
 /// One choice in a radio or checkbox list.
@@ -58,6 +58,28 @@ pub struct ButtonView {
 pub struct InstalledRow {
     pub name: String,
     pub version: String,
+}
+
+/// One of the three figures at the top of the review.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TileView {
+    pub label: String,
+    pub number: String,
+    pub unit: String,
+    /// `number` is a sentence, not a figure: it is drawn smaller and may wrap.
+    pub words: bool,
+}
+
+/// One package of the review list.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ReviewRow {
+    pub name: String,
+    pub version: String,
+    /// Why it is in the list.
+    pub why: String,
+    pub size: String,
+    /// The user asked for it or picked it.
+    pub bold: bool,
 }
 
 /// Which element takes the keyboard focus when a card appears.
@@ -111,6 +133,12 @@ pub struct InstallView {
     pub lists_note: String,
     /// "Report problems at …", or empty.
     pub report: String,
+    /// The review's three figures.
+    pub tiles: Vec<TileView>,
+    /// The review's list, in pacman's order.
+    pub rows: Vec<ReviewRow>,
+    /// A line under the buttons that says why the primary one is off, or empty.
+    pub primary_note: String,
     /// Behind the "Technical details" toggle.
     pub technical: Vec<String>,
     pub focus_serial: u32,
@@ -173,7 +201,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
         }
         Phase::Ready(plan) => {
             let count = plan.items.len();
-            view.kind = CardKind::Ready;
+            view.kind = CardKind::Review;
             view.current_pill = 1;
             view.title_before = "The list is ready".to_string();
             view.body = format!(
@@ -1092,22 +1120,255 @@ mod tests {
         assert_eq!(view.primary, None);
     }
 
+    // ---- the review (WBS 6.3) ----------------------------------------------------------------------------
+
+    /// A package of a plan: `download` is pacman's `%s`, `current` what the installed version takes now.
+    fn item(name: &str, role: Role, download: u64, size: u64, current: Option<u64>) -> PlanItem {
+        PlanItem {
+            package: pkg(name),
+            version: "1.0-1".to_string(),
+            role,
+            installed_version: current.map(|_| "1.0-1".to_string()),
+            download_size: download,
+            installed_size: size,
+            installed_size_text: format!("{name} KiB"),
+            current_size: current,
+        }
+    }
+
+    fn plan_of(items: Vec<PlanItem>) -> InstallPlan {
+        InstallPlan {
+            decision: InstallDecision::Allowed { ignored: 0 },
+            targets: vec![pkg("dbeaver")],
+            providers: Vec::new(),
+            download_total: items.iter().map(|i| i.download_size).sum(),
+            installed_total: items.iter().map(|i| i.installed_size).sum(),
+            items,
+        }
+    }
+
+    fn reviewing(items: Vec<PlanItem>) -> InstallView {
+        install_view(&answered("dbeaver", Resolution::Ready(plan_of(items))))
+    }
+
+    fn tile(label: &str, number: &str, unit: &str) -> TileView {
+        TileView {
+            label: label.to_string(),
+            number: number.to_string(),
+            unit: unit.to_string(),
+            words: false,
+        }
+    }
+
+    fn row(name: &str, why: &str, size: &str, bold: bool) -> ReviewRow {
+        ReviewRow {
+            name: name.to_string(),
+            version: "1.0-1".to_string(),
+            why: why.to_string(),
+            size: size.to_string(),
+            bold,
+        }
+    }
+
+    /// A dbeaver install after one provider question, where `jre21-openjdk` was picked.
+    fn picked_a_provider() -> InstallModel {
+        let mut model = asking(
+            "dbeaver",
+            vec![provider(
+                "java-runtime",
+                &["jre-openjdk", "jre21-openjdk"],
+                0,
+            )],
+        );
+        model.choose(1);
+        let ticket = model.go_on().expect("the last question starts a resolve");
+        let plan = plan_of(vec![
+            item("java-common", Role::Provider, 2_000, 4_000, None),
+            item("jre21-openjdk", Role::Provider, 3_000_000, 5_000_000, None),
+            item("nss", Role::Dependency, 0, 1_000_000, None),
+            item("dbeaver", Role::Target, 100_000_000, 128_400_000, None),
+        ]);
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::Resolved(Resolution::Ready(plan))),
+        );
+        model
+    }
+
     #[test]
-    fn the_ready_placeholder_counts_the_packages_and_stops_there() {
-        let model = answered("dbeaver", Resolution::Ready(plan(5)));
-        let view = install_view(&model);
-        assert_eq!(view.kind, CardKind::Ready);
+    fn the_review_says_what_it_is_and_has_its_install_button_off() {
+        let view = install_view(&picked_a_provider());
+        assert_eq!(view.kind, CardKind::Review);
         assert_eq!(view.current_pill, 1);
-        assert_eq!(view.title_before, "The list is ready");
+        assert_eq!(view.title_before, "Review: install dbeaver");
         assert_eq!(
             view.body,
-            "Tidewise knows exactly what it would install: 5 packages. \
-             The review screen comes next."
+            "Nothing will be removed. This is the exact list pacman would install."
         );
-        assert_eq!(view.primary, None);
+        assert_eq!(view.primary, button("Install 4 packages", false));
+        assert_eq!(
+            view.primary_note,
+            "Tidewise can't install yet: this step comes in a later version."
+        );
+        assert_eq!(view.hint, "Your desktop asks for your password once.");
+        assert_eq!(view.secondary, button("Back", true));
+        assert_eq!(view.focus, FocusTarget::List);
+        assert_eq!(view.unchanged, "");
+    }
+
+    #[test]
+    fn one_package_is_counted_in_the_singular_and_with_no_question_back_goes_to_details() {
+        let view = reviewing(vec![item("dbeaver", Role::Target, 10, 20, None)]);
+        assert_eq!(view.primary, button("Install 1 package", false));
         assert_eq!(view.secondary, button("Back to details", true));
-        let one = install_view(&answered("dbeaver", Resolution::Ready(plan(1))));
-        assert!(one.body.contains(": 1 package. "));
+    }
+
+    #[test]
+    fn each_row_says_why_it_is_there_in_pacmans_order() {
+        let view = install_view(&picked_a_provider());
+        assert_eq!(
+            view.rows,
+            [
+                // A provider that was never asked about is only needed.
+                row(
+                    "java-common",
+                    "Needed by what you're installing",
+                    "2 kB",
+                    false
+                ),
+                row("jre21-openjdk", "You picked this", "3.0 MB", true),
+                row(
+                    "nss",
+                    "Needed by what you're installing",
+                    "Already downloaded",
+                    false
+                ),
+                row("dbeaver", "You asked for this", "100.0 MB", true),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_group_member_kept_in_the_question_was_picked() {
+        let mut model = InstallModel::new();
+        let ticket = model.open_group("plasma").unwrap();
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::Resolved(Resolution::NeedsAnswers(vec![group(
+                &[("kwin", None)],
+            )]))),
+        );
+        let ticket = model.go_on().unwrap();
+        let plan = plan_of(vec![item("kwin", Role::Target, 10, 20, None)]);
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::Resolved(Resolution::Ready(plan))),
+        );
+        let view = install_view(&model);
+        assert_eq!(view.title_before, "Review: install plasma");
+        assert_eq!(view.rows, [row("kwin", "You picked this", "10 B", true)]);
+    }
+
+    #[test]
+    fn back_from_the_review_returns_to_the_question_with_the_pick_kept() {
+        let mut model = picked_a_provider();
+        assert_eq!(model.back(), crate::install_model::Back::Stayed);
+        let view = install_view(&model);
+        assert_eq!(view.kind, CardKind::Provider);
+        assert!(view.options[1].checked);
+    }
+
+    #[test]
+    fn the_tiles_count_the_packages_the_download_and_the_extra_disk_space() {
+        let view = install_view(&picked_a_provider());
+        assert_eq!(
+            view.tiles,
+            [
+                tile("Packages", "4", ""),
+                tile("Download", "103.0", "MB"),
+                tile("Extra disk space", "134.4", "MB"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_everything_cached_there_is_nothing_to_download() {
+        let view = reviewing(vec![item("dbeaver", Role::Target, 0, 2_000_000, None)]);
+        assert_eq!(
+            view.tiles[1],
+            TileView {
+                words: true,
+                ..tile("Download", "Nothing to download", "")
+            }
+        );
+        assert_eq!(view.rows[0].size, "Already downloaded");
+    }
+
+    #[test]
+    fn extra_disk_space_is_the_new_sizes_less_what_is_installed_now() {
+        // An upgrade of 2 MB over 1 MB, and a new package of 500 kB.
+        let view = reviewing(vec![
+            item("dbeaver", Role::Target, 10, 2_000_000, Some(1_000_000)),
+            item("nss", Role::Dependency, 10, 500_000, None),
+        ]);
+        assert_eq!(view.tiles[2], tile("Extra disk space", "1.5", "MB"));
+    }
+
+    #[test]
+    fn a_reinstall_takes_no_extra_disk_space() {
+        let view = reviewing(vec![item(
+            "dbeaver",
+            Role::Target,
+            0,
+            2_000_000,
+            Some(2_000_000),
+        )]);
+        assert_eq!(view.tiles[2], tile("Extra disk space", "0", "B"));
+    }
+
+    #[test]
+    fn a_smaller_result_is_disk_space_freed_with_a_positive_number() {
+        let view = reviewing(vec![item(
+            "dbeaver",
+            Role::Target,
+            10,
+            1_000_000,
+            Some(3_100_000),
+        )]);
+        assert_eq!(view.tiles[2], tile("Disk space freed", "2.1", "MB"));
+        assert_eq!(
+            view.technical[1],
+            "The Disk space freed total is added up from pacman's rounded figures."
+        );
+    }
+
+    #[test]
+    fn the_technical_details_keep_pacmans_words() {
+        let view = reviewing(vec![
+            item("nss", Role::Dependency, 0, 20, None),
+            item("dbeaver", Role::Target, 3_337_523, 20, None),
+        ]);
+        assert_eq!(
+            view.technical,
+            [
+                "extra/nss 1.0-1 · download 0 bytes · Installed Size : nss KiB",
+                "extra/dbeaver 1.0-1 · download 3337523 bytes · Installed Size : dbeaver KiB",
+                "The Extra disk space total is added up from pacman's rounded figures.",
+                "pacman counts in MiB (1 MiB = 1,048,576 bytes)",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_plan_that_updates_the_system_never_reaches_the_review_yet() {
+        let mut plan = plan_of(vec![item("zsh", Role::Update, 10, 20, Some(20))]);
+        plan.decision = InstallDecision::MustUpdateSystem {
+            count: 1,
+            ignored: 0,
+        };
+        let view = install_view(&answered("dbeaver", Resolution::Ready(plan)));
+        assert_eq!(view.kind, CardKind::Stale);
+        assert!(view.rows.is_empty() && view.tiles.is_empty());
     }
 
     #[test]

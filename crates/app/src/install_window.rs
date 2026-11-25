@@ -368,7 +368,7 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
         CardKind::Choice => InstallCardKind::Choice,
         CardKind::Differs => InstallCardKind::Differs,
         CardKind::Alert => InstallCardKind::Alert,
-        CardKind::Ready => InstallCardKind::Ready,
+        CardKind::Review => InstallCardKind::Review,
     });
     bridge.set_step_text(view.step_text.as_str().into());
     bridge.set_dots(ModelRc::new(VecModel::from(view.dots.clone())));
