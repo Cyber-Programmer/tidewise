@@ -96,6 +96,7 @@ pub struct InstallModel {
     pending: Option<Ticket>,
     slow: bool,
     focus_serial: u32,
+    lists_note: Option<ListsNote>,
 }
 
 impl Draft {
@@ -237,6 +238,7 @@ impl InstallModel {
         self.request = request;
         self.steps.clear();
         self.current = 0;
+        self.lists_note = None;
         self.start(check_lists)
     }
 
@@ -456,11 +458,15 @@ impl InstallModel {
     }
 
     /// What the lists check of ticket `number` has to say, before its answer is given to `done`.
-    pub fn lists_checked(&mut self, _number: u64, _note: Option<ListsNote>) {}
+    pub fn lists_checked(&mut self, number: u64, note: Option<ListsNote>) {
+        if self.wanted == Some(number) {
+            self.lists_note = note;
+        }
+    }
 
     /// Why this install was checked against older lists, if it was.
     pub fn lists_note(&self) -> Option<ListsNote> {
-        None
+        self.lists_note
     }
 
     pub fn mark_slow(&mut self) {
