@@ -609,6 +609,8 @@ mod tests {
                 installed_version: None,
                 download_size: 100,
                 installed_size: 200,
+                installed_size_text: String::new(),
+                current_size: None,
             }],
             download_total: 100,
             installed_total: 200,

@@ -346,7 +346,7 @@ impl Facts for World {
                 name: name.clone(),
                 version: version.clone(),
                 description: String::new(),
-                installed_size: 0,
+                installed_size: 500,
                 reason: InstallReason::Explicit,
                 required_by: Vec::new(),
             })
@@ -859,6 +859,27 @@ fn an_unknown_group_is_blocked() {
         blockers(resolve_with(&input, &world)),
         [Blocker::UnknownGroup("nogroup".to_string())]
     );
+}
+
+#[test]
+fn a_plan_item_keeps_pacmans_words_for_its_installed_size() {
+    let world = World::base();
+    let plan = plan(resolve_with(&want(&["hello"]), &world));
+    assert_eq!(plan.items[0].installed_size_text, "2000 B");
+    assert_eq!(plan.items[0].current_size, None);
+}
+
+#[test]
+fn a_plan_item_that_is_installed_now_says_how_much_it_takes() {
+    let mut world = World::base();
+    world.install("lib", "1.0-1", &[]);
+    let plan = plan(resolve_with(&want(&["app"]), &world));
+    let sizes: Vec<(&str, Option<u64>)> = plan
+        .items
+        .iter()
+        .map(|item| (item.package.name.as_str(), item.current_size))
+        .collect();
+    assert_eq!(sizes, [("lib", Some(500)), ("app", None)]);
 }
 
 // ---- installed targets ----------------------------------------------------------------------------------------
