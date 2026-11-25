@@ -5,6 +5,9 @@
 use std::process::Output;
 use std::time::{Duration, SystemTime};
 
+const FAKEROOT: &str = "/usr/bin/fakeroot";
+const PACMAN: &str = "/usr/bin/pacman";
+
 /// Lists younger than this are not downloaded again just because a screen was opened.
 const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
 
@@ -27,18 +30,49 @@ enum RefreshError {
 }
 
 /// The arguments for `/usr/bin/setpriv`. `folder` is the private database folder, already checked.
-fn refresh_args(_folder: &str) -> Vec<String> {
-    Vec::new()
+///
+/// `setpriv --no-new-privs` comes first and then replaces itself with `fakeroot`: with that bit set, pacman can apply
+/// its filesystem sandbox as a normal user, so no `--disable-sandbox*` flag is needed (measured, WBS 6.11). `-Sy`
+/// appears only here, always with the private `--dbpath`: nothing is installed from these lists (golden rule 4).
+fn refresh_args(folder: &str) -> Vec<String> {
+    [
+        "--no-new-privs",
+        FAKEROOT,
+        "--",
+        PACMAN,
+        "-Sy",
+        "--dbpath",
+        folder,
+        "--logfile",
+        "/dev/null",
+    ]
+    .map(str::to_string)
+    .to_vec()
 }
 
 /// Reads how the refresh ended.
-fn refresh_result(_output: &Output) -> Result<(), RefreshError> {
-    Ok(())
+fn refresh_result(output: &Output) -> Result<(), RefreshError> {
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.contains("(unable to lock database)") {
+        return Err(RefreshError::Locked);
+    }
+    Err(RefreshError::Failed { stderr })
 }
 
 /// Are new lists wanted? `refreshed` is when the last successful refresh ended, `asked` when this request began.
-fn needs_refresh(_refreshed: Option<SystemTime>, _asked: SystemTime, _why: RefreshWhy) -> bool {
-    false
+fn needs_refresh(refreshed: Option<SystemTime>, asked: SystemTime, why: RefreshWhy) -> bool {
+    let Some(refreshed) = refreshed else {
+        return true;
+    };
+    match asked.duration_since(refreshed) {
+        // Refreshed before we asked.
+        Ok(age) => why == RefreshWhy::AfterRefusal || age > FRESH_FOR,
+        // Refreshed after we asked: another window did it while we waited. A time far ahead means the clock moved.
+        Err(ahead) => ahead.duration() > FRESH_FOR,
+    }
 }
 
 #[cfg(test)]
