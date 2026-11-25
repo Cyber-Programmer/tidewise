@@ -39,7 +39,9 @@ Based on Microsoft's SDL: threat modelling, static analysis, fuzzing, independen
   `renameat_with` (a rename deletes the file it replaces) are `disallowed-methods` for the whole workspace, so a new program start or
   deletion fails clippy until a person reads it. Allowed only in: the two functions that build the pacman command
   (`pacman_command` in `crates/pacman/src/run.rs` and in `crates/helper/src/runner.rs`), the helper's one deletion
-  point (`remove_work_file` in `crates/helper/src/removal.rs`), each crate's test `TempDir`, a few named test
+  point (`remove_work_file` in `crates/helper/src/removal.rs`), the app's one deletion point (`remove_stale_lock` in
+  `crates/pacman/src/private_lists.rs`: only the private folder's own `db.lck`, under its `flock`; decision 0008), each
+  crate's test `TempDir`, a few named test
   functions, and the container-test crate (one crate-wide allow in its `Cargo.toml`). Each
   exception is `#[expect(clippy::disallowed_methods, reason = "…")]` on one function: `expect`, not `allow`, so an
   exception that no longer matches anything fails clippy too. **Trap:** clippy answers from its cache after

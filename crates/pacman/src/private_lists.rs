@@ -2,14 +2,17 @@
 //! password, without touching `/var/lib/pacman/sync`.
 #![allow(dead_code)] // until the public entry is added, later in this branch
 
-use std::fs::File;
+use std::fs::{self, File, TryLockError};
 use std::io;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Output;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 const FAKEROOT: &str = "/usr/bin/fakeroot";
 const PACMAN: &str = "/usr/bin/pacman";
+/// Our own file in the private folder; its modification time is when the last successful refresh ended.
+const STAMP: &str = "refreshed";
 
 /// Lists younger than this are not downloaded again just because a screen was opened.
 const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
@@ -111,40 +114,177 @@ struct FolderLock<'a> {
     file: File,
 }
 
+/// A plain folder (not a link), owned by `uid`.
+fn own_folder(path: &Path, uid: u32) -> io::Result<fs::Metadata> {
+    let details = fs::symlink_metadata(path)?;
+    if !details.is_dir() || details.uid() != uid {
+        return Err(refused("not a folder of this user"));
+    }
+    Ok(details)
+}
+
+/// A folder only this user can use: also exactly mode 0700. Nothing is ever repaired.
+fn private_folder(path: &Path, uid: u32) -> io::Result<()> {
+    if own_folder(path, uid)?.mode() & 0o7777 != 0o700 {
+        return Err(refused("the folder's mode is not 0700"));
+    }
+    Ok(())
+}
+
+fn refused(why: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, why)
+}
+
+/// `Ok(None)` when there is nothing there.
+fn if_there(path: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(details) => Ok(Some(details)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 impl PrivateFolder {
-    fn prepare(runtime_dir: &Path, _local_db: &Path, _uid: u32) -> io::Result<Self> {
-        Ok(Self {
-            path: runtime_dir.to_path_buf(),
-        })
+    /// Makes `<runtime_dir>/tidewise/lists` if needed and checks every part of it. `runtime_dir` is
+    /// `XDG_RUNTIME_DIR`, `local_db` is `<DBPath>/local`, `uid` is this process's user.
+    ///
+    /// Not `/tmp`: another user could make the folder first.
+    fn prepare(runtime_dir: &Path, local_db: &Path, uid: u32) -> io::Result<Self> {
+        let plain = runtime_dir
+            .to_str()
+            .is_some_and(|text| text.starts_with('/') && !text.chars().any(char::is_control));
+        if !plain {
+            return Err(refused("XDG_RUNTIME_DIR is not an absolute path"));
+        }
+        private_folder(runtime_dir, uid)?;
+
+        let mut path = runtime_dir.to_path_buf();
+        for name in ["tidewise", "lists"] {
+            path.push(name);
+            match fs::DirBuilder::new().mode(0o700).create(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+            private_folder(&path, uid)?;
+        }
+
+        // pacman reads the installed packages through this link; it is never a copy.
+        let local = path.join("local");
+        match symlink(local_db, &local) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        if fs::read_link(&local)? != local_db {
+            return Err(refused("local does not point to the local database"));
+        }
+
+        // pacman makes `sync/` itself, we make `refreshed`: when they are there they must be ours and no links.
+        if if_there(&path.join("sync"))?.is_some() {
+            own_folder(&path.join("sync"), uid)?;
+        }
+        if if_there(&path.join(STAMP))?.is_some_and(|stamp| !stamp.is_file()) {
+            return Err(refused("the refresh time is not a plain file"));
+        }
+        Ok(Self { path })
     }
 
+    /// The folder as pacman's `--dbpath` takes it. `prepare` made sure it is plain text.
     fn dbpath(&self) -> String {
-        String::new()
+        format!("{}/", self.path.display())
     }
 
-    fn lock(&self, _wait: Duration) -> io::Result<Option<FolderLock<'_>>> {
-        Ok(Some(FolderLock {
-            folder: self,
-            file: File::open(&self.path)?,
-        }))
+    /// Waits up to `wait` for the folder's `flock`. `Ok(None)`: someone else still has it.
+    fn lock(&self, wait: Duration) -> io::Result<Option<FolderLock<'_>>> {
+        let file = File::open(&self.path)?;
+        let start = Instant::now();
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Some(FolderLock { folder: self, file })),
+                Err(TryLockError::WouldBlock) if start.elapsed() < wait => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(TryLockError::WouldBlock) => return Ok(None),
+                Err(TryLockError::Error(error)) => return Err(error),
+            }
+        }
+    }
+
+    /// When the last successful refresh ended. The lists' own times say when the mirror made them, not this.
+    fn refreshed_at(&self) -> Option<SystemTime> {
+        fs::symlink_metadata(self.path.join(STAMP))
+            .and_then(|stamp| stamp.modified())
+            .ok()
+    }
+
+    fn set_refreshed_at(&self, time: SystemTime) -> io::Result<()> {
+        File::options()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path.join(STAMP))?
+            .set_modified(time)
     }
 }
 
 impl FolderLock<'_> {
-    fn remove_stale_lock(&self, _path: &Path) -> io::Result<()> {
-        Ok(())
+    /// Removes the `db.lck` a killed refresh left in the private folder, so that the next one can run.
+    ///
+    /// Golden rule 9 stays intact (decision 0008): this is never `/var/lib/pacman/db.lck` or the helper's lock. Any
+    /// path but exactly `<private folder>/db.lck` is refused. And it only happens while we hold the folder's `flock`,
+    /// which every refresh hands to its pacman: so no pacman of ours is still running when the lock is removed.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the app's one deletion: the left-over db.lck of its own private folder, under its flock (decision 0008)"
+    )]
+    fn remove_stale_lock(&self, path: &Path) -> io::Result<()> {
+        // Compared as text, so that no other spelling of the same place counts either.
+        if path.as_os_str() != self.folder.path.join("db.lck").as_os_str() {
+            return Err(refused("not the private folder's db.lck"));
+        }
+        match if_there(path)? {
+            None => Ok(()),
+            Some(lock) if lock.is_file() => fs::remove_file(path),
+            Some(_) => Err(refused("db.lck is not a plain file")),
+        }
     }
 }
 
 /// One refresh: lock the folder, run pacman if the lists are not fresh enough. `run` gets the arguments for `setpriv`
-/// and the locked folder, which becomes the child's stdin.
+/// and the locked folder, which becomes the child's stdin: the lock then lasts as long as the child's pacman, even if
+/// the app or `fakeroot` is killed (measured, WBS 6.11).
 fn refresh_in(
-    _folder: &PrivateFolder,
-    _why: RefreshWhy,
-    _wait: Duration,
-    _run: impl FnOnce(&[String], File) -> io::Result<Output>,
+    folder: &PrivateFolder,
+    why: RefreshWhy,
+    wait: Duration,
+    run: impl FnOnce(&[String], File) -> io::Result<Output>,
 ) -> Lists {
-    Lists::Real(NotFresh::Unavailable)
+    let asked = SystemTime::now();
+    let lock = match folder.lock(wait) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => return Lists::Real(NotFresh::Busy),
+        Err(_) => return Lists::Real(NotFresh::Unavailable),
+    };
+    let private = Lists::Private(PathBuf::from(folder.dbpath()));
+    if !needs_refresh(folder.refreshed_at(), asked, why) {
+        return private;
+    }
+    let refreshed = (|| {
+        // Marked as old before pacman starts, so a failed or killed refresh is tried again next time.
+        folder.set_refreshed_at(SystemTime::UNIX_EPOCH)?;
+        lock.remove_stale_lock(&folder.path.join("db.lck"))?;
+        let output = run(&refresh_args(&folder.dbpath()), lock.file.try_clone()?)?;
+        if refresh_result(&output).is_err() {
+            return Ok(false);
+        }
+        folder.set_refreshed_at(SystemTime::now())?;
+        Ok::<_, io::Error>(true)
+    })();
+    match refreshed {
+        Ok(true) => private,
+        _ => Lists::Real(NotFresh::Failed),
+    }
 }
 
 #[cfg(test)]
@@ -152,8 +292,7 @@ mod tests {
     use super::*;
     use crate::testing::TempDir;
     use std::cell::Cell;
-    use std::fs;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
 
