@@ -59,6 +59,14 @@ full package list. Every package named here, including names in `Required By`, `
 | `sg-broken.txt` | *hand-made*: two good `sg-plasma.txt` lines, a line with no member, a line with two spaces, one more good line | **Deliberately broken.** The parser must report the first bad line, not panic |
 | `print-renamed-iptables-nft.txt` | `LC_ALL=C pacman -S --print --print-format '%r/%n %v %s' -- iptables-nft </dev/null` (WBS 6.1) | A **plain name that is no package any more**: pacman answers with `core/iptables` (which `Provides` and `Replaces` `iptables-nft`). A `repo/name` target for it would not come back under its own name |
 | `si-iptables.txt` | `LC_ALL=C pacman -Si core/iptables` | The package that replaced it: `Provides : iptables-nft …`, `Replaces : iptables-nft` |
+| `refresh-ok.txt` | stdout of `fakeroot -- pacman -Sy --disable-sandbox-filesystem --dbpath <private>/ --logfile /dev/null` as `nobody`, exit 0 (WBS 6.11) | A private refresh that worked; stderr is empty |
+| `refresh-locked.stderr.txt` | stderr of the same with a `db.lck` already in `<private>/`, exit 1 | `unable to lock database` |
+| `refresh-download-failed.stderr.txt` | stderr of the same with the repository's database missing, exit 1 | The old private list is kept. The repository is the test image's `file://` one, so the first line names that path; a real mirror words it differently |
+| `refresh-landlock.stderr.txt` | stderr of the same **without** `--disable-sandbox-filesystem`, in a container started without `no-new-privileges`, exit 1 | Why the flag is needed |
+
+The `refresh-*` files were captured on 2026-11-25 in the test container upgraded to the Arch Archive snapshot of
+2026-11-23 (pacman 7.1.0.r9.g54d9411-4, fakeroot 2:1.37.2-1, repository `tidewise-test` only), by
+`tests/container/tests/app_private_lists.rs`.
 
 ## Refreshing
 
