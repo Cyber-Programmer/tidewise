@@ -1,0 +1,37 @@
+Repository      : measure
+Name            : measure-big
+Version         : 1.0-1
+Description     : size measurement
+Architecture    : any
+URL             : None
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : measure-data
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 3.18 MiB
+Installed Size  : 3.18 MiB
+Packager        : Unknown Packager
+Build Date      : Wed Nov 25 16:58:25 2026
+Validated By    : SHA-256 Sum
+
+Repository      : measure
+Name            : measure-data
+Version         : 1.0-1
+Description     : size measurement
+Architecture    : any
+URL             : None
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.58 KiB
+Installed Size  : 6835.94 KiB
+Packager        : Unknown Packager
+Build Date      : Wed Nov 25 16:58:29 2026
+Validated By    : SHA-256 Sum
