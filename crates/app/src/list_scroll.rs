@@ -43,6 +43,28 @@ pub fn moved_selection(current: Option<usize>, row_count: usize, delta: isize) -
     Some(current.unwrap_or(0).saturating_add_signed(delta).min(last))
 }
 
+/// A key that scrolls a list nothing can be selected in (the review list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollKey {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+}
+
+/// The scroll offset after `key`: a line, a visible page or an end, never past the content.
+pub fn scroll_by_key(
+    _key: ScrollKey,
+    current: f32,
+    _line: f32,
+    _content: f32,
+    _visible: f32,
+) -> f32 {
+    current
+}
+
 /// Slint's `content-y` for a positive scroll offset.
 pub fn offset_to_content_y(offset: f32) -> f32 {
     if offset <= 0.0 { 0.0 } else { -offset }
@@ -58,6 +80,28 @@ mod tests {
     use super::*;
 
     const ROW: f32 = 64.0;
+
+    #[test]
+    fn scroll_keys_move_a_line_a_page_or_to_an_end() {
+        // 1000 px of content in a 300 px box: the furthest offset is 700.
+        let after = |key, current| scroll_by_key(key, current, 53.0, 1000.0, 300.0);
+        assert_eq!(after(ScrollKey::Down, 0.0), 53.0);
+        assert_eq!(after(ScrollKey::Up, 106.0), 53.0);
+        assert_eq!(after(ScrollKey::PageDown, 53.0), 353.0);
+        assert_eq!(after(ScrollKey::PageUp, 353.0), 53.0);
+        assert_eq!(after(ScrollKey::End, 0.0), 700.0);
+        assert_eq!(after(ScrollKey::Home, 700.0), 0.0);
+    }
+
+    #[test]
+    fn scroll_keys_stop_at_both_ends_and_content_that_fits_never_moves() {
+        let after = |key, current| scroll_by_key(key, current, 53.0, 1000.0, 300.0);
+        assert_eq!(after(ScrollKey::Up, 20.0), 0.0);
+        assert_eq!(after(ScrollKey::Down, 690.0), 700.0);
+        assert_eq!(after(ScrollKey::PageDown, 600.0), 700.0);
+        assert_eq!(scroll_by_key(ScrollKey::End, 0.0, 53.0, 100.0, 300.0), 0.0);
+        assert_eq!(scroll_by_key(ScrollKey::Down, 0.0, 53.0, 100.0, 300.0), 0.0);
+    }
 
     #[test]
     fn a_row_that_is_fully_visible_does_not_scroll() {
