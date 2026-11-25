@@ -142,7 +142,7 @@ look). `removal.rs` does not change, because nothing is deleted.
 
 ## What stays out of this decision
 
-- **The app's own unprivileged refresh** (where the confirm list comes from: a fakeroot private sync like checkupdates, or
+- (Answered 25 Nov 2026 by [0008](0008-app-private-lists.md).) **The app's own unprivileged refresh** (where the confirm list comes from: a fakeroot private sync like checkupdates, or
   not; the app side of question 12) is not part of 6.10. It is a follow-up for 6.1 and 6.6. After 6.10b a stale app list is refused WITHOUT damage, but it is refused again on every retry until something refreshes the app's list: the app builds its list from the real lists, and a refusal now leaves those stale on purpose (review 6.10b R-02, see "After the review").
 - **A `.sig` that matters.** Arch's databases are not signed here (`SigLevel = Required DatabaseOptional`); the move
   carries `.db.sig` if the private sync produced one, with the same checks. The rules are in "Signatures" below.
