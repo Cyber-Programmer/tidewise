@@ -355,12 +355,16 @@ fn the_depends_are_the_list_derived_from_the_built_package() {
     //    libglvnd (libEGL, libGL), libxcursor, libxrender. The human decided they are depends, not optdepends:
     //    without them the window cannot open or draw. The container test
     //    `package_every_library_name_in_the_binaries_exists_with_only_the_declared_depends` keeps the list honest;
-    //  - programs the package runs: pacman (the helper), polkit (pkexec, polkitd, the policy).
+    //  - programs the package runs: pacman (the helper), polkit (pkexec, polkitd, the policy), and for the app's own
+    //    list refresh (6.11, decision 0008) util-linux (/usr/bin/setpriv) and fakeroot. util-linux is listed although
+    //    `base` brings it: depends lists every direct dependency (arch-wiki-docs 20261101-1, "PKGBUILD", depends).
     assert_eq!(
         array(&pkgbuild(), "depends"),
         [
             "pacman",
             "polkit",
+            "util-linux",
+            "fakeroot",
             "glibc",
             "libgcc",
             "fontconfig",
