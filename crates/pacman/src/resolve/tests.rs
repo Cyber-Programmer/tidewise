@@ -872,14 +872,16 @@ fn a_plan_item_keeps_pacmans_words_for_its_installed_size() {
 #[test]
 fn a_plan_item_that_is_installed_now_says_how_much_it_takes() {
     let mut world = World::base();
-    world.install("lib", "1.0-1", &[]);
-    let plan = plan(resolve_with(&want(&["app"]), &world));
+    world.install("hello", "1.0-1", &[]);
+    let mut input = want(&["hello", "app"]);
+    input.reinstall = vec![pr("hello")];
+    let plan = plan(resolve_with(&input, &world));
     let sizes: Vec<(&str, Option<u64>)> = plan
         .items
         .iter()
         .map(|item| (item.package.name.as_str(), item.current_size))
         .collect();
-    assert_eq!(sizes, [("lib", Some(500)), ("app", None)]);
+    assert_eq!(sizes, [("hello", Some(500)), ("lib", None), ("app", None)]);
 }
 
 // ---- installed targets ----------------------------------------------------------------------------------------
