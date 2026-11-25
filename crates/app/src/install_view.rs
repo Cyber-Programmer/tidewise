@@ -106,6 +106,8 @@ pub struct InstallView {
     pub slow_note: String,
     /// A line under the buttons (the stale card's terminal hint).
     pub hint: String,
+    /// Said when the updates check could only use older lists, or empty.
+    pub lists_note: String,
     /// "Report problems at …", or empty.
     pub report: String,
     /// Behind the "Technical details" toggle.
@@ -1148,5 +1150,49 @@ mod tests {
         let before = install_view(&model).focus_serial;
         model.go_on();
         assert_ne!(before, install_view(&model).focus_serial);
+    }
+
+    #[test]
+    fn the_card_says_which_lists_were_used_when_they_are_not_fresh() {
+        use crate::update_check::ListsNote;
+        use tidewise_pacman::NotFresh;
+
+        let shown = |why, age_days| {
+            let mut model = InstallModel::new();
+            let ticket = model.open(pkg("dbeaver")).expect("starts at once");
+            model.lists_checked(ticket.number, Some(ListsNote { why, age_days }));
+            model.done(
+                ticket.number,
+                Ok(WorkAnswer::Resolved(Resolution::Ready(plan(1)))),
+            );
+            install_view(&model).lists_note
+        };
+        assert_eq!(
+            shown(NotFresh::Unavailable, Some(0)),
+            "Checked with the package lists updated today."
+        );
+        assert_eq!(
+            shown(NotFresh::Unavailable, Some(1)),
+            "Checked with the package lists updated 1 day ago."
+        );
+        assert_eq!(
+            shown(NotFresh::Unavailable, None),
+            "Checked with the package lists already on this computer."
+        );
+        assert_eq!(
+            shown(NotFresh::Busy, Some(12)),
+            "Checked with the package lists updated 12 days ago. \
+             Another refresh of the package lists is still running."
+        );
+        assert_eq!(
+            shown(NotFresh::Failed, Some(3)),
+            "Checked with the package lists updated 3 days ago. Couldn't get newer ones."
+        );
+    }
+
+    #[test]
+    fn with_fresh_lists_there_is_no_note() {
+        let model = answered("dbeaver", Resolution::Ready(plan(1)));
+        assert_eq!(install_view(&model).lists_note, "");
     }
 }

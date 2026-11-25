@@ -6,6 +6,7 @@
 //! ticket replaces an older one, and an answer is used only if its number is the one wanted.
 
 use crate::error_words::{Doing, ErrorText, error_text};
+use crate::update_check::ListsNote;
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
     Question, Resolution, ResolveInput,
@@ -452,6 +453,14 @@ impl InstallModel {
         } else {
             None
         }
+    }
+
+    /// What the lists check of ticket `number` has to say, before its answer is given to `done`.
+    pub fn lists_checked(&mut self, _number: u64, _note: Option<ListsNote>) {}
+
+    /// Why this install was checked against older lists, if it was.
+    pub fn lists_note(&self) -> Option<ListsNote> {
+        None
     }
 
     pub fn mark_slow(&mut self) {
@@ -1048,5 +1057,34 @@ mod tests {
         assert_ne!(working, first);
         model.go_on();
         assert_ne!(first, model.focus_serial());
+    }
+
+    fn note(why: tidewise_pacman::NotFresh) -> ListsNote {
+        ListsNote {
+            why,
+            age_days: Some(2),
+        }
+    }
+
+    #[test]
+    fn the_lists_note_is_kept_while_this_install_is_open_and_gone_with_the_next() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).expect("starts at once");
+        assert_eq!(model.lists_note(), None);
+        let busy = note(tidewise_pacman::NotFresh::Busy);
+        model.lists_checked(first.number, Some(busy));
+        model.done(first.number, Ok(WorkAnswer::MustUpdate));
+        assert_eq!(model.lists_note(), Some(busy));
+        model.open(pkg("cronie"));
+        assert_eq!(model.lists_note(), None);
+    }
+
+    #[test]
+    fn a_note_from_a_ticket_nobody_wants_any_more_is_dropped() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).expect("starts at once");
+        model.open(pkg("cronie"));
+        model.lists_checked(first.number, Some(note(tidewise_pacman::NotFresh::Failed)));
+        assert_eq!(model.lists_note(), None);
     }
 }
