@@ -1381,3 +1381,47 @@ card, the worker) has no automated test. (3) Container measurements and the end-
 **all pass**: the private lists appeared; `/var/lib/pacman/sync` and `pacman.log` were unchanged; no `faked` or `pacman`
 was left running; the offline note was shown; the busy note appeared after about 60 s. This replaces "nothing has run on
 a real machine" above. Still to do: rebase on `main` after the advisory fix, then the PR.
+
+## 2026-11-25 — 6.3 Confirm screen (review step)
+Done:
+- **Measured first** (`18d783c`, `tests/fixtures/pacman/container/sizes-*`): `%s` of the dry run is what is still to
+  download (0 when cached, the remainder with a `.part` file); `-Si` "Download Size" is the whole file either way; there
+  is no installed-size print field; `-Si` sizes are rounded to two decimals.
+- **Numbers (your decisions):** Download = sum of `%s` ("Nothing to download" at 0; a row says "Already downloaded").
+  Disk = new installed sizes less installed ones: "Extra disk space", or "Disk space freed" with a positive number.
+  MB/kB on screen; technical details say the total is added up from pacman's rounded figures and that pacman counts in MiB.
+- **`tidewise-pacman`** (`208fdb5` red, `4311910`): `PlanItem` has `installed_size_text` and `current_size`. One test of
+  the red commit was wrong (it expected an installed dependency in the list) and was corrected in the green one.
+- **View model** (`5fae701`, 10 red; `ad55c57`): the review's words, rows, tiles and the disabled button. Why line: asked
+  / picked (provider question or group member) / needed. Six mutations caught.
+- **Scrolling** (`a75dd4e` red, `0111e2a`): `scroll_by_key` for the review list.
+- **Screen** (`39c59cc`): `ui/install/review-list.slint`; "Technical details" swaps what the one list box shows; token
+  `review-row`. Two things differ from the 6.2 cards: the review card always takes the full content width (opening the
+  technical lines made it jump wider), and its top and bottom padding are tighter so it fits 1100×640.
+- Looked at in off-screen software renders from a throwaway example (not committed): card at 1100×640 and 1360×960,
+  technical view. Smoke run with `TIDEWISE_DEBUG_INSTALL_GROUP=plasma`: nothing on stderr.
+- Checks on `39c59cc`: fmt, clippy `-D warnings`, `cargo deny check`, release build exit 0; `cargo test --all` 1126
+  passed, 0 failed, 121 ignored (1111 before). `crates/helper*`, `packaging/`, `deny.toml` untouched; no new dependency.
+- Resolver container tests on real pacman (not part of "done"): 5 passed. The other files' tests were filtered out.
+Next: the manual check below, by you. Then push and PR. 6.4 enables the button (and the "password prompt was closed"
+note); 6.6 adds the system-update row.
+Seen, not changed: the 6.2 cards are only as wide as their content (tokens.md layout rule 2 says content stretches to
+1000 px). The review sets its own width; the shared screen needs its own small task.
+Blockers: none.
+Rules bent: (1) UI-only part has no automated window test: the checklist below stands in. (2) The measurement ran
+`pacman -Sy` and later `-S` against a local repository inside a throwaway container, as the container tests do.
+(3) No red step for the fixtures. (4) Two view tests passed on the red commit (named there). (5) No WBS sheet update
+(as asked).
+
+### 6.3 manual checklist (real window; only read-only pacman runs)
+1. `cargo run -p tidewise-app`, Search, install something you don't have (e.g. `dbeaver`), answer its questions: the
+   review shows the title, three tiles, rows; asked and picked names are bold with the right why line.
+2. The Install button is grey, does nothing, and the note under it says installing comes in a later version.
+3. Back returns to the last question with your pick kept; with no question the button says "Back to details". Escape does
+   the same.
+4. Tab: list, Install, Back, Technical details. Arrow, Page, Home and End scroll the list; so does the wheel.
+5. `TIDEWISE_DEBUG_INSTALL_GROUP=plasma cargo run -p tidewise-app` at the smallest window: long list in its box, buttons
+   visible, no sideways jump when opening Technical details; the MiB line is at the end of the technical list.
+6. A package already in `/var/cache/pacman/pkg` shows "Already downloaded"; if all are, the tile says "Nothing to
+   download".
+7. Orca: the list and each row (name, version, why, size) are read, and the grey button reads as unavailable.
