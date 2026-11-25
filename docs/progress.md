@@ -1376,3 +1376,8 @@ card, the worker) has no automated test. (3) Container measurements and the end-
    "Couldn't get newer ones."
 3. Busy: `flock $XDG_RUNTIME_DIR/tidewise/lists sleep 90` in a terminal, then Install. After about 60 s the card says
    another refresh is still running.
+
+**Manual check results (you, 25 Nov 2026).** `sudo pacman -Syu` first, so the real lists had no updates. Steps 1 to 3
+**all pass**: the private lists appeared; `/var/lib/pacman/sync` and `pacman.log` were unchanged; no `faked` or `pacman`
+was left running; the offline note was shown; the busy note appeared after about 60 s. This replaces "nothing has run on
+a real machine" above. Still to do: rebase on `main` after the advisory fix, then the PR.
