@@ -1,10 +1,12 @@
-//! Runs pacman (read-only) and turns its output into values.
+//! Runs pacman and turns its output into values. Everything here only reads; `run_holding` is the one exception, used
+//! by `private_lists` to refresh the app's own private copy of the package lists.
 //!
 //! This is the only module that starts a process. The work is split in two so it can be tested
 //! without pacman: "run the process" (`run`) and "turn its `Output` into the result"
 //! (`packages_from_output`).
 
 use std::collections::HashSet;
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -39,6 +41,21 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
         .env("LC_ALL", "C")
         .stdin(Stdio::null());
     command
+}
+
+/// Runs `program` with `held` as its stdin, and waits for it. For the private list refresh (`private_lists`), which
+/// passes its locked folder this way: the child and whatever it starts then keep the lock. pacman reads nothing from
+/// it (`-Sy` asks nothing; a folder can't be read as input anyway).
+pub(crate) fn run_holding(program: &Path, args: &[String], held: File) -> io::Result<Output> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    pacman_command(program, &args)
+        .stdin(Stdio::from(held))
+        .output()
+}
+
+/// pacman's database folder, from `pacman-conf DBPath`.
+pub(crate) fn dbpath() -> Result<PathBuf, PacmanError> {
+    dbpath_from_output(&run(Path::new(PACMAN_CONF), &["DBPath"])?)
 }
 
 /// Every installed package, from one `pacman -Qi` call (with no names it prints all of them).
@@ -212,7 +229,15 @@ pub fn package_details(refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError
 /// marks `[ignored]` (IgnorePkg / IgnoreGroup) are kept, with `ignored` set. Check `sync_lists` for how old the
 /// lists are. Blocks until pacman finishes (no timeout yet).
 pub fn pending_updates() -> Result<Vec<PendingUpdate>, PacmanError> {
-    let output = run(Path::new(PACMAN), &["-Qu"])?;
+    pending_updates_in(None)
+}
+
+/// `pending_updates`, measured against the lists in another database folder: `Lists::Private` from
+/// `refresh_private_lists`. `None` is the real one.
+pub fn pending_updates_in(dbpath: Option<&Path>) -> Result<Vec<PendingUpdate>, PacmanError> {
+    let args = with_dbpath(dbpath, vec!["-Qu".to_string()]);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run(Path::new(PACMAN), &args)?;
     updates_from_output(&output)
 }
 
@@ -222,7 +247,7 @@ pub fn pending_updates() -> Result<Vec<PendingUpdate>, PacmanError> {
 /// `<DBPath>/sync/<repo>.db` for each repository. Compare `SyncLists::newest` with the current time yourself.
 /// Read-only: no `-Sy`, no network, no root. Blocks until `pacman-conf` finishes (no timeout yet).
 pub fn sync_lists() -> Result<SyncLists, PacmanError> {
-    let dbpath = dbpath_from_output(&run(Path::new(PACMAN_CONF), &["DBPath"])?)?;
+    let dbpath = dbpath()?;
     let repos = repos_from_output(&run(Path::new(PACMAN_CONF), &["--repo-list"])?)?;
     sync_lists_in(&dbpath.join("sync"), &repos)
 }
