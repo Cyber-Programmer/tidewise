@@ -30,6 +30,7 @@ const LATER_PACKAGE: &str = "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst";
 const BASE: &str = "/tmp/tw-app";
 const LISTS: &str = "/tmp/tw-app/lists/";
 const FAKEROOT: &str = "/usr/bin/fakeroot";
+const SETPRIV: &str = "/usr/bin/setpriv";
 const PACMAN: &str = "/usr/bin/pacman";
 const USER_CONF: &str = "/tmp/tw-app/pacman.conf";
 const NO_FS_SANDBOX: &[&str] = &["--disable-sandbox-filesystem"];
@@ -156,6 +157,66 @@ fn private_list() -> String {
 }
 
 // ---- the measurements -------------------------------------------------------------------------------------
+
+/// The refresh the app starts: `setpriv --no-new-privs fakeroot -- pacman -Sy ...`. `setpriv` sets the bit a user's
+/// session lacks and then replaces itself with `fakeroot`; the filesystem sandbox stays on.
+fn app_refresh_args<'a>(extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec!["--no-new-privs", FAKEROOT];
+    args.extend(refresh_args(extra));
+    args
+}
+
+fn app_refresh(extra: &[&str]) -> Output {
+    as_nobody(SETPRIV, &app_refresh_args(extra), &[])
+}
+
+/// The measurement the human asked for: from a process **without** `no-new-privileges`, the refresh through `setpriv`
+/// works, and pacman says it applied the Landlock filesystem sandbox. The control is the same call without `setpriv`.
+#[test]
+#[ignore = "runs real pacman: only inside the test container (tests/container/run.sh)"]
+fn app_private_13_setpriv_keeps_the_filesystem_sandbox_on() {
+    start();
+    eprintln!("the caller has no-new-privileges: {}", no_new_privileges());
+    change_repository_without_syncing(LATER_PACKAGE);
+    let before = real_state();
+
+    user_folder();
+    let run = app_refresh(&["--debug"]);
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    for line in all.lines() {
+        let low = line.to_lowercase();
+        if low.starts_with("error")
+            || ["landlock", "seccomp", "sandbox"]
+                .iter()
+                .any(|word| low.contains(word))
+        {
+            eprintln!("{line}");
+        }
+    }
+    assert!(run.status.success(), "{all}");
+    assert!(
+        all.contains("filesystem access has been restricted to /tmp/tw-app/lists/sync/download-"),
+        "Landlock was not applied"
+    );
+    assert!(all.contains("Landlock ABI is"));
+    assert!(all.contains("syscalls via seccomp"));
+    assert!(Path::new(&private_list()).is_file());
+    assert_eq!(real_state(), before, "the real state changed");
+
+    if !no_new_privileges() {
+        user_folder();
+        let control = fakeroot_refresh(&[]);
+        assert!(
+            !control.status.success(),
+            "the control worked without setpriv"
+        );
+        assert!(stderr(&control).contains("Landlock ruleset could not be applied"));
+    }
+}
 
 #[test]
 #[ignore = "runs real pacman: only inside the test container (tests/container/run.sh)"]
@@ -455,7 +516,7 @@ fn hanging_refresh() -> Child {
             .success()
     );
     user_folder();
-    let child = command_as_nobody(FAKEROOT, &refresh_args(NO_FS_SANDBOX), &[])
+    let child = command_as_nobody(SETPRIV, &app_refresh_args(&[]), &[])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -557,7 +618,7 @@ fn app_private_12_a_lock_handed_to_the_child() {
     let lock_path = LISTS;
     let db = format!("{REPO_DIR}/tidewise-test.db.tar.gz");
     let handed = |lock: &fs::File| -> Command {
-        let mut command = command_as_nobody(FAKEROOT, &refresh_args(NO_FS_SANDBOX), &[]);
+        let mut command = command_as_nobody(SETPRIV, &app_refresh_args(&[]), &[]);
         command
             .stdin(Stdio::from(lock.try_clone().unwrap()))
             .stdout(Stdio::null())

@@ -23,6 +23,10 @@ Rules the harness keeps:
   at `/opt/tidewise/tidewise-helper`), each mounted read-only. (The package image is built from `git archive` of HEAD,
   copied into the image build, not mounted.) Each test file runs in its own fresh container, so state
   one test file leaves behind (for example installed packages) cannot disturb the next.
+- Every test file runs with `no-new-privileges`, **except `app_private*`** (WBS 6.11). Those test the refresh an
+  ordinary user's app starts, and a user's session does not have that bit. With the bit set, pacman can apply its
+  Landlock filesystem sandbox anyway, so a refresh that fails on a real machine would pass here. Those containers are
+  still rootless, with `--network=none` and no extra capability.
 - `--network=none` at test time. The network is used only while the image is built (base image and the Arch Archive
   snapshot), once.
 - Every container test starts with `require_container()` (`src/lib.rs`). It says yes only if **both**

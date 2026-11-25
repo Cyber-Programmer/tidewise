@@ -11,6 +11,7 @@
 #    (5.3a), each mounted read-only; nothing else from the host
 #  - each test binary runs in its own fresh container, so one test file cannot leave state for the next
 #  - the container has no network (--network=none)
+#  - every file runs with no-new-privileges except app_private* (see the comment at the `podman run` below)
 #  - (5.5) the package test runs in a second image that holds the package of HEAD, built by makepkg in a container;
 #    that build, and only that, needs network, and happens before any test runs
 set -euo pipefail
@@ -112,11 +113,16 @@ for entry in "${tests[@]}"; do
         fi
         run_image="$pkg_image"
     fi
+    # `app_private*` (WBS 6.11) run WITHOUT no-new-privileges. They test the app's own refresh, started by an ordinary
+    # user, whose session does not have that bit; with it set, pacman can apply its filesystem sandbox anyway and a
+    # refresh that fails on a real machine would pass here. Only these files; still rootless, still --network=none.
+    privileges=(--security-opt=no-new-privileges)
+    case "$name" in app_private*) privileges=() ;; esac
     echo "==> running $name inside a fresh container (no network, binaries mounted read-only)"
     podman run --rm \
         --pull=never \
         --network=none \
-        --security-opt=no-new-privileges \
+        "${privileges[@]}" \
         --volume "$binary:/opt/tidewise/$name:ro" \
         --volume "$helper:/opt/tidewise/tidewise-helper:ro" \
         "$run_image" \
