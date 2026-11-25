@@ -1,6 +1,5 @@
 //! The app's own, private copy of the package lists (WBS 6.11, decision 0008): refreshed as the normal user, with no
 //! password, without touching `/var/lib/pacman/sync`.
-#![allow(dead_code)] // until the public entry is added, later in this branch
 
 use std::fs::{self, File, TryLockError};
 use std::io;
@@ -9,11 +8,16 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::run;
+
+const SETPRIV: &str = "/usr/bin/setpriv";
 const FAKEROOT: &str = "/usr/bin/fakeroot";
 const PACMAN: &str = "/usr/bin/pacman";
 /// Our own file in the private folder; its modification time is when the last successful refresh ended.
 const STAMP: &str = "refreshed";
 
+/// How long a second window waits for another refresh before it shows the real lists.
+const WAIT_FOR_ANOTHER: Duration = Duration::from_secs(60);
 /// Lists younger than this are not downloaded again just because a screen was opened.
 const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
 
@@ -289,12 +293,48 @@ fn refresh_in(
 
 /// What this session needs for a private copy. `None`: it can't have one, which is not an error.
 fn usable_folder(
-    _runtime_dir: Option<&Path>,
-    _programs: [&Path; 2],
-    _local_db: &Path,
-    _uid: u32,
+    runtime_dir: Option<&Path>,
+    programs: [&Path; 2],
+    local_db: &Path,
+    uid: u32,
 ) -> Option<PrivateFolder> {
-    None
+    if !programs.iter().all(|program| program.is_file()) {
+        return None;
+    }
+    PrivateFolder::prepare(runtime_dir?, local_db, uid).ok()
+}
+
+/// Brings the private copy of the package lists up to date, if it needs it: as the normal user, without a password,
+/// never touching `/var/lib/pacman/sync`. The only network is pacman's own (golden rule 11).
+///
+/// Then read `Lists::Private(folder)` with `pending_updates_in` or `ResolveInput::dbpath`. For `Lists::Real` read the
+/// real lists, and say how old they are. A plain install must keep using the real lists: the helper installs from them.
+///
+/// Blocks: for the download, or up to 60 s while another refresh holds the folder. Never on a timer: call it when a
+/// screen with an update list opens, and after the helper refused.
+pub fn refresh_private_lists(why: RefreshWhy) -> Lists {
+    let unavailable = Lists::Real(NotFresh::Unavailable);
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    // `/proc/self` belongs to the user this process runs as (std has no `getuid`).
+    let Ok(this_process) = fs::metadata("/proc/self") else {
+        return unavailable;
+    };
+    let Ok(dbpath) = run::dbpath() else {
+        return unavailable;
+    };
+    let programs = [Path::new(SETPRIV), Path::new(FAKEROOT)];
+    let folder = usable_folder(
+        runtime_dir.as_deref(),
+        programs,
+        &dbpath.join("local"),
+        this_process.uid(),
+    );
+    match folder {
+        Some(folder) => refresh_in(&folder, why, WAIT_FOR_ANOTHER, |args, lock| {
+            run::run_holding(Path::new(SETPRIV), args, lock)
+        }),
+        None => unavailable,
+    }
 }
 
 #[cfg(test)]
