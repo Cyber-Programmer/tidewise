@@ -110,8 +110,10 @@ leaves an empty `download-*` folder in `<F>/sync`.
 
 ## Not shown, and what is left
 
-- **Never run on a real machine.** Container only. Real mirrors, signed databases (`DatabaseOptional`) read by a user's
-  pacman, and a desktop session's `XDG_RUNTIME_DIR` need the manual check.
+- **On a real machine: the manual check passed** (human, 25 Nov 2026, steps 0-3, after `sudo pacman -Syu`): the private
+  lists appeared in the desktop session's `XDG_RUNTIME_DIR`; `/var/lib/pacman/sync` and `pacman.log` were unchanged; no
+  `faked` or `pacman` was left running; the offline and busy notes showed. Signed databases (`DatabaseOptional`) read by
+  a user's pacman were not looked at separately.
 - Under fakeroot the switch to `alpm` is only pretended (the files are the user's), so the download is as unprivileged
   as the user and no more separated than that. The two sandboxes apply.
 - The private lists can be written by anything running as the user. Only the app reads them; the helper never does, and
