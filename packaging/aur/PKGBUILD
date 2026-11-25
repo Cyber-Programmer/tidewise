@@ -50,12 +50,13 @@ license=('GPL-3.0-or-later')
 #    libxkbcommon-x11, libglvnd (libEGL, libGL), libxcursor, libxrender. Depends and not optdepends:
 #    without them the window cannot open or draw. A container test checks every library name in
 #    both binaries against what the declared depends install (a first search missed some);
-#  - programs the package runs: pacman (the helper) and polkit (pkexec, polkitd, the policy).
+#  - programs the package runs: pacman (the helper), polkit (pkexec, polkitd, the policy), and
+#    util-linux (setpriv) and fakeroot for the app's own list refresh (decision 0008);
 # namcap says pacman, polkit and libxkbcommon "may not be needed" (a program, a program, a library
 # that is not linked): accepted on purpose, see tests/container/tests/package.rs.
-depends=('pacman' 'polkit' 'glibc' 'libgcc' 'fontconfig' 'libxkbcommon' 'wayland'
-         'libx11' 'libxcb' 'libxi' 'libxkbcommon-x11' 'libglvnd' 'libxcursor'
-         'libxrender')
+depends=('pacman' 'polkit' 'util-linux' 'fakeroot' 'glibc' 'libgcc' 'fontconfig'
+         'libxkbcommon' 'wayland' 'libx11' 'libxcb' 'libxi' 'libxkbcommon-x11' 'libglvnd'
+         'libxcursor' 'libxrender')
 makedepends=('cargo')
 # The release profile has no debug info, so makepkg's tidewise-debug package would be empty.
 # Proper debug info and a debug package: an M10 idea (docs/PLAN.md).
