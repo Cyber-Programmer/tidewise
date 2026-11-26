@@ -438,11 +438,12 @@ fn group_args(group: &str) -> Vec<String> {
 
 /// `-Ss -- '^name$'`: the packages with exactly this name, or providing it.
 fn exact_search_args(name: &str) -> Vec<String> {
-    vec![
-        "-Ss".to_string(),
-        "--".to_string(),
-        format!("^{}$", escape_ere(name)),
-    ]
+    vec!["-Ss".to_string(), "--".to_string(), exact_pattern(name)]
+}
+
+/// The `-Ss` pattern that matches `name` itself and nothing longer: anchored, its regex characters escaped.
+pub fn exact_pattern(name: &str) -> String {
+    format!("^{}$", escape_ere(name))
 }
 
 /// A dry run's result: the list, or one of the failures the resolver has a state for. Anything else is an error

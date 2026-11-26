@@ -13,7 +13,7 @@
 //! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
-use tidewise_pacman::Dependency;
+use tidewise_pacman::{Dependency, dependency_text, exact_pattern};
 
 use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
@@ -121,7 +121,21 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             repo_and_name(packages)?,
             Names::Required,
         ),
-        PacmanCommand::PrivateSearch(_) | PacmanCommand::DepTest(_) => Err(ArgsRefused::NoTargets),
+        PacmanCommand::PrivateSearch(name) => {
+            if !is_valid_package_name(name) {
+                return Err(ArgsRefused::BadName);
+            }
+            build(
+                &["-Ss"],
+                &["--dbpath", LISTS_DBPATH],
+                vec![exact_pattern(name)],
+                Names::Required,
+            )
+        }
+        PacmanCommand::DepTest(dependency) => {
+            let text = dependency_text(dependency).ok_or(ArgsRefused::BadName)?;
+            build(&["-T"], &[], vec![text], Names::Required)
+        }
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
