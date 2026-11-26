@@ -496,6 +496,36 @@ fn package_real_pkexec_runs_the_installed_helper_end_to_end() {
     let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-hello"]);
 }
 
+/// The app's own command line (WBS 6.4b): `--disable-internal-agent` before the helper's path. pkexec takes it as its
+/// own option, so the helper still gets exactly its path and the summary, and runs the job. What it does with no
+/// polkit agent (exit 127) needs an ordinary caller and setuid pkexec, which this harness has not got (question 35 a);
+/// it was measured by hand (threat model 43).
+#[test]
+#[ignore = "runs real pacman as root: only inside the package image (tests/container/run.sh package)"]
+fn package_pkexec_without_its_internal_agent_runs_the_helper_as_before() {
+    let (request, summary) = install_hello();
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+
+    let ran = pkexec(
+        "--disable-internal-agent",
+        &[HELPER_ARGV0, &summary],
+        None,
+        request.as_bytes(),
+    );
+    assert_eq!(ran.code, Some(0), "{}\n{}", ran.stdout, ran.stderr);
+    assert_eq!(
+        ran.stdout.lines().last(),
+        Some("{\"finished\":\"ok\"}"),
+        "{}",
+        ran.stdout
+    );
+    assert_eq!(ran.stderr, "");
+    assert!(installed_version("tidewise-dummy-hello").is_some());
+
+    let _ = pacman(&["-R", "--noconfirm", "tidewise-dummy-hello"]);
+}
+
 // ---- what the caller passes on through pkexec (review 5.8 R-01, R-03) ---------------------------------
 
 #[test]
