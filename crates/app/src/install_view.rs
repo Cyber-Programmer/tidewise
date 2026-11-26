@@ -34,6 +34,25 @@ pub enum CardKind {
     Alert,
     /// The review: the exact list pacman would install (WBS 6.3).
     Review,
+    /// The helper is running, or the password window is open (WBS 6.4b).
+    Progress,
+    /// The helper said it worked.
+    Done,
+}
+
+/// Where one stage of an install stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StageState {
+    Done,
+    Now,
+    #[default]
+    Later,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StageView {
+    pub label: String,
+    pub state: StageState,
 }
 
 /// One choice in a radio or checkbox list.
@@ -144,6 +163,12 @@ pub struct InstallView {
     pub primary_note: String,
     /// Behind the "Technical details" toggle.
     pub technical: Vec<String>,
+    /// The progress card's four stages.
+    pub stages: Vec<StageView>,
+    /// 0 to 100, for the progress bar.
+    pub percent: u8,
+    /// "42 %", or empty before the helper has said anything.
+    pub percent_text: String,
     pub focus_serial: u32,
     pub focus: FocusTarget,
 }
@@ -698,7 +723,11 @@ fn technical_line(blocker: &Blocker) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helper_run::JobEnd;
     use crate::install_model::WorkAnswer;
+    use tidewise_helper_protocol::{
+        Details, ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress,
+    };
     use tidewise_pacman::{
         Blocker, Candidate, GroupChoice, InstallDecision, InstallPlan, PackageRef, PacmanError,
         PlanItem, Question, Resolution, Role,
@@ -1354,8 +1383,338 @@ mod tests {
         model
     }
 
+    // ---- running the install (WBS 6.4b) -------------------------------------------------------------------
+
+    /// dbeaver reviewed, then Install pressed.
+    fn installing() -> (InstallModel, u64) {
+        let mut model = answered(
+            "dbeaver",
+            Resolution::Ready(plan_of(vec![item("dbeaver", Role::Target, 10, 20, None)])),
+        );
+        let ticket = model.start_install().expect("a job");
+        (model, ticket.number)
+    }
+
+    fn ended(end: JobEnd) -> InstallView {
+        let (mut model, number) = installing();
+        model.job_ended(number, end);
+        install_view(&model)
+    }
+
+    fn states(view: &InstallView) -> Vec<StageState> {
+        view.stages.iter().map(|stage| stage.state).collect()
+    }
+
     #[test]
-    fn the_review_says_what_it_is_and_has_its_install_button_off() {
+    fn while_the_password_window_may_be_open_the_card_says_so() {
+        let view = install_view(&installing().0);
+        assert_eq!(view.kind, CardKind::Progress);
+        assert_eq!(view.heading, "Installing dbeaver");
+        assert_eq!(view.current_pill, 2);
+        assert_eq!(view.title_before, "Waiting for your password");
+        assert_eq!(
+            view.body,
+            "Your desktop asks for it. Tidewise never sees your password."
+        );
+        assert_eq!(view.percent_text, "");
+        assert_eq!(view.hint, "");
+        assert_eq!(
+            view.stages
+                .iter()
+                .map(|stage| stage.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Checking the list again",
+                "Downloading packages",
+                "Installing",
+                "Finishing (pacman hooks)"
+            ]
+        );
+        assert_eq!(states(&view), [StageState::Later; 4]);
+        assert_eq!((view.primary, view.secondary), (None, None));
+    }
+
+    #[test]
+    fn each_phase_names_itself_with_its_count_and_marks_the_stages() {
+        use StageState::{Done, Later, Now};
+        let (mut model, number) = installing();
+        let mut at = |phase, current, total| {
+            model.job_event(
+                number,
+                Event::Progress(Progress {
+                    phase,
+                    current,
+                    total,
+                }),
+            );
+            let view = install_view(&model);
+            assert_eq!(
+                view.hint,
+                "Installing can't be stopped halfway. Keep Tidewise open until it's done."
+            );
+            assert_eq!(view.body, "");
+            assert_eq!((view.primary.clone(), view.secondary.clone()), (None, None));
+            (
+                view.title_before.clone(),
+                view.percent_text.clone(),
+                states(&view),
+            )
+        };
+        let words = |text: &str| text.to_string();
+        assert_eq!(
+            at(Stage::Checking, 0, 2),
+            (
+                words("Checking the list again"),
+                words("0 %"),
+                vec![Now, Later, Later, Later]
+            )
+        );
+        assert_eq!(
+            at(Stage::Downloading, 0, 2),
+            (
+                words("Downloading packages"),
+                words("5 %"),
+                vec![Done, Now, Later, Later]
+            )
+        );
+        assert_eq!(
+            at(Stage::Downloading, 1, 2),
+            (
+                words("Downloading 1 of 2"),
+                words("27 %"),
+                vec![Done, Now, Later, Later]
+            )
+        );
+        // A cached package is not downloaded: the stage is simply passed.
+        assert_eq!(
+            at(Stage::Installing, 0, 2),
+            (
+                words("Installing packages"),
+                words("50 %"),
+                vec![Done, Done, Now, Later]
+            )
+        );
+        assert_eq!(
+            at(Stage::Installing, 2, 2),
+            (
+                words("Installing 2 of 2"),
+                words("92 %"),
+                vec![Done, Done, Now, Later]
+            )
+        );
+        assert_eq!(
+            at(Stage::Hooks, 0, 2),
+            (
+                words("Finishing (pacman hooks)"),
+                words("92 %"),
+                vec![Done, Done, Done, Now]
+            )
+        );
+    }
+
+    #[test]
+    fn the_done_card_says_it_is_ready_without_promising_a_launcher() {
+        let view = ended(JobEnd::Finished(Outcome::Ok));
+        assert_eq!(view.kind, CardKind::Done);
+        assert_eq!(view.heading, "Installed");
+        assert_eq!(view.title_before, "dbeaver is installed");
+        assert_eq!(view.body, "dbeaver is installed and ready to use.");
+        assert_eq!(view.primary, button("Show in Apps", true));
+        assert_eq!(view.secondary, button("Done", true));
+        assert_eq!(view.unchanged, "");
+    }
+
+    #[test]
+    fn notices_change_the_heading_and_each_is_a_line() {
+        let (mut model, number) = installing();
+        model.job_event(number, Event::Notice(Notice::PackagesNotInstalled(2)));
+        model.job_event(number, Event::Notice(Notice::AuditEntryNotWritten));
+        model.job_ended(number, JobEnd::Finished(Outcome::Ok));
+        let view = install_view(&model);
+        assert_eq!(view.title_before, "The install finished");
+        assert_eq!(
+            view.body,
+            "2 packages from your list were not installed.\n\
+             The helper could not write its entry in the system journal. \
+             The package manager's own log still records every change."
+        );
+    }
+
+    #[test]
+    fn a_group_has_no_package_to_show_in_apps() {
+        let mut model = InstallModel::new();
+        let ticket = model.open_group("plasma").unwrap();
+        let mut plan = plan_of(vec![item("dbeaver", Role::Target, 10, 20, None)]);
+        plan.targets = vec![pkg("dbeaver")];
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::Resolved(Resolution::Ready(plan))),
+        );
+        let job = model.start_install().expect("a job");
+        model.job_ended(job.number, JobEnd::Finished(Outcome::Ok));
+        let view = install_view(&model);
+        assert_eq!(view.title_before, "plasma is installed");
+        assert_eq!(view.primary, None);
+        assert_eq!(view.focus, FocusTarget::Secondary);
+    }
+
+    #[test]
+    fn a_closed_password_window_is_said_under_the_review() {
+        let (mut model, number) = installing();
+        model.job_ended(number, JobEnd::PromptClosed);
+        let view = install_view(&model);
+        assert_eq!(view.kind, CardKind::Review);
+        assert_eq!(
+            view.primary_note,
+            "The password prompt was closed. Nothing was changed."
+        );
+        assert_eq!(view.primary, button("Install 1 package", true));
+    }
+
+    fn failure(view: &InstallView) -> (&str, &str, Vec<&str>) {
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(view.current_pill, 2);
+        assert_eq!(view.primary, button("Check again", true));
+        assert_eq!(view.secondary, button("Close", true));
+        assert_eq!(view.unchanged, "");
+        (
+            view.title_before.as_str(),
+            view.body.as_str(),
+            view.technical.iter().map(String::as_str).collect(),
+        )
+    }
+
+    #[test]
+    fn the_helpers_error_is_its_own_fixed_text_and_pacmans_words_stay_technical() {
+        for kind in [
+            ErrorKind::TransactionChanged,
+            ErrorKind::DatabaseLocked,
+            ErrorKind::VersionMismatch,
+            ErrorKind::ProviderNotChosen,
+        ] {
+            let view = ended(JobEnd::Finished(Outcome::Error(kind.clone())));
+            assert_eq!(
+                failure(&view),
+                (
+                    "Tidewise couldn't install dbeaver",
+                    kind.plain_text(),
+                    Vec::new()
+                )
+            );
+        }
+        let kind = ErrorKind::PacmanFailed(Details::from_raw("error: one\nerror: two"));
+        let view = ended(JobEnd::Finished(Outcome::Error(kind.clone())));
+        assert_eq!(
+            failure(&view),
+            (
+                "Tidewise couldn't install dbeaver",
+                "The package manager stopped with an error. The technical details show what it said.",
+                vec!["error: one", "error: two"]
+            )
+        );
+    }
+
+    #[test]
+    fn the_ends_without_a_result_have_their_own_words() {
+        let end = JobEnd::NotAuthorised {
+            stderr: "Error executing command as another user: Not authorized\n".to_string(),
+        };
+        assert_eq!(
+            failure(&ended(end)),
+            (
+                "Tidewise couldn't install dbeaver",
+                "Tidewise did not get permission to make this change. Nothing was changed.",
+                vec!["Error executing command as another user: Not authorized"]
+            )
+        );
+        assert_eq!(
+            failure(&ended(JobEnd::HelperMissing)),
+            (
+                "Tidewise couldn't install dbeaver",
+                "Tidewise's helper is not installed, so Tidewise can't install apps. Reinstall Tidewise. \
+                 Nothing was changed.",
+                Vec::new()
+            )
+        );
+        let end = JobEnd::HelperRefusedToStart {
+            stderr: "cannot reset the limits".to_string(),
+        };
+        assert_eq!(
+            failure(&ended(end)),
+            (
+                "Tidewise couldn't install dbeaver",
+                "Tidewise's helper refused to start. Nothing was changed.",
+                vec!["cannot reset the limits"]
+            )
+        );
+        let end = JobEnd::CouldNotStart {
+            reason: "No such file or directory (os error 2)".to_string(),
+        };
+        assert_eq!(
+            failure(&ended(end)),
+            (
+                "Tidewise couldn't install dbeaver",
+                "Tidewise could not start the password window. Nothing was changed.",
+                vec!["No such file or directory (os error 2)"]
+            )
+        );
+    }
+
+    #[test]
+    fn with_no_result_nothing_is_claimed() {
+        let end = JobEnd::NoResult {
+            exit: Some(1),
+            unreadable: 2,
+            stderr: "boom".to_string(),
+        };
+        assert_eq!(
+            failure(&ended(end)),
+            (
+                "The result of installing dbeaver is unknown",
+                "Tidewise could not tell whether the install finished. Check Apps, or look in the system journal.",
+                vec![
+                    "exit code: 1",
+                    "unreadable lines from the helper: 2",
+                    "boom"
+                ]
+            )
+        );
+        let end = JobEnd::NoResult {
+            exit: None,
+            unreadable: 0,
+            stderr: String::new(),
+        };
+        assert_eq!(
+            failure(&ended(end)).2,
+            [
+                "exit code: none (stopped by a signal)",
+                "unreadable lines from the helper: 0"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_request_the_helper_would_refuse_is_called_a_bug() {
+        // The target is not in the list, which `validate` refuses.
+        let mut model = answered(
+            "dbeaver",
+            Resolution::Ready(plan_of(vec![item("other", Role::Target, 1, 1, None)])),
+        );
+        assert_eq!(model.start_install(), None);
+        let view = install_view(&model);
+        assert_eq!(
+            failure(&view).1,
+            "Tidewise made a request its helper would refuse. Nothing was changed."
+        );
+        assert_eq!(
+            view.report,
+            "Report problems at github.com/Cyber-Programmer/tidewise/issues"
+        );
+        assert_eq!(view.technical.len(), 1);
+    }
+
+    #[test]
+    fn the_review_says_what_it_is_and_has_its_install_button() {
         let view = install_view(&picked_a_provider());
         assert_eq!(view.kind, CardKind::Review);
         assert_eq!(view.current_pill, 1);
@@ -1364,11 +1723,8 @@ mod tests {
             view.body,
             "Nothing will be removed. This is the exact list pacman would install."
         );
-        assert_eq!(view.primary, button("Install 4 packages", false));
-        assert_eq!(
-            view.primary_note,
-            "Tidewise can't install yet: this step comes in a later version."
-        );
+        assert_eq!(view.primary, button("Install 4 packages", true));
+        assert_eq!(view.primary_note, "");
         assert_eq!(view.hint, "Your desktop asks for your password once.");
         assert_eq!(view.secondary, button("Back", true));
         assert_eq!(view.focus, FocusTarget::List);
@@ -1378,7 +1734,7 @@ mod tests {
     #[test]
     fn one_package_is_counted_in_the_singular_and_with_no_question_back_goes_to_details() {
         let view = reviewing(vec![item("dbeaver", Role::Target, 10, 20, None)]);
-        assert_eq!(view.primary, button("Install 1 package", false));
+        assert_eq!(view.primary, button("Install 1 package", true));
         assert_eq!(view.secondary, button("Back to details", true));
     }
 
