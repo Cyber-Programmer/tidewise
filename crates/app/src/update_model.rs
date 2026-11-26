@@ -1,12 +1,13 @@
 //! View model for "Update system" (WBS 6.5): check, review (or up to date, or blocked), the helper run, done or failed.
 //! Plain Rust, no Slint, no threads, no clock. It runs nothing: it hands out tickets and is handed the answers.
 
-use crate::error_words::ErrorText;
+use crate::error_words::{Doing, ErrorText, error_text};
+use crate::helper_request::update_request;
 use crate::helper_run::JobEnd;
 use crate::job::{Job, JobFailure, JobTicket};
 use crate::update_check::ListsNote;
-use crate::update_words::UpdateBlock;
-use tidewise_helper_protocol::{Event, Notice};
+use crate::update_words::{UpdateBlock, needs_restart};
+use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{PacmanError, RefreshWhy, UpdateLookup, UpdatePlan};
 
 /// One check to run: refresh the private lists (`why`), then read the review.
@@ -58,6 +59,15 @@ pub struct Ended {
 #[derive(Debug, Default)]
 pub struct UpdateModel {
     phase: Phase,
+    last_number: u64,
+    /// The check whose answer is wanted.
+    wanted: Option<u64>,
+    lists_note: Option<ListsNote>,
+    /// The next review follows a list that changed under the user.
+    lists_changed: bool,
+    /// The helper refused: the next refresh may not trust the age of the private lists.
+    refused: bool,
+    prompt_closed: bool,
 }
 
 impl UpdateModel {
@@ -71,44 +81,171 @@ impl UpdateModel {
 
     /// Why the review was made with older lists, if it was.
     pub fn lists_note(&self) -> Option<ListsNote> {
-        None
+        self.lists_note
     }
 
     /// The review says the lists changed since the user looked.
     pub fn lists_changed(&self) -> bool {
-        false
+        self.lists_changed
     }
 
     pub fn prompt_was_closed(&self) -> bool {
-        false
+        self.prompt_closed
     }
 
     /// "Check for updates" and "Check again". `None` while a check or an update is already running.
     pub fn check(&mut self) -> Option<CheckTicket> {
-        None
+        if matches!(self.phase, Phase::Checking | Phase::Updating(_)) {
+            return None;
+        }
+        let why = if self.refused {
+            RefreshWhy::AfterRefusal
+        } else {
+            RefreshWhy::Opening
+        };
+        self.lists_changed = false;
+        Some(self.start_check(why))
     }
 
-    pub fn checked(&mut self, _number: u64, _result: CheckResult) {}
+    fn start_check(&mut self, why: RefreshWhy) -> CheckTicket {
+        self.refused = false;
+        self.prompt_closed = false;
+        self.lists_note = None;
+        self.last_number += 1;
+        self.wanted = Some(self.last_number);
+        self.phase = Phase::Checking;
+        CheckTicket {
+            number: self.last_number,
+            why,
+        }
+    }
 
-    pub fn cancel(&mut self) {}
+    /// The answer of check `number`; one that is no longer wanted is dropped.
+    pub fn checked(&mut self, number: u64, result: CheckResult) {
+        if self.wanted != Some(number) {
+            return;
+        }
+        self.wanted = None;
+        self.phase = match result {
+            Ok((UpdateLookup::HeldBlock(block), note)) => {
+                self.lists_note = note;
+                Phase::Blocked(UpdateBlock::Held(block))
+            }
+            Ok((UpdateLookup::Plan(plan), note)) => {
+                self.lists_note = note;
+                reviewed(plan)
+            }
+            Err(error) => Phase::Failed {
+                text: error_text(&error, Doing::CheckingUpdates),
+            },
+        };
+    }
+
+    /// Leaves the screen. A running job stays: there is no stop.
+    pub fn cancel(&mut self) {
+        if matches!(self.phase, Phase::Updating(_)) {
+            return;
+        }
+        self.wanted = None;
+        self.lists_changed = false;
+        self.refused = false;
+        self.phase = Phase::Closed;
+    }
 
     /// The review's Update button: `Some` means "start the helper now".
     pub fn start_update(&mut self) -> Option<JobTicket> {
-        None
+        let Phase::Review(plan) = &self.phase else {
+            return None;
+        };
+        let plan = (**plan).clone();
+        self.prompt_closed = false;
+        self.lists_changed = false;
+        match update_request(&plan) {
+            Ok(request) => {
+                self.last_number += 1;
+                self.phase = Phase::Updating(Box::new(Updating {
+                    plan,
+                    job: Job::new(self.last_number),
+                }));
+                Some(JobTicket {
+                    number: self.last_number,
+                    request,
+                })
+            }
+            Err(error) => {
+                self.phase = Phase::UpdateFailed(JobFailure::NotSent(error));
+                None
+            }
+        }
     }
 
-    pub fn job_event(&mut self, _number: u64, _event: Event) {}
+    pub fn job_event(&mut self, number: u64, event: Event) {
+        if let Phase::Updating(running) = &mut self.phase
+            && running.job.number == number
+        {
+            running.job.event(event);
+        }
+    }
 
-    pub fn job_ended(&mut self, _number: u64, _end: JobEnd) -> Ended {
-        Ended::default()
+    /// Job `number` is over.
+    pub fn job_ended(&mut self, number: u64, end: JobEnd) -> Ended {
+        let Phase::Updating(running) = &self.phase else {
+            return Ended::default();
+        };
+        if running.job.number != number {
+            return Ended::default();
+        }
+        // A result, or none at all, means pacman may have run. The other ends are all from before it.
+        let may_have_changed = matches!(end, JobEnd::Finished(_) | JobEnd::NoResult { .. });
+        let mut check = None;
+        match end {
+            JobEnd::Finished(Outcome::Ok) => {
+                let installed = running.plan.installing().map(|i| i.package.name.as_str());
+                self.phase = Phase::Updated {
+                    restart: needs_restart(installed),
+                    notices: running.job.notices.clone(),
+                };
+            }
+            JobEnd::PromptClosed => {
+                self.prompt_closed = true;
+                self.phase = Phase::Review(Box::new(running.plan.clone()));
+            }
+            JobEnd::Finished(Outcome::Error(ErrorKind::TransactionChanged)) => {
+                self.lists_changed = true;
+                check = Some(self.start_check(RefreshWhy::AfterRefusal));
+            }
+            end => {
+                self.refused = matches!(end, JobEnd::Finished(Outcome::Error(_)));
+                self.phase = Phase::UpdateFailed(JobFailure::Ended {
+                    notices: running.job.notices.clone(),
+                    end,
+                });
+            }
+        }
+        Ended {
+            may_have_changed,
+            check,
+        }
+    }
+}
+
+/// Where a plan leads: nothing to do, a reason it cannot go on, or the review.
+fn reviewed(plan: Box<UpdatePlan>) -> Phase {
+    if plan.installing().next().is_none() {
+        Phase::UpToDate(plan)
+    } else if !plan.conflicts.is_empty() {
+        Phase::Blocked(UpdateBlock::Conflict(plan.conflicts))
+    } else if !plan.picks.is_empty() {
+        Phase::Blocked(UpdateBlock::Pick(plan.picks))
+    } else {
+        Phase::Review(plan)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::update_check::ListsNote;
-    use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage, Progress};
+    use tidewise_helper_protocol::{Phase as Stage, Progress};
     use tidewise_pacman::{
         Conflict, HeldBlock, NotFresh, PackageRef, PlanItem, ProviderPick, Role,
     };

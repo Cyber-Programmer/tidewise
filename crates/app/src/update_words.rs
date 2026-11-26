@@ -78,8 +78,14 @@ pub fn block_words(block: &UpdateBlock) -> (String, String) {
 
 /// The body of a failure card after the helper refused an update. `plain_text` is written for installs where it says
 /// "Go back and choose again", which an update has no way to do.
-pub fn refusal_body(_kind: &ErrorKind) -> &'static str {
-    ""
+pub fn refusal_body(kind: &ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::ProviderNotChosen => {
+            "pacman would have chosen a package by itself, so nothing was changed. Run sudo pacman -Syu in a \
+             terminal to choose."
+        }
+        other => other.plain_text(),
+    }
 }
 
 pub fn replacement_line(replacement: &Replacement) -> String {

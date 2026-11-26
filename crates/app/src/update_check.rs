@@ -70,12 +70,24 @@ pub fn check_for_updates(
 /// The review of "Update system" (WBS 6.5): refresh the private copy, then read it. Without a usable private copy the
 /// real lists are read, with a note of their age; that is not an error.
 pub fn review_updates(
-    _refresh: impl FnOnce() -> Lists,
-    _lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
-    _real_newest: impl FnOnce() -> Option<SystemTime>,
-    _now: SystemTime,
+    refresh: impl FnOnce() -> Lists,
+    lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
+    real_newest: impl FnOnce() -> Option<SystemTime>,
+    now: SystemTime,
 ) -> Result<(UpdateLookup, Option<ListsNote>), PacmanError> {
-    Ok((UpdateLookup::Plan(Box::default()), None))
+    let why = match refresh() {
+        Lists::Private(folder) => match lookup(Some(&folder)) {
+            Ok(found) => return Ok((found, None)),
+            Err(_) => NotFresh::Failed,
+        },
+        Lists::Real(why) => why,
+    };
+    let found = lookup(None)?;
+    let note = ListsNote {
+        why,
+        age_days: real_newest().map(|newest| whole_days(newest, now)),
+    };
+    Ok((found, Some(note)))
 }
 
 #[cfg(test)]
