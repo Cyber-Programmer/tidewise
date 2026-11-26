@@ -6,6 +6,7 @@
 //! window's; and only a `Finished` event is a result.
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -147,16 +148,23 @@ pub fn job_end(reading: Reading, exit: Option<i32>, stderr: String) -> JobEnd {
     }
 }
 
-/// The app's only program start. No shell, no PATH, no `pkexec` option, an empty environment but for `LC_ALL=C`.
+/// The app's only program start. No shell, no PATH, an empty environment but for `LC_ALL=C`.
+///
+/// `--disable-internal-agent`: with no polkit agent running, `pkexec` would otherwise ask for the password on the
+/// terminal the app was started from, and wait there behind the window (review R-02). Now it ends with 127.
+/// `process_group(0)`: Ctrl+C, or closing that terminal, signals the terminal's foreground group; the root helper
+/// must not be in it (review R-03, threat model question 16).
 #[expect(
     clippy::disallowed_methods,
-    reason = "the app's only program start: pkexec by absolute path, the helper's fixed path and one summary argument, no shell, environment cleared (golden rules 1, 3)"
+    reason = "the app's only program start: pkexec by absolute path, one fixed option, the helper's fixed path and one summary argument, no shell, environment cleared (golden rules 1, 3)"
 )]
 fn helper_command(summary: &str) -> Command {
     let mut command = Command::new(PKEXEC_PATH);
     command
+        .arg("--disable-internal-agent")
         .arg(HELPER_PATH)
         .arg(summary)
+        .process_group(0)
         .env_clear()
         .env("LC_ALL", "C")
         .current_dir("/")
