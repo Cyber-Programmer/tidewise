@@ -251,6 +251,11 @@ impl SearchModel {
             self.show_loading_unless_rows_are_shown();
             return None;
         }
+        self.ask()
+    }
+
+    /// A new numbered search for the current text: started now, or waiting for the running one.
+    fn ask(&mut self) -> Option<SearchTicket> {
         self.last_number += 1;
         let ticket = SearchTicket {
             number: self.last_number,
@@ -268,9 +273,13 @@ impl SearchModel {
         }
     }
 
-    /// What is installed may have changed: search again for the current text.
+    /// What is installed may have changed: search again for the current text, even if that text was just answered or
+    /// is being searched right now (that search began before the change). The rows stay until the answer arrives.
     pub fn refresh(&mut self) -> Option<SearchTicket> {
-        None
+        if self.query.is_empty() || self.has_no_package_lists() {
+            return None;
+        }
+        self.ask()
     }
 
     /// With rows on screen they stay while the next search runs; otherwise the screen shows the skeleton.

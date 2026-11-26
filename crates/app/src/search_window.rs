@@ -63,8 +63,25 @@ struct Screen {
     slow_timer: Timer,
 }
 
+/// How other screens tell Search that something changed.
+#[derive(Clone)]
+pub struct Search {
+    screen: Rc<RefCell<Screen>>,
+}
+
+impl Search {
+    /// What is installed may have changed: ask pacman again, so no installed package still offers "Install".
+    pub fn refresh(&self) {
+        let ticket = self.screen.borrow_mut().model.refresh();
+        if let Some(ticket) = ticket {
+            spawn_search(&self.screen, ticket);
+        }
+        repaint(&self.screen);
+    }
+}
+
 /// Connects the window to the model and checks the package lists.
-pub fn start(window: &MainWindow, install: Install) {
+pub fn start(window: &MainWindow, install: Install) -> Search {
     let rows = Rc::new(VecModel::default());
     let bridge = window.global::<SearchBridge>();
     bridge.set_rows(ModelRc::from(rows.clone()));
@@ -144,6 +161,7 @@ pub fn start(window: &MainWindow, install: Install) {
 
     spawn_lists(&screen);
     repaint(&screen);
+    Search { screen }
 }
 
 /// The user typed: remember the text, and search once typing has paused.

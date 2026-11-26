@@ -13,6 +13,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let install = install_window::start(&window, apps);
     #[cfg(debug_assertions)]
     debug_entry::start(&install);
-    search_window::start(&window, install);
+    let search = search_window::start(&window, install.clone());
+    install.set_search(search);
     window.run()
 }
