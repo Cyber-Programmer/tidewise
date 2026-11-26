@@ -1311,7 +1311,9 @@ fn package_an_unnamed_provider_through_pkexec_is_refused_and_installs_nothing() 
         install_request(&[(REPO, "tidewise-dummy-needs-virtual")], &[], &items);
     let before = package_list();
 
-    let mut child = Command::new("/usr/bin/pkexec")
+    // Through `timeout`, as the table's rows are: the test is process 1 and pkexec refuses such a parent.
+    let mut child = Command::new("/usr/bin/timeout")
+        .args(["60", "/usr/bin/pkexec"])
         .arg("/usr/lib/tidewise/tidewise-helper")
         .arg(summary)
         .env_clear()
