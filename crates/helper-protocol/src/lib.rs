@@ -49,7 +49,7 @@ pub use event::{
     Details, ErrorKind, Event, EventError, MAX_DETAILS_BYTES, MAX_EVENT_LINE_BYTES, Notice,
     Outcome, Phase, Progress, event_line, parse_event,
 };
-pub use parse::{MAX_REQUEST_BYTES, ProtocolError, parse_request};
+pub use parse::{MAX_REQUEST_BYTES, ProtocolError, parse_request, request_json};
 pub use request::{
     Action, Install, PROTOCOL_VERSION, PackageRef, ProviderChoice, Request, TransactionItem,
     UpdateSystem,
