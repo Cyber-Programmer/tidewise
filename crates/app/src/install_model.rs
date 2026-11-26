@@ -604,6 +604,11 @@ impl InstallModel {
         self.prompt_closed
     }
 
+    /// The failure card offers "Back" to the review.
+    pub fn can_return_to_review(&self) -> bool {
+        false
+    }
+
     /// What the lists check of ticket `number` has to say, before its answer is given to `done`.
     pub fn lists_checked(&mut self, number: u64, note: Option<ListsNote>) {
         if self.wanted == Some(number) {
@@ -1021,6 +1026,43 @@ mod tests {
         }
         let (mut model, number) = installing();
         assert!(!model.job_ended(number + 1, JobEnd::Finished(Outcome::Ok)));
+    }
+
+    fn refused(kind: ErrorKind) -> (InstallModel, Phase) {
+        let mut model = reviewing();
+        let review = model.phase().clone();
+        let job = model.start_install().expect("a job");
+        model.job_ended(job.number, JobEnd::Finished(Outcome::Error(kind)));
+        (model, review)
+    }
+
+    #[test]
+    fn a_provider_nobody_chose_can_go_back_to_the_review() {
+        // Its fixed text says "Go back and choose again".
+        let (mut model, review) = refused(ErrorKind::ProviderNotChosen);
+        assert!(model.can_return_to_review());
+        assert_eq!(model.back(), Back::Stayed);
+        assert_eq!(*model.phase(), review);
+        assert!(!model.can_return_to_review());
+        // From the review, back goes on as always.
+        assert_eq!(model.back(), Back::Closed);
+    }
+
+    #[test]
+    fn other_failures_have_no_way_back_and_close() {
+        let (mut model, _) = refused(ErrorKind::TransactionChanged);
+        assert!(!model.can_return_to_review());
+        assert_eq!(model.back(), Back::Closed);
+    }
+
+    #[test]
+    fn a_way_back_is_forgotten_with_its_install() {
+        let (mut model, _) = refused(ErrorKind::ProviderNotChosen);
+        model.try_again().expect("a resolve");
+        assert!(!model.can_return_to_review());
+        let (mut model, _) = refused(ErrorKind::ProviderNotChosen);
+        model.cancel();
+        assert!(!model.can_return_to_review());
     }
 
     #[test]
