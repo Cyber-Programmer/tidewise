@@ -13,6 +13,7 @@
 //! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
+use tidewise_pacman::Dependency;
 
 use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
@@ -48,6 +49,11 @@ pub enum PacmanCommand {
     /// `pacman -Si --dbpath /run/tidewise-helper-lists/ -- repo/name ...`: the same, from the PRIVATE copy of the
     /// package lists (a read). The provider check of a system update, before anything is moved (golden rule 10).
     PrivatePackageDetails(Vec<PackageRef>),
+    /// `pacman -Ss --dbpath /run/tidewise-helper-lists/ -- ^name$`: which packages of the private copy are named so
+    /// or provide it (a read). The update's provider check counts them (decision 0009).
+    PrivateSearch(String),
+    /// `pacman -T -- name[<op>version]`: is this satisfied by what is installed? (a read; exit 127 means no).
+    DepTest(Dependency),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
     /// run: the difference shows what disappeared.
     ListInstalled,
@@ -115,6 +121,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             repo_and_name(packages)?,
             Names::Required,
         ),
+        PacmanCommand::PrivateSearch(_) | PacmanCommand::DepTest(_) => Err(ArgsRefused::NoTargets),
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
@@ -187,6 +194,7 @@ fn name_only(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tidewise_pacman::{Comparison, VersionRule};
 
     fn pkg(repo: &str, name: &str) -> PackageRef {
         PackageRef {
@@ -219,6 +227,8 @@ mod tests {
             PacmanCommand::MarkAsDeps(two()),
             PacmanCommand::PackageDetails(two()),
             PacmanCommand::PrivatePackageDetails(two()),
+            PacmanCommand::PrivateSearch("tidewise-virtual".to_string()),
+            PacmanCommand::DepTest(need("java-runtime", Some("17"))),
             PacmanCommand::ListInstalled,
         ]
     }
@@ -241,10 +251,12 @@ mod tests {
             PacmanCommand::PrivateDryRunUpdate(_) => 8,
             PacmanCommand::PackageDetails(_) => 9,
             PacmanCommand::PrivatePackageDetails(_) => 10,
+            PacmanCommand::PrivateSearch(_) => 11,
+            PacmanCommand::DepTest(_) => 12,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 10;
+    const LAST: usize = 12;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -386,6 +398,25 @@ mod tests {
                     "extra/jre-openjdk",
                 ]),
             ),
+            // The name is anchored and its regex characters are escaped: it matches itself only.
+            (
+                PacmanCommand::PrivateSearch("gtk+-x11.so".to_string()),
+                strings(&[
+                    "-Ss",
+                    "--dbpath",
+                    "/run/tidewise-helper-lists/",
+                    "--",
+                    "^gtk\\+-x11\\.so$",
+                ]),
+            ),
+            (
+                PacmanCommand::DepTest(need("java-runtime", Some("1:17"))),
+                strings(&["-T", "--", "java-runtime>=1:17"]),
+            ),
+            (
+                PacmanCommand::DepTest(need("sh", None)),
+                strings(&["-T", "--", "sh"]),
+            ),
             // The whole installed list: fixed argv, no names at all.
             (PacmanCommand::ListInstalled, strings(&["-Q"])),
         ];
@@ -409,6 +440,8 @@ mod tests {
             "-S",
             "-Su",
             "-Si",
+            "-Ss",
+            "-T",
             "-Q",
             "-D",
             "--print",
@@ -465,9 +498,47 @@ mod tests {
         }
     }
 
+    /// `name`, or `name>=version`.
+    fn need(name: &str, at_least: Option<&str>) -> Dependency {
+        Dependency {
+            name: name.to_string(),
+            rule: at_least.map(|version| VersionRule {
+                comparison: Comparison::GreaterOrEqual,
+                version: version.to_string(),
+            }),
+        }
+    }
+
+    #[test]
+    fn the_search_and_the_deptest_take_nothing_that_is_not_plain() {
+        for bad in ["-x", "a b", "", "a$(b)", "a|b", "*", "../x"] {
+            assert_eq!(
+                args(&PacmanCommand::PrivateSearch(bad.to_string())),
+                Err(ArgsRefused::BadName),
+                "{bad:?}"
+            );
+            assert_eq!(
+                args(&PacmanCommand::DepTest(need(bad, None))),
+                Err(ArgsRefused::BadName),
+                "{bad:?}"
+            );
+        }
+        for version in ["", "-1", "1 2", "1;2"] {
+            assert_eq!(
+                args(&PacmanCommand::DepTest(need("a", Some(version)))),
+                Err(ArgsRefused::BadName),
+                "{version:?}"
+            );
+        }
+    }
+
     /// The commands that read or write the private copy of the lists.
     fn may_name_a_dbpath(command: &PacmanCommand) -> bool {
-        may_name_a_logfile(command) || matches!(command, PacmanCommand::PrivatePackageDetails(_))
+        may_name_a_logfile(command)
+            || matches!(
+                command,
+                PacmanCommand::PrivatePackageDetails(_) | PacmanCommand::PrivateSearch(_)
+            )
     }
 
     /// The two that would otherwise write to pacman's log (`-Si` writes nothing there).
