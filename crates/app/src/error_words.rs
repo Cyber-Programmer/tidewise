@@ -79,7 +79,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     Doing::Searching => "pacman couldn't finish the search",
                     Doing::LookingUp => "pacman couldn't look up this package",
                     Doing::Resolving => "pacman couldn't work out what to install",
-                    Doing::CheckingUpdates => "pacman couldn't check for updates",
+                    Doing::CheckingUpdates => "Tidewise couldn't check for updates",
                 }
                 .to_string(),
                 body: "pacman stopped with an error before it finished. \
