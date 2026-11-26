@@ -425,6 +425,11 @@ mod tests {
             PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::PackageDetails(list.clone()),
             PacmanCommand::PrivatePackageDetails(list.clone()),
+            PacmanCommand::PrivateSearch("editor".to_string()),
+            PacmanCommand::DepTest(tidewise_pacman::Dependency {
+                name: "editor".to_string(),
+                rule: None,
+            }),
             PacmanCommand::ListInstalled,
         ] {
             assert_eq!(timeout_for(&command), Some(READ_TIMEOUT), "{command:?}");

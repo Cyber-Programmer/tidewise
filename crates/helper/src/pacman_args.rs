@@ -727,6 +727,7 @@ mod tests {
             PacmanCommand::RealUpdate(vec![package.clone()]),
             PacmanCommand::MarkAsDeps(vec![package.clone()]),
             PacmanCommand::PackageDetails(vec![package.clone()]),
+            PacmanCommand::PrivatePackageDetails(vec![package.clone()]),
         ]
     }
 
@@ -801,6 +802,7 @@ mod tests {
             PacmanCommand::RealInstall(vec![]),
             PacmanCommand::MarkAsDeps(vec![]),
             PacmanCommand::PackageDetails(vec![]),
+            PacmanCommand::PrivatePackageDetails(vec![]),
         ] {
             assert_eq!(args(&command), Err(ArgsRefused::NoTargets), "{command:?}");
         }
