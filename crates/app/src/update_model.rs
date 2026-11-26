@@ -6,7 +6,7 @@ use crate::helper_request::update_request;
 use crate::helper_run::JobEnd;
 use crate::job::{Job, JobFailure, JobTicket};
 use crate::update_check::ListsNote;
-use crate::update_words::{UpdateBlock, needs_restart};
+use crate::update_words::{CHECK_FAILED, UpdateBlock, needs_restart};
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{PacmanError, RefreshWhy, UpdateLookup, UpdatePlan};
 
@@ -135,9 +135,11 @@ impl UpdateModel {
                 self.lists_note = note;
                 reviewed(plan)
             }
-            Err(error) => Phase::Failed {
-                text: error_text(&error, Doing::CheckingUpdates),
-            },
+            Err(error) => {
+                let mut text = error_text(&error, Doing::CheckingUpdates);
+                text.title = CHECK_FAILED.to_string();
+                Phase::Failed { text }
+            }
         };
     }
 

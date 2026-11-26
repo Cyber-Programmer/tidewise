@@ -18,6 +18,7 @@ pub const NOTHING_REMOVED: &str = "Nothing will be removed.";
 /// Rule 13, partly: the address as text, the user reads it (no network of our own, rule 11).
 pub const NEWS_LINE: &str =
     "Before updating, check Arch news for steps you must do by hand: archlinux.org/news";
+pub const CHECK_FAILED: &str = "Tidewise couldn't check for updates";
 pub const UP_TO_DATE: &str = "Your system is up to date";
 pub const LISTS_CHANGED: &str =
     "The package lists changed since you looked. Tidewise got the new list.";
@@ -34,8 +35,9 @@ const KERNELS: [&str; 6] = [
     "linux-rt-lts",
 ];
 
-pub const HELD_TITLE: &str = "";
-pub const HELD_WARNING: &str = "";
+/// The box that lists what `IgnorePkg` holds back.
+pub const HELD_TITLE: &str = "Held back by your pacman.conf";
+pub const HELD_WARNING: &str = "A held package can stop other updates from working.";
 
 /// What a blocked card says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +48,51 @@ pub struct BlockWords {
     pub advice: String,
 }
 
-pub fn block_words(_block: &UpdateBlock) -> BlockWords {
+pub fn block_words(block: &UpdateBlock) -> BlockWords {
+    let (title, body, advice) = match block {
+        UpdateBlock::Held(HeldBlock { package, held }) => (
+            "An update needs a package you've held back",
+            format!(
+                "{package} needs a newer {held}, which is held by your pacman.conf. Nothing can be updated here \
+                 until you remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip \
+                 {package}."
+            ),
+            "",
+        ),
+        UpdateBlock::Conflict(conflicts) => {
+            let pairs: Vec<String> = conflicts
+                .iter()
+                .map(|c| {
+                    format!(
+                        "The new {} can't be installed next to your {}.",
+                        c.package, c.installed
+                    )
+                })
+                .collect();
+            (
+                "This update would need to remove a package",
+                format!(
+                    "{} Tidewise never removes packages during an update, so it stopped here. Nothing was changed.",
+                    pairs.join(" ")
+                ),
+                "Run sudo pacman -Syu in a terminal; pacman will ask before removing anything.",
+            )
+        }
+        UpdateBlock::Pick(picks) => (
+            "This update needs a choice Tidewise can't make yet",
+            // One name is enough to explain it; pacman asks about every one in the terminal.
+            format!(
+                "One of the updates now needs {}, and several packages can provide it. Tidewise doesn't ask that \
+                 question during updates yet, so it won't let pacman pick for you. Nothing was changed.",
+                picks.first().map_or("something", |p| p.dependency.as_str())
+            ),
+            "Run sudo pacman -Syu in a terminal; pacman will ask you which one.",
+        ),
+    };
     BlockWords {
-        title: String::new(),
-        body: String::new(),
-        advice: String::new(),
+        title: title.to_string(),
+        body,
+        advice: advice.to_string(),
     }
 }
 
@@ -60,7 +102,7 @@ pub fn refusal_body(kind: &ErrorKind) -> &'static str {
     match kind {
         ErrorKind::ProviderNotChosen => {
             "pacman would have chosen a package by itself, so nothing was changed. Run sudo pacman -Syu in a \
-             terminal to choose."
+             terminal; pacman will ask you which one."
         }
         other => other.plain_text(),
     }
@@ -75,18 +117,21 @@ pub fn replacement_line(replacement: &Replacement) -> String {
 
 pub fn held_line(held: &PendingUpdate) -> String {
     format!(
-        "{} {} → {} is held by your pacman.conf.",
+        "{} {} → {}, not updated.",
         held.name, held.installed_version, held.new_version
     )
 }
 
-/// The line under the button when the password window will count more packages than the button does: the helper is
+/// The line under the button when the password window may count more packages than the button does: the helper is
 /// sent, and counts, the whole list.
 pub fn password_count_line(plan: &UpdatePlan) -> Option<String> {
-    (!plan.skipped.is_empty()).then(|| {
+    let skipped: Vec<&str> = plan.skipped.iter().map(|p| p.name.as_str()).collect();
+    let count = skipped.len();
+    let noun = if count == 1 { "package" } else { "packages" };
+    (count > 0).then(|| {
         format!(
-            "The password window will count {} packages: it includes what Tidewise skips.",
-            plan.items.len()
+            "The password window may count {count} more {noun}: {}, which pacman lists but Tidewise skips.",
+            skipped.join(", ")
         )
     })
 }
