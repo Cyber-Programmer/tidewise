@@ -20,6 +20,7 @@
 
 mod error;
 mod partial;
+mod picks;
 mod print;
 mod private_lists;
 mod qi;
@@ -38,6 +39,7 @@ mod testing;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
+pub use picks::{ProviderPick, provider_picks};
 pub use print::{
     PrintFailure, PrintedPackage, UnsatisfiedDependency, parse_print, parse_print_failure,
 };
