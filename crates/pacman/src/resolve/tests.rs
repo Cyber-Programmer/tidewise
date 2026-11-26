@@ -1034,3 +1034,40 @@ fn a_requested_package_missing_with_nothing_to_explain_it_is_blocked_too() {
         }]
     );
 }
+
+// ---- one package for two names (6.4b) --------------------------------------------------------------------------
+
+#[test]
+fn a_package_that_provides_two_needed_names_is_named_once() {
+    // The helper refuses a request that chooses one package twice, so the plan must name it once.
+    let mut world = World::base();
+    world
+        .add("both", &["v1", "v2"], &[])
+        .add("needs-both", &[], &["v1", "v2"]);
+    let plan = plan(resolve_with(&want(&["needs-both"]), &world));
+    assert_eq!(plan.providers, [answer("v1", "both")]);
+    assert_eq!(
+        item_names(&plan),
+        [("both", Role::Provider), ("needs-both", Role::Target)]
+    );
+    // The dry runs never name it twice either.
+    assert!(
+        world.runs.borrow().iter().all(|(_, names)| names
+            .iter()
+            .filter(|n| *n == "test/both")
+            .count()
+            <= 1),
+        "{:?}",
+        world.runs.borrow()
+    );
+}
+
+#[test]
+fn an_answer_that_chose_a_target_is_not_named_as_a_provider_again() {
+    // `validate` refuses a chosen provider that is also a target.
+    let world = World::base();
+    let mut input = want(&["needs-virt", "prov-a"]);
+    input.provider_answers = vec![answer("virt", "prov-a")];
+    let plan = plan(resolve_with(&input, &world));
+    assert!(plan.providers.is_empty(), "{:?}", plan.providers);
+}
