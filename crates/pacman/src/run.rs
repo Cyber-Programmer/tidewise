@@ -14,9 +14,9 @@ use std::process::{Command, Output, Stdio};
 use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
-    DetailsLookup, GroupMember, InstalledPackage, PackageRef, PacmanError, ParseError,
-    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, parse_qi, parse_qu, parse_si,
-    parse_ss,
+    DetailsLookup, GroupMember, HeldBlock, InstalledPackage, PackageRef, PacmanError, ParseError,
+    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdatePlan, parse_qi,
+    parse_qu, parse_si, parse_ss,
 };
 use crate::{parse_print, parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
@@ -474,6 +474,30 @@ fn group_from_output(
     check_exit(output)?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(Some(parse_sg(&stdout)?))
+}
+
+/// What "Update system" shows: the plan, or why pacman cannot make one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateLookup {
+    Plan(Box<UpdatePlan>),
+    /// A package held by `IgnorePkg` would have to be upgraded too: nothing can be updated.
+    HeldBlock(HeldBlock),
+}
+
+/// The review of a full update against the lists in `dbpath` (`None`: the real ones). Read-only, no root: `-Qu`,
+/// `-Su --print`, `-Si` of what it lists and `-Qi`. Never `-y`. Blocks until pacman finishes (no timeout yet).
+pub fn update_lookup(dbpath: Option<&Path>) -> Result<UpdateLookup, PacmanError> {
+    update_lookup_with(&|args| {
+        let args = with_dbpath(dbpath, args.to_vec());
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        run(Path::new(PACMAN), &args)
+    })
+}
+
+fn update_lookup_with(
+    _run: &dyn Fn(&[String]) -> Result<Output, PacmanError>,
+) -> Result<UpdateLookup, PacmanError> {
+    Ok(UpdateLookup::Plan(Box::default()))
 }
 
 /// The resolver's view of pacman. `run` starts the program with these arguments (a function, so a test can record
@@ -2010,5 +2034,137 @@ mod real_sync_tests {
         }
         // Every configured repo is either found (then `newest` is set) or listed as missing.
         assert!(lists.newest.is_some() || !lists.missing.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod update_lookup_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    macro_rules! saved {
+        ($case:literal, $kind:literal) => {
+            include_str!(concat!(
+                "../../../tests/fixtures/pacman/container/update-",
+                $case,
+                "-",
+                $kind,
+                ".txt"
+            ))
+        };
+    }
+
+    fn output(code: i32, stdout: &str, stderr: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    /// Answers by the first argument, and records every command line.
+    fn lookup(answers: [Output; 4]) -> (Result<UpdateLookup, PacmanError>, Vec<String>) {
+        let seen = RefCell::new(Vec::new());
+        let result = update_lookup_with(&|args| {
+            seen.borrow_mut().push(args.join(" "));
+            let [qu, print, si, qi] = &answers;
+            Ok(match args.first().map(String::as_str) {
+                Some("-Qu") => qu.clone(),
+                Some("-Su") => print.clone(),
+                Some("-Si") => si.clone(),
+                Some("-Qi") => qi.clone(),
+                other => panic!("unexpected command {other:?}"),
+            })
+        });
+        (result, seen.into_inner())
+    }
+
+    #[test]
+    fn the_review_reads_qu_the_dry_run_si_of_the_list_and_qi() {
+        let (result, seen) = lookup([
+            output(0, saved!("provider", "qu.stdout"), ""),
+            output(0, saved!("provider", "print.stdout"), ""),
+            output(0, saved!("provider", "si.stdout"), ""),
+            output(0, saved!("provider", "qi.stdout"), ""),
+        ]);
+        assert_eq!(
+            seen,
+            [
+                "-Qu",
+                "-Su --print --print-format %r/%n %v %s",
+                "-Si -- tidewise-test/tidewise-dummy-upd tidewise-test/tidewise-dummy-prov-a \
+                 tidewise-test/tidewise-dummy-upd-virt",
+                "-Qi",
+            ]
+        );
+        let Ok(UpdateLookup::Plan(plan)) = result else {
+            panic!("{result:?}");
+        };
+        assert_eq!(plan.items.len(), 3);
+        // Golden rule 4: nothing here refreshes a package list.
+        assert!(
+            seen.iter()
+                .all(|line| !line.contains("-y") && !line.contains("-Sy"))
+        );
+    }
+
+    #[test]
+    fn an_empty_dry_run_asks_for_no_details() {
+        // `pacman -Si` with no names would print every package.
+        let (result, seen) = lookup([
+            output(1, "", ""),
+            output(0, "", ""),
+            output(1, "", "never asked"),
+            output(0, saved!("conflict", "qi.stdout"), ""),
+        ]);
+        let Ok(UpdateLookup::Plan(plan)) = result else {
+            panic!("{result:?}");
+        };
+        assert!(plan.items.is_empty());
+        assert!(!seen.iter().any(|line| line.starts_with("-Si")), "{seen:?}");
+    }
+
+    #[test]
+    fn a_held_block_is_told_apart_from_any_other_failed_dry_run() {
+        let (held, _) = lookup([
+            output(0, saved!("needs-held", "qu.stdout"), ""),
+            output(
+                1,
+                saved!("needs-held", "print.stdout"),
+                saved!("needs-held", "print.stderr"),
+            ),
+            output(0, "", ""),
+            output(0, "", ""),
+        ]);
+        assert!(
+            matches!(held, Ok(UpdateLookup::HeldBlock(ref b)) if b.held == "tidewise-dummy-upd"),
+            "{held:?}"
+        );
+        let (other, _) = lookup([
+            output(1, "", ""),
+            output(1, "", "error: something else\n"),
+            output(0, "", ""),
+            output(0, "", ""),
+        ]);
+        assert!(
+            matches!(other, Err(PacmanError::Failed { ref stderr, .. }) if stderr.contains("something else")),
+            "{other:?}"
+        );
+    }
+
+    #[test]
+    fn a_qu_that_failed_with_an_error_line_is_not_no_updates() {
+        let (result, _) = lookup([
+            output(1, "", "error: failed to open database\n"),
+            output(0, "", ""),
+            output(0, "", ""),
+            output(0, "", ""),
+        ]);
+        assert!(
+            matches!(result, Err(PacmanError::Failed { .. })),
+            "{result:?}"
+        );
     }
 }
