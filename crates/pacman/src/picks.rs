@@ -14,17 +14,54 @@ pub struct ProviderPick {
     pub provider: PackageRef,
 }
 
+/// Shared libraries are provided by `soname` (`libz.so=1-64`): every package that links one would be a "provider
+/// choice" otherwise. They are never a choice the user can make.
+fn is_soname(name: &str) -> bool {
+    name.ends_with(".so") || name.contains(".so.")
+}
+
 /// The names the dry run `list` satisfied through `Provides` with a package that was not `asked` for and is not
 /// installed. A name in `answered` is skipped. The last provider in the list is reported: it is the one pacman took
 /// (what it needs comes before it).
 pub fn provider_picks<'a>(
-    _list: &[PackageRef],
-    _details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
-    _asked: &[PackageRef],
-    _answered: &[&str],
-    _is_installed: impl Fn(&str) -> bool,
+    list: &[PackageRef],
+    details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
+    asked: &[PackageRef],
+    answered: &[&str],
+    is_installed: impl Fn(&str) -> bool,
 ) -> Vec<ProviderPick> {
-    Vec::new()
+    let provides = |item: &PackageRef, name: &str| {
+        details_of(item).is_some_and(|d| d.provides.iter().any(|p| p.name == name))
+    };
+    let mut found: Vec<ProviderPick> = Vec::new();
+    for needer in list {
+        let Some(needer_details) = details_of(needer) else {
+            continue;
+        };
+        for dependency in &needer_details.depends_on {
+            let name = &dependency.name;
+            if is_soname(name)
+                || answered.contains(&name.as_str())
+                || found.iter().any(|pick| pick.dependency == *name)
+            {
+                continue;
+            }
+            let provider = list.iter().rev().find(|p| {
+                p.name != needer.name
+                    && p.name != *name
+                    && !is_installed(&p.name)
+                    && !asked.contains(p)
+                    && provides(p, name)
+            });
+            if let Some(provider) = provider {
+                found.push(ProviderPick {
+                    dependency: name.clone(),
+                    provider: provider.clone(),
+                });
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]
