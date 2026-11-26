@@ -8,6 +8,10 @@
 //! see its docs). The worker puts its answer in a mailbox (a channel) and asks the UI thread, through a weak window
 //! handle, to fire `resolve-done`; the UI thread then gives the model every answer in the mailbox.
 //!
+//! The helper job (WBS 6.4b) runs on a worker thread of its own for as long as the password window and pacman take.
+//! It puts each event, and then the end, in a second mailbox and fires `job-event`. Closing the window ends the app,
+//! not the helper.
+//!
 //! One timer: after 10 s of waiting the card adds "This is taking longer than usual." (pacman is not stopped).
 //! pacman only reads here (`-Qu`, and the resolver's `--print`, `-Si`, `-Ss`, `-Sg`, `-Qi`), except the refresh of the
 //! app's own private copy of the package lists (`refresh_private_lists`).
@@ -18,20 +22,25 @@ use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
+use tidewise_app::helper_run::{JobEnd, run_install};
+use tidewise_app::install_model::{Back, InstallModel, JobTicket, Phase, Ticket, WorkAnswer};
 use tidewise_app::install_view::{
-    CardKind, FocusTarget, InstallView, InstalledRow, OptionView, ReviewRow, TileView, install_view,
+    CardKind, FocusTarget, InstallView, InstalledRow, OptionView, ReviewRow, StageState, StageView,
+    TileView, install_view,
 };
 use tidewise_app::list_scroll::{
     ScrollKey, content_y_to_offset, moved_selection, offset_to_content_y, scroll_by_key,
     scroll_to_show,
 };
 use tidewise_app::update_check::{ListsNote, check_for_updates};
+use tidewise_helper_protocol::Event;
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
+use crate::apps_window::Apps;
 use crate::{
-    ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstalledRowData, MainWindow,
-    NavBridge, ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData,
+    ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
+    InstallStageState, InstalledRowData, MainWindow, NavBridge, ReviewKey, ReviewRowData,
+    Screen as NavScreen, Theme, TileData,
 };
 
 /// After this long the card adds "This is taking longer than usual."
@@ -44,6 +53,14 @@ type Answer = (
     Result<WorkAnswer, PacmanError>,
 );
 
+/// What the helper's worker thread has to say about job `.0`.
+type JobMessage = (u64, JobNews);
+
+enum JobNews {
+    Event(Event),
+    Ended(JobEnd),
+}
+
 /// Everything the install screens own. Lives on the UI thread only.
 struct Screen {
     window: slint::Weak<MainWindow>,
@@ -53,6 +70,8 @@ struct Screen {
     options: Rc<VecModel<ChoiceOption>>,
     installed_rows: Rc<VecModel<InstalledRowData>>,
     mailbox: (mpsc::Sender<Answer>, mpsc::Receiver<Answer>),
+    jobs: (mpsc::Sender<JobMessage>, mpsc::Receiver<JobMessage>),
+    apps: Apps,
     slow_timer: Timer,
     /// The card, and the number of its last focus move, as last painted: a new card starts its list at the top.
     shown_kind: CardKind,
@@ -68,7 +87,7 @@ pub struct Install {
 }
 
 /// Connects the window to the model.
-pub fn start(window: &MainWindow) -> Install {
+pub fn start(window: &MainWindow, apps: Apps) -> Install {
     let options = Rc::new(VecModel::default());
     let installed_rows = Rc::new(VecModel::default());
     let bridge = window.global::<InstallBridge>();
@@ -82,6 +101,8 @@ pub fn start(window: &MainWindow) -> Install {
         options,
         installed_rows,
         mailbox: mpsc::channel(),
+        jobs: mpsc::channel(),
+        apps,
         slow_timer: Timer::default(),
         shown_kind: CardKind::Closed,
         shown_serial: 0,
@@ -173,6 +194,8 @@ pub fn start(window: &MainWindow) -> Install {
     });
     let handle = screen.clone();
     bridge.on_resolve_done(move || resolve_done(&handle));
+    let handle = screen.clone();
+    bridge.on_job_event(move || job_news(&handle));
 
     repaint(&screen);
     Install { screen }
@@ -203,19 +226,105 @@ impl Install {
     }
 }
 
-/// The main button of the card: the next question, "Install … instead" or "Try again", by what is shown.
+/// The main button of the card: the next question, "Install … instead", "Try again", "Install", "Check again" or
+/// "Show in Apps", by what is shown.
 fn primary(screen: &Rc<RefCell<Screen>>) {
+    let shown = match screen.borrow().model.phase() {
+        Phase::Ready(_) => Shown::Review,
+        Phase::Installed { .. } => Shown::Installed,
+        _ => Shown::Other,
+    };
+    match shown {
+        Shown::Review => {
+            let job = screen.borrow_mut().model.start_install();
+            if let Some(job) = job {
+                spawn_job(screen, job);
+            }
+            repaint(screen);
+            return;
+        }
+        Shown::Installed => {
+            let (apps, name) = {
+                let state = screen.borrow();
+                let name = state
+                    .model
+                    .request()
+                    .targets
+                    .first()
+                    .map(|t| t.name.clone());
+                (state.apps.clone(), name)
+            };
+            screen.borrow_mut().model.cancel();
+            repaint(screen);
+            if let Some(name) = name {
+                apps.show_package(&name);
+            }
+            return;
+        }
+        Shown::Other => {}
+    }
     let ticket = {
         let model = &mut screen.borrow_mut().model;
         match model.phase() {
             Phase::Asking => model.go_on(),
             Phase::Blocked(_) => model.install_instead(),
-            Phase::Failed { .. } => model.try_again(),
+            Phase::Failed { .. } | Phase::InstallFailed(_) => model.try_again(),
             _ => None,
         }
     };
     if let Some(ticket) = ticket {
         spawn_worker(screen, ticket);
+    }
+    repaint(screen);
+}
+
+/// Which kind of main button was pressed.
+enum Shown {
+    Review,
+    Installed,
+    Other,
+}
+
+/// Runs the helper on its own thread. `run_install` blocks until the helper is gone.
+fn spawn_job(screen: &Rc<RefCell<Screen>>, job: JobTicket) {
+    let (sender, window) = {
+        let state = screen.borrow();
+        (state.jobs.0.clone(), state.window.clone())
+    };
+    std::thread::spawn(move || {
+        let number = job.number;
+        let tell = |news: JobNews| {
+            // If the window closed meanwhile, nobody reads this and that is fine.
+            let _ = sender.send((number, news));
+            let window = window.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(window) = window.upgrade() {
+                    window.global::<InstallBridge>().invoke_job_event();
+                }
+            });
+        };
+        let end = run_install(job.request, |event| tell(JobNews::Event(event)));
+        tell(JobNews::Ended(end));
+    });
+}
+
+/// The helper has said something: hand everything in the mailbox to the model, then paint once.
+fn job_news(screen: &Rc<RefCell<Screen>>) {
+    let news: Vec<JobMessage> = {
+        let state = screen.borrow();
+        state.jobs.1.try_iter().collect()
+    };
+    if news.is_empty() {
+        return;
+    }
+    {
+        let model = &mut screen.borrow_mut().model;
+        for (number, news) in news {
+            match news {
+                JobNews::Event(event) => model.job_event(number, event),
+                JobNews::Ended(end) => model.job_ended(number, end),
+            }
+        }
     }
     repaint(screen);
 }
@@ -399,7 +508,8 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
         CardKind::Differs => InstallCardKind::Differs,
         CardKind::Alert => InstallCardKind::Alert,
         CardKind::Review => InstallCardKind::Review,
-        CardKind::Progress | CardKind::Done => InstallCardKind::Working,
+        CardKind::Progress => InstallCardKind::Progress,
+        CardKind::Done => InstallCardKind::Done,
     });
     bridge.set_step_text(view.step_text.as_str().into());
     bridge.set_dots(ModelRc::new(VecModel::from(view.dots.clone())));
@@ -446,6 +556,11 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
         view.rows.iter().map(review_row).collect::<Vec<_>>(),
     )));
     bridge.set_primary_note(view.primary_note.as_str().into());
+    bridge.set_stages(ModelRc::new(VecModel::from(
+        view.stages.iter().map(stage).collect::<Vec<_>>(),
+    )));
+    bridge.set_percent(i32::from(view.percent));
+    bridge.set_percent_text(view.percent_text.as_str().into());
     bridge.set_focus(match view.focus {
         FocusTarget::List => InstallFocus::List,
         FocusTarget::Primary => InstallFocus::Primary,
@@ -488,6 +603,17 @@ fn installed_row(row: &InstalledRow) -> InstalledRowData {
     InstalledRowData {
         name: row.name.as_str().into(),
         version: row.version.as_str().into(),
+    }
+}
+
+fn stage(stage: &StageView) -> InstallStageData {
+    InstallStageData {
+        label: stage.label.as_str().into(),
+        state: match stage.state {
+            StageState::Done => InstallStageState::Done,
+            StageState::Now => InstallStageState::Now,
+            StageState::Later => InstallStageState::Later,
+        },
     }
 }
 

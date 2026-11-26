@@ -13,6 +13,20 @@ export enum InstallCardKind {
     differs,
     alert,
     review,
+    progress,
+    done,
+}
+
+// Where one stage of an install stands.
+export enum InstallStageState {
+    done,
+    now,
+    later,
+}
+
+export struct InstallStageData {
+    label: string,
+    state: InstallStageState,
 }
 
 // Which element takes the keyboard focus when a card appears.
@@ -93,6 +107,10 @@ export global InstallBridge {
     in property <[string]> technical;
     in property <[TileData]> tiles;
     in property <[ReviewRowData]> review-rows;
+    // The progress card: its stages, how far (0 to 100), and the same as words ("" before the helper says anything).
+    in property <[InstallStageData]> stages;
+    in property <int> percent;
+    in property <string> percent-text;
     // Under the buttons: why the primary one is off.
     in property <string> primary-note;
     // Where the list in the card is scrolled to (content-y) and how much of it shows. Rust keeps the focused or
@@ -126,4 +144,6 @@ export global InstallBridge {
     callback cancel();
     // Fired on the UI thread when the worker thread has put its answer in its mailbox.
     callback resolve-done();
+    // The same for the helper job: an event or its end is waiting.
+    callback job-event();
 }

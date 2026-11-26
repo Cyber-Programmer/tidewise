@@ -4,6 +4,7 @@ import { TwButton } from "../widgets/button.slint";
 import { RadioList, CheckRow } from "../widgets/choice-list.slint";
 import { InstallBridge, InstallCardKind, InstallFocus } from "bridge.slint";
 import { ReviewList, ReviewTile } from "review-list.slint";
+import { InstallProgress } from "progress-card.slint";
 
 // Select all / Select none.
 component SelectButtons inherits HorizontalLayout {
@@ -155,6 +156,30 @@ export component InstallCard inherits Rectangle {
                 }
             }
 
+            if InstallBridge.kind == InstallCardKind.done: VerticalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: Theme.accent;
+                    // Drawn, not typed: the app's fonts have no good check mark.
+                    Path {
+                        width: 16px;
+                        height: 16px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M5 12l5 5 9-10";
+                        stroke: Theme.on-accent;
+                        stroke-width: 2.4px;
+                        stroke-line-cap: round;
+                        fill: transparent;
+                    }
+                }
+            }
+
             Text {
                 text: InstallBridge.title-before;
                 color: Theme.text;
@@ -182,6 +207,14 @@ export component InstallCard inherits Rectangle {
                 font-weight: Theme.weight-semibold;
                 vertical-alignment: center;
             }
+
+            if InstallBridge.percent-text != "": Text {
+                text: InstallBridge.percent-text;
+                color: Theme.text-2;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-body;
+                vertical-alignment: center;
+            }
         }
 
         if InstallBridge.body != "": Text {
@@ -190,6 +223,10 @@ export component InstallCard inherits Rectangle {
             color: Theme.text-2;
             font-size: Theme.size-body;
             wrap: word-wrap;
+        }
+
+        if InstallBridge.kind == InstallCardKind.progress: InstallProgress {
+            vertical-stretch: 0;
         }
 
         // The review: three figures, then the list.

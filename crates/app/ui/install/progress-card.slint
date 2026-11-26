@@ -1,0 +1,52 @@
+import { Theme } from "../theme.slint";
+import { InstallBridge, InstallStageState } from "bridge.slint";
+
+// The bar and the four stages of a running install. Words and numbers come from Rust.
+export component InstallProgress inherits VerticalLayout {
+    spacing: Theme.space-m;
+
+    Rectangle {
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.control-border;
+        accessible-role: progress-indicator;
+        accessible-label: "Install progress";
+        accessible-value: InstallBridge.percent-text;
+        accessible-value-minimum: 0;
+        accessible-value-maximum: 100;
+        Rectangle {
+            x: 0px;
+            width: parent.width * InstallBridge.percent / 100;
+            height: parent.height;
+            border-radius: 4px;
+            background: Theme.accent;
+        }
+    }
+
+    for stage in InstallBridge.stages: HorizontalLayout {
+        spacing: Theme.space-m;
+        Rectangle {
+            width: 12px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 6px;
+            background: stage.state == InstallStageState.done ? Theme.accent : stage.state == InstallStageState.now ? Theme.text-2 : Theme.control-border;
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: stage.label;
+            color: stage.state == InstallStageState.later ? Theme.text-3 : Theme.text;
+            font-size: Theme.size-body;
+            accessible-role: text;
+            accessible-label: stage.label + (stage.state == InstallStageState.done ? ", done" : stage.state == InstallStageState.now ? ", now" : ", later");
+        }
+
+        // The same in words, so colour is never the only sign.
+        Text {
+            text: stage.state == InstallStageState.done ? "done" : stage.state == InstallStageState.now ? "now" : "";
+            color: Theme.text-2;
+            font-size: Theme.size-label;
+        }
+    }
+}

@@ -22,7 +22,10 @@ use tidewise_app::list_scroll::{
 };
 use tidewise_pacman::{InstalledPackage, PacmanError};
 
-use crate::{AppsBridge, BodyKind, DetailsData, ListKey, MainWindow, PackageRow, Theme};
+use crate::{
+    AppsBridge, BodyKind, DetailsData, ListKey, MainWindow, NavBridge, PackageRow,
+    Screen as NavScreen, Theme,
+};
 
 /// After this long the screen adds "This is taking longer than usual." (pacman is not stopped).
 const SLOW_AFTER: Duration = Duration::from_secs(10);
@@ -45,8 +48,33 @@ struct Screen {
     slow_timer: Timer,
 }
 
+/// How other screens show something in Apps.
+#[derive(Clone)]
+pub struct Apps {
+    screen: Rc<RefCell<Screen>>,
+}
+
+impl Apps {
+    /// "Show in Apps": goes to the Apps screen, reloads the list and selects `name`.
+    pub fn show_package(&self, name: &str) {
+        let load = {
+            let mut state = self.screen.borrow_mut();
+            state.typed_search.clear();
+            state.model.show(name)
+        };
+        if let Some(window) = self.screen.borrow().window.upgrade() {
+            window.global::<AppsBridge>().set_search_text("".into());
+            window.global::<NavBridge>().set_current(NavScreen::Apps);
+        }
+        if load {
+            spawn_load(&self.screen);
+        }
+        repaint(&self.screen);
+    }
+}
+
 /// Connects the window to the model and starts the first load.
-pub fn start(window: &MainWindow) {
+pub fn start(window: &MainWindow) -> Apps {
     let rows = Rc::new(VecModel::default());
     let bridge = window.global::<AppsBridge>();
     bridge.set_rows(ModelRc::from(rows.clone()));
@@ -112,13 +140,18 @@ pub fn start(window: &MainWindow) {
     bridge.on_load_done(move || load_done(&handle));
 
     begin_load(&screen);
+    Apps { screen }
 }
 
 /// Starts a load unless one is already running ("Try again" pressed twice must not start two).
 fn begin_load(screen: &Rc<RefCell<Screen>>) {
-    if !screen.borrow_mut().model.begin_reload() {
-        return;
+    if screen.borrow_mut().model.begin_reload() {
+        spawn_load(screen);
     }
+}
+
+/// The worker thread of a load the model has already begun.
+fn spawn_load(screen: &Rc<RefCell<Screen>>) {
     let (sender, receiver) = mpsc::channel();
     let window = screen.borrow().window.clone();
     std::thread::spawn(move || {
