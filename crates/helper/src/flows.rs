@@ -8,7 +8,8 @@
 //!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
 //!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> (plain
-//!            update only) no provider pick: `-Q`, and `-Si` on the private copy if anything is new -> the
+//!            update only) no provider pick: `-Q`, `-Si` on the private copy if anything is new, and for a pick
+//!            `-Ss`/`-Si` there and `-T` (decision 0009) -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
 //!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
@@ -25,8 +26,8 @@ use tidewise_helper_protocol::{
     TransactionItem,
 };
 use tidewise_pacman::{
-    InstallDecision, PackageDetails, PackageRef as ListedRef, install_decision, parse_qu, parse_si,
-    provider_picks,
+    Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef, UpdateFacts,
+    dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks, update_picks,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -276,9 +277,92 @@ fn check_update_providers(
         |name| installed.contains(name),
     );
     if picks.is_empty() {
+        return Ok(());
+    }
+    // An update cannot name a provider: let through what pacman has nothing to ask about (decision 0009).
+    let listed_details: Vec<&PackageDetails> =
+        listed.iter().filter_map(|item| details.get(item)).collect();
+    let left = update_picks(
+        picks,
+        &listed_details,
+        |name| installed.contains(name),
+        &mut HelperFacts { runner },
+    )?;
+    if left.is_empty() {
         Ok(())
     } else {
         Err(ErrorKind::ProviderNotChosen)
+    }
+}
+
+/// The reads behind `update_picks`, all from the private copy except `-T`, which asks about installed packages.
+struct HelperFacts<'a> {
+    runner: &'a mut dyn Runner,
+}
+
+impl UpdateFacts for HelperFacts<'_> {
+    type Error = ErrorKind;
+
+    fn providers(&mut self, name: &str) -> Result<Vec<ListedRef>, ErrorKind> {
+        let unreadable = || failed("pacman's search could not be read.");
+        let output = self
+            .runner
+            .run(&PacmanCommand::PrivateSearch(name.to_string()), &mut |_| {})
+            .map_err(runner_failure)?;
+        if output.truncated {
+            return Err(unreadable());
+        }
+        // `-Ss` exits 1 and says nothing when nothing matches.
+        if output.exit == Some(1) && output.stdout.is_empty() && output.stderr.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        if output.timed_out || output.exit != Some(0) {
+            return Err(failure_of(&output));
+        }
+        let found: Vec<PackageRef> = parse_ss(&output.stdout)
+            .map_err(|_| unreadable())?
+            .into_iter()
+            .map(|result| PackageRef {
+                repo: result.repo,
+                name: result.name,
+            })
+            .collect();
+        if found.is_empty() {
+            return Ok(Vec::new());
+        }
+        // `-Ss` also matches names and descriptions: only what `-Si` says provides the name counts.
+        let output = self
+            .runner
+            .run(&PacmanCommand::PrivatePackageDetails(found), &mut |_| {})
+            .map_err(runner_failure)?;
+        if output.truncated {
+            return Err(unreadable());
+        }
+        if output.timed_out || output.exit != Some(0) {
+            return Err(failure_of(&output));
+        }
+        Ok(parse_si(&output.stdout)
+            .map_err(|_| unreadable())?
+            .into_iter()
+            .filter(|d| d.provides.iter().any(|p| p.name == name))
+            .map(|d| listed_ref(&d.repo, &d.name))
+            .collect())
+    }
+
+    fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, ErrorKind> {
+        if dependency_text(dependency).is_none() {
+            return Ok(false);
+        }
+        let output = self
+            .runner
+            .run(&PacmanCommand::DepTest(dependency.clone()), &mut |_| {})
+            .map_err(runner_failure)?;
+        match output.exit {
+            Some(0) if !output.timed_out => Ok(true),
+            // 127: `-T` printed what is not satisfied.
+            Some(127) if !output.timed_out => Ok(false),
+            _ => Err(failure_of(&output)),
+        }
     }
 }
 
