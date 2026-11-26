@@ -1554,3 +1554,28 @@ Open, for you:
 Rules bent: (1) no red step for the container measurements and fixtures. (2) One `update_plan` test expectation was
 wrong in its red commit and corrected in the green one. (3) Rule 13 only partly met (decision 0009). (4) No WBS sheet
 update (as asked).
+
+## 2026-11-26 — 6.5 Update system: the board's words, the update rule, the window
+Done:
+- **Words** are yours (`80ca5a0`). The board could not be read (network error), so the layout is the plan's.
+- **Rule 10 for updates** (your decision, decision 0009, threat model 45): a lone provider, and a name an installed
+  package keeps providing, are not picks. Shared `update_picks`; helper reads `-Ss` (private) and `-T` (your OKs).
+  Installs unchanged.
+- **Differs from your instruction:** `-T` alone is not trusted. Measured: when the installed provider's new version
+  drops the name, `-T` says satisfied and pacman still asks. An installed package must also be among the new providers.
+- **Window** (`d16670a`): Updates sidebar entry, the cards, the stale install card's "Update system" button.
+- **Seen:** only off-screen software renders of start-less cards (review, conflict, progress, done) from a throwaway
+  example; the window code has not run against pacman or the helper.
+- **Checks** on `6e5de92`: `cargo test --all` 1282 passed, 0 failed, 150 ignored. fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and `fuzz build`: exit 0. Fuzzing itself not run.
+- **Container:** full run on `6e5de92`: 1426 passed, 0 failed (`pacman_update` 15, `helper_jobs` 37; counts include
+  the package build's own tests). One earlier filtered run failed because `HEAD` was a red commit at the time.
+Next: adversarial review of the helper changes, fuzzing, manual checklist on the installed package, PR summary.
+Blockers: none. For v0.1: threat model 40 (6.6).
+Open, for you:
+- At the smallest window with a replacement and a held package, the package rows start below the fold.
+- Draft words (not yours): "Review the update", "Refreshing package lists…" body, the Start card, failure and progress
+  titles, the stale card's hint.
+Rules bent: (1) no automated test for the window glue or layout. (2) No red step for the container tests. (3) Test
+mistakes corrected in green commits: a fake `-Si` answered unasked records; doubled backslashes in view tests. (4) One
+older focus-test expectation changed with the stale card's button. (5) No WBS sheet update (as asked).
