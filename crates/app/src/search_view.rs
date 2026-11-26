@@ -970,6 +970,56 @@ mod tests {
         assert_eq!(view(&gone).details.unwrap().install_label, "");
     }
 
+    // ---- after an install (WBS 6.4b) ----------------------------------------------------------------------
+
+    /// vlc as pacman reports it once it is installed.
+    fn installed_vlc() -> SearchResult {
+        SearchResult {
+            installed_version: Some("1.0-1".to_string()),
+            ..extra("vlc", "Video player")
+        }
+    }
+
+    #[test]
+    fn after_an_install_search_asks_again_and_no_longer_offers_install() {
+        let mut model = answered("vlc", vec![extra("vlc", "Video player")]);
+        give_details(&mut model, details_of("vlc"));
+        assert_eq!(view(&model).details.unwrap().install_label, "Install vlc");
+
+        let ticket = model.refresh().expect("a search to run");
+        assert_eq!(ticket.query, "vlc");
+        // The rows stay on screen meanwhile.
+        assert_eq!(view(&model).rows.len(), 1);
+        model.search_done(ticket.number, Ok(vec![installed_vlc()]));
+
+        let after = view(&model);
+        assert!(after.rows[0].installed);
+        let details = after.details.unwrap();
+        assert_eq!(details.install_label, "");
+        assert_eq!(details.installed_note, "Already installed");
+    }
+
+    #[test]
+    fn a_search_started_before_the_install_ended_is_run_again() {
+        let mut model = with_lists();
+        model.set_query("vlc");
+        let before = model.start_search().unwrap();
+        // It is still running: the new one waits, and the old answer is not used.
+        assert_eq!(model.refresh(), None);
+        let again = model
+            .search_done(before.number, Ok(vec![extra("vlc", "Video player")]))
+            .expect("the waiting search");
+        assert_ne!(again.number, before.number);
+        assert!(view(&model).rows.is_empty());
+        model.search_done(again.number, Ok(vec![installed_vlc()]));
+        assert!(view(&model).rows[0].installed);
+    }
+
+    #[test]
+    fn with_nothing_typed_there_is_nothing_to_ask_again() {
+        assert_eq!(with_lists().refresh(), None);
+    }
+
     #[test]
     fn found_details_show_sizes_needs_and_pacmans_own_words() {
         let mut model = answered("vlc", vec![extra("vlc", "Video player")]);
