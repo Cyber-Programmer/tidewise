@@ -659,6 +659,55 @@ fn an_update_that_brings_a_plain_new_dependency_passes_the_provider_check() {
     );
 }
 
+/// Sets up an installed system and a newer repository, and runs the helper on what the dry run lists.
+fn update_of(installed: &[&str], later: &[&str]) -> Ran {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(installed);
+    for name in later {
+        add_newer(&format!("tidewise-dummy-{name}-2.0-1-any.pkg.tar.zst"));
+    }
+    let (request, summary) = update_request(&confirmed("-Su", &[]));
+    run(&summary, request.as_bytes())
+}
+
+/// Decision 0009: one package can provide the name, so pacman has nothing to ask.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_with_a_lone_provider_goes_through() {
+    let ran = update_of(&["tidewise-dummy-upd-single"], &["upd-single"]);
+    assert_ok(&ran);
+    assert!(installed_version("tidewise-dummy-one-prov").is_some());
+}
+
+/// Decision 0009: an installed package already provides the name, although another listed one provides it too.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_whose_need_an_installed_package_meets_goes_through() {
+    let ran = update_of(
+        &["tidewise-dummy-upd-both", "tidewise-dummy-moving-b"],
+        &["upd-both"],
+    );
+    assert_ok(&ran);
+    assert!(installed_version("tidewise-dummy-moving-a").is_some());
+    assert!(installed_version("tidewise-dummy-moving-b").is_some());
+}
+
+/// The installed provider's new version drops the name: pacman would ask, so the helper refuses.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_whose_installed_provider_drops_the_name_is_refused() {
+    let ran = update_of(
+        &["tidewise-dummy-upd-drop", "tidewise-dummy-upd-moving"],
+        &["upd-drop", "upd-moving"],
+    );
+    finished_with(&ran, "provider_not_chosen");
+    assert_eq!(
+        installed_version("tidewise-dummy-upd-drop").as_deref(),
+        Some("1.0-1")
+    );
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_changed_update_list_leaves_the_real_sync_databases_untouched() {

@@ -24,6 +24,10 @@ const NEW: &str = "tidewise-dummy-new-1.0-1-any.pkg.tar.zst";
 const UPD_VIRT: &str = "tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst";
 const NEEDS_UPD: &str = "tidewise-dummy-needs-upd-2.0-1-any.pkg.tar.zst";
 const UPD_CONF: &str = "tidewise-dummy-upd-conf-2.0-1-any.pkg.tar.zst";
+const UPD_SINGLE: &str = "tidewise-dummy-upd-single-2.0-1-any.pkg.tar.zst";
+const UPD_DROP: &str = "tidewise-dummy-upd-drop-2.0-1-any.pkg.tar.zst";
+const UPD_MOVING: &str = "tidewise-dummy-upd-moving-2.0-1-any.pkg.tar.zst";
+const UPD_BOTH: &str = "tidewise-dummy-upd-both-2.0-1-any.pkg.tar.zst";
 const NEW_DEP: &str = "tidewise-dummy-new-dep-1.0-1-any.pkg.tar.zst";
 
 fn dry_run() -> Output {
@@ -302,6 +306,135 @@ fn a_conflict_in_an_update_is_not_in_the_dry_run_and_aborts_everything() {
         Some("1.0-1")
     );
     assert!(installed_version("tidewise-dummy-conf-x").is_some());
+}
+
+/// The update rule's lone provider (decision 0009): one package can provide the name, so nothing is asked.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_name_with_a_single_provider_is_not_asked_about() {
+    setup(&["tidewise-dummy-upd-single"], &[UPD_SINGLE]);
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert!(!text(&real.stdout).contains("providers available"));
+    assert!(installed_version("tidewise-dummy-one-prov").is_some());
+}
+
+/// An installed package provides the name: pacman asks nothing, although another listed package provides it too.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_name_an_installed_package_provides_is_not_asked_about() {
+    setup(
+        &["tidewise-dummy-upd-both", "tidewise-dummy-moving-b"],
+        &[UPD_BOTH],
+    );
+    assert_eq!(
+        without_sizes(&text(&dry_run().stdout)),
+        [
+            "tidewise-test/tidewise-dummy-moving-a 1.0-1",
+            "tidewise-test/tidewise-dummy-upd-both 2.0-1",
+        ]
+    );
+    // `-T` says it is satisfied by what is installed.
+    assert!(pacman(&["-T", "--", "tidewise-moving"]).status.success());
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert!(!text(&real.stdout).contains("providers available"));
+}
+
+/// Why `-T` alone is not enough: the installed provider's new version drops the name in the same update, and pacman
+/// asks although `-T` says it is satisfied now.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_installed_provider_that_drops_the_name_leaves_a_choice_although_deptest_is_satisfied() {
+    setup(
+        &["tidewise-dummy-upd-drop", "tidewise-dummy-upd-moving"],
+        &[UPD_DROP, UPD_MOVING],
+    );
+    assert!(pacman(&["-T", "--", "tidewise-moving"]).status.success());
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert!(text(&real.stdout).contains("providers available for tidewise-moving"));
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn deptest_answers_for_installed_packages_and_respects_versions() {
+    setup(&["tidewise-dummy-moving-b"], &[]);
+    for (dependency, code) in [
+        ("tidewise-moving", 0),
+        ("tidewise-moving>=2", 0),
+        ("tidewise-moving>=3", 127),
+        ("tidewise-dummy-moving-b=1.0-1", 0),
+        ("tidewise-virtual", 127),
+    ] {
+        let out = pacman(&["-T", "--", dependency]);
+        assert_eq!(out.status.code(), Some(code), "{dependency}");
+        let expected = if code == 0 {
+            String::new()
+        } else {
+            format!("{dependency}\n")
+        };
+        assert_eq!(text(&out.stdout), expected, "{dependency}");
+    }
+}
+
+/// The helper counts providers with `-Ss '^name$'` on its private copy: packages that only PROVIDE the name must be
+/// found (the condition of the human's approval).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn ss_on_a_private_copy_finds_packages_that_only_provide_the_name() {
+    assert_inside_the_test_container();
+    reset_world();
+    private_folder("/run/tidewise-measure/", 0o711);
+    let db = [
+        "--dbpath",
+        "/run/tidewise-measure/",
+        "--logfile",
+        "/dev/null",
+    ];
+    let mut sync = vec!["-Sy"];
+    sync.extend(db);
+    assert!(pacman(&sync).status.success());
+    let search = |pattern: &str| -> (Option<i32>, Vec<String>) {
+        let out = pacman(&["-Ss", "--dbpath", "/run/tidewise-measure/", "--", pattern]);
+        let names = text(&out.stdout)
+            .lines()
+            .filter(|line| !line.starts_with(' '))
+            .map(|line| line.split(' ').next().unwrap().to_string())
+            .collect();
+        (out.status.code(), names)
+    };
+    assert_eq!(
+        search("^tidewise-virtual$"),
+        (
+            Some(0),
+            vec![
+                "tidewise-test/tidewise-dummy-prov-a".to_string(),
+                "tidewise-test/tidewise-dummy-prov-b".to_string(),
+            ]
+        )
+    );
+    // The fixture the unit tests read is what pacman prints.
+    assert_eq!(
+        pacman_stdout(&[
+            "-Ss",
+            "--dbpath",
+            "/run/tidewise-measure/",
+            "--",
+            "^tidewise-virtual$"
+        ]),
+        fixture!("update-provider-ss.stdout.txt")
+    );
+    // A versioned `Provides` is found by its name too.
+    assert_eq!(search("^tidewise-vvirtual$").1.len(), 3);
+    assert_eq!(
+        search("^tidewise-single$"),
+        (
+            Some(0),
+            vec!["tidewise-test/tidewise-dummy-one-prov".to_string()]
+        )
+    );
+    assert_eq!(search("^tidewise-nothing$"), (Some(1), vec![]));
 }
 
 #[test]
