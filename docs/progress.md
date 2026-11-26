@@ -1491,7 +1491,9 @@ Open: review R-06 to R-09, R-11, R-12, R-14.
   asked on the terminal and waited. The signal behaviour is from reading. Container test for the accepted option.
 - Search runs its query again after a job, so an installed package offers no "Install".
 - The "Go back and choose again" card has "Back" (to the review) in place of "Close".
-- `cargo test --all` 1203 passed, 0 failed.
+- `cargo test --all` 1203 passed, 0 failed, 130 ignored. fmt, clippy, `cargo deny`, release build, fuzz fmt: exit 0.
+  Full container run on `34790bb`: 1327 passed, 0 failed (`package` 16, `resolver` 8). Fuzzing not repeated: no parser
+  or fuzz target changed since the runs above.
 Rules bent: (1) the window code has no automated test: the checklist stands in. (2) No red step for the fixtures and
 the container test; `helper-events` fixtures are written by hand, not saved output. (3) Some tests passed on their red
 commit (named there). (4) One expected summary string in a red commit was wrong and was corrected in the green one.
