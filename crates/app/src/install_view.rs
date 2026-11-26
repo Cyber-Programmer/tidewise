@@ -1037,7 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn the_stale_card_has_its_button_off() {
+    fn the_stale_card_leads_to_the_update_screen() {
         let mut model = InstallModel::new();
         let ticket = model.open(pkg("dbeaver")).unwrap();
         model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
@@ -1049,15 +1049,12 @@ mod tests {
             "Arch only supports adding apps to an up-to-date system. \
              Installing dbeaver alone could break other apps."
         );
-        assert_eq!(
-            view.primary,
-            button("Update system and install dbeaver", false)
-        );
+        assert_eq!(view.primary, button("Update system", true));
         assert_eq!(view.secondary, button("Back to details", true));
         assert_eq!(
             view.hint,
-            "Coming soon: Tidewise will update and install in one go. For now, update your \
-             system in a terminal with sudo pacman -Syu, then come back."
+            "Tidewise can't update and install in one go yet. Update your system first, then \
+             install dbeaver."
         );
     }
 
