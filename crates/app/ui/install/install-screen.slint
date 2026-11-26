@@ -1,7 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { TwButton } from "../widgets/button.slint";
-import { InstallBridge } from "bridge.slint";
+import { InstallBridge, InstallCardKind } from "bridge.slint";
 import { InstallCard } from "install-card.slint";
 
 // The install screen: breadcrumb, heading, the three steps, then one card. It replaces the Search screen while an
@@ -52,6 +52,8 @@ export component InstallScreen inherits Rectangle {
                                     // "Search" leaves the install; the rest is only the name.
                                     TwButton {
                                         text: "Search";
+                                        // A running install cannot be left.
+                                        enabled: InstallBridge.kind != InstallCardKind.progress;
                                         clicked => {
                                             InstallBridge.cancel();
                                         }
@@ -76,8 +78,7 @@ export component InstallScreen inherits Rectangle {
 
                             Rectangle { }
 
-                            // The three steps, lined up with the card's right edge; only the first two can be
-                            // current in this task.
+                            // The three steps, lined up with the card's right edge.
                             HorizontalLayout {
                                 spacing: Theme.space-s;
                                 alignment: end;
