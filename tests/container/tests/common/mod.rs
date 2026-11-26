@@ -284,7 +284,8 @@ pub fn differences(
 
 // Not named tidewise-*: reset_world removes every /tmp/tidewise-* marker, and this backup must survive it.
 const ORIGINAL_DB: &str = "/tmp/original-test-repo.db";
-const LATER_FILES: [&str; 5] = [
+const LATER_FILES: [&str; 6] = [
+    "tidewise-dummy-new-dep-1.0-1-any.pkg.tar.zst",
     "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-new-1.0-1-any.pkg.tar.zst",
     "tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst",

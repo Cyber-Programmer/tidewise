@@ -24,6 +24,7 @@ const NEW: &str = "tidewise-dummy-new-1.0-1-any.pkg.tar.zst";
 const UPD_VIRT: &str = "tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst";
 const NEEDS_UPD: &str = "tidewise-dummy-needs-upd-2.0-1-any.pkg.tar.zst";
 const UPD_CONF: &str = "tidewise-dummy-upd-conf-2.0-1-any.pkg.tar.zst";
+const NEW_DEP: &str = "tidewise-dummy-new-dep-1.0-1-any.pkg.tar.zst";
 
 fn dry_run() -> Output {
     pacman(&["-Su", "--print", "--print-format", "%r/%n %v %s"])
@@ -158,6 +159,21 @@ fn a_replacement_alone_leaves_qu_empty_and_the_real_run_with_nothing_to_do() {
     assert!(real.status.success(), "{}", text(&real.stderr));
     assert!(text(&real.stdout).contains("there is nothing to do"));
     assert_eq!(installed_version("tidewise-dummy-new"), None);
+}
+
+/// The review must not count what only a declined replacement needs (A1).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn what_only_a_declined_replacement_needs_is_listed_but_not_installed() {
+    setup(&["tidewise-dummy-old"], &[NEW_DEP]);
+    assert_eq!(
+        without_sizes(&text(&dry_run().stdout)),
+        without_sizes(fixture!("update-replace-dep-print.stdout.txt"))
+    );
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert_eq!(installed_version("tidewise-dummy-new-dep"), None);
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
 }
 
 #[test]
