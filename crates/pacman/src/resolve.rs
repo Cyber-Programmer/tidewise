@@ -134,6 +134,11 @@ pub enum Blocker {
     MissingFromList {
         requested: PackageRef,
     },
+    /// Two packages of the list need different providers of one name (`java-runtime=17` and `=21`). The request
+    /// holds one answer per name, so the helper would refuse it (threat model 42 a).
+    TwoVersionsNeeded {
+        dependency: String,
+    },
 }
 
 /// The exact list for the confirm screen, and what to send to the helper.

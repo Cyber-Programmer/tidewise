@@ -1071,3 +1071,35 @@ fn an_answer_that_chose_a_target_is_not_named_as_a_provider_again() {
     let plan = plan(resolve_with(&input, &world));
     assert!(plan.providers.is_empty(), "{:?}", plan.providers);
 }
+
+// ---- one name needed at two versions (6.4b, threat model 42 a) --------------------------------------------------
+
+fn two_versions_world() -> World {
+    let mut world = World::base();
+    world
+        .add("jv-8", &["jv=8"], &[])
+        .add("jv-9", &["jv=9"], &[])
+        .add("need8", &[], &["jv=8"])
+        .add("need9", &[], &["jv=9"]);
+    world
+}
+
+#[test]
+fn two_versions_of_one_name_block_the_plan() {
+    // pacman lists both providers and asks nothing; a request can name only one, and the helper refuses it.
+    let world = two_versions_world();
+    let found = blockers(resolve_with(&want(&["need8", "need9"]), &world));
+    assert_eq!(
+        found,
+        [Blocker::TwoVersionsNeeded {
+            dependency: "jv".to_string()
+        }]
+    );
+}
+
+#[test]
+fn one_version_of_a_name_with_two_providers_is_still_ready() {
+    let world = two_versions_world();
+    let plan = plan(resolve_with(&want(&["need9"]), &world));
+    assert_eq!(plan.providers, [answer("jv", "jv-9")]);
+}
