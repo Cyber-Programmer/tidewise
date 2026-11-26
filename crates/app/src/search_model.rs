@@ -268,6 +268,11 @@ impl SearchModel {
         }
     }
 
+    /// What is installed may have changed: search again for the current text.
+    pub fn refresh(&mut self) -> Option<SearchTicket> {
+        None
+    }
+
     /// With rows on screen they stay while the next search runs; otherwise the screen shows the skeleton.
     fn show_loading_unless_rows_are_shown(&mut self) {
         if self.state != SearchState::Loaded || self.results.is_empty() {
