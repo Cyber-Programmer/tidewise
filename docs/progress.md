@@ -1425,3 +1425,38 @@ Rules bent: (1) UI-only part has no automated window test: the checklist below s
 6. A package already in `/var/cache/pacman/pkg` shows "Already downloaded"; if all are, the tile says "Nothing to
    download".
 7. Orca: the list and each row (name, version, why, size) are read, and the grey button reads as unavailable.
+
+## 2026-11-26 — 6.4a Install job, helper side: refuse an unnamed provider pick (R-08)
+Done:
+- **The helper checks for itself** (`84937ae`, red `7c8cd60`): after the install's dry run equals the confirmed list it
+  reads `pacman -Q` and `-Si` of that list and refuses with the new `provider_not_chosen` before any real run when
+  pacman satisfied a name nobody named, when a named package does not provide its name, or when another provider of an
+  answered name is listed that the named package does not bring itself. Plain install only.
+- **Your OKs used:** the read-only `pacman -Si -- repo/name ...` (`aa1bfa5`) and `ErrorKind::ProviderNotChosen`
+  (`ffaf76c`). No new program start, no new dependency.
+- **One rule, two users:** `tidewise_pacman::provider_picks` (`819c24d`), the resolver switched to it (`e4c75ea`).
+  Versions are ignored on both sides, one test each.
+- **Differs from the approved plan:** (1) a named package is not always the one pacman uses (a version that does not
+  fit: pacman adds its own), so the third refusal and its extra dry run were added, with the existing command;
+  (2) the `pkexec` case is its own test, not a row of the hostile table (rows never reach a job).
+- **Your addition 2 was not as expected:** an installed package named as a provider *is* listed (a reinstall), so the
+  helper does not refuse it, and the resolver could send one after a by-hand install between rounds. Fixed in the
+  resolver (`c0474e1`); the helper still accepts it.
+- **Checks:** `cargo test --all` 1148 passed, 0 failed, 128 ignored (1126 passed before). Mutations: 8 on the pick
+  rule, 7 on the helper check, each failed a named test.
+- **Container:** full run 1269 passed, 1 failed (my `pkexec` test: process 1 parent), fixed (`2a6e399`); rerun of the
+  package files and the renamed resolver test: 1177 passed, 0 failed (counts include the package build's own tests).
+- **Fuzz** (600 s each): `si` 1,290,486 runs, `print` 4,748,860, exit 0, no artifacts.
+- **Review:** `docs/security/reviews/6.4a-unnamed-provider.md`.
+Next: your decision on the open items below, then push and PR. Then 6.4b (plan first; Stop download is yours to decide
+there, your lean: v0.1 without it unless the measurement shows it is simple).
+Blockers: none for 6.4a. For v0.1: threat model 40 (update and install has no check, 6.6) and 41 (plain update, 6.5).
+Open, for you:
+- **A plan the app calls Ready can be refused** (threat model 42 a): one name needed at two versions. Reproduced;
+  fails closed. Needs version comparison in the helper or two answers per name, so it should be settled before or in 6.4b.
+- 42 b: an answered name is not checked deeper down (needs an unusual repository package).
+- From 6.1, for 6.4b: the resolver names one package twice when it alone provides two virtual names; `validate` refuses
+  that request. Seen on the model, not fixed.
+Rules bent: (1) no red step for fixtures and container tests. (2) One flows test was added after the code (installed
+package brought again), proven by mutation. (3) Temporary uncommitted tests used to reproduce review findings.
+(4) No WBS sheet update (as asked).
