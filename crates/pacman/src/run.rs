@@ -14,9 +14,10 @@ use std::process::{Command, Output, Stdio};
 use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
-    DetailsLookup, GroupMember, HeldBlock, InstalledPackage, PackageRef, PacmanError, ParseError,
-    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdatePlan, held_block,
-    parse_print, parse_qi, parse_qu, parse_si, parse_ss, update_plan,
+    Dependency, DetailsLookup, GroupMember, HeldBlock, InstalledPackage, PackageRef, PacmanError,
+    ParseError, PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdateFacts,
+    UpdatePlan, dependency_text, held_block, parse_print, parse_qi, parse_qu, parse_si, parse_ss,
+    update_picks, update_plan,
 };
 use crate::{parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
@@ -538,8 +539,59 @@ fn update_lookup_with(
     check_exit(&qi)?;
     let qi = String::from_utf8_lossy(&qi.stdout);
 
-    let plan = update_plan(&qu, &stdout, &si, &qi)?;
+    let mut plan = update_plan(&qu, &stdout, &si, &qi)?;
+    if !plan.picks.is_empty() {
+        let details = parse_si(&si)?;
+        let installed: HashSet<String> = parse_qi(&qi)?.into_iter().map(|p| p.name).collect();
+        plan.picks = update_picks(
+            std::mem::take(&mut plan.picks),
+            &details.iter().collect::<Vec<_>>(),
+            |name| installed.contains(name),
+            &mut LookupFacts { run },
+        )?;
+    }
     Ok(UpdateLookup::Plan(Box::new(plan)))
+}
+
+/// The reads behind `update_picks`, the same ones the helper makes.
+struct LookupFacts<'a> {
+    run: &'a dyn Fn(&[String]) -> Result<Output, PacmanError>,
+}
+
+impl UpdateFacts for LookupFacts<'_> {
+    type Error = PacmanError;
+
+    fn providers(&mut self, name: &str) -> Result<Vec<PackageRef>, PacmanError> {
+        let found = results_from_output(&(self.run)(&exact_search_args(name))?)?;
+        let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
+        if request.is_empty() {
+            return Ok(Vec::new());
+        }
+        let output = (self.run)(&details_args(&request))?;
+        // `-Ss` also matches names and descriptions: only what `-Si` says provides the name counts.
+        Ok(lookup_from_output(&output, &request)?
+            .found
+            .into_iter()
+            .filter(|d| d.provides.iter().any(|p| p.name == name))
+            .map(|d| PackageRef {
+                repo: d.repo,
+                name: d.name,
+            })
+            .collect())
+    }
+
+    fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, PacmanError> {
+        let Some(text) = dependency_text(dependency) else {
+            return Ok(false);
+        };
+        // `-T` prints what is NOT satisfied and exits 127 for it.
+        let output = (self.run)(&["-T".to_string(), "--".to_string(), text])?;
+        if output.status.code() == Some(127) {
+            return Ok(false);
+        }
+        check_exit(&output)?;
+        Ok(true)
+    }
 }
 
 /// The resolver's view of pacman. `run` starts the program with these arguments (a function, so a test can record
@@ -2206,7 +2258,8 @@ mod update_lookup_tests {
             .split("\n\n")
             .find(|record| record.contains("tidewise-dummy-prov-a"))
             .unwrap();
-        let candidates = format!("{a}\n\n{}\n\n", a.replace("prov-a", "prov-b"));
+        // Only what is asked for: `-Si` never describes anything else.
+        let records = [a.to_string(), a.replace("prov-a", "prov-b")];
         let seen = RefCell::new(Vec::new());
         let result = update_lookup_with(&|args| {
             let line = args.join(" ");
@@ -2218,7 +2271,15 @@ mod update_lookup_tests {
                 Some("-Ss") => output(0, ss, ""),
                 Some("-T") => output(deptest, "", ""),
                 Some("-Si") if line.contains("upd-virt") => output(0, si, ""),
-                Some("-Si") => output(0, &candidates, ""),
+                Some("-Si") => {
+                    let asked: String = records
+                        .iter()
+                        .zip(["tidewise-dummy-prov-a", "tidewise-dummy-prov-b"])
+                        .filter(|(_, name)| line.contains(name))
+                        .map(|(record, _)| format!("{record}\n\n"))
+                        .collect();
+                    output(0, &asked, "")
+                }
                 other => panic!("unexpected command {other:?}"),
             })
         });
