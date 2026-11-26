@@ -152,6 +152,82 @@ fn a_chosen_provider_is_installed_as_a_dependency_and_the_target_is_not() {
     );
 }
 
+/// Golden rule 10 against the real pacman (WBS 6.4a, review 5.8 R-08): a request that leaves a provider question to
+/// pacman is refused, whatever the app would have sent. The confirmed list is the true one each time.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_install_that_leaves_a_provider_to_pacman_is_refused_and_installs_nothing() {
+    assert_inside_the_test_container();
+    for target in [
+        "needs-virtual",
+        "needs-vvirtual",
+        "needs-one",
+        "needs-chain",
+    ] {
+        reset_world();
+        let journal = FakeJournal::start();
+        let (request, summary) = install_one(target);
+        let packages_before = package_list();
+        let files_before = snapshot();
+
+        let ran = run(&summary, request.as_bytes());
+        finished_with(&ran, "provider_not_chosen");
+        assert_eq!(package_list(), packages_before, "{target}");
+        let changed = differences(&files_before, &snapshot());
+        assert!(
+            changed.is_empty(),
+            "{target}: these paths changed: {changed:?}"
+        );
+        let entries = journal.datagrams();
+        assert_eq!(entries.len(), 2, "{entries:?}");
+        assert_fields(&entries[1], &[("TIDEWISE_OUTCOME", "provider_not_chosen")]);
+    }
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_answer_that_does_not_settle_the_question_is_refused_and_installs_nothing() {
+    assert_inside_the_test_container();
+    // vprov-1 is too old for needs-vvirtual (pacman would add vprov-2 itself); hello provides nothing at all.
+    for (target, dependency, chosen) in [
+        ("needs-vvirtual", "tidewise-vvirtual", "vprov-1"),
+        ("needs-virtual", "tidewise-virtual", "hello"),
+    ] {
+        reset_world();
+        let names = [qualified(target), qualified(chosen)];
+        let items = confirmed("-S", &[&names[0], &names[1]]);
+        let (request, summary) = install_request(
+            &[(REPO, &dummy(target))],
+            &[(dependency, REPO, &dummy(chosen))],
+            &items,
+        );
+        let packages_before = package_list();
+
+        finished_with(&run(&summary, request.as_bytes()), "provider_not_chosen");
+        assert_eq!(package_list(), packages_before, "{target} {chosen}");
+    }
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_provider_named_as_a_target_counts_as_named() {
+    assert_inside_the_test_container();
+    reset_world();
+    let names = [qualified("needs-virtual"), qualified("prov-b")];
+    let items = confirmed("-S", &[&names[0], &names[1]]);
+    let (request, summary) = install_request(
+        &[
+            (REPO, "tidewise-dummy-needs-virtual"),
+            (REPO, "tidewise-dummy-prov-b"),
+        ],
+        &[],
+        &items,
+    );
+
+    assert_ok(&run(&summary, request.as_bytes()));
+    assert_eq!(installed_version("tidewise-dummy-prov-a"), None);
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_provider_the_user_already_installed_by_hand_stays_explicit() {

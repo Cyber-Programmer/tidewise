@@ -51,8 +51,8 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use common::{
-    FakeJournal, HELPER_ARGV0, Installed, MAX_REQUEST_BYTES, Polkit, REPO, WORK_DIR, differences,
-    install_hello, package_list, snapshot,
+    FakeJournal, HELPER_ARGV0, Installed, MAX_REQUEST_BYTES, Polkit, REPO, WORK_DIR, confirmed,
+    differences, install_hello, install_request, package_list, snapshot,
 };
 
 const LOCK: &str = "/tmp/tidewise-hostile-fd.lock";
@@ -1296,4 +1296,44 @@ fn package_hostile_every_row_is_refused_and_changes_nothing() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Not a row of the table above (those never reach a job): a well-formed request that leaves a provider question to
+/// pacman, through the real `pkexec`, to the installed helper (WBS 6.4a, golden rule 10).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn package_an_unnamed_provider_through_pkexec_is_refused_and_installs_nothing() {
+    let _installed = Installed::new();
+    let _polkit = Polkit::start_installed();
+    let names = [format!("{REPO}/tidewise-dummy-needs-virtual")];
+    let items = confirmed("-S", &[&names[0]]);
+    let (request, summary) =
+        install_request(&[(REPO, "tidewise-dummy-needs-virtual")], &[], &items);
+    let before = package_list();
+
+    let mut child = Command::new("/usr/bin/pkexec")
+        .arg("/usr/lib/tidewise/tidewise-helper")
+        .arg(summary)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(request.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.lines().last(),
+        Some(r#"{"finished":{"error":"provider_not_chosen"}}"#),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(package_list(), before);
 }
