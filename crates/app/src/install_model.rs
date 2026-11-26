@@ -6,7 +6,10 @@
 //! ticket replaces an older one, and an answer is used only if its number is the one wanted.
 
 use crate::error_words::{Doing, ErrorText, error_text};
+use crate::helper_request::{HelperRequest, RequestError, install_request};
+use crate::helper_run::JobEnd;
 use crate::update_check::ListsNote;
+use tidewise_helper_protocol::{Event, Notice, Progress};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
     Question, Resolution, ResolveInput,
@@ -53,6 +56,42 @@ pub enum Phase {
     },
     /// Every question is answered; 6.3 shows the review.
     Ready(Box<InstallPlan>),
+    /// The helper is running (or the password window is open). Nothing here can stop it.
+    Installing(Box<Job>),
+    /// The helper said it worked.
+    Installed {
+        notices: Vec<Notice>,
+    },
+    InstallFailed(JobFailure),
+}
+
+/// One helper run to start: the number says which job events belong to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobTicket {
+    pub number: u64,
+    pub request: HelperRequest,
+}
+
+/// The running helper job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Job {
+    pub number: u64,
+    /// The plan that was sent, for the way back when the password window is closed.
+    pub plan: InstallPlan,
+    /// `None` until the helper says anything: until then the password window may still be open.
+    pub progress: Option<Progress>,
+    /// 0 to 100, never going backwards.
+    pub percent: u8,
+    pub notices: Vec<Notice>,
+}
+
+/// Why an install did not end well.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobFailure {
+    /// No request was made: a bug.
+    NotSent(RequestError),
+    /// The helper run ended without success.
+    Ended(JobEnd),
 }
 
 /// The user's answer to one question, changed while it is shown.
@@ -97,6 +136,8 @@ pub struct InstallModel {
     slow: bool,
     focus_serial: u32,
     lists_note: Option<ListsNote>,
+    /// The review says that the password window was closed.
+    prompt_closed: bool,
 }
 
 impl Draft {
@@ -457,6 +498,22 @@ impl InstallModel {
         }
     }
 
+    /// The review's Install button.
+    pub fn start_install(&mut self) -> Option<JobTicket> {
+        None
+    }
+
+    /// A `Progress` or `Notice` event of job `number`.
+    pub fn job_event(&mut self, _number: u64, _event: Event) {}
+
+    /// Job `number` is over.
+    pub fn job_ended(&mut self, _number: u64, _end: JobEnd) {}
+
+    /// The password window of the last try was closed.
+    pub fn prompt_was_closed(&self) -> bool {
+        self.prompt_closed
+    }
+
     /// What the lists check of ticket `number` has to say, before its answer is given to `done`.
     pub fn lists_checked(&mut self, number: u64, note: Option<ListsNote>) {
         if self.wanted == Some(number) {
@@ -638,6 +695,201 @@ mod tests {
         assert_eq!(model.done(ticket.number, asks(questions)), None);
         assert_eq!(*model.phase(), Phase::Asking);
         model
+    }
+
+    use crate::helper_request::RequestError;
+    use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress};
+
+    /// dbeaver reviewed and ready.
+    fn reviewing() -> InstallModel {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, ready_with_provider());
+        model
+    }
+
+    /// `plan()` with the provider in the list, as a real plan has it.
+    fn ready_with_provider() -> Result<WorkAnswer, PacmanError> {
+        let mut plan = plan(InstallDecision::Allowed { ignored: 0 });
+        let mut provider = plan.items[0].clone();
+        provider.package = pkg("jre-openjdk");
+        plan.items.insert(0, provider);
+        Ok(WorkAnswer::Resolved(Resolution::Ready(plan)))
+    }
+
+    fn installing() -> (InstallModel, u64) {
+        let mut model = reviewing();
+        let ticket = model.start_install().expect("a job");
+        (model, ticket.number)
+    }
+
+    fn job(model: &InstallModel) -> &Job {
+        match model.phase() {
+            Phase::Installing(job) => job,
+            other => panic!("not installing: {other:?}"),
+        }
+    }
+
+    fn step(stage: Stage, current: u32, total: u32) -> Event {
+        Event::Progress(Progress {
+            phase: stage,
+            current,
+            total,
+        })
+    }
+
+    #[test]
+    fn install_makes_the_request_from_the_reviewed_plan() {
+        let mut model = reviewing();
+        let ticket = model.start_install().expect("a job");
+        assert_eq!(
+            ticket.request.summary,
+            "install extra/dbeaver with extra/jre-openjdk (2 packages)"
+        );
+        assert_eq!(job(&model).progress, None);
+        assert_eq!(job(&model).percent, 0);
+        // One at a time.
+        assert_eq!(model.start_install(), None);
+    }
+
+    #[test]
+    fn install_does_nothing_before_the_review() {
+        let mut model = InstallModel::new();
+        assert_eq!(model.start_install(), None);
+        model.open(pkg("dbeaver"));
+        assert_eq!(model.start_install(), None);
+        assert_eq!(*model.phase(), Phase::Working);
+    }
+
+    #[test]
+    fn a_plan_the_helper_would_refuse_is_never_sent() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        // The provider is named but not in the list: `validate` refuses it.
+        model.done(ticket.number, ready());
+        assert_eq!(model.start_install(), None);
+        assert!(matches!(
+            model.phase(),
+            Phase::InstallFailed(JobFailure::NotSent(RequestError::Invalid(_)))
+        ));
+    }
+
+    #[test]
+    fn progress_moves_through_the_bands_and_never_backwards() {
+        let (mut model, number) = installing();
+        let percent = |model: &mut InstallModel, event| {
+            model.job_event(number, event);
+            job(model).percent
+        };
+        assert_eq!(percent(&mut model, step(Stage::Checking, 0, 2)), 0);
+        assert_eq!(percent(&mut model, step(Stage::Downloading, 0, 2)), 5);
+        assert_eq!(percent(&mut model, step(Stage::Downloading, 1, 2)), 27);
+        assert_eq!(percent(&mut model, step(Stage::Downloading, 2, 2)), 50);
+        assert_eq!(percent(&mut model, step(Stage::Installing, 1, 2)), 71);
+        assert_eq!(percent(&mut model, step(Stage::Downloading, 0, 2)), 71);
+        assert_eq!(percent(&mut model, step(Stage::Installing, 9, 2)), 92);
+        assert_eq!(percent(&mut model, step(Stage::Hooks, 0, 0)), 92);
+        assert_eq!(
+            job(&model).progress,
+            Some(Progress {
+                phase: Stage::Hooks,
+                current: 0,
+                total: 0
+            })
+        );
+    }
+
+    #[test]
+    fn events_of_another_job_are_ignored() {
+        let (mut model, number) = installing();
+        model.job_event(number + 1, step(Stage::Installing, 1, 1));
+        model.job_ended(number + 1, JobEnd::Finished(Outcome::Ok));
+        assert_eq!(job(&model).progress, None);
+    }
+
+    #[test]
+    fn finished_ok_is_installed_and_keeps_the_notices() {
+        let (mut model, number) = installing();
+        model.job_event(number, Event::Notice(Notice::AuditEntryNotWritten));
+        model.job_ended(number, JobEnd::Finished(Outcome::Ok));
+        assert_eq!(
+            *model.phase(),
+            Phase::Installed {
+                notices: vec![Notice::AuditEntryNotWritten]
+            }
+        );
+        // Late events change nothing.
+        model.job_event(number, step(Stage::Hooks, 0, 0));
+        assert!(matches!(model.phase(), Phase::Installed { .. }));
+        assert_eq!(model.back(), Back::Closed);
+        assert!(!model.is_open());
+    }
+
+    #[test]
+    fn a_closed_password_window_goes_back_to_the_same_review_and_says_so_once() {
+        let mut model = reviewing();
+        let before = model.phase().clone();
+        let ticket = model.start_install().expect("a job");
+        model.job_ended(ticket.number, JobEnd::PromptClosed);
+        assert_eq!(*model.phase(), before);
+        assert!(model.prompt_was_closed());
+        // The next try forgets it.
+        assert!(model.start_install().is_some());
+        assert!(!model.prompt_was_closed());
+        // And so does leaving the card.
+        let (mut model, number) = installing();
+        model.job_ended(number, JobEnd::PromptClosed);
+        model.back();
+        assert!(!model.prompt_was_closed());
+    }
+
+    #[test]
+    fn every_other_end_is_a_failure_card() {
+        for end in [
+            JobEnd::Finished(Outcome::Error(ErrorKind::TransactionChanged)),
+            JobEnd::NotAuthorised {
+                stderr: String::new(),
+            },
+            JobEnd::HelperMissing,
+            JobEnd::NoResult {
+                exit: None,
+                unreadable: 0,
+                stderr: String::new(),
+            },
+        ] {
+            let (mut model, number) = installing();
+            model.job_ended(number, end.clone());
+            assert_eq!(*model.phase(), Phase::InstallFailed(JobFailure::Ended(end)));
+            assert_eq!(model.back(), Back::Closed);
+        }
+    }
+
+    #[test]
+    fn nothing_leaves_or_replaces_a_running_install() {
+        let (mut model, number) = installing();
+        assert_eq!(model.back(), Back::Stayed);
+        model.cancel();
+        assert_eq!(model.open(pkg("sl")), None);
+        assert_eq!(model.open_group("plasma"), None);
+        assert_eq!(model.try_again(), None);
+        assert_eq!(job(&model).number, number);
+        assert_eq!(model.request().targets, [pkg("dbeaver")]);
+    }
+
+    #[test]
+    fn check_again_after_a_failure_starts_the_same_request_afresh() {
+        let mut model = asking(vec![provider("java-runtime", &["a", "b"], 0)]);
+        let ticket = model.go_on().unwrap();
+        model.done(ticket.number, ready_with_provider());
+        let job = model.start_install().expect("a job");
+        model.job_ended(job.number, JobEnd::HelperMissing);
+        let again = model.try_again().expect("a resolve");
+        assert!(again.check_lists);
+        assert_eq!(again.input.targets, [pkg("dbeaver")]);
+        assert!(again.input.provider_answers.is_empty());
+        assert_eq!(again.input.round, 0);
+        assert!(model.steps().is_empty());
+        assert_eq!(*model.phase(), Phase::Working);
     }
 
     #[test]

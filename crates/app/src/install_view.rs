@@ -203,6 +203,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             view.secondary = button(back_label(model), true);
         }
         Phase::Ready(plan) => review(&mut view, model, plan, &label),
+        Phase::Installing(_) | Phase::Installed { .. } | Phase::InstallFailed(_) => {}
     }
     view.lists_note = model.lists_note().map(lists_note).unwrap_or_default();
     view.focus = match view.kind {

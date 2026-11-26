@@ -142,6 +142,11 @@ impl AppsModel {
         true
     }
 
+    /// "Show in Apps": reload and select `name`. `true` means "start the worker thread now".
+    pub fn show(&mut self, _name: &str) -> bool {
+        false
+    }
+
     /// Called when a load has run for too long. Ignored unless a load is running.
     pub fn mark_slow(&mut self) {
         if self.load_running {
@@ -418,6 +423,32 @@ mod tests {
             .filter(|row| row.selected)
             .map(|row| row.name)
             .collect()
+    }
+
+    #[test]
+    fn showing_a_package_reloads_and_selects_it_whatever_was_on_screen() {
+        let mut model = loaded(sample());
+        model.set_tab(Tab::Dependencies);
+        model.set_search("zlib");
+        assert!(model.show("vim"), "a load must be started");
+        assert_eq!(*model.state(), ListState::Loading);
+        model.set_result(Ok(sample()));
+        assert_eq!(model.tab(), Tab::All);
+        assert_eq!(selected(&model), ["vim"]);
+        assert_eq!(names(&model).len(), 5);
+        // Only once: a later reload does not jump back to it.
+        model.select("git");
+        assert!(model.begin_reload());
+        model.set_result(Ok(sample()));
+        assert_ne!(selected(&model), ["vim"]);
+    }
+
+    #[test]
+    fn showing_a_package_that_is_not_there_selects_the_first_row() {
+        let mut model = loaded(sample());
+        model.show("nothing");
+        model.set_result(Ok(sample()));
+        assert_eq!(selected(&model).len(), 1);
     }
 
     #[test]
