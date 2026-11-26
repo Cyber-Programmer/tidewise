@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use tidewise_core::age::whole_days;
 use tidewise_pacman::{
-    InstallDecision, Lists, NotFresh, PacmanError, PendingUpdate, install_decision,
+    InstallDecision, Lists, NotFresh, PacmanError, PendingUpdate, UpdateLookup, install_decision,
 };
 
 /// Why the answer comes from the real lists only, and how old those are.
@@ -65,6 +65,17 @@ pub fn check_for_updates(
             age_days: real_newest().map(|newest| whole_days(newest, now)),
         }),
     })
+}
+
+/// The review of "Update system" (WBS 6.5): refresh the private copy, then read it. Without a usable private copy the
+/// real lists are read, with a note of their age; that is not an error.
+pub fn review_updates(
+    _refresh: impl FnOnce() -> Lists,
+    _lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
+    _real_newest: impl FnOnce() -> Option<SystemTime>,
+    _now: SystemTime,
+) -> Result<(UpdateLookup, Option<ListsNote>), PacmanError> {
+    Ok((UpdateLookup::Plan(Box::default()), None))
 }
 
 #[cfg(test)]
@@ -199,5 +210,59 @@ mod tests {
             now(),
         );
         assert!(got.is_err());
+    }
+
+    fn held_lookup(name: &str) -> UpdateLookup {
+        UpdateLookup::HeldBlock(tidewise_pacman::HeldBlock {
+            package: name.to_string(),
+            held: "x".to_string(),
+        })
+    }
+
+    fn review(
+        lists: Lists,
+        private_fails: bool,
+    ) -> Result<(UpdateLookup, Option<ListsNote>), PacmanError> {
+        let newest = SystemTime::UNIX_EPOCH + Duration::from_secs(86_400 * 10);
+        review_updates(
+            || lists,
+            |folder| match folder {
+                Some(_) if private_fails => Err(PacmanError::Failed {
+                    code: Some(1),
+                    stderr: String::new(),
+                }),
+                Some(_) => Ok(held_lookup("private")),
+                None => Ok(held_lookup("real")),
+            },
+            || Some(newest),
+            newest + Duration::from_secs(86_400 * 2),
+        )
+    }
+
+    #[test]
+    fn the_review_reads_the_fresh_private_copy_without_a_note() {
+        let lists = Lists::Private(PathBuf::from(FOLDER));
+        assert_eq!(
+            review(lists, false).unwrap(),
+            (held_lookup("private"), None)
+        );
+    }
+
+    #[test]
+    fn without_a_private_copy_the_review_reads_the_real_lists_and_says_their_age() {
+        let note = |why| {
+            Some(ListsNote {
+                why,
+                age_days: Some(2),
+            })
+        };
+        assert_eq!(
+            review(Lists::Real(NotFresh::Busy), false).unwrap(),
+            (held_lookup("real"), note(NotFresh::Busy))
+        );
+        assert_eq!(
+            review(Lists::Private(PathBuf::from(FOLDER)), true).unwrap(),
+            (held_lookup("real"), note(NotFresh::Failed))
+        );
     }
 }
