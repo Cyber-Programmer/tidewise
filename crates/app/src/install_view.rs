@@ -213,11 +213,12 @@ pub fn install_view(model: &InstallModel) -> InstallView {
                 "Arch only supports adding apps to an up-to-date system. \
                  Installing {label} alone could break other apps."
             );
-            view.primary = button(&format!("Update system and install {label}"), false);
+            view.primary = button("Update system", true);
             view.secondary = button(back_label(model), true);
-            view.hint = "Coming soon: Tidewise will update and install in one go. For now, \
-                         update your system in a terminal with sudo pacman -Syu, then come back."
-                .to_string();
+            view.hint = format!(
+                "Tidewise can't update and install in one go yet. Update your system first, then \
+                 install {label}."
+            );
         }
         Phase::Blocked(blockers) => blocked(&mut view, model, blockers),
         Phase::Failed { text, can_retry } => {
@@ -2128,11 +2129,11 @@ mod tests {
             list(vec![group(&[("a", Some("1-1"))])]),
             FocusTarget::Secondary
         );
-        // a button that is off cannot take it
+        // the stale card's button takes it
         let mut model = InstallModel::new();
         let ticket = model.open(pkg("dbeaver")).unwrap();
         model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
-        assert_eq!(install_view(&model).focus, FocusTarget::Secondary);
+        assert_eq!(install_view(&model).focus, FocusTarget::Primary);
         assert_eq!(
             install_view(&asking("vlc", vec![installed("vlc", true)])).focus,
             FocusTarget::Secondary
