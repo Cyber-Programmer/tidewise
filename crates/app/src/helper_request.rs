@@ -3,8 +3,11 @@
 //! model 35 f: `summary` is total on any request, so nothing else stops a summary of a request never checked).
 //! No I/O.
 
-use tidewise_helper_protocol::{InvalidRequest, ProtocolError};
-use tidewise_pacman::InstallPlan;
+use tidewise_helper_protocol::{
+    self as protocol, Action, Install, InvalidRequest, PROTOCOL_VERSION, ProtocolError,
+    ProviderChoice, Request, TransactionItem, request_json, summary, validate,
+};
+use tidewise_pacman::{InstallDecision, InstallPlan, PackageRef};
 
 /// What one helper run needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,15 +29,53 @@ pub enum RequestError {
     Unwritable(ProtocolError),
 }
 
-pub fn install_request(_plan: &InstallPlan) -> Result<HelperRequest, RequestError> {
-    Err(RequestError::NeedsSystemUpdate)
+/// The request for a plan the app may send today: a plain install on an up-to-date system.
+pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError> {
+    if !matches!(plan.decision, InstallDecision::Allowed { .. }) {
+        return Err(RequestError::NeedsSystemUpdate);
+    }
+    let request = Request {
+        protocol_version: PROTOCOL_VERSION,
+        action: Action::Install(Install {
+            targets: plan.targets.iter().map(wire_ref).collect(),
+            providers: plan
+                .providers
+                .iter()
+                .map(|answer| ProviderChoice {
+                    dependency: answer.dependency.clone(),
+                    chosen: wire_ref(&answer.chosen),
+                })
+                .collect(),
+            transaction: plan
+                .items
+                .iter()
+                .map(|item| TransactionItem {
+                    repo: item.package.repo.clone(),
+                    name: item.package.name.clone(),
+                    version: item.version.clone(),
+                })
+                .collect(),
+        }),
+    };
+    validate(&request).map_err(RequestError::Invalid)?;
+    Ok(HelperRequest {
+        summary: summary(&request),
+        json: request_json(&request).map_err(RequestError::Unwritable)?,
+    })
+}
+
+fn wire_ref(package: &PackageRef) -> protocol::PackageRef {
+    protocol::PackageRef {
+        repo: package.repo.clone(),
+        name: package.name.clone(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tidewise_helper_protocol::{Field, Reason, parse_request};
-    use tidewise_pacman::{InstallDecision, PackageRef, PlanItem, ProviderAnswer, Role};
+    use tidewise_pacman::{PlanItem, ProviderAnswer, Role};
 
     fn pkg(name: &str) -> PackageRef {
         PackageRef {
@@ -75,7 +116,7 @@ mod tests {
         let made = install_request(&plan()).unwrap();
         assert_eq!(
             made.summary,
-            "install dbeaver with jre-openjdk (2 packages)"
+            "install extra/dbeaver with extra/jre-openjdk (2 packages)"
         );
         assert_eq!(
             String::from_utf8(made.json.clone()).unwrap(),
