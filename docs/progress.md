@@ -1478,6 +1478,8 @@ Done:
   "Installing packages".
 - **Checks:** `cargo test --all` 1196 passed, 0 failed, 129 ignored (1148 before). Fuzz 600 s: `request` 4,484,818
   runs, `print` 4,209,979 runs, exit 0, no artifacts.
+- **Container:** full unfiltered run on `dc064aa`: 1319 passed, 0 failed (counts include the package build's own
+  tests); resolver file 8 passed.
 - **Seen on screen:** only off-screen software renders of the progress, done and blocked cards (throwaway example, not
   committed). The window code has not run against a real helper.
 Next: your manual check below, then your decision on R-02 and R-03, then push and PR.
