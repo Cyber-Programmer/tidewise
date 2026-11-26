@@ -460,6 +460,13 @@ impl<'a> Engine<'a> {
 
             let picks = self.picks(&list, &asked, &providers, &installed);
             if picks.is_empty() {
+                if let Some(dependency) =
+                    self.second_provider(update, &providers, &asked, &listed, &installed)?
+                {
+                    return Ok(Resolution::Blocked(vec![Blocker::TwoVersionsNeeded {
+                        dependency,
+                    }]));
+                }
                 let providers = named_once(&requested, providers);
                 return Ok(Resolution::Ready(self.plan(
                     decision, &requested, providers, &list, &installed, &updating,
@@ -649,6 +656,39 @@ impl<'a> Engine<'a> {
         Ok(providers_in(self, &with_all)
             .iter()
             .all(|name| allowed.contains(name)))
+    }
+
+    /// An answered name that the list provides a second time, with a package nobody named and the chosen one does
+    /// not bring by itself: the helper's third refusal (`check_providers`), looked for here so the app never sends a
+    /// request that will be refused. In practice two packages need two versions of one name.
+    fn second_provider(
+        &mut self,
+        update: bool,
+        answers: &[ProviderAnswer],
+        asked: &[PackageRef],
+        listed: &[PackageRef],
+        installed: &HashMap<String, InstalledPackage>,
+    ) -> Result<Option<String>, PacmanError> {
+        for answer in answers {
+            let others: Vec<&PackageRef> = listed
+                .iter()
+                .filter(|p| !asked.contains(p) && !installed.contains_key(&p.name))
+                .filter(|p| self.provides(p, &answer.dependency))
+                .collect();
+            if others.is_empty() {
+                continue;
+            }
+            let DryRun::Listed(brought) = self.dry_run(update, &[spec(&answer.chosen)])? else {
+                return Ok(Some(answer.dependency.clone()));
+            };
+            if others
+                .iter()
+                .any(|other| !brought.iter().any(|item| item.name == other.name))
+            {
+                return Ok(Some(answer.dependency.clone()));
+            }
+        }
+        Ok(None)
     }
 
     fn provides(&self, item: &PackageRef, dependency: &str) -> bool {

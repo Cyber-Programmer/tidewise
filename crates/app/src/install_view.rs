@@ -650,7 +650,12 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
             view.body = text.body;
             view.report = REPORT.to_string();
         }
-        Some(Blocker::TwoVersionsNeeded { .. }) => {}
+        Some(Blocker::TwoVersionsNeeded { dependency }) => {
+            view.title_before = format!(
+                "These packages need two different versions of {dependency}; \
+                 Tidewise can't install them together yet."
+            );
+        }
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -683,7 +688,9 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::MissingFromList { requested } => {
             format!("missing from pacman's list: {}", spec(requested))
         }
-        Blocker::TwoVersionsNeeded { .. } => String::new(),
+        Blocker::TwoVersionsNeeded { dependency } => {
+            format!("{dependency}: needed at two versions")
+        }
     }
 }
 
