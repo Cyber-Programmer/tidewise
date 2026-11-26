@@ -381,9 +381,23 @@ mod tests {
             }),
         );
         assert!(
-            matches!(model.phase(), Phase::Failed { text } if text.title == "pacman couldn't check for updates")
+            matches!(model.phase(), Phase::Failed { text } if text.title == "Tidewise couldn't check for updates")
         );
         assert!(model.check().is_some());
+        // Whatever failed, the title is the same; pacman's own words are in the technical line.
+        let ticket = model.check().map(|t| t.number);
+        assert_eq!(ticket, None);
+        model.cancel();
+        let ticket = model.check().unwrap();
+        model.checked(
+            ticket.number,
+            Err(PacmanError::NotFound {
+                program: "/usr/bin/pacman".into(),
+            }),
+        );
+        assert!(
+            matches!(model.phase(), Phase::Failed { text } if text.title == "Tidewise couldn't check for updates")
+        );
     }
 
     #[test]
