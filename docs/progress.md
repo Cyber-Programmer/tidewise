@@ -1482,10 +1482,16 @@ Done:
   tests); resolver file 8 passed.
 - **Seen on screen:** only off-screen software renders of the progress, done and blocked cards (throwaway example, not
   committed). The window code has not run against a real helper.
-Next: your manual check below, then your decision on R-02 and R-03, then push and PR.
+Next: your manual check below, then push and PR.
 Blockers: none for the check. For v0.1: threat model 40 (6.6) and 41 (6.5).
-Open: review R-02, R-03 (both change the approved command), R-06 to R-12, R-14; Search still offers "Install" for what
-was just installed; the "Go back" in the `ProviderNotChosen` text has no such button (protocol crate).
+Open: review R-06 to R-09, R-11, R-12, R-14.
+**Then, before the check (your decision):**
+- R-02, R-03: `pkexec --disable-internal-agent`, `process_group(0)`. Measured in a throwaway container (polkit 128-1):
+  with the option and no agent, exit 127 "No authentication agent found."; without it and with a terminal, `pkexec`
+  asked on the terminal and waited. The signal behaviour is from reading. Container test for the accepted option.
+- Search runs its query again after a job, so an installed package offers no "Install".
+- The "Go back and choose again" card has "Back" (to the review) in place of "Close".
+- `cargo test --all` 1203 passed, 0 failed.
 Rules bent: (1) the window code has no automated test: the checklist stands in. (2) No red step for the fixtures and
 the container test; `helper-events` fixtures are written by hand, not saved output. (3) Some tests passed on their red
 commit (named there). (4) One expected summary string in a red commit was wrong and was corrected in the green one.
@@ -1497,16 +1503,23 @@ Only your `sudo pacman` lines and the installed helper run pacman as root. Do it
 2. `pacman -Qu` prints nothing. Then `sudo pacman -U ~/tidewise-build/tidewise-0.1.0-1-x86_64.pkg.tar.zst`: the list
    must show only `tidewise`. `ls -l /usr/lib/tidewise/tidewise-helper` is root, `-rwxr-xr-x`;
    `pkaction --action-id io.github.tidewise.helper --verbose` knows the action.
-3. Start Tidewise **from the menu** (not a terminal: review R-02, R-03). Search `sl`, install it: the review shows
-   1 package and "Install 1 package" is enabled.
+3. Start Tidewise from the menu. Search `sl`, install it: the review shows 1 package and "Install 1 package" is
+   enabled.
 4. Click Install, close the password window. Back on the review: "The password prompt was closed. Nothing was
-   changed." `pacman -Q sl` says not found. Note the window's message text.
+   changed." `pacman -Q sl` says not found. Note the window's message text: it ends with the helper's path and the
+   summary, and must not show `--disable-internal-agent`.
 5. Click Install, type a wrong password once. Note whether KDE asks again or ends (then expect "did not get
    permission"). Then type the right one.
 6. Cards: "Waiting for your password", checking / downloading / installing / finishing (they may flash by), then "sl is
    installed". "Show in Apps" opens Apps with `sl` selected. Then `pacman -Q sl`, and
    `journalctl --since "-15min" SYSLOG_IDENTIFIER=tidewise-helper`.
+   Back in Search (the sidebar), `sl` shows as installed and its details offer no "Install".
 7. Orca and keyboard: is the progress heading spoken, does the bar read its value, Tab order on the done and error
    cards. Slint has no "live region": say if changes are silent.
-8. Back to how it was: `sudo pacman -Rns sl tidewise`. **Read the removal list before answering Y: it must list only
+8. Optional (R-03): remove `sl` first (`sudo pacman -Rns sl`; the list must show only `sl`). Start `tidewise` from a
+   terminal, press Install, and press Ctrl+C in that terminal while the password window is open. The app ends. **Note
+   what the password window does** (not known: from reading it is no longer signalled), close it if it stays, and
+   check `pacman -Q sl` says not found. If you type the password instead, `sl` may be installed (review R-07).
+9. Back to how it was: `sudo pacman -Rns sl tidewise`. **Read the removal list before answering Y: it must list only
    `sl` and `tidewise`.** Then `rm -r ~/tidewise-build`; `pacman -Q tidewise sl` says both are not found.
+   If step 8 left `sl` uninstalled, the command is `sudo pacman -Rns tidewise` and the list must show only that.
