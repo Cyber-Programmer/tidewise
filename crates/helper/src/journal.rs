@@ -38,7 +38,7 @@ pub fn outcome_code(error: &ErrorKind) -> &'static str {
         ErrorKind::TransactionChanged => "transaction_changed",
         ErrorKind::SystemOutOfDate => "system_out_of_date",
         ErrorKind::DatabaseLocked => "database_locked",
-        ErrorKind::ProviderNotChosen => "",
+        ErrorKind::ProviderNotChosen => "provider_not_chosen",
         ErrorKind::PacmanFailed(_) => "pacman_failed",
     }
 }

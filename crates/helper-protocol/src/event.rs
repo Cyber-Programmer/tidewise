@@ -205,7 +205,9 @@ impl ErrorKind {
             Self::DatabaseLocked => {
                 "Another program is using the package database, for example another package manager. Wait until it is done, then try again."
             }
-            Self::ProviderNotChosen => "",
+            Self::ProviderNotChosen => {
+                "Part of this install can come from more than one package, and the request did not say which one to use. Nothing was changed. Go back and choose again."
+            }
             Self::PacmanFailed(_) => {
                 "The package manager stopped with an error. The technical details show what it said."
             }
