@@ -15,10 +15,10 @@ use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
     DetailsLookup, GroupMember, HeldBlock, InstalledPackage, PackageRef, PacmanError, ParseError,
-    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdatePlan, parse_qi,
-    parse_qu, parse_si, parse_ss,
+    PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdatePlan, held_block,
+    parse_print, parse_qi, parse_qu, parse_si, parse_ss, update_plan,
 };
-use crate::{parse_print, parse_print_failure, parse_sg};
+use crate::{parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// Absolute path: never looked up through `PATH`.
@@ -495,9 +495,51 @@ pub fn update_lookup(dbpath: Option<&Path>) -> Result<UpdateLookup, PacmanError>
 }
 
 fn update_lookup_with(
-    _run: &dyn Fn(&[String]) -> Result<Output, PacmanError>,
+    run: &dyn Fn(&[String]) -> Result<Output, PacmanError>,
 ) -> Result<UpdateLookup, PacmanError> {
-    Ok(UpdateLookup::Plan(Box::default()))
+    // `-Qu` exits 1 when there is nothing to list, and for errors too: stderr decides, as in the helper.
+    let qu = run(&["-Qu".to_string()])?;
+    let nothing_listed = qu.status.code() == Some(1)
+        && !String::from_utf8_lossy(&qu.stderr)
+            .lines()
+            .any(|line| line.starts_with("error:"));
+    if !nothing_listed {
+        check_exit(&qu)?;
+    }
+    let qu = String::from_utf8_lossy(&qu.stdout);
+
+    let print = run(&dry_run_args(true, &[]))?;
+    let stdout = String::from_utf8_lossy(&print.stdout);
+    if print.status.code() == Some(1) {
+        let stderr = String::from_utf8_lossy(&print.stderr);
+        if let Some(block) = held_block(&qu, &stdout, &stderr)? {
+            return Ok(UpdateLookup::HeldBlock(block));
+        }
+    }
+    check_exit(&print)?;
+
+    let refs: Vec<PackageRef> = parse_print(&stdout)?
+        .into_iter()
+        .map(|package| PackageRef {
+            repo: package.repo,
+            name: package.name,
+        })
+        .collect();
+    let request = details_request(&refs)?;
+    // `pacman -Si` with no names would print every package.
+    let si = if request.is_empty() {
+        String::new()
+    } else {
+        let output = run(&details_args(&request))?;
+        check_exit(&output)?;
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let qi = run(&["-Qi".to_string()])?;
+    check_exit(&qi)?;
+    let qi = String::from_utf8_lossy(&qi.stdout);
+
+    let plan = update_plan(&qu, &stdout, &si, &qi)?;
+    Ok(UpdateLookup::Plan(Box::new(plan)))
 }
 
 /// The resolver's view of pacman. `run` starts the program with these arguments (a function, so a test can record
