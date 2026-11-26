@@ -42,6 +42,9 @@ pub enum PacmanCommand {
     RealUpdate(Vec<PackageRef>),
     /// `pacman -D --asdeps -- ...`: mark these (the chosen providers) as installed as dependencies.
     MarkAsDeps(Vec<PackageRef>),
+    /// `pacman -Si -- repo/name ...`: what the repositories say about these (a read). The provider check of an install
+    /// reads `Depends On` and `Provides` from it (golden rule 10).
+    PackageDetails(Vec<PackageRef>),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
     /// run: the difference shows what disappeared.
     ListInstalled,
@@ -100,6 +103,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             name_only(packages)?,
             Names::Required,
         ),
+        PacmanCommand::PackageDetails(_) => Ok(Vec::new()),
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
@@ -202,6 +206,7 @@ mod tests {
             PacmanCommand::RealUpdate(two()),
             PacmanCommand::RealUpdate(vec![]),
             PacmanCommand::MarkAsDeps(two()),
+            PacmanCommand::PackageDetails(two()),
             PacmanCommand::ListInstalled,
         ]
     }
@@ -222,10 +227,11 @@ mod tests {
             PacmanCommand::MarkAsDeps(_) => 6,
             PacmanCommand::ListInstalled => 7,
             PacmanCommand::PrivateDryRunUpdate(_) => 8,
+            PacmanCommand::PackageDetails(_) => 9,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 8;
+    const LAST: usize = 9;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -351,6 +357,10 @@ mod tests {
                 PacmanCommand::MarkAsDeps(two()),
                 strings(&["-D", "--asdeps", "--", "dbeaver", "jre-openjdk"]),
             ),
+            (
+                PacmanCommand::PackageDetails(two()),
+                strings(&["-Si", "--", "extra/dbeaver", "extra/jre-openjdk"]),
+            ),
             // The whole installed list: fixed argv, no names at all.
             (PacmanCommand::ListInstalled, strings(&["-Q"])),
         ];
@@ -373,6 +383,7 @@ mod tests {
             "-Sy",
             "-S",
             "-Su",
+            "-Si",
             "-Q",
             "-D",
             "--print",
@@ -593,6 +604,7 @@ mod tests {
             PacmanCommand::RealInstall(vec![package.clone()]),
             PacmanCommand::RealUpdate(vec![package.clone()]),
             PacmanCommand::MarkAsDeps(vec![package.clone()]),
+            PacmanCommand::PackageDetails(vec![package.clone()]),
         ]
     }
 
@@ -666,6 +678,7 @@ mod tests {
             PacmanCommand::DryRunInstall(vec![]),
             PacmanCommand::RealInstall(vec![]),
             PacmanCommand::MarkAsDeps(vec![]),
+            PacmanCommand::PackageDetails(vec![]),
         ] {
             assert_eq!(args(&command), Err(ArgsRefused::NoTargets), "{command:?}");
         }
