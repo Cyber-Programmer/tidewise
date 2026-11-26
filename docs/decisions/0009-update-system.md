@@ -1,6 +1,6 @@
 # 0009 — Update system: what the review shows, and what blocks it
 
-- Status: **Accepted** (26 Nov 2026). The app and helper logic are built; the window is not (WBS 6.5 step 6).
+- Status: **Accepted** (26 Nov 2026). Built, window included; the adversarial review is still to come.
 - Decided by: Bahauddin Hassan (human), 26 Nov 2026: Arch news (a); rule 10 (a); skip replacements, block conflicts;
   then A1 and B1 after the measurements
 - Task: WBS 6.5 (PLAN D9; golden rules 4, 5, 10, 11, 13; threat model 41)
@@ -16,6 +16,27 @@
 | Upgrade needs a held package | both | **fails**, exit 1, `unable to satisfy dependency` | upgrades **nothing** |
 | Conflict with an installed package | the upgrade | **says nothing** | aborts; nothing at all is upgraded |
 | Interactive `pacman -Syu`, held-package case | | | asks `:: Do you want to skip the above package for this upgrade? [y/N]`; `y` upgrades the rest |
+
+| Lone provider | the upgrade | lists it | asks nothing |
+| An installed package provides the name; another listed package provides it too | the upgrade | lists the other one | asks nothing, keeps both |
+| The installed provider's new version **drops** the name in the same update | both | lists a new provider | **asks** (`-T` still says satisfied) |
+| `pacman -T -- <dep>` | | | exit 0 satisfied, 127 not (printed); respects versions |
+| `-Ss --dbpath <private> -- '^name$'` | | | finds packages that only `Provides` the name |
+
+## Rule 10 as read for UPDATES (human's decision, 26 Nov 2026)
+
+"Providers named explicitly" means: pacman must not make a choice. An update has no way to name one, so two cases with
+no choice are let through. **Installs are unchanged** and still name every pick.
+
+1. **One possible provider** in the repositories (`-Ss '^name$'`, confirmed with `-Si`): not a pick.
+2. **Satisfied by what is installed, and staying so:** for every listed dependency on the name, `pacman -T` says it
+   is satisfied now, **and** an installed package is among the repository providers and is either not in the update, or
+   upgraded for a need without a version (its new version still provides the name, by `-Si`).
+   The second half is Claude's addition: the human asked for `-T`, and `-T` alone would let the "drops the name" case
+   through. It uses only the approved reads.
+
+Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper-lists/ -- ^name$` and `-T -- <dep>`
+(against the real local database). The rule is `update_picks` in `tidewise-pacman`, used by the app and the helper.
 
 ## Decisions
 
@@ -36,9 +57,12 @@
 
 ## Limits (accepted for now)
 
-- The pick rule is the install's (`provider_picks`): any new package satisfying a listed dependency through
-  `Provides` counts, also when it is the only provider, or when an installed package already provides the name. The
-  second is from reading, not measured. It fails closed: the user is sent to a terminal.
+- Fails closed (sent to a terminal) when what satisfies a name is in no repository (an AUR or local package), or when
+  an upgraded provider meets a versioned need (versions of the new `Provides` are not compared).
+- A **versioned** provider count: all providers of the name count, also ones whose version could not fit, so a name
+  with one fitting and one unfitting provider is refused.
+- An installed provider that is held by `IgnorePkg` is judged by its repository version's `Provides`; `-T` still has
+  to agree about the installed one.
 - Conflicts and replacements with a version rule: versioned conflicts are not judged (pacman aborts the real run);
   a replacement is matched by name only.
 - `-Si` of a very large update can pass the helper's 4 MiB output cap (about 5000 packages); the update is refused.
