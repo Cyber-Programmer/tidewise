@@ -317,18 +317,21 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
     if news.is_empty() {
         return;
     }
+    let mut changed = false;
     {
         let model = &mut screen.borrow_mut().model;
         for (number, news) in news {
             match news {
                 JobNews::Event(event) => model.job_event(number, event),
-                JobNews::Ended(end) => {
-                    model.job_ended(number, end);
-                }
+                JobNews::Ended(end) => changed |= model.job_ended(number, end),
             }
         }
     }
     repaint(screen);
+    if changed {
+        let apps = screen.borrow().apps.clone();
+        apps.reload();
+    }
 }
 
 fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
@@ -563,6 +566,7 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
     )));
     bridge.set_percent(i32::from(view.percent));
     bridge.set_percent_text(view.percent_text.as_str().into());
+    bridge.set_attention(view.attention);
     bridge.set_focus(match view.focus {
         FocusTarget::List => InstallFocus::List,
         FocusTarget::Primary => InstallFocus::Primary,
