@@ -79,9 +79,9 @@ pub trait UpdateFacts {
 /// pick; an update has no way to name one, so two cases where pacman has nothing to ask are let through:
 ///
 /// - exactly one package in the repositories can provide the name;
-/// - every listed dependency on the name is still satisfied after the update: `pacman -T` says it is now, and an
-///   installed package among the repository providers stays (or, for a need without a version, is upgraded to a
-///   version that still provides it).
+/// - every listed dependency on the name is without a version, `pacman -T` says it is satisfied now, and an
+///   installed package among the repository providers stays (not in the list, or upgraded to a version whose listed
+///   record still provides the name).
 ///
 /// `-T` alone is not enough: it answers for what is installed NOW, and a provider whose new version drops the name
 /// leaves pacman with a choice (measured). What satisfies a name and is in no repository is not seen, so such a pick
@@ -96,22 +96,29 @@ pub fn update_picks<F: UpdateFacts>(
     for pick in picks {
         let name = pick.dependency.as_str();
         let providers = facts.providers(name)?;
-        let lone = !providers.is_empty() && providers.iter().all(|p| p.name == pick.provider.name);
+        // The same name in two repositories is two providers: pacman asks between them (R-07).
+        let lone = !providers.is_empty() && providers.iter().all(|p| *p == pick.provider);
         if lone {
             continue;
         }
-        let upgraded = |package: &str| listed.iter().any(|d| d.name == package);
-        let mut still_satisfied = true;
+        // An installed provider the update keeps: not in the list, or upgraded to a version that still provides the
+        // name. The new version is the LISTED record's, not any package of that name the search found (R-04).
+        let stays = providers.iter().any(|p| {
+            is_installed(&p.name)
+                && listed
+                    .iter()
+                    .find(|d| d.name == p.name)
+                    .is_none_or(|new| new.provides.iter().any(|entry| entry.name == name))
+        });
+        let mut still_satisfied = stays;
         for dependency in listed
             .iter()
             .flat_map(|d| &d.depends_on)
             .filter(|dependency| dependency.name == name)
         {
-            // The new version of an upgraded provider is not compared with a version rule.
-            let stays = providers.iter().any(|p| {
-                is_installed(&p.name) && (!upgraded(&p.name) || dependency.rule.is_none())
-            });
-            if !stays || !facts.satisfied(dependency)? {
+            // Versions are not compared here, and the one that satisfies `-T` now may be another than the one that
+            // stays: a versioned need never passes this way (R-03).
+            if !still_satisfied || dependency.rule.is_some() || !facts.satisfied(dependency)? {
                 still_satisfied = false;
                 break;
             }
