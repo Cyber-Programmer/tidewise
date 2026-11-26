@@ -55,9 +55,18 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, ProtocolError> {
     Ok(request)
 }
 
-/// The bytes the app writes to the helper's stdin.
-pub fn request_json(_request: &Request) -> Result<Vec<u8>, ProtocolError> {
-    Ok(Vec::new())
+/// The bytes the app writes to the helper's stdin: the request as one compact JSON object, **with no new line**. The
+/// helper reads stdin to its end, so closing the pipe is what ends the request.
+///
+/// `TooLarge` if that is more than `MAX_REQUEST_BYTES`: the helper would refuse it, and a cut request must never be
+/// sent. The allow-list is not checked here; call `validate` first. (`Malformed` stands for "could not be written",
+/// which these types cannot cause.)
+pub fn request_json(request: &Request) -> Result<Vec<u8>, ProtocolError> {
+    let bytes = serde_json::to_vec(request).map_err(|_| ProtocolError::Malformed)?;
+    if bytes.len() > MAX_REQUEST_BYTES {
+        return Err(ProtocolError::TooLarge);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
