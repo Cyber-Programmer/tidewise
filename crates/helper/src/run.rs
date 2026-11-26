@@ -546,12 +546,39 @@ mod tests {
             .collect()
     }
 
-    /// The answers of pacman to a clean install of the fixture: -Qu, dry run, real run, -D, -Q.
+    /// What the provider check reads after the dry run: the installed list, then `-Si` of the confirmed list (the
+    /// chosen `jre-openjdk` provides what `dbeaver` needs).
+    fn check_steps() -> [Result<RunOutput, RunnerError>; 2] {
+        let si: String = install_items()
+            .iter()
+            .map(|item| {
+                let (provides, depends) = match item.name.as_str() {
+                    "jre-openjdk" => ("java-runtime=25", "None"),
+                    "dbeaver" => ("None", "java-runtime>=21"),
+                    _ => ("None", "None"),
+                };
+                format!(
+                    "Repository      : {}\nName            : {}\nVersion         : {}\n\
+                     Description     : test\nArchitecture    : any\nURL             : x\n\
+                     Licenses        : GPL\nGroups          : None\nProvides        : {provides}\n\
+                     Depends On      : {depends}\nOptional Deps   : None\nConflicts With  : None\n\
+                     Replaces        : None\nDownload Size   : 1.00 KiB\nInstalled Size  : 1.00 KiB\n\
+                     Packager        : x\nBuild Date      : x\nValidated By    : None\n\n",
+                    item.repo, item.name, item.version
+                )
+            })
+            .collect();
+        [ok("pacman 7.1.0-1\n"), ok(&si)]
+    }
+
+    /// The answers of pacman to a clean install of the fixture: -Qu, dry run, check, real run, -D, -Q.
     fn clean_install_script() -> Script {
         let items = install_items();
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            check_steps()[0].clone(),
+            check_steps()[1].clone(),
             ok("pacman 7.1.0-1\n"), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
@@ -693,6 +720,8 @@ mod tests {
         let script = vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            check_steps()[0].clone(),
+            check_steps()[1].clone(),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
             ok(""),
@@ -726,6 +755,8 @@ mod tests {
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            check_steps()[0].clone(),
+            check_steps()[1].clone(),
             before,
             ok(REAL_INSTALL_OUT),
             ok(""),
