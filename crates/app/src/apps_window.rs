@@ -55,6 +55,11 @@ pub struct Apps {
 }
 
 impl Apps {
+    /// What is installed may have changed: read the list again.
+    pub fn reload(&self) {
+        begin_load(&self.screen);
+    }
+
     /// "Show in Apps": goes to the Apps screen, reloads the list and selects `name`.
     pub fn show_package(&self, name: &str) {
         let load = {

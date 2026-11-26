@@ -589,7 +589,19 @@ fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], l
     let is = if several { "are" } else { "is" };
     view.kind = CardKind::Done;
     view.current_pill = 2;
-    view.heading = "Installed".to_string();
+    // A package missing or gone is worth a warning; a journal entry that was not written is not.
+    view.attention = notices.iter().any(|notice| {
+        matches!(
+            notice,
+            Notice::PackagesNotInstalled(_) | Notice::PackagesRemoved(_)
+        )
+    });
+    view.heading = if view.attention {
+        "Install finished"
+    } else {
+        "Installed"
+    }
+    .to_string();
     if notices.is_empty() {
         view.title_before = format!("{label} {is} installed");
         view.body = format!("{label} {is} installed and ready to use.");
@@ -614,7 +626,7 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
     view.primary = button("Check again", true);
     view.secondary = button("Close", true);
     let lines = |text: &str| text.lines().map(str::to_string).collect::<Vec<_>>();
-    let end = match failure {
+    let (end, notices) = match failure {
         JobFailure::NotSent(error) => {
             view.body =
                 "Tidewise made a request its helper would refuse. Nothing was changed.".to_string();
@@ -622,12 +634,15 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
             view.report = REPORT.to_string();
             return;
         }
-        JobFailure::Ended { end, .. } => end,
+        JobFailure::Ended { end, notices } => (end, notices),
     };
     match end {
         JobEnd::Finished(Outcome::Error(kind)) => {
             view.body = kind.plain_text().to_string();
             if let ErrorKind::PacmanFailed(details) = kind {
+                // pacman may have stopped halfway, or after installing: claim neither.
+                view.title_before = format!("Installing {label} ended with an error");
+                view.body.push_str("\nCheck Apps to see what is installed.");
                 view.technical = lines(details.as_str());
             }
         }
@@ -667,6 +682,10 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
             ];
             view.technical.extend(lines(stderr));
         }
+    }
+    for notice in notices {
+        view.body.push('\n');
+        view.body.push_str(&notice.plain_text());
     }
 }
 

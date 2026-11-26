@@ -567,7 +567,7 @@ impl InstallModel {
         }
     }
 
-    /// Job `number` is over.
+    /// Job `number` is over. `true`: what is installed may have changed, so lists read before are old.
     pub fn job_ended(&mut self, number: u64, end: JobEnd) -> bool {
         let Phase::Installing(job) = &self.phase else {
             return false;
@@ -575,6 +575,8 @@ impl InstallModel {
         if job.number != number {
             return false;
         }
+        // A result, or none at all, means pacman may have run. The other ends are all from before it.
+        let may_have_changed = matches!(end, JobEnd::Finished(_) | JobEnd::NoResult { .. });
         self.phase = match end {
             JobEnd::Finished(Outcome::Ok) => Phase::Installed {
                 notices: job.notices.clone(),
@@ -585,11 +587,11 @@ impl InstallModel {
             }
             end => Phase::InstallFailed(JobFailure::Ended {
                 end,
-                notices: Vec::new(),
+                notices: job.notices.clone(),
             }),
         };
         self.refocus();
-        false
+        may_have_changed
     }
 
     /// A helper job is running: nothing may leave or replace this install (there is no stop).

@@ -139,7 +139,7 @@ export component InstallCard inherits Rectangle {
             spacing: Theme.space-m;
             alignment: start;
 
-            if InstallBridge.kind == InstallCardKind.alert || InstallBridge.kind == InstallCardKind.stale || InstallBridge.kind == InstallCardKind.differs: VerticalLayout {
+            if InstallBridge.kind == InstallCardKind.alert || InstallBridge.kind == InstallCardKind.stale || InstallBridge.kind == InstallCardKind.differs || (InstallBridge.kind == InstallCardKind.done && InstallBridge.attention): VerticalLayout {
                 alignment: start;
                 Rectangle {
                     width: 28px;
@@ -156,7 +156,7 @@ export component InstallCard inherits Rectangle {
                 }
             }
 
-            if InstallBridge.kind == InstallCardKind.done: VerticalLayout {
+            if InstallBridge.kind == InstallCardKind.done && !InstallBridge.attention: VerticalLayout {
                 alignment: start;
                 Rectangle {
                     width: 28px;
