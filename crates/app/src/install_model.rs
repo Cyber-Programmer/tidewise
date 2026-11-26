@@ -9,7 +9,7 @@ use crate::error_words::{Doing, ErrorText, error_text};
 use crate::helper_request::{HelperRequest, RequestError, install_request};
 use crate::helper_run::JobEnd;
 use crate::update_check::ListsNote;
-use tidewise_helper_protocol::{Event, Notice, Progress};
+use tidewise_helper_protocol::{Event, Notice, Outcome, Phase as Stage, Progress};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
     Question, Resolution, ResolveInput,
@@ -276,6 +276,10 @@ impl InstallModel {
     }
 
     fn begin(&mut self, request: Request, check_lists: bool) -> Option<Ticket> {
+        if self.is_installing() {
+            return None;
+        }
+        self.prompt_closed = false;
         self.request = request;
         self.steps.clear();
         self.current = 0;
@@ -428,8 +432,15 @@ impl InstallModel {
 
     /// The secondary button: one question back, or out of the install screen. A wanted resolve is dropped.
     pub fn back(&mut self) -> Back {
+        self.prompt_closed = false;
         match self.phase {
             Phase::Closed => Back::Closed,
+            Phase::Installing(_) => Back::Stayed,
+            // "Done" and "Close": there is nothing to go back to.
+            Phase::Installed { .. } | Phase::InstallFailed(_) => {
+                self.cancel();
+                Back::Closed
+            }
             Phase::Asking if self.current > 0 => {
                 self.current -= 1;
                 self.refocus();
@@ -455,6 +466,10 @@ impl InstallModel {
 
     /// Leaves the install screen, whatever it shows. A wanted resolve is dropped.
     pub fn cancel(&mut self) {
+        if self.is_installing() {
+            return;
+        }
+        self.prompt_closed = false;
         self.drop_wanted();
         self.phase = Phase::Closed;
         self.request = Request::default();
@@ -483,8 +498,13 @@ impl InstallModel {
         self.begin(request, false)
     }
 
-    /// "Try again" after a failure.
+    /// "Try again" after a failed resolve, and "Check again" after a failed install: that one starts the request
+    /// afresh, because what failed may have changed what there is to ask.
     pub fn try_again(&mut self) -> Option<Ticket> {
+        if matches!(self.phase, Phase::InstallFailed(_)) {
+            let request = self.request.clone();
+            return self.begin(request, true);
+        }
         if matches!(
             self.phase,
             Phase::Failed {
@@ -498,16 +518,80 @@ impl InstallModel {
         }
     }
 
-    /// The review's Install button.
+    /// The review's Install button: `Some` means "start the helper now".
     pub fn start_install(&mut self) -> Option<JobTicket> {
-        None
+        let Phase::Ready(plan) = &self.phase else {
+            return None;
+        };
+        let plan = (**plan).clone();
+        self.prompt_closed = false;
+        self.refocus();
+        match install_request(&plan) {
+            Ok(request) => {
+                self.last_number += 1;
+                self.phase = Phase::Installing(Box::new(Job {
+                    number: self.last_number,
+                    plan,
+                    progress: None,
+                    percent: 0,
+                    notices: Vec::new(),
+                }));
+                Some(JobTicket {
+                    number: self.last_number,
+                    request,
+                })
+            }
+            Err(error) => {
+                self.phase = Phase::InstallFailed(JobFailure::NotSent(error));
+                None
+            }
+        }
     }
 
     /// A `Progress` or `Notice` event of job `number`.
-    pub fn job_event(&mut self, _number: u64, _event: Event) {}
+    pub fn job_event(&mut self, number: u64, event: Event) {
+        let Phase::Installing(job) = &mut self.phase else {
+            return;
+        };
+        if job.number != number {
+            return;
+        }
+        match event {
+            Event::Progress(progress) => {
+                job.percent = job.percent.max(percent_of(progress));
+                job.progress = Some(progress);
+            }
+            Event::Notice(notice) => job.notices.push(notice),
+            // The result comes through `job_ended`.
+            Event::Finished(_) => {}
+        }
+    }
 
     /// Job `number` is over.
-    pub fn job_ended(&mut self, _number: u64, _end: JobEnd) {}
+    pub fn job_ended(&mut self, number: u64, end: JobEnd) {
+        let Phase::Installing(job) = &self.phase else {
+            return;
+        };
+        if job.number != number {
+            return;
+        }
+        self.phase = match end {
+            JobEnd::Finished(Outcome::Ok) => Phase::Installed {
+                notices: job.notices.clone(),
+            },
+            JobEnd::PromptClosed => {
+                self.prompt_closed = true;
+                Phase::Ready(Box::new(job.plan.clone()))
+            }
+            end => Phase::InstallFailed(JobFailure::Ended(end)),
+        };
+        self.refocus();
+    }
+
+    /// A helper job is running: nothing may leave or replace this install (there is no stop).
+    fn is_installing(&self) -> bool {
+        matches!(self.phase, Phase::Installing(_))
+    }
 
     /// The password window of the last try was closed.
     pub fn prompt_was_closed(&self) -> bool {
@@ -582,6 +666,21 @@ impl InstallModel {
         };
         self.refocus();
     }
+}
+
+/// How far along the whole job is, from one phase's count: checking 0–5, downloading 5–50, installing 50–92, hooks
+/// from 92. The helper's phases have no weights of their own; these are the board's.
+fn percent_of(progress: Progress) -> u8 {
+    let (from, to) = match progress.phase {
+        Stage::Checking => (0, 5),
+        Stage::Downloading => (5, 50),
+        Stage::Installing => (50, 92),
+        Stage::Hooks => (92, 92),
+    };
+    let total = u64::from(progress.total.max(1));
+    let done = u64::from(progress.current).min(total);
+    let within = (to - from) * done / total;
+    u8::try_from(from + within).unwrap_or(100)
 }
 
 /// A failed resolve. Bugs (a limit, a path, an answer that does not add up) are not worth a second try.
@@ -697,8 +796,7 @@ mod tests {
         model
     }
 
-    use crate::helper_request::RequestError;
-    use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress};
+    use tidewise_helper_protocol::ErrorKind;
 
     /// dbeaver reviewed and ready.
     fn reviewing() -> InstallModel {
