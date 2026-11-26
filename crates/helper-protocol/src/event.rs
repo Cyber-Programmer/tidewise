@@ -121,6 +121,8 @@ pub enum ErrorKind {
     SystemOutOfDate,
     /// pacman's database lock is held by someone else (T-10).
     DatabaseLocked,
+    /// The helper's dry run answered a provider question nobody had answered in the request (golden rule 10).
+    ProviderNotChosen,
     /// pacman ran and failed; its words, cleaned and capped.
     PacmanFailed(Details),
 }
@@ -203,6 +205,7 @@ impl ErrorKind {
             Self::DatabaseLocked => {
                 "Another program is using the package database, for example another package manager. Wait until it is done, then try again."
             }
+            Self::ProviderNotChosen => "",
             Self::PacmanFailed(_) => {
                 "The package manager stopped with an error. The technical details show what it said."
             }
@@ -265,6 +268,7 @@ mod tests {
             ErrorKind::TransactionChanged,
             ErrorKind::SystemOutOfDate,
             ErrorKind::DatabaseLocked,
+            ErrorKind::ProviderNotChosen,
             ErrorKind::PacmanFailed(Details::from_raw("error: failed to commit transaction")),
         ]
     }
@@ -554,6 +558,19 @@ mod tests {
     fn a_locked_database_says_to_wait_and_try_again() {
         let text = ErrorKind::DatabaseLocked.plain_text();
         assert!(text.contains("try again"), "{text}");
+    }
+
+    #[test]
+    fn an_unnamed_provider_has_its_own_code_and_says_to_choose_again() {
+        assert_eq!(
+            event_line(&Event::Finished(Outcome::Error(
+                ErrorKind::ProviderNotChosen
+            ))),
+            r#"{"finished":{"error":"provider_not_chosen"}}"#
+        );
+        let text = ErrorKind::ProviderNotChosen.plain_text();
+        assert!(text.contains("Nothing was changed"), "{text}");
+        assert!(text.contains("choose again"), "{text}");
     }
 
     #[test]
