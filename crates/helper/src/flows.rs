@@ -504,7 +504,8 @@ mod tests {
     use crate::testing::{Fake, ok, out};
     use crate::workdir::WorkDirError;
     use tidewise_helper_protocol::{
-        Details, Notice, PackageRef, Phase, ProviderChoice, TransactionItem, parse_request,
+        Details, Notice, PROTOCOL_VERSION, PackageRef, Phase, ProviderChoice, TransactionItem,
+        parse_request,
     };
 
     const INSTALL: &str = include_str!("../../../tests/fixtures/helper-protocol/install.json");
@@ -595,12 +596,55 @@ mod tests {
             .collect()
     }
 
-    /// The five answers of a clean install of `INSTALL`.
+    /// One `pacman -Si` record with what the provider check reads filled in.
+    fn record(item: &TransactionItem, provides: &str, depends: &str) -> String {
+        format!(
+            "Repository      : {}\nName            : {}\nVersion         : {}\nDescription     : test\n\
+             Architecture    : any\nURL             : https://example.invalid\nLicenses        : GPL\n\
+             Groups          : None\nProvides        : {provides}\nDepends On      : {depends}\n\
+             Optional Deps   : None\nConflicts With  : None\nReplaces        : None\n\
+             Download Size   : 1.00 KiB\nInstalled Size  : 1.00 KiB\nPackager        : x\n\
+             Build Date      : x\nValidated By    : None\n\n",
+            item.repo, item.name, item.version
+        )
+    }
+
+    /// `-Si` of the `INSTALL` list: dbeaver needs `java-runtime`, which `jre-openjdk` (the chosen one) provides.
+    fn si_text(items: &[TransactionItem]) -> String {
+        items
+            .iter()
+            .map(|item| match item.name.as_str() {
+                "jre-openjdk" => record(item, "java-runtime=25", "None"),
+                "dbeaver-jdbc" => record(item, "a-jdbc", "None"),
+                "dbeaver" => record(item, "None", "java-runtime>=21  dbeaver-jdbc"),
+                _ => record(item, "None", "None"),
+            })
+            .collect()
+    }
+
+    /// What the provider check reads, after the dry run: the installed list, then the details of the confirmed list.
+    fn check_steps(request: &Request) -> [Result<RunOutput, RunnerError>; 2] {
+        [
+            ok("pacman 7.1.0-1\n"),
+            ok(&si_text(&transaction_of(request))),
+        ]
+    }
+
+    /// Puts the provider check's two answers into an install script, after `-Qu` and the dry run.
+    fn with_check(request: &Request, mut script: Vec<Result<RunOutput, RunnerError>>) -> Fake {
+        script.splice(2..2, check_steps(request));
+        Fake::new(script)
+    }
+
+    /// The five answers of a clean install of `INSTALL` (before the provider check's two).
     fn clean_install_script(request: &Request) -> Vec<Result<RunOutput, RunnerError>> {
         let items = transaction_of(request);
+        let [installed, details] = check_steps(request);
         vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            installed,
+            details,
             ok("pacman 7.1.0-1\n"), // the providers are not installed yet
             ok(REAL_INSTALL_OUT),
             ok(""),
@@ -608,10 +652,20 @@ mod tests {
         ]
     }
 
+    /// `PackageDetails` of the confirmed list, as the helper asks for it.
+    fn details_command(request: &Request) -> PacmanCommand {
+        PacmanCommand::PackageDetails(
+            transaction_of(request)
+                .iter()
+                .map(|item| pkg(&item.repo, &item.name))
+                .collect(),
+        )
+    }
+
     // ---- install ------------------------------------------------------------------------------------------
 
     #[test]
-    fn a_clean_install_runs_the_five_commands_in_order_and_ends_ok() {
+    fn a_clean_install_runs_its_commands_in_order_and_ends_ok() {
         let request = request(INSTALL);
         let install = the_install(&request);
         let mut fake = Fake::new(clean_install_script(&request));
@@ -622,6 +676,8 @@ mod tests {
             vec![
                 PacmanCommand::PendingUpdates,
                 PacmanCommand::DryRunInstall(names_of(&install)),
+                PacmanCommand::ListInstalled,
+                details_command(&request),
                 PacmanCommand::ListInstalled,
                 PacmanCommand::RealInstall(names_of(&install)),
                 PacmanCommand::MarkAsDeps(vec![pkg("extra", "jre-openjdk")]),
@@ -636,8 +692,8 @@ mod tests {
         let request = request(INSTALL);
         let mut fake = Fake::new(clean_install_script(&request));
         go(&request, &mut fake);
-        let PacmanCommand::RealInstall(names) = &fake.ran[3] else {
-            panic!("third command is not the real install");
+        let PacmanCommand::RealInstall(names) = &fake.ran[5] else {
+            panic!("sixth command is not the real install");
         };
         assert_eq!(
             names,
@@ -698,14 +754,17 @@ mod tests {
             .collect();
         assert!(!only_ignored.is_empty());
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            ok(&only_ignored),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(""),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                ok(&only_ignored),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                ok(REAL_INSTALL_OUT),
+                ok(""),
+                ok(&installed_text(&items)),
+            ],
+        );
         let (outcome, _) = go(&request, &mut fake);
         assert_eq!(outcome, Outcome::Ok);
     }
@@ -779,14 +838,17 @@ mod tests {
         let request = request(INSTALL);
         let mut items = transaction_of(&request);
         items.reverse();
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(""),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                ok(REAL_INSTALL_OUT),
+                ok(""),
+                ok(&installed_text(&items)),
+            ],
+        );
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
     }
 
@@ -839,13 +901,16 @@ mod tests {
     fn a_conflict_aborts_with_pacmans_words_and_the_post_check_counts_the_list() {
         let request = request(INSTALL);
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            out(1, CONFLICT_OUT, CONFLICT_ERR),
-            ok("pacman 7.1.0-1\n"),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                out(1, CONFLICT_OUT, CONFLICT_ERR),
+                ok("pacman 7.1.0-1\n"),
+            ],
+        );
         let (outcome, events) = go(&request, &mut fake);
         let Outcome::Error(ErrorKind::PacmanFailed(details)) = outcome else {
             panic!("expected PacmanFailed, got {outcome:?}");
@@ -873,13 +938,16 @@ mod tests {
     fn a_lock_taken_in_the_meantime_is_database_locked_without_pacmans_advice() {
         let request = request(INSTALL);
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok(""),
-            out(1, "", LOCK_ERR),
-            ok(""),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok(""),
+                out(1, "", LOCK_ERR),
+                ok(""),
+            ],
+        );
         let (outcome, _) = go(&request, &mut fake);
         // The lock text is a fixed one: pacman's "you can remove db.lck" never reaches the user (golden rule 9).
         assert_eq!(outcome, Outcome::Error(ErrorKind::DatabaseLocked));
@@ -889,14 +957,17 @@ mod tests {
     fn marking_providers_as_dependencies_that_fails_is_reported_and_the_post_check_still_runs() {
         let request = request(INSTALL);
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            out(1, "", ASDEPS_MISSING_ERR),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                ok(REAL_INSTALL_OUT),
+                out(1, "", ASDEPS_MISSING_ERR),
+                ok(&installed_text(&items)),
+            ],
+        );
         let (outcome, events) = go(&request, &mut fake);
         let Outcome::Error(ErrorKind::PacmanFailed(details)) = outcome else {
             panic!("expected PacmanFailed, got {outcome:?}");
@@ -915,19 +986,24 @@ mod tests {
         let request = request(INSTALL);
         let install = the_install(&request);
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("jre-openjdk 25.0.1.u8-1\n"), // the chosen provider is already installed
-            ok(REAL_INSTALL_OUT),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("jre-openjdk 25.0.1.u8-1\n"), // the chosen provider is already installed
+                ok(REAL_INSTALL_OUT),
+                ok(&installed_text(&items)),
+            ],
+        );
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
         assert_eq!(
             fake.ran,
             vec![
                 PacmanCommand::PendingUpdates,
                 PacmanCommand::DryRunInstall(names_of(&install)),
+                PacmanCommand::ListInstalled,
+                details_command(&request),
                 PacmanCommand::ListInstalled,
                 PacmanCommand::RealInstall(names_of(&install)),
                 PacmanCommand::ListInstalled,
@@ -945,14 +1021,17 @@ mod tests {
             });
         }
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("jre-openjdk 25.0.1.u8-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(""),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("jre-openjdk 25.0.1.u8-1\n"),
+                ok(REAL_INSTALL_OUT),
+                ok(""),
+                ok(&installed_text(&items)),
+            ],
+        );
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
         assert!(fake.ran.contains(&PacmanCommand::MarkAsDeps(vec![pkg(
             "extra",
@@ -972,13 +1051,16 @@ mod tests {
             truncated: false,
         });
         for check in [Err(RunnerError::Spawn), out(2, "", "error: x\n"), timed_out] {
-            let mut fake = Fake::new(vec![
-                out(1, "", ""),
-                ok(&print_text(&items)),
-                check,
-                ok(REAL_INSTALL_OUT),
-                ok(&installed_text(&items)),
-            ]);
+            let mut fake = with_check(
+                &request,
+                vec![
+                    out(1, "", ""),
+                    ok(&print_text(&items)),
+                    check,
+                    ok(REAL_INSTALL_OUT),
+                    ok(&installed_text(&items)),
+                ],
+            );
             assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
             assert!(
                 !fake
@@ -1000,9 +1082,12 @@ mod tests {
         marks_providers: bool,
     ) -> Vec<Result<RunOutput, RunnerError>> {
         let items = transaction_of(request);
+        let [installed, details] = check_steps(request);
         let mut script = vec![
             out(1, "", ""),
             ok(&print_text(&items)),
+            installed,
+            details,
             before,
             ok(REAL_INSTALL_OUT),
         ];
@@ -1169,7 +1254,7 @@ mod tests {
             ok("a 1-1\n"),
             Err(RunnerError::Io),
         ];
-        let (result, _) = go_full(&request, &mut Fake::new(script));
+        let (result, _) = go_full(&request, &mut with_check(&request, script));
         assert_ne!(result.outcome, Outcome::Ok);
         assert_eq!(result.removal_check, RemovalCheck::Skipped);
     }
@@ -1189,12 +1274,15 @@ mod tests {
                 "changed list",
             ),
             (
-                Fake::new(vec![
-                    out(1, "", ""),
-                    ok(&print_text(&items)),
-                    ok(""),
-                    Err(RunnerError::Spawn),
-                ]),
+                with_check(
+                    &request,
+                    vec![
+                        out(1, "", ""),
+                        ok(&print_text(&items)),
+                        ok(""),
+                        Err(RunnerError::Spawn),
+                    ],
+                ),
                 "no pacman",
             ),
         ];
@@ -1216,7 +1304,7 @@ mod tests {
             out(1, CONFLICT_OUT, CONFLICT_ERR),
             ok("keep 1-1\n"),
         ];
-        let (result, events) = go_full(&request, &mut Fake::new(script));
+        let (result, events) = go_full(&request, &mut with_check(&request, script));
         assert!(matches!(
             result.outcome,
             Outcome::Error(ErrorKind::PacmanFailed(_))
@@ -1232,16 +1320,20 @@ mod tests {
     fn without_chosen_providers_there_is_no_dependency_marking() {
         let mut request = request(INSTALL);
         if let Action::Install(install) = &mut request.action {
-            install.providers.clear();
+            let named: Vec<PackageRef> = install.providers.drain(..).map(|a| a.chosen).collect();
+            install.targets.extend(named);
         }
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(&installed_text(&items)),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                ok(REAL_INSTALL_OUT),
+                ok(&installed_text(&items)),
+            ],
+        );
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
         assert!(
             !fake
@@ -1257,14 +1349,17 @@ mod tests {
         let items = transaction_of(&request);
         let mut installed = installed_text(&items);
         installed = installed.replace("dbeaver 25.2.1-1\n", "dbeaver 25.1.0-1\n");
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(""),
-            ok(&installed),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok("pacman 7.1.0-1\n"),
+                ok(REAL_INSTALL_OUT),
+                ok(""),
+                ok(&installed),
+            ],
+        );
         let (outcome, events) = go(&request, &mut fake);
         assert_eq!(outcome, Outcome::Ok);
         assert_eq!(notices(&events), vec![Notice::PackagesNotInstalled(1)]);
@@ -1283,20 +1378,300 @@ mod tests {
             RunnerError::Io,
             RunnerError::WorkDir(WorkDirError::WrongMode),
         ] {
-            let mut fake = Fake::new(vec![
-                out(1, "", ""),
-                ok(&print_text(&items)),
-                ok(""),
-                Err(error),
-            ]);
+            let mut fake = with_check(
+                &request,
+                vec![out(1, "", ""), ok(&print_text(&items)), ok(""), Err(error)],
+            );
             let (outcome, events) = go(&request, &mut fake);
             assert!(
                 matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
                 "{error:?}"
             );
             // pacman did not run, so there is nothing to check afterwards.
-            assert_eq!(fake.ran.len(), 4);
+            assert_eq!(fake.ran.len(), 6);
             assert_eq!(notices(&events), vec![]);
+        }
+    }
+
+    // ---- a provider pick nobody named (golden rule 10, WBS 6.4a), against real pacman's saved output ----------
+
+    macro_rules! saved {
+        ($name:literal) => {
+            include_str!(concat!("../../../tests/fixtures/pacman/container/", $name))
+        };
+    }
+
+    fn dummy(name: &str) -> PackageRef {
+        pkg("tidewise-test", &format!("tidewise-dummy-{name}"))
+    }
+
+    fn lines_of(print: &str) -> Vec<TransactionItem> {
+        crate::output::parse_print(print).unwrap()
+    }
+
+    /// An install of dummy packages: `providers` are `(dependency, dummy name)`, the confirmed list is `print`.
+    fn dummy_install(targets: &[&str], providers: &[(&str, &str)], print: &str) -> Request {
+        Request {
+            protocol_version: PROTOCOL_VERSION,
+            action: Action::Install(Install {
+                targets: targets.iter().map(|name| dummy(name)).collect(),
+                providers: providers
+                    .iter()
+                    .map(|(dependency, name)| ProviderChoice {
+                        dependency: (*dependency).to_string(),
+                        chosen: dummy(name),
+                    })
+                    .collect(),
+                transaction: lines_of(print),
+            }),
+        }
+    }
+
+    /// `-Qu` (nothing pending), the dry run, the installed list and `-Si`; then whatever `rest` holds.
+    fn checked(print: &str, si: &str, rest: Vec<Result<RunOutput, RunnerError>>) -> Fake {
+        let mut script = vec![out(1, "", ""), ok(print), ok("pacman 7.1.0-1\n"), ok(si)];
+        script.extend(rest);
+        Fake::new(script)
+    }
+
+    /// The answers of a real run that installed everything in `print`.
+    fn real_run(print: &str, marks_providers: bool) -> Vec<Result<RunOutput, RunnerError>> {
+        let mut script = vec![ok("pacman 7.1.0-1\n"), ok(REAL_INSTALL_OUT)];
+        if marks_providers {
+            script.push(ok(""));
+        }
+        script.push(ok(&installed_text(&lines_of(print))));
+        script
+    }
+
+    fn assert_refused_before_the_real_run(request: &Request, fake: &mut Fake) {
+        let (result, events) = go_full(request, fake);
+        assert_eq!(
+            result.outcome,
+            Outcome::Error(ErrorKind::ProviderNotChosen),
+            "{:?}",
+            fake.ran
+        );
+        assert!(events.is_empty(), "{events:?}");
+        assert!(
+            !fake.ran.iter().any(|c| matches!(
+                c,
+                PacmanCommand::RealInstall(_) | PacmanCommand::MarkAsDeps(_)
+            )),
+            "{:?}",
+            fake.ran
+        );
+        assert_eq!(result.removal_check, RemovalCheck::NotRun);
+    }
+
+    #[test]
+    fn an_install_whose_dry_run_picks_a_provider_nobody_named_is_refused_before_the_real_run() {
+        for (target, print, si) in [
+            (
+                "needs-virtual",
+                saved!("print-virtual-unnamed.stdout.txt"),
+                saved!("si-virtual-unnamed.txt"),
+            ),
+            (
+                "needs-vvirtual",
+                saved!("print-vvirtual-unnamed.stdout.txt"),
+                saved!("si-vvirtual-unnamed.txt"),
+            ),
+            // One candidate only is still a pick that must be named.
+            (
+                "needs-one",
+                saved!("print-one-unnamed.stdout.txt"),
+                saved!("si-one-unnamed.txt"),
+            ),
+            (
+                "needs-chain",
+                saved!("print-chain-unnamed.stdout.txt"),
+                saved!("si-chain-unnamed.txt"),
+            ),
+        ] {
+            let request = dummy_install(&[target], &[], print);
+            let mut fake = checked(print, si, vec![]);
+            assert_refused_before_the_real_run(&request, &mut fake);
+            assert!(
+                matches!(fake.ran.last(), Some(PacmanCommand::PackageDetails(_))),
+                "{target}: {:?}",
+                fake.ran
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_install_with_the_provider_named_runs() {
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let request = dummy_install(&["needs-virtual"], &[("tidewise-virtual", "prov-b")], print);
+        let mut fake = checked(
+            print,
+            saved!("si-virtual-prov-b-named.txt"),
+            real_run(print, true),
+        );
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok, "{:?}", fake.ran);
+        // No extra dry run: nothing but the chosen package provides the name.
+        let dry_runs = fake
+            .ran
+            .iter()
+            .filter(|c| matches!(c, PacmanCommand::DryRunInstall(_)))
+            .count();
+        assert_eq!(dry_runs, 1, "{:?}", fake.ran);
+    }
+
+    #[test]
+    fn a_provider_named_as_a_target_counts_as_named() {
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let request = dummy_install(&["needs-virtual", "prov-b"], &[], print);
+        let mut fake = checked(
+            print,
+            saved!("si-virtual-prov-b-named.txt"),
+            real_run(print, false),
+        );
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok, "{:?}", fake.ran);
+    }
+
+    #[test]
+    fn an_answer_pacman_could_not_use_does_not_hide_its_own_pick() {
+        // vprov-1 provides tidewise-vvirtual=1 and the dependency wants >=2: real pacman adds vprov-2 by itself
+        // (print-b-vprov-1-with-hello). The answer must not make the helper stop looking.
+        let print = saved!("print-b-vprov-1-with-hello.stdout.txt");
+        let request = dummy_install(
+            &["needs-vvirtual", "hello"],
+            &[("tidewise-vvirtual", "vprov-1")],
+            print,
+        );
+        let mut fake = checked(
+            print,
+            saved!("si-b-vprov-1-with-hello.txt"),
+            vec![ok(saved!("print-vprov-1-alone.stdout.txt"))],
+        );
+        assert_refused_before_the_real_run(&request, &mut fake);
+        assert_eq!(
+            fake.ran.last(),
+            Some(&PacmanCommand::DryRunInstall(vec![dummy("vprov-1")]))
+        );
+    }
+
+    #[test]
+    fn an_answer_that_brings_another_provider_of_the_name_itself_runs() {
+        // chain-a provides tidewise-chain and depends on chain-b, which provides it too: naming chain-a is enough.
+        let print = saved!("print-chain-unnamed.stdout.txt");
+        let request = dummy_install(&["needs-chain"], &[("tidewise-chain", "chain-a")], print);
+        let mut rest = vec![ok(saved!("print-chain-a-alone.stdout.txt"))];
+        rest.extend(real_run(print, true));
+        let mut fake = checked(print, saved!("si-chain-unnamed.txt"), rest);
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok, "{:?}", fake.ran);
+    }
+
+    #[test]
+    fn a_dry_run_of_the_chosen_package_that_cannot_be_read_refuses() {
+        let print = saved!("print-chain-unnamed.stdout.txt");
+        let request = dummy_install(&["needs-chain"], &[("tidewise-chain", "chain-a")], print);
+        for bad in [
+            Err(RunnerError::Spawn),
+            out(1, "", "error: x\n"),
+            out(0, "not a line\n", ""),
+            Ok(RunOutput {
+                exit: Some(0),
+                stdout: saved!("print-chain-a-alone.stdout.txt").to_string(),
+                stderr: String::new(),
+                timed_out: false,
+                truncated: true,
+            }),
+        ] {
+            let mut fake = checked(print, saved!("si-chain-unnamed.txt"), vec![bad.clone()]);
+            let (outcome, _) = go(&request, &mut fake);
+            assert!(
+                matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{bad:?}: {outcome:?}"
+            );
+            assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
+        }
+    }
+
+    #[test]
+    fn an_answer_whose_chosen_package_does_not_provide_the_dependency_is_refused() {
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let request = dummy_install(&["needs-virtual"], &[("tidewise-other", "prov-b")], print);
+        let mut fake = checked(print, saved!("si-virtual-prov-b-named.txt"), vec![]);
+        assert_refused_before_the_real_run(&request, &mut fake);
+    }
+
+    #[test]
+    fn an_answer_naming_a_package_outside_the_list_is_refused() {
+        // `validate` refuses this before a job starts; the check does not rely on that.
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let request = dummy_install(
+            &["needs-virtual", "prov-b"],
+            &[("tidewise-virtual", "elsewhere")],
+            print,
+        );
+        let mut fake = checked(print, saved!("si-virtual-prov-b-named.txt"), vec![]);
+        assert_refused_before_the_real_run(&request, &mut fake);
+    }
+
+    #[test]
+    fn a_details_version_that_differs_from_the_confirmed_one_is_a_changed_transaction() {
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let request = dummy_install(&["needs-virtual"], &[("tidewise-virtual", "prov-b")], print);
+        let newer = saved!("si-virtual-prov-b-named.txt").replacen(": 1.0-1", ": 1.0-2", 1);
+        let mut fake = checked(print, &newer, vec![]);
+        let (outcome, _) = go(&request, &mut fake);
+        assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
+        assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+    }
+
+    #[test]
+    fn unreadable_details_or_installed_list_refuse_and_never_pass() {
+        let print = saved!("print-virtual-prov-b-named.stdout.txt");
+        let si = saved!("si-virtual-prov-b-named.txt");
+        let request = dummy_install(&["needs-virtual"], &[("tidewise-virtual", "prov-b")], print);
+        let cut = |stdout: &str, timed_out: bool, truncated: bool| {
+            Ok(RunOutput {
+                exit: if timed_out { None } else { Some(0) },
+                stdout: stdout.to_string(),
+                stderr: String::new(),
+                timed_out,
+                truncated,
+            })
+        };
+        let first_record_only = format!("{}\n\n", si.split("\n\n").next().unwrap());
+        for details in [
+            Err(RunnerError::Spawn),
+            out(1, si, "error: package 'x' was not found\n"),
+            ok("garbage\n"),
+            ok(""),
+            ok(&first_record_only),
+            cut(si, true, false),
+            cut(si, false, true),
+        ] {
+            let mut fake = Fake::new(vec![
+                out(1, "", ""),
+                ok(print),
+                ok("pacman 7.1.0-1\n"),
+                details.clone(),
+            ]);
+            let (outcome, _) = go(&request, &mut fake);
+            assert!(
+                matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{details:?}: {outcome:?}"
+            );
+            assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+        }
+        for installed in [
+            Err(RunnerError::Spawn),
+            ok(""),
+            out(1, "pacman 7.1.0-1\n", "error: x\n"),
+            cut("pacman 7.1.0-1\n", false, true),
+        ] {
+            let mut fake = Fake::new(vec![out(1, "", ""), ok(print), installed.clone()]);
+            let (outcome, _) = go(&request, &mut fake);
+            assert!(
+                matches!(outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{installed:?}: {outcome:?}"
+            );
+            assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
         }
     }
 
@@ -1642,12 +2017,15 @@ mod tests {
     fn failure_texts_are_ours_or_pacmans_stderr_never_the_requests() {
         let request = request(INSTALL);
         let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            out(1, "", ""),
-            ok(&print_text(&items)),
-            ok(""),
-            Err(RunnerError::Spawn),
-        ]);
+        let mut fake = with_check(
+            &request,
+            vec![
+                out(1, "", ""),
+                ok(&print_text(&items)),
+                ok(""),
+                Err(RunnerError::Spawn),
+            ],
+        );
         let (outcome, _) = go(&request, &mut fake);
         let Outcome::Error(ErrorKind::PacmanFailed(details)) = outcome else {
             panic!("expected PacmanFailed");
