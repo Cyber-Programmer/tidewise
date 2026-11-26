@@ -608,6 +608,57 @@ fn an_update_and_a_repository_the_real_lists_have_not_seen() -> Vec<Item> {
     items
 }
 
+/// Golden rule 10 for a plain update (WBS 6.5, threat model 41): upd-virt 2.0 needs `tidewise-virtual`, which two
+/// packages provide. The list is the one a dry run prints (pacman takes the first provider), but nobody named it.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_that_would_pick_a_provider_is_refused_with_the_real_lists_untouched() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd-virt"]);
+    std::thread::sleep(Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst");
+    let items: Vec<Item> = [("prov-a", "1.0-1"), ("upd-virt", "2.0-1")]
+        .iter()
+        .map(|(name, version)| Item {
+            repo: REPO.to_string(),
+            name: format!("tidewise-dummy-{name}"),
+            version: (*version).to_string(),
+        })
+        .collect();
+    let (request, summary) = update_request(&items);
+    let lists_before = fingerprint(REAL_SYNC);
+    let packages_before = package_list();
+
+    let ran = run(&summary, request.as_bytes());
+    finished_with(&ran, "provider_not_chosen");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
+}
+
+/// A new package that is a plain dependency by its own name is no pick: the check reads the private `-Si`, and the
+/// update goes on.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_that_brings_a_plain_new_dependency_passes_the_provider_check() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-needs-upd"]);
+    add_newer("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    add_newer("tidewise-dummy-needs-upd-2.0-1-any.pkg.tar.zst");
+    let items = confirmed("-Su", &[]);
+    assert_eq!(items.len(), 2);
+    let (request, summary) = update_request(&items);
+
+    let ran = run(&summary, request.as_bytes());
+    assert_ok(&ran);
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("2.0-1")
+    );
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_changed_update_list_leaves_the_real_sync_databases_untouched() {

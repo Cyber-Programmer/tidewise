@@ -109,7 +109,12 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::PackageDetails(packages) => {
             build(&["-Si"], &[], repo_and_name(packages)?, Names::Required)
         }
-        PacmanCommand::PrivatePackageDetails(_) => Err(ArgsRefused::NoTargets),
+        PacmanCommand::PrivatePackageDetails(packages) => build(
+            &["-Si"],
+            &["--dbpath", LISTS_DBPATH],
+            repo_and_name(packages)?,
+            Names::Required,
+        ),
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
