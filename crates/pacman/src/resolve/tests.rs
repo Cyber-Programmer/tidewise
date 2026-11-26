@@ -605,6 +605,19 @@ fn a_provider_that_is_installed_already_is_no_question() {
 }
 
 #[test]
+fn an_answer_naming_an_installed_package_is_never_part_of_the_plan() {
+    // The user answered, then installed that provider by hand before the next round. The dependency is satisfied by
+    // what is installed, so there is nothing to name; keeping the answer would reinstall it.
+    let mut world = World::base();
+    world.install("prov-b", "1.0-1", &["virt"]);
+    let mut input = want(&["needs-virt"]);
+    input.provider_answers = vec![answer("virt", "prov-b")];
+    let plan = plan(resolve_with(&input, &world));
+    assert_eq!(plan.providers, []);
+    assert_eq!(item_names(&plan), [("needs-virt", Role::Target)]);
+}
+
+#[test]
 fn a_versioned_dependency_offers_only_the_providers_pacman_accepts_with_the_other_targets_in_every_run()
  {
     let world = World::base();
