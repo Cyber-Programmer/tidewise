@@ -38,7 +38,8 @@ Based on Microsoft's SDL: threat modelling, static analysis, fuzzing, independen
   `remove_dir_all` and (5.4b) `std::fs::rename` and rustix's `fs::unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`,
   `renameat_with` (a rename deletes the file it replaces) are `disallowed-methods` for the whole workspace, so a new program start or
   deletion fails clippy until a person reads it. Allowed only in: the two functions that build the pacman command
-  (`pacman_command` in `crates/pacman/src/run.rs` and in `crates/helper/src/runner.rs`), the helper's one deletion
+  (`pacman_command` in `crates/pacman/src/run.rs` and in `crates/helper/src/runner.rs`), the app's one start of the
+  helper (`helper_command` in `crates/app/src/helper_run.rs`: `/usr/bin/pkexec`, 6.4b), the helper's one deletion
   point (`remove_work_file` in `crates/helper/src/removal.rs`), the app's one deletion point (`remove_stale_lock` in
   `crates/pacman/src/private_lists.rs`: only the private folder's own `db.lck`, under its `flock`; decision 0008), each
   crate's test `TempDir`, a few named test

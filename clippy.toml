@@ -4,7 +4,8 @@
 # only. Clippy refuses them everywhere else, so a new call fails `cargo clippy -- -D warnings` (and CI) until a person
 # reads it and allows it, with a reason, in one function. Where they are allowed today:
 #   Command::new    crates/pacman/src/run.rs (the read-only pacman runner), crates/helper/src/runner.rs (the helper's
-#                   pacman runner), and tests (their own helper functions and crates/helper/tests/not_root.rs).
+#                   pacman runner), crates/app/src/helper_run.rs `helper_command` only (6.4b: pkexec and the helper), and tests
+#                   (their own helper functions and crates/helper/tests/not_root.rs).
 #   remove_*        crates/helper/src/removal.rs (the helper's one deletion point); crates/pacman/src/private_lists.rs
 #                   `remove_stale_lock` only (6.11, decision 0008): the left-over db.lck of the app's own private list
 #                   folder, never any other path; and the TempDir of each crate's tests.
