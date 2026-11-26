@@ -19,6 +19,7 @@ pub mod helper_request;
 pub mod helper_run;
 pub mod install_model;
 pub mod install_view;
+pub mod job;
 pub mod list_scroll;
 pub mod search_model;
 pub mod search_view;

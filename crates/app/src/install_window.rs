@@ -22,12 +22,13 @@ use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use tidewise_app::helper_run::{JobEnd, run_install};
-use tidewise_app::install_model::{Back, InstallModel, JobTicket, Phase, Ticket, WorkAnswer};
+use tidewise_app::helper_run::{JobEnd, run_helper};
+use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
 use tidewise_app::install_view::{
     CardKind, FocusTarget, InstallView, InstalledRow, OptionView, ReviewRow, StageState, StageView,
     TileView, install_view,
 };
+use tidewise_app::job::JobTicket;
 use tidewise_app::list_scroll::{
     ScrollKey, content_y_to_offset, moved_selection, offset_to_content_y, scroll_by_key,
     scroll_to_show,
@@ -294,7 +295,7 @@ enum Shown {
     Other,
 }
 
-/// Runs the helper on its own thread. `run_install` blocks until the helper is gone.
+/// Runs the helper on its own thread. `run_helper` blocks until the helper is gone.
 fn spawn_job(screen: &Rc<RefCell<Screen>>, job: JobTicket) {
     let (sender, window) = {
         let state = screen.borrow();
@@ -312,7 +313,7 @@ fn spawn_job(screen: &Rc<RefCell<Screen>>, job: JobTicket) {
                 }
             });
         };
-        let end = run_install(job.request, |event| tell(JobNews::Event(event)));
+        let end = run_helper(job.request, |event| tell(JobNews::Event(event)));
         tell(JobNews::Ended(end));
     });
 }

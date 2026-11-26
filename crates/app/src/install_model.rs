@@ -6,10 +6,11 @@
 //! ticket replaces an older one, and an answer is used only if its number is the one wanted.
 
 use crate::error_words::{Doing, ErrorText, error_text};
-use crate::helper_request::{HelperRequest, RequestError, install_request};
+use crate::helper_request::install_request;
 use crate::helper_run::JobEnd;
+use crate::job::{Job, JobFailure, JobTicket};
 use crate::update_check::ListsNote;
-use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress};
+use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
     Question, Resolution, ResolveInput,
@@ -57,7 +58,7 @@ pub enum Phase {
     /// Every question is answered; 6.3 shows the review.
     Ready(Box<InstallPlan>),
     /// The helper is running (or the password window is open). Nothing here can stop it.
-    Installing(Box<Job>),
+    Installing(Box<Installing>),
     /// The helper said it worked.
     Installed {
         notices: Vec<Notice>,
@@ -65,33 +66,11 @@ pub enum Phase {
     InstallFailed(JobFailure),
 }
 
-/// One helper run to start: the number says which job events belong to.
+/// The running install: its plan (for the way back when the password window is closed) and the helper run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JobTicket {
-    pub number: u64,
-    pub request: HelperRequest,
-}
-
-/// The running helper job.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Job {
-    pub number: u64,
-    /// The plan that was sent, for the way back when the password window is closed.
+pub struct Installing {
     pub plan: InstallPlan,
-    /// `None` until the helper says anything: until then the password window may still be open.
-    pub progress: Option<Progress>,
-    /// 0 to 100, never going backwards.
-    pub percent: u8,
-    pub notices: Vec<Notice>,
-}
-
-/// Why an install did not end well.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobFailure {
-    /// No request was made: a bug.
-    NotSent(RequestError),
-    /// The helper run ended without success. The notices it sent first are kept: they may say what did change.
-    Ended { end: JobEnd, notices: Vec<Notice> },
+    pub job: Job,
 }
 
 /// The user's answer to one question, changed while it is shown.
@@ -540,12 +519,9 @@ impl InstallModel {
         match install_request(&plan) {
             Ok(request) => {
                 self.last_number += 1;
-                self.phase = Phase::Installing(Box::new(Job {
-                    number: self.last_number,
+                self.phase = Phase::Installing(Box::new(Installing {
                     plan,
-                    progress: None,
-                    percent: 0,
-                    notices: Vec::new(),
+                    job: Job::new(self.last_number),
                 }));
                 Some(JobTicket {
                     number: self.last_number,
@@ -561,29 +537,19 @@ impl InstallModel {
 
     /// A `Progress` or `Notice` event of job `number`.
     pub fn job_event(&mut self, number: u64, event: Event) {
-        let Phase::Installing(job) = &mut self.phase else {
-            return;
-        };
-        if job.number != number {
-            return;
-        }
-        match event {
-            Event::Progress(progress) => {
-                job.percent = job.percent.max(percent_of(progress));
-                job.progress = Some(progress);
-            }
-            Event::Notice(notice) => job.notices.push(notice),
-            // The result comes through `job_ended`.
-            Event::Finished(_) => {}
+        if let Phase::Installing(running) = &mut self.phase
+            && running.job.number == number
+        {
+            running.job.event(event);
         }
     }
 
     /// Job `number` is over. `true`: what is installed may have changed, so lists read before are old.
     pub fn job_ended(&mut self, number: u64, end: JobEnd) -> bool {
-        let Phase::Installing(job) = &self.phase else {
+        let Phase::Installing(running) = &self.phase else {
             return false;
         };
-        if job.number != number {
+        if running.job.number != number {
             return false;
         }
         // A result, or none at all, means pacman may have run. The other ends are all from before it.
@@ -592,18 +558,18 @@ impl InstallModel {
             end,
             JobEnd::Finished(Outcome::Error(ErrorKind::ProviderNotChosen))
         )
-        .then(|| Box::new(job.plan.clone()));
+        .then(|| Box::new(running.plan.clone()));
         self.phase = match end {
             JobEnd::Finished(Outcome::Ok) => Phase::Installed {
-                notices: job.notices.clone(),
+                notices: running.job.notices.clone(),
             },
             JobEnd::PromptClosed => {
                 self.prompt_closed = true;
-                Phase::Ready(Box::new(job.plan.clone()))
+                Phase::Ready(Box::new(running.plan.clone()))
             }
             end => Phase::InstallFailed(JobFailure::Ended {
                 end,
-                notices: job.notices.clone(),
+                notices: running.job.notices.clone(),
             }),
         };
         self.refocus();
@@ -695,21 +661,6 @@ impl InstallModel {
     }
 }
 
-/// How far along the whole job is, from one phase's count: checking 0–5, downloading 5–50, installing 50–92, hooks
-/// from 92. The helper's phases have no weights of their own; these are the board's.
-fn percent_of(progress: Progress) -> u8 {
-    let (from, to) = match progress.phase {
-        Stage::Checking => (0, 5),
-        Stage::Downloading => (5, 50),
-        Stage::Installing => (50, 92),
-        Stage::Hooks => (92, 92),
-    };
-    let total = u64::from(progress.total.max(1));
-    let done = u64::from(progress.current).min(total);
-    let within = (to - from) * done / total;
-    u8::try_from(from + within).unwrap_or(100)
-}
-
 /// A failed resolve. Bugs (a limit, a path, an answer that does not add up) are not worth a second try.
 fn failed(error: &PacmanError) -> Phase {
     let can_retry = !matches!(
@@ -728,6 +679,8 @@ fn failed(error: &PacmanError) -> Phase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helper_request::RequestError;
+    use tidewise_helper_protocol::{Phase as Stage, Progress};
     use tidewise_pacman::{
         Candidate, GroupAnswer, GroupChoice, InstallDecision, PlanItem, ProviderAnswer, Role,
     };
@@ -848,7 +801,7 @@ mod tests {
 
     fn job(model: &InstallModel) -> &Job {
         match model.phase() {
-            Phase::Installing(job) => job,
+            Phase::Installing(running) => &running.job,
             other => panic!("not installing: {other:?}"),
         }
     }
