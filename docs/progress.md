@@ -1525,3 +1525,32 @@ Only your `sudo pacman` lines and the installed helper run pacman as root. Do it
 9. Back to how it was: `sudo pacman -Rns sl tidewise`. **Read the removal list before answering Y: it must list only
    `sl` and `tidewise`.** Then `rm -r ~/tidewise-build`; `pacman -Q tidewise sl` says both are not found.
    If step 8 left `sl` uninstalled, the command is `sudo pacman -Rns tidewise` and the list must show only that.
+
+## 2026-11-26 — 6.5 Update system, steps 1-5 (no window yet)
+Done:
+- **Measured** (`09f1558`, `ad4094f`, `02e34ee`; table in decision 0009): `-Qu` does not list replacements; what only a
+  declined replacement needs is not installed; an upgrade that needs a held package fails the whole update; interactive
+  `pacman -Syu` does ask "Do you want to skip the above package for this upgrade? [y/N]".
+- **Your decisions:** news (a); rule 10 (a) with the private `-Si`; skip replacements, block conflicts; A1; B1.
+- **`tidewise-pacman`:** `update_plan`, `held_block` (`d2f8586`), `update_lookup` (`1ff3526`).
+- **Helper** (`e011879`): a plain update refuses a provider pick before the lists move (threat model 41 closed).
+- **App:** job types shared, `run_install` is `run_helper` (`0eceb62`); `update_request` and card words (`d6b06a6`);
+  `UpdateModel` and `review_updates` (`274b191`).
+- **Differs from the plan:** (1) the helper's `pacman -Q` always runs, only `-Si` is skipped for pure upgrades;
+  (2) the restart rule takes the six official kernels, `systemd`, `mesa`, `nvidia*` (not `linux-firmware` or headers).
+- **Checks** on `274b191`: `cargo test --all` 1252 passed, 0 failed, 142 ignored (1203 before). fmt, clippy,
+  `cargo deny`, release build, fuzz fmt and `fuzz build`: exit 0. Fuzzing itself not run.
+- **Container:** full run on `274b191`: 1388 passed, 0 failed (`pacman_update` 10, `helper_jobs` 34; counts include the
+  package build's own tests). The first try failed while building the package image (the Arch Archive reset two
+  downloads); no test had run.
+Next: step 6 (window) after the board is readable; step 7: adversarial review, fuzzing of the `-Qi` relations reader and
+the parsers, manual checklist, PR summary.
+Blockers: the `M4UpdateSystem` board could not be read (network error), so some card words are drafts. For v0.1:
+threat model 40 (6.6).
+Open, for you:
+- `fds::tests::the_real_listing_has_the_standard_descriptors_and_its_own_listing_descriptor` failed once in a workspace
+  run and passed 60 times in a row after. Not touched here (helper code); from reading, a race with other test threads.
+- The pick rule also refuses a lone provider (decision 0009, limits).
+Rules bent: (1) no red step for the container measurements and fixtures. (2) One `update_plan` test expectation was
+wrong in its red commit and corrected in the green one. (3) Rule 13 only partly met (decision 0009). (4) No WBS sheet
+update (as asked).
