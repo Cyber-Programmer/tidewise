@@ -37,6 +37,7 @@ use tidewise_helper_protocol::Event;
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::apps_window::Apps;
+use crate::search_window::Search;
 use crate::{
     ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
     InstallStageState, InstalledRowData, MainWindow, NavBridge, ReviewKey, ReviewRowData,
@@ -72,6 +73,8 @@ struct Screen {
     mailbox: (mpsc::Sender<Answer>, mpsc::Receiver<Answer>),
     jobs: (mpsc::Sender<JobMessage>, mpsc::Receiver<JobMessage>),
     apps: Apps,
+    /// Set once Search exists (it is made after this screen, which it starts installs on).
+    search: Option<Search>,
     slow_timer: Timer,
     /// The card, and the number of its last focus move, as last painted: a new card starts its list at the top.
     shown_kind: CardKind,
@@ -103,6 +106,7 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         mailbox: mpsc::channel(),
         jobs: mpsc::channel(),
         apps,
+        search: None,
         slow_timer: Timer::default(),
         shown_kind: CardKind::Closed,
         shown_serial: 0,
@@ -202,6 +206,11 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
 }
 
 impl Install {
+    /// Who to tell that what is installed may have changed.
+    pub fn set_search(&self, search: Search) {
+        self.screen.borrow_mut().search = Some(search);
+    }
+
     /// The Install button of Search details: opens the install screen for this package.
     pub fn open_package(&self, package: PackageRef) {
         let ticket = self.screen.borrow_mut().model.open(package);
@@ -329,8 +338,14 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
     }
     repaint(screen);
     if changed {
-        let apps = screen.borrow().apps.clone();
+        let (apps, search) = {
+            let state = screen.borrow();
+            (state.apps.clone(), state.search.clone())
+        };
         apps.reload();
+        if let Some(search) = search {
+            search.refresh();
+        }
     }
 }
 
