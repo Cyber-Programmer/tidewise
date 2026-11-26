@@ -1,8 +1,8 @@
 # Fuzzing the pacman parsers and the helper protocol
 
-Twelve cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`), `ss` (`parse_ss`), `si` (`parse_si`), `qu` (`parse_qu`), `print` (`parse_print`: the dry-run list, checked to write back to its input), `sg` (`parse_sg`, same check),
+Thirteen cargo-fuzz (libFuzzer) targets: `qi` (`parse_qi`), `qq` (`parse_qq`), `ss` (`parse_ss`), `si` (`parse_si`), `qu` (`parse_qu`), `print` (`parse_print`: the dry-run list, checked to write back to its input), `sg` (`parse_sg`, same check),
 `print_failure` (`parse_print_failure`; the input is stdout and stderr split at the first NUL byte) and `request` (`tidewise-helper-protocol`: `parse_request`, `validate`, `summary`, `parse_event`, `Details::from_raw`),
-`output` (`tidewise-helper`: `parse_print`, `same_transaction`, `is_lock_failure`, `count_not_installed`, the parsers of pacman's output as the root helper reads it), `progress` (`tidewise-helper`: `ProgressTracker`) and `gate` (`tidewise-helper`: `summary_arg`, `caller_uid` and `decide`: what the caller chooses besides the request, argv and `PKEXEC_UID`). They only call
+`output` (`tidewise-helper`: `parse_print`, `same_transaction`, `is_lock_failure`, `count_not_installed`, the parsers of pacman's output as the root helper reads it), `progress` (`tidewise-helper`: `ProgressTracker`) and `gate` (`tidewise-helper`: `summary_arg`, `caller_uid` and `decide`: what the caller chooses besides the request, argv and `PKEXEC_UID`) and `update` (`tidewise-pacman`: `update_plan`, its reader of `Provides` and `Conflicts With` from `-Qi` included, and `held_block`; the input is four pacman texts split at NUL bytes). They only call
 parsers and pure functions on bytes or text; they never run pacman or touch the system. Needs **nightly**, used only through `cargo +nightly`
 (the default toolchain stays stable). `fuzz/` is its own workspace, so the root fmt/clippy/test/deny and CI do
 not see it.
@@ -12,12 +12,14 @@ Seeds: `tests/fixtures/pacman/` is used directly as the read-only seed folder (n
 `request` uses `tests/fixtures/helper-protocol/` (three valid requests); `output` and `progress` use
 `tests/fixtures/helper-jobs/` (real saved pacman output; for `progress` the first byte is the confirmed total); `gate` uses
 `tests/fixtures/helper-gate/` (byte 0 = length of the argv text, byte 1 = length of the id text, then the argv text, the id text and the request).
+`update` has its seeds in `fuzz/corpus/update/`, made from `tests/fixtures/pacman/container/update-*` (`-qu`, `-print`, `-si`, `-qi`
+joined with NUL bytes; recreate them when needed).
 New inputs libFuzzer finds go to `fuzz/corpus/<target>/`; crashes go to `fuzz/artifacts/<target>/`.
 Both are gitignored.
 
 Run from the repo root (10 minutes each):
 
-    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/print fuzz/corpus/sg fuzz/corpus/print_failure fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress fuzz/corpus/gate
+    mkdir -p fuzz/corpus/qi fuzz/corpus/qq fuzz/corpus/ss fuzz/corpus/si fuzz/corpus/qu fuzz/corpus/print fuzz/corpus/sg fuzz/corpus/print_failure fuzz/corpus/request fuzz/corpus/output fuzz/corpus/progress fuzz/corpus/gate fuzz/corpus/update
     cargo +nightly fuzz run qi fuzz/corpus/qi tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run qq fuzz/corpus/qq tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run ss fuzz/corpus/ss tests/fixtures/pacman -- -max_total_time=600; echo "exit: $?"
@@ -30,6 +32,7 @@ Run from the repo root (10 minutes each):
     cargo +nightly fuzz run output fuzz/corpus/output tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run progress fuzz/corpus/progress tests/fixtures/helper-jobs -- -max_total_time=600; echo "exit: $?"
     cargo +nightly fuzz run gate fuzz/corpus/gate tests/fixtures/helper-gate -- -max_total_time=600; echo "exit: $?"
+    cargo +nightly fuzz run update fuzz/corpus/update -- -max_total_time=600 -max_len=65536; echo "exit: $?"
 
 No crashes: the output ends with `Done <N> runs in 600 second(s)`, `exit: 0`, and `fuzz/artifacts/` has
 nothing in it. A crash prints `panicked at …` or `deadly signal`, then `Test unit written to
