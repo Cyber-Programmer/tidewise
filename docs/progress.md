@@ -1579,3 +1579,51 @@ Open, for you:
 Rules bent: (1) no automated test for the window glue or layout. (2) No red step for the container tests. (3) Test
 mistakes corrected in green commits: a fake `-Si` answered unasked records; doubled backslashes in view tests. (4) One
 older focus-test expectation changed with the stale card's button. (5) No WBS sheet update (as asked).
+
+## 2026-11-26 — 6.5 Update system: review, fuzzing, checklist
+Done:
+- **Words:** several conflicts and several picks (`ea21710`).
+- **Adversarial review** (`docs/security/reviews/6.5-update-system.md`): R-03, R-04, R-07 fixed red-first (`1aefc24`),
+  R-08 tests added. **R-01 and R-02 are High and open: do not merge or release before your decision.**
+- **Fuzzing:** new target `update` (`221fe1c`). 600 s each, exit 0, no artifacts: `qi`, `ss`, `si`, `qu`, `print`,
+  `print_failure`, `request`, `update`. Run before the R-03/04/07 fix, which changed no parser.
+- **Helper commands in an update:** confirmed, no `-Qi` in the helper.
+- **Checks** on `1aefc24`: `cargo test --all` 1286 passed, 0 failed, 150 ignored. fmt, clippy, `cargo deny`, release
+  build, fuzz fmt: exit 0. Full container run: 1430 passed, 0 failed.
+Next: your decisions on R-01, R-02, R-05, R-06; then the checklist below, push, PR.
+Blockers: R-01, R-02. For v0.1 also threat model 40 (6.6).
+Open: one helper test (`fds.rs`, real listing) failed once and passed 60 times after.
+Rules bent: (1) the R-08 table tests have no red step (the code was right). (2) No permanent container tests for R-03,
+R-04, R-07: unit tests, and the reviewer's scratch reproductions re-run against the fixed helper. (3) Two older unit
+expectations about the update rule were wrong and changed in the red commit. (4) No WBS sheet update (as asked).
+
+### 6.5 manual checklist (the first real update through Tidewise)
+**Do not do steps 4-8 while R-01 is open unless step 3's two lists agree.** Only your `sudo` lines and the installed
+helper run pacman as root. Do it on the final commit.
+1. Build and install as in the 6.4b checklist, steps 1-2 (`pacman -U` of the local package; the list must show only
+   `tidewise`). Save what you have: `pacman -Q > ~/before.txt`. Read https://archlinux.org/news/ first.
+2. Start Tidewise, open **Updates**, press "Check for updates". No password. The card says what it found.
+   `ls -l /var/lib/pacman/sync/*.db` has the same times as before the check.
+3. In a terminal, compare (read only, as you):
+   `pacman -Qu --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"` and
+   `pacman -Su --print --print-format '%n %v' --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"`.
+   Every name of the first that is not marked `[ignored]` must be in the second, and in the review. **If one is
+   missing, stop: that is R-01.** If the review shows "Not done by Tidewise", stop too.
+4. Check the review: rows `old → new` with sizes, "Packages", "Download", the disk tile, "Nothing will be removed.", the
+   news line. Technical details open and close. Up, Down, Page Up, Page Down, Home, End scroll the list.
+5. Press "Update N packages", close the password window. Back on the review: "The password prompt was closed. Nothing
+   was changed." `pacman -Q | diff - ~/before.txt` is empty.
+6. Press Update again and type the password. Cards: waiting, checking / downloading / updating / finishing, then done.
+   The restart line shows if a kernel, `systemd`, `mesa` or `nvidia*` was in the list, and not otherwise.
+7. `pacman -Q > ~/after.txt; diff ~/before.txt ~/after.txt`: **every changed or new package must have been in the
+   review, and nothing may be gone.** `journalctl --since "-30min" SYSLOG_IDENTIFIER=tidewise-helper`.
+   `pacman -Qu` prints nothing but held packages.
+8. Back on Updates, "Check for updates": "Your system is up to date". Apps shows the new versions.
+9. Optional, held package: while something is pending, add `IgnorePkg = <that package>` to `/etc/pacman.conf`, check
+   again: it is in "Held back by your pacman.conf" (or the held card, if something needs it). Remove the line after.
+10. Optional: Search for a package on a system with updates pending: the "needs updating first" card's "Update system"
+    button opens Updates and checks.
+11. Keyboard and Orca: is each card's title spoken, does the bar read its value, Tab order on review, blocked and done.
+    The smallest window size: with a replacement or held box, are the package rows still reachable?
+12. Back to how it was: `sudo pacman -Rns tidewise` (the list must show only `tidewise`), `rm -r ~/tidewise-build
+    ~/before.txt ~/after.txt`.

@@ -1,6 +1,8 @@
 # 0009 — Update system: what the review shows, and what blocks it
 
-- Status: **Accepted** (26 Nov 2026). Built, window included; the adversarial review is still to come.
+- Status: **Accepted** (26 Nov 2026). Built, window included. **Not safe to release:** the review
+  (`docs/security/reviews/6.5-update-system.md`) found R-01 (a replaced package with a newer version is upgraded, with
+  unconfirmed dependencies) and R-02 (soname providers), both open.
 - Decided by: Bahauddin Hassan (human), 26 Nov 2026: Arch news (a); rule 10 (a); skip replacements, block conflicts;
   then A1 and B1 after the measurements
 - Task: WBS 6.5 (PLAN D9; golden rules 4, 5, 10, 11, 13; threat model 41)
@@ -10,7 +12,8 @@
 | Case | `-Qu` | `-Su --print` | `-Su --noconfirm --ask 66` |
 |---|---|---|---|
 | Upgrade needs a name two packages provide | the upgrade | lists the first provider, says nothing | installs it, as a dependency |
-| Replacement | **not listed** (empty and exit 1 if it is the only change) | lists the new package | declines; old package stays |
+| Replacement (the old package has no newer version) | **not listed** (empty and exit 1 if it is the only change) | lists the new package | declines; old package stays |
+| Replacement, and the old package HAS a newer version | the old package | lists only the new one | declines, then **upgrades the old one** and what it needs (review R-01) |
 | Replacement that needs another package | not listed | lists both | installs **neither** |
 | `IgnorePkg` | marked `[ignored]` | left out | skips it, warns |
 | Upgrade needs a held package | both | **fails**, exit 1, `unable to satisfy dependency` | upgrades **nothing** |
@@ -29,9 +32,11 @@
 no choice are let through. **Installs are unchanged** and still name every pick.
 
 1. **One possible provider** in the repositories (`-Ss '^name$'`, confirmed with `-Si`): not a pick.
-2. **Satisfied by what is installed, and staying so:** for every listed dependency on the name, `pacman -T` says it
-   is satisfied now, **and** an installed package is among the repository providers and is either not in the update, or
-   upgraded for a need without a version (its new version still provides the name, by `-Si`).
+2. **Satisfied by what is installed, and staying so:** every listed dependency on the name has no version, `pacman -T`
+   says it is satisfied now, **and** an installed package is among the repository providers and is either not in the
+   update, or upgraded to a version whose listed record still provides the name. (Review R-03, R-04: versioned needs
+   never pass this way.)
+   "One possible provider" means one repository and name: the same name in two repositories is a choice (R-07).
    The second half is Claude's addition: the human asked for `-T`, and `-T` alone would let the "drops the name" case
    through. It uses only the approved reads.
 
@@ -57,12 +62,13 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 
 ## Limits (accepted for now)
 
-- Fails closed (sent to a terminal) when what satisfies a name is in no repository (an AUR or local package), or when
-  an upgraded provider meets a versioned need (versions of the new `Provides` are not compared).
-- A **versioned** provider count: all providers of the name count, also ones whose version could not fit, so a name
-  with one fitting and one unfitting provider is refused.
-- An installed provider that is held by `IgnorePkg` is judged by its repository version's `Provides`; `-T` still has
-  to agree about the installed one.
+- Fails closed (sent to a terminal) when what satisfies a name is in no repository (an AUR or local package), and for
+  every versioned need that is not met by a lone provider.
+- A **versioned** provider count: all providers of the name count, also ones whose version could not fit.
+- From reading, not reproduced: an installed provider held by `IgnorePkg` is judged by its repository version's
+  `Provides`, and `-T` may be satisfied by a different package.
+- Not safe, open: soname dependencies are not judged (R-02); a repository without `Search` in `Usage` is not counted
+  (R-06).
 - Conflicts and replacements with a version rule: versioned conflicts are not judged (pacman aborts the real run);
   a replacement is matched by name only.
 - `-Si` of a very large update can pass the helper's 4 MiB output cap (about 5000 packages); the update is refused.
