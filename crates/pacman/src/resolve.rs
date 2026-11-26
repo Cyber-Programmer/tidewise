@@ -435,7 +435,12 @@ impl<'a> Engine<'a> {
             self.kept_answers(update, &base, &input.provider_answers, &installed)?;
         for _ in 0..MAX_PASSES {
             let mut names = base.clone();
-            names.extend(providers.iter().map(|a| spec(&a.chosen)));
+            for answer in &providers {
+                let name = spec(&answer.chosen);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
             let list = match self.dry_run(update, &names)? {
                 DryRun::Listed(list) => list,
                 DryRun::Failed(failure) => return Ok(Resolution::Blocked(blockers_of(failure))),
@@ -450,6 +455,7 @@ impl<'a> Engine<'a> {
 
             let picks = self.picks(&list, &asked, &providers, &installed);
             if picks.is_empty() {
+                let providers = named_once(&requested, providers);
                 return Ok(Resolution::Ready(self.plan(
                     decision, &requested, providers, &list, &installed, &updating,
                 )));
@@ -744,6 +750,21 @@ impl<'a> Engine<'a> {
             items,
         }
     }
+}
+
+/// One package may answer several names, or be a target as well. The helper takes each package once (`validate`
+/// refuses a duplicate), and a package already named covers every name it provides (the helper's own check skips
+/// whatever was asked for), so the later answers are dropped.
+fn named_once(requested: &[PackageRef], answers: Vec<ProviderAnswer>) -> Vec<ProviderAnswer> {
+    let mut kept: Vec<ProviderAnswer> = Vec::new();
+    for answer in answers {
+        let named = requested.contains(&answer.chosen)
+            || kept.iter().any(|other| other.chosen == answer.chosen);
+        if !named {
+            kept.push(answer);
+        }
+    }
+    kept
 }
 
 fn printed_ref(printed: &PrintedPackage) -> PackageRef {
