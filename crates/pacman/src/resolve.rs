@@ -601,7 +601,7 @@ impl<'a> Engine<'a> {
 
     /// Whether naming `candidate` for `dependency` works, with pacman as the judge: in a dry run of everything else
     /// asked plus the candidate, every package that provides `dependency` is the candidate or something the candidate
-    /// brings along by itself (its own dry run). Installed packages never count.
+    /// brings along by itself (its own dry run). Installed packages never count, and are never a fit.
     fn fits(
         &mut self,
         update: bool,
@@ -611,6 +611,10 @@ impl<'a> Engine<'a> {
         candidate: &PackageRef,
         installed: &HashMap<String, InstalledPackage>,
     ) -> Result<bool, PacmanError> {
+        // An installed package is never named as a provider: pacman would list it again, as a reinstall.
+        if installed.contains_key(&candidate.name) {
+            return Ok(false);
+        }
         let mut names = base.to_vec();
         names.extend(others.iter().map(|a| spec(&a.chosen)));
         names.push(spec(candidate));
