@@ -7,7 +7,8 @@
 //!            no provider pick the request does not name (`-Q`, `-Si`; golden rule 10) -> real `-S --noconfirm --ask 66`
 //!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
-//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> the
+//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> (plain
+//!            update only) no provider pick: `-Q`, and `-Si` on the private copy if anything is new -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
 //!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
@@ -241,14 +242,44 @@ fn update_job(
     (step, counts)
 }
 
-/// Golden rule 10 for a system update (threat model 41). Stub: the red tests below.
+/// Golden rule 10 for a system update (threat model 41): pacman must not pick a provider the request does not name.
+/// Runs on the PRIVATE copy, before anything is moved, so a refusal leaves the real lists as they were.
+///
+/// A pick needs a package that is not installed, so when every line of the list is an upgrade there is nothing to
+/// check and `-Si` is not run. `asked` and `answered` are empty for a plain update (6.6 passes the targets and their
+/// answers). Unlike the install's check it does not verify answers, because a plain update has none.
 fn check_update_providers(
-    _runner: &mut dyn Runner,
-    _transaction: &[TransactionItem],
-    _asked: &[ListedRef],
-    _answered: &[&str],
+    runner: &mut dyn Runner,
+    transaction: &[TransactionItem],
+    asked: &[ListedRef],
+    answered: &[&str],
 ) -> Step {
-    Ok(())
+    let installed = read_installed_list(runner)
+        .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
+    let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
+    if transaction
+        .iter()
+        .all(|item| installed.contains(&item.name))
+    {
+        return Ok(());
+    }
+    let details = read_details(runner, transaction, PacmanCommand::PrivatePackageDetails)?;
+    let listed: Vec<ListedRef> = transaction
+        .iter()
+        .map(|item| listed_ref(&item.repo, &item.name))
+        .collect();
+    let picks = provider_picks(
+        &listed,
+        |item| details.get(item),
+        asked,
+        answered,
+        |name| installed.contains(name),
+    );
+    if picks.is_empty() {
+        Ok(())
+    } else {
+        Err(ErrorKind::ProviderNotChosen)
+    }
 }
 
 /// The lock is only looked at. pacman's own advice about it (to remove the file) is never shown.
@@ -333,7 +364,7 @@ fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
-    let details = read_details(runner, &install.transaction)?;
+    let details = read_details(runner, &install.transaction, PacmanCommand::PackageDetails)?;
 
     let listed: Vec<ListedRef> = install
         .transaction
@@ -400,14 +431,15 @@ fn listed_ref(repo: &str, name: &str) -> ListedRef {
     }
 }
 
-/// `pacman -Si` of every package of the confirmed list. Each one must be there, at the confirmed version: another
-/// version means the package lists changed since the dry run.
+/// `pacman -Si` of every package of the confirmed list (`command` says from which lists). Each one must be there, at
+/// the confirmed version: another version means the package lists changed since the dry run.
 fn read_details(
     runner: &mut dyn Runner,
     confirmed: &[TransactionItem],
+    command: fn(Vec<PackageRef>) -> PacmanCommand,
 ) -> Result<HashMap<ListedRef, PackageDetails>, ErrorKind> {
     let unreadable = || failed("pacman's package details could not be read.");
-    let command = PacmanCommand::PackageDetails(
+    let command = command(
         confirmed
             .iter()
             .map(|item| PackageRef {
