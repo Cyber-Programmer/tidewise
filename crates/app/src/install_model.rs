@@ -9,7 +9,7 @@ use crate::error_words::{Doing, ErrorText, error_text};
 use crate::helper_request::{HelperRequest, RequestError, install_request};
 use crate::helper_run::JobEnd;
 use crate::update_check::ListsNote;
-use tidewise_helper_protocol::{Event, Notice, Outcome, Phase as Stage, Progress};
+use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
     Question, Resolution, ResolveInput,
@@ -138,6 +138,8 @@ pub struct InstallModel {
     lists_note: Option<ListsNote>,
     /// The review says that the password window was closed.
     prompt_closed: bool,
+    /// The review a failure card can go back to: only after a refusal whose text says "Go back".
+    way_back: Option<Box<InstallPlan>>,
 }
 
 impl Draft {
@@ -280,6 +282,7 @@ impl InstallModel {
             return None;
         }
         self.prompt_closed = false;
+        self.way_back = None;
         self.request = request;
         self.steps.clear();
         self.current = 0;
@@ -436,11 +439,18 @@ impl InstallModel {
         match self.phase {
             Phase::Closed => Back::Closed,
             Phase::Installing(_) => Back::Stayed,
-            // "Done" and "Close": there is nothing to go back to.
-            Phase::Installed { .. } | Phase::InstallFailed(_) => {
-                self.cancel();
-                Back::Closed
-            }
+            // "Back" to the review after the one refusal that asks for it; otherwise "Done" and "Close".
+            Phase::Installed { .. } | Phase::InstallFailed(_) => match self.way_back.take() {
+                Some(plan) => {
+                    self.phase = Phase::Ready(plan);
+                    self.refocus();
+                    Back::Stayed
+                }
+                None => {
+                    self.cancel();
+                    Back::Closed
+                }
+            },
             Phase::Asking if self.current > 0 => {
                 self.current -= 1;
                 self.refocus();
@@ -470,6 +480,7 @@ impl InstallModel {
             return;
         }
         self.prompt_closed = false;
+        self.way_back = None;
         self.drop_wanted();
         self.phase = Phase::Closed;
         self.request = Request::default();
@@ -577,6 +588,11 @@ impl InstallModel {
         }
         // A result, or none at all, means pacman may have run. The other ends are all from before it.
         let may_have_changed = matches!(end, JobEnd::Finished(_) | JobEnd::NoResult { .. });
+        self.way_back = matches!(
+            end,
+            JobEnd::Finished(Outcome::Error(ErrorKind::ProviderNotChosen))
+        )
+        .then(|| Box::new(job.plan.clone()));
         self.phase = match end {
             JobEnd::Finished(Outcome::Ok) => Phase::Installed {
                 notices: job.notices.clone(),
@@ -606,7 +622,7 @@ impl InstallModel {
 
     /// The failure card offers "Back" to the review.
     pub fn can_return_to_review(&self) -> bool {
-        false
+        self.way_back.is_some()
     }
 
     /// What the lists check of ticket `number` has to say, before its answer is given to `done`.
@@ -806,8 +822,6 @@ mod tests {
         assert_eq!(*model.phase(), Phase::Asking);
         model
     }
-
-    use tidewise_helper_protocol::ErrorKind;
 
     /// dbeaver reviewed and ready.
     fn reviewing() -> InstallModel {

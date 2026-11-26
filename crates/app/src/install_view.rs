@@ -234,7 +234,12 @@ pub fn install_view(model: &InstallModel) -> InstallView {
         Phase::Ready(plan) => review(&mut view, model, plan, &label),
         Phase::Installing(job) => progress(&mut view, job, &label),
         Phase::Installed { notices } => installed(&mut view, model, notices, &label),
-        Phase::InstallFailed(failure) => install_failed(&mut view, failure, &label),
+        Phase::InstallFailed(failure) => {
+            install_failed(&mut view, failure, &label);
+            if model.can_return_to_review() {
+                view.secondary = button("Back", true);
+            }
+        }
     }
     // What the updates check said belongs to the question and review cards, not to what happened afterwards.
     if !matches!(
