@@ -13,33 +13,98 @@ pub enum UpdateBlock {
     Pick(Vec<ProviderPick>),
 }
 
-pub const NOTHING_REMOVED: &str = "";
-pub const NEWS_LINE: &str = "";
-pub const UP_TO_DATE: &str = "";
-pub const LISTS_CHANGED: &str = "";
-pub const RESTART_LINE: &str = "";
+pub const NOTHING_REMOVED: &str = "Nothing will be removed.";
+/// Rule 13, partly: the address as text, the user reads it (no network of our own, rule 11).
+pub const NEWS_LINE: &str =
+    "Before updating, check Arch news for steps you must do by hand: archlinux.org/news";
+pub const UP_TO_DATE: &str = "Your system is up to date";
+pub const LISTS_CHANGED: &str =
+    "The package lists changed since you looked. Tidewise got the new list.";
+pub const RESTART_LINE: &str =
+    "A new kernel or core system part was installed. Restart when convenient.";
+
+/// The official kernels. Not `linux-firmware`, headers or `linux-api-headers`: they need no restart by themselves.
+const KERNELS: [&str; 6] = [
+    "linux",
+    "linux-lts",
+    "linux-zen",
+    "linux-hardened",
+    "linux-rt",
+    "linux-rt-lts",
+];
 
 /// A card's title and body.
-pub fn block_words(_block: &UpdateBlock) -> (String, String) {
-    (String::new(), String::new())
+pub fn block_words(block: &UpdateBlock) -> (String, String) {
+    let (title, body) = match block {
+        UpdateBlock::Held(HeldBlock { package, held }) => (
+            "A held package blocks this update",
+            format!(
+                "{package} needs a newer {held}, which is held by your pacman.conf. Nothing can be updated here \
+                 until you remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip \
+                 {package}."
+            ),
+        ),
+        UpdateBlock::Conflict(conflicts) => {
+            let pairs: Vec<String> = conflicts
+                .iter()
+                .map(|c| format!("{} conflicts with {}.", c.package, c.installed))
+                .collect();
+            (
+                "This update conflicts with an installed package",
+                format!(
+                    "{} Tidewise doesn't remove packages; run sudo pacman -Syu in a terminal to decide.",
+                    pairs.join(" ")
+                ),
+            )
+        }
+        UpdateBlock::Pick(picks) => {
+            let pairs: Vec<String> = picks
+                .iter()
+                .map(|p| format!("{} for {}", p.provider.name, p.dependency))
+                .collect();
+            (
+                "This update needs a choice",
+                format!(
+                    "pacman would add {} without asking you. Tidewise can't ask that during a system update yet; \
+                     run sudo pacman -Syu in a terminal to choose.",
+                    pairs.join(", ")
+                ),
+            )
+        }
+    };
+    (title.to_string(), body)
 }
 
-pub fn replacement_line(_replacement: &Replacement) -> String {
-    String::new()
+pub fn replacement_line(replacement: &Replacement) -> String {
+    format!(
+        "{} replaces {}. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal to accept it.",
+        replacement.new.name, replacement.old
+    )
 }
 
-pub fn held_line(_held: &PendingUpdate) -> String {
-    String::new()
+pub fn held_line(held: &PendingUpdate) -> String {
+    format!(
+        "{} {} → {} is held by your pacman.conf.",
+        held.name, held.installed_version, held.new_version
+    )
 }
 
-/// The line under the button when the password window will count more packages than the button does.
-pub fn password_count_line(_plan: &UpdatePlan) -> Option<String> {
-    None
+/// The line under the button when the password window will count more packages than the button does: the helper is
+/// sent, and counts, the whole list.
+pub fn password_count_line(plan: &UpdatePlan) -> Option<String> {
+    (!plan.skipped.is_empty()).then(|| {
+        format!(
+            "The password window will count {} packages: it includes what Tidewise skips.",
+            plan.items.len()
+        )
+    })
 }
 
-/// Whether installing these names calls for a restart.
-pub fn needs_restart<'a>(_installed: impl IntoIterator<Item = &'a str>) -> bool {
-    false
+/// Whether installing these names calls for a restart: a kernel, systemd or a graphics driver.
+pub fn needs_restart<'a>(installed: impl IntoIterator<Item = &'a str>) -> bool {
+    installed.into_iter().any(|name| {
+        KERNELS.contains(&name) || matches!(name, "systemd" | "mesa") || name.starts_with("nvidia")
+    })
 }
 
 #[cfg(test)]
