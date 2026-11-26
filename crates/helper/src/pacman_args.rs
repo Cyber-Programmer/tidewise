@@ -103,7 +103,9 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             name_only(packages)?,
             Names::Required,
         ),
-        PacmanCommand::PackageDetails(_) => Ok(Vec::new()),
+        PacmanCommand::PackageDetails(packages) => {
+            build(&["-Si"], &[], repo_and_name(packages)?, Names::Required)
+        }
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }

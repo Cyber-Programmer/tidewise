@@ -134,9 +134,9 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::DryRunInstall(_)
         | PacmanCommand::DryRunUpdate(_)
         | PacmanCommand::PrivateDryRunUpdate(_)
+        | PacmanCommand::PackageDetails(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
         PacmanCommand::PrivateSync
-        | PacmanCommand::PackageDetails(_)
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
         | PacmanCommand::MarkAsDeps(_) => None,
