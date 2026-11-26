@@ -40,7 +40,7 @@ mod update;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
-pub use picks::{ProviderPick, provider_picks};
+pub use picks::{ProviderPick, UpdateFacts, dependency_text, provider_picks, update_picks};
 pub use print::{
     PrintFailure, PrintedPackage, UnsatisfiedDependency, parse_print, parse_print_failure,
 };
