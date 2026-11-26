@@ -46,6 +46,8 @@ pub enum Doing {
     CheckingLists,
     /// Working out what an install needs: the dry runs of the resolver (WBS 6.2).
     Resolving,
+    /// The review of a full update (WBS 6.5).
+    CheckingUpdates,
 }
 
 /// Turns a pacman failure into the words the screen shows, plus the technical line for the details switch.
@@ -77,6 +79,7 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                     Doing::Searching => "pacman couldn't finish the search",
                     Doing::LookingUp => "pacman couldn't look up this package",
                     Doing::Resolving => "pacman couldn't work out what to install",
+                    Doing::CheckingUpdates => "pacman couldn't check for updates",
                 }
                 .to_string(),
                 body: "pacman stopped with an error before it finished. \
@@ -107,6 +110,10 @@ pub fn error_text(error: &PacmanError, doing: Doing) -> ErrorText {
                 Doing::LookingUp => {
                     "The details from pacman looked incomplete, so Tidewise shows none \
                      rather than details with something missing."
+                }
+                Doing::CheckingUpdates => {
+                    "pacman's answer looked incomplete, so Tidewise shows no updates \
+                     rather than a list with packages missing."
                 }
                 Doing::Resolving => {
                     "pacman's answer looked incomplete, so Tidewise shows no list \

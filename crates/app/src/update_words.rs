@@ -1,5 +1,6 @@
 //! What the "Update system" cards say (WBS 6.5). Plain strings, no Slint.
 
+use tidewise_helper_protocol::ErrorKind;
 use tidewise_pacman::{Conflict, HeldBlock, PendingUpdate, ProviderPick, Replacement, UpdatePlan};
 
 /// Why the review offers no Update button.
@@ -73,6 +74,12 @@ pub fn block_words(block: &UpdateBlock) -> (String, String) {
         }
     };
     (title.to_string(), body)
+}
+
+/// The body of a failure card after the helper refused an update. `plain_text` is written for installs where it says
+/// "Go back and choose again", which an update has no way to do.
+pub fn refusal_body(_kind: &ErrorKind) -> &'static str {
+    ""
 }
 
 pub fn replacement_line(replacement: &Replacement) -> String {
@@ -208,6 +215,19 @@ mod tests {
             body,
             "pacman would add prov-a for virtual without asking you. Tidewise can't ask that during a system update \
              yet; run sudo pacman -Syu in a terminal to choose."
+        );
+    }
+
+    #[test]
+    fn a_refused_pick_sends_the_user_to_the_terminal_and_the_rest_keeps_the_helpers_words() {
+        assert_eq!(
+            refusal_body(&ErrorKind::ProviderNotChosen),
+            "pacman would have chosen a package by itself, so nothing was changed. Run sudo pacman -Syu in a \
+             terminal to choose."
+        );
+        assert_eq!(
+            refusal_body(&ErrorKind::DatabaseLocked),
+            ErrorKind::DatabaseLocked.plain_text()
         );
     }
 
