@@ -1460,3 +1460,51 @@ Open, for you:
 Rules bent: (1) no red step for fixtures and container tests. (2) One flows test was added after the code (installed
 package brought again), proven by mutation. (3) Temporary uncommitted tests used to reproduce review findings.
 (4) No WBS sheet update (as asked).
+
+## 2026-11-26 — 6.4b The app runs the install
+Done:
+- **Resolver:** each provider package is named once (`011b819` red, `2357a65`; closes 6.4a F-3). One name at two
+  versions is blocked with its own card (`62990d3`, `671ffef`; container test `94f6ab7`; threat model 42 a).
+- **Protocol (your OK):** `request_json`, compact, no new line, refuses over the cap (`1f61509`, `c1310a2`).
+- **App:** the request is validated, then summarised (`5657536`, `c5cb74d`); `helper_command` and the event reading
+  (`b9b8a18`, `7fd7a57`); the model's job phases (`f53ed34`, `fb7d41f`); the card words (`46a77a6`, `c1b63ec`); the
+  window, progress and done cards (`023e9c7`). No Stop button, no pacman log.
+- **"Show in Apps" is there:** Apps reloads and selects the package. A group install has only "Done".
+- **Review** (`docs/security/reviews/6.4b-app-runs-install.md`): no High; R-01, R-04, R-05 fixed (`2a688d2`, `3eea1e7`).
+- **Differs from the plan:** (1) `request_json` in the protocol, since the app needed a JSON writer; (2) no `event`
+  fuzz target: `request` already feeds `parse_event`; it now also checks the `request_json` round trip (`2f8a0a3`);
+  (3) stderr is kept to 4 KiB, not 16; (4) titles of mine: "Tidewise couldn't install X", "Installing X ended with an
+  error", "The result of installing X is unknown", "Install finished"; counts of 0 read "Downloading packages" /
+  "Installing packages".
+- **Checks:** `cargo test --all` 1196 passed, 0 failed, 129 ignored (1148 before). Fuzz 600 s: `request` 4,484,818
+  runs, `print` 4,209,979 runs, exit 0, no artifacts.
+- **Seen on screen:** only off-screen software renders of the progress, done and blocked cards (throwaway example, not
+  committed). The window code has not run against a real helper.
+Next: your manual check below, then your decision on R-02 and R-03, then push and PR.
+Blockers: none for the check. For v0.1: threat model 40 (6.6) and 41 (6.5).
+Open: review R-02, R-03 (both change the approved command), R-06 to R-12, R-14; Search still offers "Install" for what
+was just installed; the "Go back" in the `ProviderNotChosen` text has no such button (protocol crate).
+Rules bent: (1) the window code has no automated test: the checklist stands in. (2) No red step for the fixtures and
+the container test; `helper-events` fixtures are written by hand, not saved output. (3) Some tests passed on their red
+commit (named there). (4) One expected summary string in a red commit was wrong and was corrected in the green one.
+(5) `run_install` itself has no unit test. (6) No WBS sheet update (as asked).
+
+### 6.4b manual checklist (the first real install; Tidewise was not installed before)
+Only your `sudo pacman` lines and the installed helper run pacman as root. Do it on the final commit.
+1. Build: `mkdir -p ~/tidewise-build && git archive --format=tar --prefix=tidewise-0.1.0/ HEAD | gzip -n > ~/tidewise-build/tidewise-0.1.0.tar.gz && cp packaging/aur/PKGBUILD ~/tidewise-build/ && cd ~/tidewise-build && makepkg`
+2. `pacman -Qu` prints nothing. Then `sudo pacman -U ~/tidewise-build/tidewise-0.1.0-1-x86_64.pkg.tar.zst`: the list
+   must show only `tidewise`. `ls -l /usr/lib/tidewise/tidewise-helper` is root, `-rwxr-xr-x`;
+   `pkaction --action-id io.github.tidewise.helper --verbose` knows the action.
+3. Start Tidewise **from the menu** (not a terminal: review R-02, R-03). Search `sl`, install it: the review shows
+   1 package and "Install 1 package" is enabled.
+4. Click Install, close the password window. Back on the review: "The password prompt was closed. Nothing was
+   changed." `pacman -Q sl` says not found. Note the window's message text.
+5. Click Install, type a wrong password once. Note whether KDE asks again or ends (then expect "did not get
+   permission"). Then type the right one.
+6. Cards: "Waiting for your password", checking / downloading / installing / finishing (they may flash by), then "sl is
+   installed". "Show in Apps" opens Apps with `sl` selected. Then `pacman -Q sl`, and
+   `journalctl --since "-15min" SYSLOG_IDENTIFIER=tidewise-helper`.
+7. Orca and keyboard: is the progress heading spoken, does the bar read its value, Tab order on the done and error
+   cards. Slint has no "live region": say if changes are silent.
+8. Back to how it was: `sudo pacman -Rns sl tidewise`. **Read the removal list before answering Y: it must list only
+   `sl` and `tidewise`.** Then `rm -r ~/tidewise-build`; `pacman -Q tidewise sl` says both are not found.
