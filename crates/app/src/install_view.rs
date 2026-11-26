@@ -262,7 +262,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
 
 /// How old the lists are that the updates check had to use, and why no newer ones. No `fakeroot` (or no session
 /// folder) is not a problem to report: only the age is said.
-fn lists_note(note: ListsNote) -> String {
+pub(crate) fn lists_note(note: ListsNote) -> String {
     let age = match note.age_days {
         None => "Checked with the package lists already on this computer.".to_string(),
         Some(0) => "Checked with the package lists updated today.".to_string(),
@@ -745,7 +745,7 @@ fn was_picked(model: &InstallModel, package: &PackageRef) -> bool {
         })
 }
 
-fn size_tile(label: &str, bytes: u64) -> TileView {
+pub(crate) fn size_tile(label: &str, bytes: u64) -> TileView {
     let (number, unit) = split_size(&format_size(bytes));
     TileView {
         label: label.to_string(),
@@ -755,7 +755,7 @@ fn size_tile(label: &str, bytes: u64) -> TileView {
     }
 }
 
-fn download_tile(bytes: u64) -> TileView {
+pub(crate) fn download_tile(bytes: u64) -> TileView {
     if bytes == 0 {
         TileView {
             label: "Download".to_string(),
@@ -785,7 +785,7 @@ fn disk_tile(items: &[PlanItem]) -> TileView {
 }
 
 /// pacman's own figures for one package.
-fn technical_item(item: &PlanItem) -> String {
+pub(crate) fn technical_item(item: &PlanItem) -> String {
     let installed = if item.installed_size_text.is_empty() {
         "unknown"
     } else {

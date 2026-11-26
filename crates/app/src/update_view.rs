@@ -2,8 +2,20 @@
 //! every string the window displays is unit-tested. Blocked-card, skipped, held and refusal words are the human's
 //! (board M4UpdateSystem).
 
-use crate::install_view::{ButtonView, FocusTarget, ReviewRow, StageView, TileView};
-use crate::update_model::UpdateModel;
+use crate::helper_run::JobEnd;
+use crate::install_view::{
+    ButtonView, FocusTarget, ReviewRow, StageState, StageView, TileView, download_tile, lists_note,
+    size_tile, technical_item,
+};
+use crate::job::{Job, JobFailure};
+use crate::size_text::format_size;
+use crate::update_model::{Phase, UpdateModel};
+use crate::update_words::{
+    HELD_TITLE, HELD_WARNING, LISTS_CHANGED, NEWS_LINE, NOTHING_REMOVED, RESTART_LINE, UP_TO_DATE,
+    block_words, held_line, password_count_line, refusal_body, replacement_line,
+};
+use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
+use tidewise_pacman::{PlanItem, UpdatePlan};
 
 /// Which card fills the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -56,22 +68,309 @@ pub struct UpdateView {
     pub focus_serial: u32,
 }
 
-pub fn update_view(_model: &UpdateModel) -> UpdateView {
-    UpdateView::default()
+pub fn update_view(model: &UpdateModel) -> UpdateView {
+    let mut view = UpdateView {
+        focus_serial: model.focus_serial(),
+        ..UpdateView::default()
+    };
+    match model.phase() {
+        Phase::Closed => {
+            view.title = HEADING.to_string();
+            view.body = "See what a full update would change before anything happens.".to_string();
+            view.primary = button("Check for updates");
+        }
+        Phase::Checking => {
+            view.kind = UpdateKind::Checking;
+            view.title = "Refreshing package lists…".to_string();
+            view.body = "Nothing on your system is changed.".to_string();
+            view.secondary = button("Cancel");
+        }
+        Phase::Review(plan) => review(&mut view, model, plan),
+        Phase::UpToDate(plan) => {
+            view.kind = UpdateKind::UpToDate;
+            view.title = UP_TO_DATE.to_string();
+            skipped_and_held(&mut view, plan);
+            view.notes.extend(model.lists_note().map(lists_note));
+            view.primary = button("Check again");
+        }
+        Phase::Blocked(block) => {
+            let words = block_words(block);
+            view.kind = UpdateKind::Blocked;
+            view.title = words.title;
+            view.body = words.body;
+            view.advice = words.advice;
+            view.primary = button("Check again");
+            view.secondary = button("Close");
+        }
+        Phase::Failed { text } => {
+            view.kind = UpdateKind::Alert;
+            view.title.clone_from(&text.title);
+            view.body.clone_from(&text.body);
+            view.technical = vec![text.technical.clone()];
+            view.primary = button("Check again");
+            view.secondary = button("Close");
+        }
+        Phase::Updating(running) => progress(&mut view, &running.job),
+        Phase::Updated { notices, restart } => done(&mut view, notices, *restart),
+        Phase::UpdateFailed(failure) => failed(&mut view, failure),
+    }
+    view.focus = match view.kind {
+        UpdateKind::Review => FocusTarget::List,
+        _ if view.primary.is_some() => FocusTarget::Primary,
+        _ => FocusTarget::Secondary,
+    };
+    view
+}
+
+const HEADING: &str = "Update system";
+
+fn button(label: &str) -> Option<ButtonView> {
+    Some(ButtonView {
+        label: label.to_string(),
+        enabled: true,
+    })
+}
+
+/// What the update leaves alone: replacements, and what `IgnorePkg` holds.
+fn skipped_and_held(view: &mut UpdateView, plan: &UpdatePlan) {
+    view.replacement_lines = plan.replacements.iter().map(replacement_line).collect();
+    if !plan.held_back.is_empty() {
+        view.held_title = HELD_TITLE.to_string();
+        view.held_lines = plan.held_back.iter().map(held_line).collect();
+        view.held_warning = HELD_WARNING.to_string();
+    }
+}
+
+fn review(view: &mut UpdateView, model: &UpdateModel, plan: &UpdatePlan) {
+    view.kind = UpdateKind::Review;
+    view.title = "Review the update".to_string();
+    view.rows = plan.installing().map(row).collect();
+    let count = view.rows.len();
+    let change = plan.size_change();
+    let disk = if change < 0 {
+        "Disk space freed"
+    } else {
+        "Extra disk space"
+    };
+    view.tiles = vec![
+        TileView {
+            label: "Packages".to_string(),
+            number: count.to_string(),
+            ..TileView::default()
+        },
+        download_tile(plan.download_total()),
+        size_tile(disk, change.unsigned_abs()),
+    ];
+    skipped_and_held(view, plan);
+    if model.lists_changed() {
+        view.notes.push(LISTS_CHANGED.to_string());
+    }
+    view.notes.push(NOTHING_REMOVED.to_string());
+    view.notes.push(NEWS_LINE.to_string());
+    view.notes.extend(model.lists_note().map(lists_note));
+    view.password_line = password_count_line(plan).unwrap_or_default();
+    // The whole list, skipped lines too: it is what the helper compares.
+    view.technical = plan.items.iter().map(technical_item).collect();
+    view.technical
+        .push("pacman counts in MiB (1 MiB = 1,048,576 bytes)".to_string());
+    let noun = if count == 1 { "package" } else { "packages" };
+    view.primary = button(&format!("Update {count} {noun}"));
+    view.secondary = button("Cancel");
+    view.hint = "Your desktop asks for your password once.".to_string();
+    if model.prompt_was_closed() {
+        view.primary_note = "The password prompt was closed. Nothing was changed.".to_string();
+    }
+}
+
+fn row(item: &PlanItem) -> ReviewRow {
+    let version = match &item.installed_version {
+        Some(old) => format!("{old} → {}", item.version),
+        None => item.version.clone(),
+    };
+    let what = if item.installed_version.is_some() {
+        "Update"
+    } else {
+        "New"
+    };
+    let current = item.current_size.unwrap_or(0);
+    let sign = if item.installed_size < current {
+        '-'
+    } else {
+        '+'
+    };
+    let change = format_size(item.installed_size.abs_diff(current));
+    ReviewRow {
+        name: item.package.name.clone(),
+        version,
+        why: format!("{what}, {sign}{change} on disk"),
+        size: if item.download_size == 0 {
+            "Already downloaded".to_string()
+        } else {
+            format_size(item.download_size)
+        },
+        bold: false,
+    }
+}
+
+/// The helper's four phases, in order, as the progress card names them.
+const STAGES: [(Stage, &str); 4] = [
+    (Stage::Checking, "Checking the list again"),
+    (Stage::Downloading, "Downloading packages"),
+    (Stage::Installing, "Updating"),
+    (Stage::Hooks, "Finishing (pacman hooks)"),
+];
+
+/// The running job. There is no button: nothing here can stop it.
+fn progress(view: &mut UpdateView, job: &Job) {
+    view.kind = UpdateKind::Progress;
+    let now = job.progress.and_then(|progress| {
+        STAGES
+            .iter()
+            .position(|(stage, _)| *stage == progress.phase)
+    });
+    view.stages = STAGES
+        .iter()
+        .enumerate()
+        .map(|(index, (_, name))| StageView {
+            label: (*name).to_string(),
+            state: match now {
+                Some(now) if index < now => StageState::Done,
+                Some(now) if index == now => StageState::Now,
+                _ => StageState::Later,
+            },
+        })
+        .collect();
+    let Some(progress) = job.progress else {
+        view.title = "Waiting for your password".to_string();
+        view.body = "Your desktop asks for it. Tidewise never sees your password.".to_string();
+        return;
+    };
+    let counted = |verb: &str| {
+        if progress.current == 0 {
+            format!("{verb} packages")
+        } else {
+            format!("{verb} {} of {}", progress.current, progress.total)
+        }
+    };
+    view.title = match progress.phase {
+        Stage::Checking => "Checking the list again".to_string(),
+        Stage::Downloading => counted("Downloading"),
+        Stage::Installing => counted("Updating"),
+        Stage::Hooks => "Finishing (pacman hooks)".to_string(),
+    };
+    view.percent = job.percent;
+    view.percent_text = format!("{} %", job.percent);
+    view.hint =
+        "Updating can't be stopped halfway. Keep Tidewise open until it's done.".to_string();
+}
+
+fn done(view: &mut UpdateView, notices: &[Notice], restart: bool) {
+    view.kind = UpdateKind::Done;
+    // A package missing or gone is worth a warning; a journal entry that was not written is not.
+    view.attention = notices.iter().any(|notice| {
+        matches!(
+            notice,
+            Notice::PackagesNotInstalled(_) | Notice::PackagesRemoved(_)
+        )
+    });
+    view.title = if view.attention {
+        "The update finished"
+    } else {
+        UP_TO_DATE
+    }
+    .to_string();
+    let mut lines: Vec<String> = notices.iter().map(Notice::plain_text).collect();
+    if restart {
+        lines.push(RESTART_LINE.to_string());
+    }
+    view.body = lines.join("\n");
+    view.primary = button("Done");
+}
+
+fn failed(view: &mut UpdateView, failure: &JobFailure) {
+    view.kind = UpdateKind::Alert;
+    view.title = "Tidewise couldn't update your system".to_string();
+    view.primary = button("Check again");
+    view.secondary = button("Close");
+    let lines = |text: &str| text.lines().map(str::to_string).collect::<Vec<_>>();
+    let (end, notices) = match failure {
+        JobFailure::NotSent(error) => {
+            view.body =
+                "Tidewise made a request its helper would refuse. Nothing was changed.".to_string();
+            view.technical = vec![format!("{error:?}")];
+            return;
+        }
+        JobFailure::Ended { end, notices } => (end, notices),
+    };
+    match end {
+        JobEnd::Finished(Outcome::Error(kind)) => {
+            view.body = refusal_body(kind).to_string();
+            if let ErrorKind::PacmanFailed(details) = kind {
+                // pacman may have stopped halfway, or after updating: claim neither.
+                view.title = "The update ended with an error".to_string();
+                view.body.push_str("\nCheck Apps to see what is installed.");
+                view.technical = lines(details.as_str());
+            }
+        }
+        JobEnd::NotAuthorised { stderr } => {
+            view.body = "Tidewise did not get permission to make this change. Nothing was changed."
+                .to_string();
+            view.technical = lines(stderr);
+        }
+        JobEnd::HelperMissing => {
+            view.body =
+                "Tidewise's helper is not installed, so Tidewise can't update your system. \
+                         Reinstall Tidewise. Nothing was changed."
+                    .to_string();
+        }
+        JobEnd::HelperRefusedToStart { stderr } => {
+            view.body = "Tidewise's helper refused to start. Nothing was changed.".to_string();
+            view.technical = lines(stderr);
+        }
+        JobEnd::CouldNotStart { reason } => {
+            view.body =
+                "Tidewise could not start the password window. Nothing was changed.".to_string();
+            view.technical = lines(reason);
+        }
+        // Neither of the first two reaches this card (the model shows them elsewhere); if one did, nothing is claimed.
+        JobEnd::Finished(Outcome::Ok) | JobEnd::PromptClosed => unknown_result(view),
+        JobEnd::NoResult {
+            exit,
+            unreadable,
+            stderr,
+        } => {
+            unknown_result(view);
+            view.technical = vec![
+                exit.map_or_else(
+                    || "exit code: none (stopped by a signal)".to_string(),
+                    |code| format!("exit code: {code}"),
+                ),
+                format!("unreadable lines from the helper: {unreadable}"),
+            ];
+            view.technical.extend(lines(stderr));
+        }
+    }
+    for notice in notices {
+        view.body.push('\n');
+        view.body.push_str(&notice.plain_text());
+    }
+}
+
+fn unknown_result(view: &mut UpdateView) {
+    view.title = "The result of the update is unknown".to_string();
+    view.body = "Tidewise could not tell whether the update finished. Check Apps, or look in the \
+                 system journal."
+        .to_string();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helper_run::JobEnd;
-    use crate::install_view::StageState;
     use crate::update_check::ListsNote;
-    use tidewise_helper_protocol::{
-        Details, ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress,
-    };
+    use tidewise_helper_protocol::{Details, Event, Progress};
     use tidewise_pacman::{
-        HeldBlock, NotFresh, PackageRef, PacmanError, PendingUpdate, PlanItem, Replacement, Role,
-        UpdateLookup, UpdatePlan,
+        HeldBlock, NotFresh, PackageRef, PacmanError, PendingUpdate, Replacement, Role,
+        UpdateLookup,
     };
 
     fn pkg(name: &str) -> PackageRef {
@@ -193,7 +492,7 @@ mod tests {
         assert_eq!(
             view.replacement_lines,
             [
-                "new-pkg replaces old-pkg. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal \\
+                "new-pkg replaces old-pkg. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal \
               to accept it."
             ]
         );
@@ -376,7 +675,7 @@ mod tests {
         assert!(view.attention);
         assert_eq!(
             view.body,
-            "1 package from your list was not installed.\\nA new kernel or core system part was installed. Restart \\
+            "1 package from your list was not installed.\nA new kernel or core system part was installed. Restart \
              when convenient."
         );
     }
@@ -411,7 +710,7 @@ mod tests {
         let missing = ended(JobEnd::HelperMissing);
         assert_eq!(
             missing.body,
-            "Tidewise's helper is not installed, so Tidewise can't update your system. Reinstall Tidewise. Nothing \\
+            "Tidewise's helper is not installed, so Tidewise can't update your system. Reinstall Tidewise. Nothing \
              was changed."
         );
         assert_eq!(labels(&missing), (Some("Check again"), Some("Close")));

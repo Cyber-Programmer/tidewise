@@ -68,6 +68,7 @@ pub struct UpdateModel {
     /// The helper refused: the next refresh may not trust the age of the private lists.
     refused: bool,
     prompt_closed: bool,
+    focus_serial: u32,
 }
 
 impl UpdateModel {
@@ -77,6 +78,15 @@ impl UpdateModel {
 
     pub fn phase(&self) -> &Phase {
         &self.phase
+    }
+
+    /// Changes whenever a new card appears, so the window moves the focus.
+    pub fn focus_serial(&self) -> u32 {
+        self.focus_serial
+    }
+
+    fn refocus(&mut self) {
+        self.focus_serial = self.focus_serial.wrapping_add(1);
     }
 
     /// Why the review was made with older lists, if it was.
@@ -114,6 +124,7 @@ impl UpdateModel {
         self.last_number += 1;
         self.wanted = Some(self.last_number);
         self.phase = Phase::Checking;
+        self.refocus();
         CheckTicket {
             number: self.last_number,
             why,
@@ -141,6 +152,7 @@ impl UpdateModel {
                 Phase::Failed { text }
             }
         };
+        self.refocus();
     }
 
     /// Leaves the screen. A running job stays: there is no stop.
@@ -152,6 +164,7 @@ impl UpdateModel {
         self.lists_changed = false;
         self.refused = false;
         self.phase = Phase::Closed;
+        self.refocus();
     }
 
     /// The review's Update button: `Some` means "start the helper now".
@@ -162,6 +175,7 @@ impl UpdateModel {
         let plan = (**plan).clone();
         self.prompt_closed = false;
         self.lists_changed = false;
+        self.refocus();
         match update_request(&plan) {
             Ok(request) => {
                 self.last_number += 1;
@@ -224,6 +238,7 @@ impl UpdateModel {
                 });
             }
         }
+        self.refocus();
         Ended {
             may_have_changed,
             check,
