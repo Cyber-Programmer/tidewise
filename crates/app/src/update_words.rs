@@ -34,46 +34,24 @@ const KERNELS: [&str; 6] = [
     "linux-rt-lts",
 ];
 
-/// A card's title and body.
-pub fn block_words(block: &UpdateBlock) -> (String, String) {
-    let (title, body) = match block {
-        UpdateBlock::Held(HeldBlock { package, held }) => (
-            "A held package blocks this update",
-            format!(
-                "{package} needs a newer {held}, which is held by your pacman.conf. Nothing can be updated here \
-                 until you remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip \
-                 {package}."
-            ),
-        ),
-        UpdateBlock::Conflict(conflicts) => {
-            let pairs: Vec<String> = conflicts
-                .iter()
-                .map(|c| format!("{} conflicts with {}.", c.package, c.installed))
-                .collect();
-            (
-                "This update conflicts with an installed package",
-                format!(
-                    "{} Tidewise doesn't remove packages; run sudo pacman -Syu in a terminal to decide.",
-                    pairs.join(" ")
-                ),
-            )
-        }
-        UpdateBlock::Pick(picks) => {
-            let pairs: Vec<String> = picks
-                .iter()
-                .map(|p| format!("{} for {}", p.provider.name, p.dependency))
-                .collect();
-            (
-                "This update needs a choice",
-                format!(
-                    "pacman would add {} without asking you. Tidewise can't ask that during a system update yet; \
-                     run sudo pacman -Syu in a terminal to choose.",
-                    pairs.join(", ")
-                ),
-            )
-        }
-    };
-    (title.to_string(), body)
+pub const HELD_TITLE: &str = "";
+pub const HELD_WARNING: &str = "";
+
+/// What a blocked card says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockWords {
+    pub title: String,
+    pub body: String,
+    /// What to do in a terminal, when the body does not already say it.
+    pub advice: String,
+}
+
+pub fn block_words(_block: &UpdateBlock) -> BlockWords {
+    BlockWords {
+        title: String::new(),
+        body: String::new(),
+        advice: String::new(),
+    }
 }
 
 /// The body of a failure card after the helper refused an update. `plain_text` is written for installs where it says
@@ -177,50 +155,72 @@ mod tests {
     }
 
     #[test]
-    fn a_held_package_says_it_is_held_by_pacman_conf() {
+    fn the_held_box_is_titled_and_each_row_says_not_updated() {
+        assert_eq!(HELD_TITLE, "Held back by your pacman.conf");
+        assert_eq!(
+            HELD_WARNING,
+            "A held package can stop other updates from working."
+        );
         let line = held_line(&PendingUpdate {
             name: "linux".to_string(),
             installed_version: "1-1".to_string(),
             new_version: "2-1".to_string(),
             ignored: true,
         });
-        assert_eq!(line, "linux 1-1 → 2-1 is held by your pacman.conf.");
+        assert_eq!(line, "linux 1-1 → 2-1, not updated.");
     }
 
     #[test]
     fn a_held_block_names_both_packages_and_the_way_out() {
-        let (title, body) = block_words(&UpdateBlock::Held(HeldBlock {
+        let words = block_words(&UpdateBlock::Held(HeldBlock {
             package: "needs-upd".to_string(),
             held: "upd".to_string(),
         }));
-        assert_eq!(title, "A held package blocks this update");
+        assert_eq!(words.title, "An update needs a package you've held back");
         assert_eq!(
-            body,
+            words.body,
             "needs-upd needs a newer upd, which is held by your pacman.conf. Nothing can be updated here until you \
              remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip needs-upd."
+        );
+        assert_eq!(words.advice, "");
+    }
+
+    #[test]
+    fn a_conflict_says_a_package_would_have_to_go() {
+        let words = block_words(&UpdateBlock::Conflict(vec![Conflict {
+            package: "a".to_string(),
+            installed: "b".to_string(),
+        }]));
+        assert_eq!(words.title, "This update would need to remove a package");
+        assert_eq!(
+            words.body,
+            "The new a can't be installed next to your b. Tidewise never removes packages during an update, so it \
+             stopped here. Nothing was changed."
+        );
+        assert_eq!(
+            words.advice,
+            "Run sudo pacman -Syu in a terminal; pacman will ask before removing anything."
         );
     }
 
     #[test]
-    fn a_conflict_and_a_pick_send_the_user_to_the_terminal() {
-        let (title, body) = block_words(&UpdateBlock::Conflict(vec![Conflict {
-            package: "a".to_string(),
-            installed: "b".to_string(),
-        }]));
-        assert_eq!(title, "This update conflicts with an installed package");
-        assert_eq!(
-            body,
-            "a conflicts with b. Tidewise doesn't remove packages; run sudo pacman -Syu in a terminal to decide."
-        );
-        let (title, body) = block_words(&UpdateBlock::Pick(vec![ProviderPick {
+    fn a_pick_says_tidewise_cannot_ask_yet() {
+        let words = block_words(&UpdateBlock::Pick(vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: pkg("prov-a"),
         }]));
-        assert_eq!(title, "This update needs a choice");
         assert_eq!(
-            body,
-            "pacman would add prov-a for virtual without asking you. Tidewise can't ask that during a system update \
-             yet; run sudo pacman -Syu in a terminal to choose."
+            words.title,
+            "This update needs a choice Tidewise can't make yet"
+        );
+        assert_eq!(
+            words.body,
+            "One of the updates now needs virtual, and several packages can provide it. Tidewise doesn't ask that \
+             question during updates yet, so it won't let pacman pick for you. Nothing was changed."
+        );
+        assert_eq!(
+            words.advice,
+            "Run sudo pacman -Syu in a terminal; pacman will ask you which one."
         );
     }
 
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(
             refusal_body(&ErrorKind::ProviderNotChosen),
             "pacman would have chosen a package by itself, so nothing was changed. Run sudo pacman -Syu in a \
-             terminal to choose."
+             terminal; pacman will ask you which one."
         );
         assert_eq!(
             refusal_body(&ErrorKind::DatabaseLocked),
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn the_password_window_line_appears_only_when_something_listed_is_skipped() {
+    fn the_password_window_line_names_what_is_listed_but_skipped() {
         let mut plan = UpdatePlan {
             items: vec![item("upd")],
             ..UpdatePlan::default()
@@ -247,10 +247,18 @@ mod tests {
         plan.items.push(item("new"));
         plan.skipped.push(pkg("new"));
         assert_eq!(
-            password_count_line(&plan),
+            password_count_line(&plan).as_deref(),
             Some(
-                "The password window will count 2 packages: it includes what Tidewise skips."
-                    .to_string()
+                "The password window may count 1 more package: new, which pacman lists but Tidewise skips."
+            )
+        );
+        plan.items.push(item("new-dep"));
+        plan.skipped.push(pkg("new-dep"));
+        assert_eq!(
+            password_count_line(&plan).as_deref(),
+            Some(
+                "The password window may count 2 more packages: new, new-dep, which pacman lists but Tidewise \
+                 skips."
             )
         );
     }
