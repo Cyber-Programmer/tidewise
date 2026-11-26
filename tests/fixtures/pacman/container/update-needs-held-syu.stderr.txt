@@ -1,0 +1,4 @@
+warning: tidewise-dummy-upd: ignoring package upgrade (1.0-1 => 2.0-1)
+warning: ignoring package tidewise-dummy-upd-2.0-1
+warning: cannot resolve "tidewise-dummy-upd>=2.0", a dependency of "tidewise-dummy-needs-upd"
+:: Do you want to skip the above package for this upgrade? [y/N] error: failed to prepare transaction (could not satisfy dependencies)

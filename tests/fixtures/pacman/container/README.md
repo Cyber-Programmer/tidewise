@@ -114,3 +114,7 @@ An installed package that is named again is listed again, as a reinstall
 excluded). Cases: `provider` (an upgrade needs `tidewise-virtual`), `replace` (a replacement plus an upgrade),
 `replace-only` (`-Qu` is empty and exits 1, the dry run still lists the replacement), `held` (`IgnorePkg`),
 `needs-held` (an upgrade needs a held package: the dry run fails, exit 1, text on both streams), `conflict`.
+
+`update-needs-held-syu.stderr.txt`: stderr of an interactive `pacman -Syu` (no `--noconfirm`, answers on stdin) when an
+upgrade needs a held package. It records pacman's question, `:: Do you want to skip the above package for this
+upgrade? [y/N]` (default no). Also seen under a real terminal (`script`).

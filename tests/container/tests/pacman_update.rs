@@ -7,7 +7,8 @@
 //!
 //! Real pacman, as root, inside the Tidewise test container only (`tests/container/run.sh`).
 
-use std::process::Output;
+use std::io::Write;
+use std::process::{Command, Output, Stdio};
 
 mod common;
 use common::*;
@@ -42,6 +43,27 @@ fn without_sizes(print: &str) -> Vec<String> {
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// `pacman -Syu` with `answers` typed on its stdin: what someone at a terminal is asked. Not `--noconfirm`.
+fn interactive_syu(answers: &str) -> Output {
+    let mut child = Command::new("/usr/bin/pacman")
+        .arg("-Syu")
+        .env_clear()
+        .env("PATH", "/usr/bin")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(answers.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
 }
 
 /// `-Qu` and the dry run say exactly what the saved fixtures say.
@@ -195,6 +217,49 @@ fn an_upgrade_that_needs_a_held_package_fails_the_dry_run_and_the_whole_update()
         installed_version("tidewise-dummy-needs-upd").as_deref(),
         Some("1.0-1")
     );
+}
+
+/// The advice on the "held package blocks the update" card: pacman really does offer to skip (card 9, B1).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_interactive_syu_offers_to_skip_the_package_and_updates_the_rest() {
+    setup(
+        &[
+            "tidewise-dummy-upd",
+            "tidewise-dummy-needs-upd",
+            "tidewise-dummy-upd-conf",
+        ],
+        &[UPD, NEEDS_UPD, UPD_CONF],
+    );
+    ignore_package("tidewise-dummy-upd");
+
+    // Enter takes the default, which is no: nothing is upgraded, not even the unrelated package.
+    let refused = interactive_syu("\n\n");
+    assert!(!refused.status.success());
+    assert_eq!(
+        text(&refused.stderr),
+        fixture!("update-needs-held-syu.stderr.txt")
+    );
+    assert!(
+        text(&refused.stdout).contains(
+            ":: The following package cannot be upgraded due to unresolvable dependencies:"
+        )
+    );
+    assert_eq!(
+        installed_version("tidewise-dummy-upd-conf").as_deref(),
+        Some("1.0-1")
+    );
+
+    // "y" skips it, "y" proceeds: the rest is upgraded, that one and the held one stay.
+    let skipped = interactive_syu("y\ny\n");
+    assert!(skipped.status.success(), "{}", text(&skipped.stderr));
+    for (name, version) in [
+        ("tidewise-dummy-upd-conf", "2.0-1"),
+        ("tidewise-dummy-needs-upd", "1.0-1"),
+        ("tidewise-dummy-upd", "1.0-1"),
+    ] {
+        assert_eq!(installed_version(name).as_deref(), Some(version), "{name}");
+    }
 }
 
 #[test]
