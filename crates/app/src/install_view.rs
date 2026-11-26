@@ -171,6 +171,8 @@ pub struct InstallView {
     pub percent: u8,
     /// "42 %", or empty before the helper has said anything.
     pub percent_text: String,
+    /// The done card has something to warn about: a warning mark instead of the check mark.
+    pub attention: bool,
     pub focus_serial: u32,
     pub focus: FocusTarget,
 }
@@ -620,7 +622,7 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
             view.report = REPORT.to_string();
             return;
         }
-        JobFailure::Ended(end) => end,
+        JobFailure::Ended { end, .. } => end,
     };
     match end {
         JobEnd::Finished(Outcome::Error(kind)) => {
@@ -1757,16 +1759,49 @@ mod tests {
                 )
             );
         }
+        // pacman may have stopped halfway, or after installing: the card claims neither.
         let kind = ErrorKind::PacmanFailed(Details::from_raw("error: one\nerror: two"));
         let view = ended(JobEnd::Finished(Outcome::Error(kind.clone())));
         assert_eq!(
             failure(&view),
             (
-                "Tidewise couldn't install dbeaver",
-                "The package manager stopped with an error. The technical details show what it said.",
+                "Installing dbeaver ended with an error",
+                "The package manager stopped with an error. The technical details show what it said.\n\
+                 Check Apps to see what is installed.",
                 vec!["error: one", "error: two"]
             )
         );
+    }
+
+    #[test]
+    fn a_failure_still_says_what_the_helper_noticed() {
+        let (mut model, number) = installing();
+        model.job_event(number, Event::Notice(Notice::PackagesRemoved(1)));
+        let kind = ErrorKind::DatabaseLocked;
+        model.job_ended(number, JobEnd::Finished(Outcome::Error(kind.clone())));
+        assert_eq!(
+            install_view(&model).body,
+            format!("{}\n1 package was removed.", kind.plain_text())
+        );
+    }
+
+    #[test]
+    fn a_package_notice_takes_away_the_installed_heading_and_the_check_mark() {
+        for notice in [Notice::PackagesNotInstalled(1), Notice::PackagesRemoved(2)] {
+            let (mut model, number) = installing();
+            model.job_event(number, Event::Notice(notice));
+            model.job_ended(number, JobEnd::Finished(Outcome::Ok));
+            let view = install_view(&model);
+            assert_eq!(view.heading, "Install finished", "{notice:?}");
+            assert!(view.attention, "{notice:?}");
+        }
+        // A missing journal entry says nothing about the packages.
+        let (mut model, number) = installing();
+        model.job_event(number, Event::Notice(Notice::AuditEntryNotWritten));
+        model.job_ended(number, JobEnd::Finished(Outcome::Ok));
+        let view = install_view(&model);
+        assert_eq!(view.heading, "Installed");
+        assert!(!view.attention);
     }
 
     #[test]

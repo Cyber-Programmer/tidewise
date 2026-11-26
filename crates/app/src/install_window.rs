@@ -322,7 +322,9 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
         for (number, news) in news {
             match news {
                 JobNews::Event(event) => model.job_event(number, event),
-                JobNews::Ended(end) => model.job_ended(number, end),
+                JobNews::Ended(end) => {
+                    model.job_ended(number, end);
+                }
             }
         }
     }
