@@ -36,6 +36,7 @@ mod ss;
 mod sync;
 #[cfg(test)]
 mod testing;
+mod update;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
@@ -62,3 +63,4 @@ pub use si::{
 };
 pub use ss::{SearchResult, parse_ss};
 pub use sync::SyncLists;
+pub use update::{Conflict, HeldBlock, Replacement, UpdatePlan, held_block, update_plan};
