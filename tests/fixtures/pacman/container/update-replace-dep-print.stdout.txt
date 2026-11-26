@@ -1,0 +1,2 @@
+tidewise-test/tidewise-dummy-hello 1.0-1 2518
+tidewise-test/tidewise-dummy-new-dep 1.0-1 2539
