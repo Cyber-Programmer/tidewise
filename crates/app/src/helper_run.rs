@@ -390,12 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn pkexec_starts_by_absolute_path_with_the_helper_path_and_the_summary_only() {
+    fn pkexec_starts_by_absolute_path_without_its_own_agent_and_in_its_own_group() {
         let command = helper_command("install extra/sl (1 packages)");
         assert_eq!(command.get_program(), OsStr::new("/usr/bin/pkexec"));
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            [HELPER_PATH, "install extra/sl (1 packages)"]
+            [
+                "--disable-internal-agent",
+                HELPER_PATH,
+                "install extra/sl (1 packages)"
+            ]
         );
         assert_eq!(
             command.get_envs().collect::<Vec<_>>(),
@@ -406,6 +410,9 @@ mod tests {
         // for a cleared one.
         let shown = format!("{command:?}");
         assert!(shown.contains("env -i "), "{shown}");
+        // No getter for the process group either: the long Debug form names it. 0 = a new group of its own.
+        let fields: String = format!("{command:#?}").split_whitespace().collect();
+        assert!(fields.contains("pgroup:Some(0,)"), "{fields}");
     }
 
     #[test]
