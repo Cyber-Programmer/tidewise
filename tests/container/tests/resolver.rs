@@ -352,3 +352,73 @@ fn the_given_package_list_folder_is_the_one_that_is_read() {
         "{real_says}"
     );
 }
+
+/// The app and the helper judge a provider pick separately (WBS 6.4a, golden rule 10): the helper must accept every
+/// plan the resolver calls Ready. Each plan is sent to the real helper, which installs it.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn the_helper_accepts_every_plan_the_resolver_calls_ready() {
+    assert_inside_the_test_container();
+    let cases: &[Case] = &[
+        (&["needs-virtual"], &[("tidewise-virtual", "prov-a")]),
+        (&["needs-virtual"], &[("tidewise-virtual", "prov-b")]),
+        (&["needs-vvirtual"], &[("tidewise-vvirtual", "vprov-2")]),
+        (
+            &["needs-vvirtual", "hello"],
+            &[("tidewise-vvirtual", "vprov-3")],
+        ),
+        (&["needs-one"], &[]),
+        (&["needs-chain"], &[("tidewise-chain", "chain-a")]),
+        (&["needs-chain"], &[("tidewise-chain", "chain-b")]),
+        (&["needs-chain"], &[("tidewise-chain", "chain-c")]),
+    ];
+    for (targets, answers) in cases {
+        reset_world();
+        let ready = resolved(targets, answers, None);
+        let items: Vec<Item> = plan_items(&ready)
+            .into_iter()
+            .map(|(name, version)| Item {
+                repo: REPO.to_string(),
+                name,
+                version,
+            })
+            .collect();
+        let providers: Vec<(String, String)> = ready
+            .split_once("providers=[")
+            .and_then(|(_, rest)| rest.strip_suffix(']'))
+            .unwrap()
+            .split(',')
+            .filter(|pair| !pair.is_empty())
+            .map(|pair| {
+                let (dependency, chosen) = pair.split_once('=').unwrap();
+                (dependency.to_string(), chosen.to_string())
+            })
+            .collect();
+        let names: Vec<String> = targets.iter().map(|name| dummy(name)).collect();
+        let (request, summary) = install_request(
+            &names
+                .iter()
+                .map(|name| (REPO, name.as_str()))
+                .collect::<Vec<_>>(),
+            &providers
+                .iter()
+                .map(|(dependency, chosen)| (dependency.as_str(), REPO, chosen.as_str()))
+                .collect::<Vec<_>>(),
+            &items,
+        );
+        let ran = run(&summary, request.as_bytes());
+        assert_eq!(
+            ran.lines().last(),
+            Some(&"{\"finished\":\"ok\"}"),
+            "{targets:?} {answers:?}: {ready}\n{}",
+            ran.stdout
+        );
+        for item in &items {
+            assert_eq!(
+                installed_version(&item.name).as_deref(),
+                Some(item.version.as_str()),
+                "{targets:?} {answers:?}"
+            );
+        }
+    }
+}
