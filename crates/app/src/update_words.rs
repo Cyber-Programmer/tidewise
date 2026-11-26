@@ -249,6 +249,45 @@ mod tests {
     }
 
     #[test]
+    fn several_conflicts_are_one_sentence_and_a_list() {
+        let conflict = |package: &str, installed: &str| Conflict {
+            package: package.to_string(),
+            installed: installed.to_string(),
+        };
+        let words = block_words(&UpdateBlock::Conflict(vec![
+            conflict("a", "b"),
+            conflict("c", "d"),
+        ]));
+        assert_eq!(words.title, "This update would need to remove a package");
+        assert_eq!(
+            words.body,
+            "Some new packages can't be installed next to ones you have. Tidewise never removes packages during \
+             an update, so it stopped here. Nothing was changed.\na (conflicts with b)\nc (conflicts with d)"
+        );
+    }
+
+    #[test]
+    fn several_picks_name_the_first_and_count_the_rest() {
+        let pick = |dependency: &str| ProviderPick {
+            dependency: dependency.to_string(),
+            provider: pkg("prov-a"),
+        };
+        for (picks, start) in [
+            (
+                vec![pick("virtual"), pick("other")],
+                "One of the updates now needs virtual and 1 more, and several packages can provide it.",
+            ),
+            (
+                vec![pick("virtual"), pick("other"), pick("third")],
+                "One of the updates now needs virtual and 2 more, and several packages can provide it.",
+            ),
+        ] {
+            let body = block_words(&UpdateBlock::Pick(picks)).body;
+            assert!(body.starts_with(start), "{body}");
+        }
+    }
+
+    #[test]
     fn a_pick_says_tidewise_cannot_ask_yet() {
         let words = block_words(&UpdateBlock::Pick(vec![ProviderPick {
             dependency: "virtual".to_string(),
