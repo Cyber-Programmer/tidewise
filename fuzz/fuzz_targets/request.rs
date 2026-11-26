@@ -3,7 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use tidewise_helper_protocol::{
     Details, MAX_DETAILS_BYTES, MAX_SUMMARY_BYTES, Request, event_line, parse_event, parse_request,
-    summary, validate,
+    request_json, summary, validate,
 };
 
 fn assert_summary_is_safe(request: &Request) {
@@ -39,6 +39,10 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(validate(&request), Ok(()), "accepted but not valid");
         assert_summary_is_safe(&request);
         assert_summary_is_safe_for_the_dialog(&request);
+        // What the app would write for it is read back as the same request (6.4b).
+        if let Ok(written) = request_json(&request) {
+            assert_eq!(parse_request(&written), Ok(request), "did not round-trip");
+        }
     }
 
     // 2. Whatever serde alone accepts (before validation) must still give a safe summary: summary() is total.
