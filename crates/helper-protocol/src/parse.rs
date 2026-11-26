@@ -55,10 +55,15 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, ProtocolError> {
     Ok(request)
 }
 
+/// The bytes the app writes to the helper's stdin.
+pub fn request_json(_request: &Request) -> Result<Vec<u8>, ProtocolError> {
+    Ok(Vec::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Field, Reason};
+    use crate::{Action, Field, Reason};
 
     const INSTALL: &str = include_str!("../../../tests/fixtures/helper-protocol/install.json");
     const UPDATE: &str = include_str!("../../../tests/fixtures/helper-protocol/update-system.json");
@@ -243,6 +248,50 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn a_written_request_is_read_back_as_the_same_request() {
+        for text in [INSTALL, UPDATE, BOTH] {
+            let request = parse(text).unwrap();
+            let written = request_json(&request).unwrap();
+            assert_eq!(parse_request(&written), Ok(request));
+        }
+    }
+
+    #[test]
+    fn a_request_is_written_compact_with_no_new_line() {
+        let request = parse(INSTALL).unwrap();
+        // The fixture file is one compact line; the file's own new line is not part of the request.
+        assert_eq!(
+            request_json(&request).unwrap(),
+            INSTALL.trim_end().as_bytes()
+        );
+    }
+
+    #[test]
+    fn a_request_over_the_cap_is_reported_not_cut() {
+        // The helper reads at most the cap, so a longer request must never be sent. `validate` is not asked here:
+        // the point is the size of what would be written.
+        let mut request = parse(MINIMAL).unwrap();
+        let Action::UpdateSystem(update) = &mut request.action else {
+            panic!("not an update");
+        };
+        update.transaction[0].version.clear();
+        let empty = serde_json::to_vec(&request).unwrap().len();
+        let Action::UpdateSystem(update) = &mut request.action else {
+            panic!("not an update");
+        };
+        update.transaction[0].version = "1".repeat(MAX_REQUEST_BYTES - empty);
+        assert_eq!(
+            request_json(&request).map(|bytes| bytes.len()),
+            Ok(MAX_REQUEST_BYTES)
+        );
+        let Action::UpdateSystem(update) = &mut request.action else {
+            panic!("not an update");
+        };
+        update.transaction[0].version.push('1');
+        assert_eq!(request_json(&request), Err(ProtocolError::TooLarge));
     }
 
     #[test]
