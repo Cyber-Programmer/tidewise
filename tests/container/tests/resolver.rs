@@ -353,11 +353,12 @@ fn the_given_package_list_folder_is_the_one_that_is_read() {
     );
 }
 
-/// The app and the helper judge a provider pick separately (WBS 6.4a, golden rule 10): the helper must accept every
-/// plan the resolver calls Ready. Each plan is sent to the real helper, which installs it.
+/// The app and the helper judge a provider pick separately (WBS 6.4a, golden rule 10): the helper must accept the
+/// resolver's plan for each of these cases. Each plan is sent to the real helper, which installs it. Not every possible
+/// plan is accepted: one name needed at two versions is refused (threat model, question 42 a).
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn the_helper_accepts_every_plan_the_resolver_calls_ready() {
+fn the_helper_accepts_the_resolvers_plans_for_the_dummy_packages() {
     assert_inside_the_test_container();
     let cases: &[Case] = &[
         (&["needs-virtual"], &[("tidewise-virtual", "prov-a")]),
