@@ -1,0 +1,181 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { InstallFocus, ReviewKey } from "../install/bridge.slint";
+import { UpdateBridge } from "bridge.slint";
+
+// A line of plain words inside the list box.
+component Line inherits Text {
+    color: Theme.text-2;
+    font-size: Theme.size-label;
+    wrap: word-wrap;
+    accessible-role: text;
+}
+
+// The one bounded box of the update screen: first what is skipped and what is held (so it is seen without
+// scrolling), then the packages; or pacman's own figures while "Technical details" is open. One Tab stop; Up, Down, Page Up, Page Down, Home and End scroll it.
+export component UpdateList inherits Rectangle {
+    in property <bool> technical;
+
+    background: Theme.surface;
+    border-radius: Theme.radius-control;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    init => {
+        if (UpdateBridge.focus == InstallFocus.list) {
+            focus.focus();
+        }
+    }
+    property <int> focus-request: UpdateBridge.focus-serial;
+    changed focus-request => {
+        if (UpdateBridge.focus == InstallFocus.list) {
+            focus.focus();
+        }
+    }
+
+    focus := FocusScope {
+        accessible-role: list;
+        accessible-label: root.technical ? "Technical details" : "What the update changes";
+        key-pressed(event) => {
+            if (event.text == Key.UpArrow) {
+                UpdateBridge.review-key(ReviewKey.up, scroll.content-height);
+            } else if (event.text == Key.DownArrow) {
+                UpdateBridge.review-key(ReviewKey.down, scroll.content-height);
+            } else if (event.text == Key.PageUp) {
+                UpdateBridge.review-key(ReviewKey.page-up, scroll.content-height);
+            } else if (event.text == Key.PageDown) {
+                UpdateBridge.review-key(ReviewKey.page-down, scroll.content-height);
+            } else if (event.text == Key.Home) {
+                UpdateBridge.review-key(ReviewKey.home, scroll.content-height);
+            } else if (event.text == Key.End) {
+                UpdateBridge.review-key(ReviewKey.end, scroll.content-height);
+            } else {
+                return reject;
+            }
+            return accept;
+        }
+    }
+
+    scroll := ScrollView {
+        content-y <=> UpdateBridge.list-y;
+        changed visible-height => {
+            UpdateBridge.list-visible-height = self.visible-height;
+        }
+        init => {
+            UpdateBridge.list-visible-height = self.visible-height;
+        }
+
+        VerticalLayout {
+            alignment: start;
+
+            if !root.technical: VerticalLayout {
+                if UpdateBridge.replacement-lines.length > 0: VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    Line {
+                        text: "Not done by Tidewise";
+                        color: Theme.text;
+                        font-weight: Theme.weight-semibold;
+                    }
+
+                    for line in UpdateBridge.replacement-lines: Line {
+                        text: line;
+                    }
+                }
+
+                if UpdateBridge.held-title != "": VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    Line {
+                        text: UpdateBridge.held-title;
+                        color: Theme.text;
+                        font-weight: Theme.weight-semibold;
+                    }
+
+                    for line in UpdateBridge.held-lines: Line {
+                        text: line;
+                    }
+
+                    Line {
+                        text: UpdateBridge.held-warning;
+                    }
+                }
+
+                for row[index] in UpdateBridge.rows: VerticalLayout {
+                    if index > 0: Rectangle {
+                        height: 1px;
+                        background: Theme.rule;
+                    }
+
+                    Rectangle {
+                        height: Theme.review-row;
+                        accessible-role: list-item;
+                        accessible-label: row.name + " " + row.version + ", " + row.why + ", " + row.size;
+
+                        HorizontalLayout {
+                            padding-left: Theme.space-l;
+                            padding-right: Theme.space-l;
+                            spacing: Theme.space-m;
+
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 2px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: Theme.space-m;
+                                    Text {
+                                        text: row.name;
+                                        color: Theme.text;
+                                        font-size: Theme.size-body;
+                                        vertical-alignment: bottom;
+                                    }
+
+                                    Text {
+                                        text: row.version;
+                                        color: Theme.text-3;
+                                        font-family: Theme.font-mono;
+                                        font-size: 12px;
+                                        vertical-alignment: bottom;
+                                    }
+                                }
+
+                                Text {
+                                    text: row.why;
+                                    color: Theme.text-3;
+                                    font-size: 12px;
+                                }
+                            }
+
+                            Text {
+                                text: row.size;
+                                color: Theme.text-2;
+                                font-family: Theme.font-mono;
+                                font-size: Theme.size-label;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.technical: VerticalLayout {
+                padding: Theme.space-m;
+                spacing: Theme.space-xs;
+                for line in UpdateBridge.technical: Line {
+                    text: line;
+                    font-family: Theme.font-mono;
+                }
+            }
+        }
+    }
+
+    // Focus ring, drawn over the list.
+    Rectangle {
+        border-radius: Theme.radius-control;
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}

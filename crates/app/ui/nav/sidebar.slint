@@ -3,7 +3,7 @@ import { Logo } from "../widgets/logo.slint";
 import { NavBridge, Screen } from "bridge.slint";
 import { NavItem } from "nav-item.slint";
 
-// Only items that work today: Apps and Search. More arrive with their screens.
+// Only items that work today: Apps, Search and Updates. More arrive with their screens.
 export component Sidebar inherits Rectangle {
     width: 220px;
     background: Theme.bg;
@@ -50,6 +50,15 @@ export component Sidebar inherits Rectangle {
                 current: NavBridge.current == Screen.search;
                 clicked => {
                     NavBridge.current = Screen.search;
+                }
+            }
+
+            NavItem {
+                label: "Updates";
+                icon: "M20 12a8 8 0 1 1-2.35-5.65M20 4v5h-5";
+                current: NavBridge.current == Screen.updates;
+                clicked => {
+                    NavBridge.current = Screen.updates;
                 }
             }
         }

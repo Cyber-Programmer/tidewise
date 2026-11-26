@@ -227,6 +227,10 @@ export component InstallCard inherits Rectangle {
 
         if InstallBridge.kind == InstallCardKind.progress: InstallProgress {
             vertical-stretch: 0;
+            stages: InstallBridge.stages;
+            percent: InstallBridge.percent;
+            percent-text: InstallBridge.percent-text;
+            bar-label: "Install progress";
         }
 
         // The review: three figures, then the list.

@@ -1,8 +1,14 @@
 import { Theme } from "../theme.slint";
-import { InstallBridge, InstallStageState } from "bridge.slint";
+import { InstallStageData, InstallStageState } from "bridge.slint";
 
-// The bar and the four stages of a running install. Words and numbers come from Rust.
+// The bar and the four stages of a running helper job (an install, or a system update). Words and numbers come
+// from Rust.
 export component InstallProgress inherits VerticalLayout {
+    in property <[InstallStageData]> stages;
+    in property <int> percent;
+    in property <string> percent-text;
+    // What a screen reader calls the bar.
+    in property <string> bar-label;
     spacing: Theme.space-m;
 
     Rectangle {
@@ -10,20 +16,20 @@ export component InstallProgress inherits VerticalLayout {
         border-radius: 4px;
         background: Theme.control-border;
         accessible-role: progress-indicator;
-        accessible-label: "Install progress";
-        accessible-value: InstallBridge.percent-text;
+        accessible-label: root.bar-label;
+        accessible-value: root.percent-text;
         accessible-value-minimum: 0;
         accessible-value-maximum: 100;
         Rectangle {
             x: 0px;
-            width: parent.width * InstallBridge.percent / 100;
+            width: parent.width * root.percent / 100;
             height: parent.height;
             border-radius: 4px;
             background: Theme.accent;
         }
     }
 
-    for stage in InstallBridge.stages: HorizontalLayout {
+    for stage in root.stages: HorizontalLayout {
         spacing: Theme.space-m;
         Rectangle {
             width: 12px;
