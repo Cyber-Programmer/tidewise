@@ -423,8 +423,34 @@ mod tests {
     #[test]
     fn a_single_possible_provider_is_not_a_pick() {
         assert_eq!(left(None, &["new"], false, &[], &[]).0, 0);
-        // The same package in two repositories is still one name.
-        assert_eq!(left(None, &["new", "new"], false, &[], &[]).0, 0);
+    }
+
+    /// Review 6.5 R-07, measured: pacman asks between the same name in two repositories.
+    #[test]
+    fn the_same_name_in_two_repositories_is_a_choice() {
+        let details = [
+            listed("app", vec![dependency("virtual", None)]),
+            listed("new", vec![]),
+        ];
+        let listed: Vec<&PackageDetails> = details.iter().collect();
+        struct TwoRepos;
+        impl UpdateFacts for TwoRepos {
+            type Error = ();
+            fn providers(&mut self, _: &str) -> Result<Vec<PackageRef>, ()> {
+                let mut other = plain("new");
+                other.repo = "extra-testing".to_string();
+                Ok(vec![plain("new"), other])
+            }
+            fn satisfied(&mut self, _: &Dependency) -> Result<bool, ()> {
+                Ok(false)
+            }
+        }
+        let picks = vec![ProviderPick {
+            dependency: "virtual".to_string(),
+            provider: plain("new"),
+        }];
+        let kept = update_picks(picks, &listed, |_| false, &mut TwoRepos).unwrap();
+        assert_eq!(kept.len(), 1);
     }
 
     #[test]
@@ -442,10 +468,38 @@ mod tests {
     fn an_installed_provider_that_stays_is_not_a_pick() {
         assert_eq!(left(None, &["new", "other"], true, &["other"], &[]).0, 0);
         // Upgraded in the same list, and its new version still provides an unversioned name.
-        assert_eq!(
-            left(None, &["new", "other"], true, &["other"], &["other"]).0,
-            0
-        );
+        assert_eq!(left_with_upgraded("virtual"), 0);
+    }
+
+    /// Review 6.5 R-04: the new version drops the name, while a package of the same name in another repository (so the
+    /// search still lists it) provides it. Only the listed record counts.
+    #[test]
+    fn an_upgraded_provider_whose_new_version_drops_the_name_does_not_stay() {
+        assert_eq!(left_with_upgraded("something-else"), 1);
+    }
+
+    /// `other` is installed, upgraded by the list to a version that provides `provides`; the picks left.
+    fn left_with_upgraded(provides: &str) -> usize {
+        let mut other = listed("other", vec![]);
+        other.provides = vec![dependency(provides, None)];
+        let details = [
+            listed("app", vec![dependency("virtual", None)]),
+            listed("new", vec![]),
+            other,
+        ];
+        let listed: Vec<&PackageDetails> = details.iter().collect();
+        let mut facts = Facts {
+            providers: vec!["new", "other"],
+            satisfied: true,
+            asked: Vec::new(),
+        };
+        let picks = vec![ProviderPick {
+            dependency: "virtual".to_string(),
+            provider: plain("new"),
+        }];
+        update_picks(picks, &listed, |name| name == "other", &mut facts)
+            .unwrap()
+            .len()
     }
 
     #[test]
@@ -460,14 +514,14 @@ mod tests {
         assert_eq!(left(None, &["new", "other"], false, &["other"], &[]).0, 1);
     }
 
+    /// Review 6.5 R-03: an installed provider that stays may be too old for the need, while `-T` is satisfied only by
+    /// the version that is about to drop the name. Versions are not compared here, so a versioned need never passes.
     #[test]
-    fn a_versioned_need_is_not_trusted_to_a_provider_that_is_being_upgraded() {
+    fn a_versioned_need_never_passes_through_an_installed_provider() {
         let rule = Some((Comparison::GreaterOrEqual, "2"));
-        assert_eq!(left(rule, &["new", "other"], true, &["other"], &[]).0, 0);
-        assert_eq!(
-            left(rule, &["new", "other"], true, &["other"], &["other"]).0,
-            1
-        );
+        assert_eq!(left(rule, &["new", "other"], true, &["other"], &[]).0, 1);
+        // One possible provider is still no choice.
+        assert_eq!(left(rule, &["new"], false, &[], &[]).0, 0);
     }
 
     #[test]
