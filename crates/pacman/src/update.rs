@@ -7,7 +7,15 @@
 //! - it says nothing about a conflict, and the real run then aborts the whole update;
 //! - it takes the first provider of a virtual name without saying so (golden rule 10: the helper refuses that).
 
-use crate::{PackageRef, ParseError, PendingUpdate, PlanItem, ProviderPick};
+use std::collections::HashMap;
+
+use crate::record::split_records;
+use crate::si::dependencies;
+use crate::{
+    Dependency, InstalledPackage, PackageDetails, PackageRef, ParseError, PendingUpdate, PlanItem,
+    PrintFailure, ProviderPick, Role, parse_print, parse_print_failure, parse_qi, parse_qu,
+    parse_si, provider_picks,
+};
 
 /// A package that would replace an installed one. Tidewise does not do replacements: it is listed but skipped.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,28 +79,245 @@ impl UpdatePlan {
 }
 
 /// The plan, from `-Qu`, the dry run, `-Si` of the printed packages and `-Qi` of everything installed.
-pub fn update_plan(
-    _qu: &str,
-    _print: &str,
-    _si: &str,
-    _qi: &str,
-) -> Result<UpdatePlan, ParseError> {
-    Ok(UpdatePlan::default())
+pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePlan, ParseError> {
+    let held_back = parse_qu(qu)?
+        .into_iter()
+        .filter(|update| update.ignored)
+        .collect();
+    let printed = parse_print(print)?;
+    let details: HashMap<PackageRef, PackageDetails> = parse_si(si)?
+        .into_iter()
+        .map(|d| (package_ref(&d.repo, &d.name), d))
+        .collect();
+    let installed: HashMap<String, InstalledPackage> = parse_qi(qi)?
+        .into_iter()
+        .map(|p| (p.name.clone(), p))
+        .collect();
+    let relations = installed_relations(qi)?;
+
+    let mut listed: Vec<Listed> = Vec::new();
+    for line in &printed {
+        let package = package_ref(&line.repo, &line.name);
+        let details = details
+            .get(&package)
+            .ok_or_else(|| ParseError::MissingPackage {
+                repo: line.repo.clone(),
+                name: line.name.clone(),
+            })?;
+        let current = installed.get(&line.name);
+        listed.push(Listed {
+            item: PlanItem {
+                package,
+                version: line.version.clone(),
+                role: if current.is_some() {
+                    Role::Update
+                } else {
+                    Role::Dependency
+                },
+                installed_version: current.map(|p| p.version.clone()),
+                download_size: line.download_size,
+                installed_size: details.installed_size,
+                installed_size_text: details.installed_size_text.clone(),
+                current_size: current.map(|p| p.installed_size),
+            },
+            details,
+        });
+    }
+
+    let replacements: Vec<Replacement> = listed
+        .iter()
+        .filter(|l| l.item.installed_version.is_none())
+        .flat_map(|l| {
+            l.details
+                .replaces
+                .iter()
+                // pacman replaces by package name, never by a provided name.
+                .filter(|old| installed.contains_key(&old.name))
+                .map(|old| Replacement {
+                    new: l.item.package.clone(),
+                    old: old.name.clone(),
+                })
+        })
+        .collect();
+
+    let skipped = skipped_packages(&listed, &replacements);
+    let installing: Vec<&Listed> = listed
+        .iter()
+        .filter(|l| !skipped.contains(&l.item.package))
+        .collect();
+    let conflicts = conflicts_of(&installing, &relations);
+
+    // The whole list, as the helper sees it: it checks every line it is sent.
+    let refs: Vec<PackageRef> = listed.iter().map(|l| l.item.package.clone()).collect();
+    let picks = provider_picks(
+        &refs,
+        |item| details.get(item),
+        &[],
+        &[],
+        |name| installed.contains_key(name),
+    );
+
+    Ok(UpdatePlan {
+        items: listed.into_iter().map(|l| l.item).collect(),
+        skipped,
+        replacements,
+        held_back,
+        conflicts,
+        picks,
+    })
 }
 
 /// When the dry run failed: is it because a held package would have to be upgraded too?
 pub fn held_block(
-    _qu: &str,
-    _print_stdout: &str,
-    _print_stderr: &str,
+    qu: &str,
+    print_stdout: &str,
+    print_stderr: &str,
 ) -> Result<Option<HeldBlock>, ParseError> {
-    Ok(None)
+    let Some(PrintFailure::Unsatisfiable(unmet)) = parse_print_failure(print_stdout, print_stderr)
+    else {
+        return Ok(None);
+    };
+    let held: Vec<String> = parse_qu(qu)?
+        .into_iter()
+        .filter(|update| update.ignored)
+        .map(|update| update.name)
+        .collect();
+    Ok(unmet.into_iter().find_map(|unmet| {
+        let name = unmet.dependency.split(['<', '>', '=']).next()?;
+        held.iter().any(|h| h == name).then(|| HeldBlock {
+            package: unmet.required_by.clone(),
+            held: name.to_string(),
+        })
+    }))
+}
+
+struct Listed<'a> {
+    item: PlanItem,
+    details: &'a PackageDetails,
+}
+
+impl Listed<'_> {
+    /// Whether this package is called `name` or provides it.
+    fn answers(&self, name: &str) -> bool {
+        self.item.package.name == name || self.details.provides.iter().any(|p| p.name == name)
+    }
+}
+
+/// What the replacers bring that no upgrade needs: the real run declines the replacement, and so installs neither
+/// the replacer nor what was pulled in for it alone.
+fn skipped_packages(listed: &[Listed], replacements: &[Replacement]) -> Vec<PackageRef> {
+    let upgrades = listed.iter().filter(|l| l.item.installed_version.is_some());
+    let needed = reachable(listed, upgrades.collect());
+    let replacers = listed
+        .iter()
+        .filter(|l| replacements.iter().any(|r| r.new == l.item.package));
+    let brought = reachable(listed, replacers.collect());
+    listed
+        .iter()
+        .map(|l| &l.item.package)
+        .filter(|p| brought.contains(p) && !needed.contains(p))
+        .cloned()
+        .collect()
+}
+
+/// `start` and every new (not installed) listed package its dependencies lead to.
+fn reachable<'a>(listed: &'a [Listed], start: Vec<&'a Listed<'a>>) -> Vec<&'a PackageRef> {
+    let mut found: Vec<&PackageRef> = start.iter().map(|l| &l.item.package).collect();
+    let mut queue = start;
+    while let Some(next) = queue.pop() {
+        for dependency in &next.details.depends_on {
+            for other in listed {
+                if other.item.installed_version.is_none()
+                    && !found.contains(&&other.item.package)
+                    && other.answers(&dependency.name)
+                {
+                    found.push(&other.item.package);
+                    queue.push(other);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// The names an installed package provides and conflicts with (`-Qi`; the Apps list needs neither).
+struct Relations {
+    name: String,
+    provides: Vec<Dependency>,
+    conflicts: Vec<Dependency>,
+}
+
+impl Relations {
+    fn answers(&self, name: &str) -> bool {
+        self.name == name || self.provides.iter().any(|p| p.name == name)
+    }
+}
+
+fn installed_relations(qi: &str) -> Result<Vec<Relations>, ParseError> {
+    split_records(qi)?
+        .iter()
+        .map(|record| {
+            let name = record.get("Name").ok_or(ParseError::MissingField {
+                package: None,
+                field: "Name",
+            })?;
+            Ok(Relations {
+                name: name.to_string(),
+                provides: dependencies(record, name, "Provides")?,
+                conflicts: dependencies(record, name, "Conflicts With")?,
+            })
+        })
+        .collect()
+}
+
+/// Conflicts between what is going in and what stays, both ways round. Only rules without a version: comparing
+/// versions is pacman's job, and a versioned conflict it finds aborts the real run with nothing changed. A package
+/// that is being upgraded is judged by its new version, never against itself.
+fn conflicts_of(installing: &[&Listed], installed: &[Relations]) -> Vec<Conflict> {
+    let staying: Vec<&Relations> = installed
+        .iter()
+        .filter(|p| !installing.iter().any(|l| l.item.package.name == p.name))
+        .collect();
+    let mut found: Vec<Conflict> = Vec::new();
+    let mut add = |package: &str, installed: &str| {
+        let conflict = Conflict {
+            package: package.to_string(),
+            installed: installed.to_string(),
+        };
+        if !found.contains(&conflict) {
+            found.push(conflict);
+        }
+    };
+    for new in installing {
+        let package = &new.item.package.name;
+        for old in &staying {
+            let new_says = new
+                .details
+                .conflicts_with
+                .iter()
+                .any(|c| c.rule.is_none() && old.answers(&c.name));
+            let old_says = old
+                .conflicts
+                .iter()
+                .any(|c| c.rule.is_none() && new.answers(&c.name));
+            if new_says || old_says {
+                add(package, &old.name);
+            }
+        }
+    }
+    found
+}
+
+fn package_ref(repo: &str, name: &str) -> PackageRef {
+    PackageRef {
+        repo: repo.to_string(),
+        name: name.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Role, parse_si};
 
     macro_rules! saved {
         ($case:literal, $kind:literal) => {
@@ -229,8 +454,8 @@ mod tests {
             "Conflicts With  : None",
         );
         let qi = saved!("conflict", "qi.stdout").replace(
-            "Conflicts With  : None\n",
-            "Conflicts With  : tidewise-dummy-upd-conf\n",
+            "Conflicts With  : tidewise-dummy-conf-y",
+            "Conflicts With  : tidewise-dummy-upd-conf",
         );
         let plan = update_plan(
             saved!("conflict", "qu.stdout"),

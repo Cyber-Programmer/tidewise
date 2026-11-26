@@ -190,7 +190,7 @@ fn text_value(record: &Record, field: &str) -> String {
 }
 
 /// A field made of dependencies separated by whitespace (`Depends On`, `Provides`, ...).
-fn dependencies(
+pub(crate) fn dependencies(
     record: &Record,
     package: &str,
     field: &'static str,
