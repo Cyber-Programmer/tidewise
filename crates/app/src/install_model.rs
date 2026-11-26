@@ -90,8 +90,8 @@ pub struct Job {
 pub enum JobFailure {
     /// No request was made: a bug.
     NotSent(RequestError),
-    /// The helper run ended without success.
-    Ended(JobEnd),
+    /// The helper run ended without success. The notices it sent first are kept: they may say what did change.
+    Ended { end: JobEnd, notices: Vec<Notice> },
 }
 
 /// The user's answer to one question, changed while it is shown.
@@ -568,12 +568,12 @@ impl InstallModel {
     }
 
     /// Job `number` is over.
-    pub fn job_ended(&mut self, number: u64, end: JobEnd) {
+    pub fn job_ended(&mut self, number: u64, end: JobEnd) -> bool {
         let Phase::Installing(job) = &self.phase else {
-            return;
+            return false;
         };
         if job.number != number {
-            return;
+            return false;
         }
         self.phase = match end {
             JobEnd::Finished(Outcome::Ok) => Phase::Installed {
@@ -583,9 +583,13 @@ impl InstallModel {
                 self.prompt_closed = true;
                 Phase::Ready(Box::new(job.plan.clone()))
             }
-            end => Phase::InstallFailed(JobFailure::Ended(end)),
+            end => Phase::InstallFailed(JobFailure::Ended {
+                end,
+                notices: Vec::new(),
+            }),
         };
         self.refocus();
+        false
     }
 
     /// A helper job is running: nothing may leave or replace this install (there is no stop).
@@ -957,9 +961,64 @@ mod tests {
         ] {
             let (mut model, number) = installing();
             model.job_ended(number, end.clone());
-            assert_eq!(*model.phase(), Phase::InstallFailed(JobFailure::Ended(end)));
+            assert_eq!(
+                *model.phase(),
+                Phase::InstallFailed(JobFailure::Ended {
+                    end,
+                    notices: Vec::new()
+                })
+            );
             assert_eq!(model.back(), Back::Closed);
         }
+    }
+
+    #[test]
+    fn a_failed_install_keeps_the_notices_that_came_first() {
+        let (mut model, number) = installing();
+        model.job_event(number, Event::Notice(Notice::PackagesRemoved(3)));
+        let end = JobEnd::Finished(Outcome::Error(ErrorKind::DatabaseLocked));
+        model.job_ended(number, end.clone());
+        assert_eq!(
+            *model.phase(),
+            Phase::InstallFailed(JobFailure::Ended {
+                end,
+                notices: vec![Notice::PackagesRemoved(3)]
+            })
+        );
+    }
+
+    #[test]
+    fn only_an_end_that_may_have_changed_the_system_asks_for_a_new_list() {
+        let changed = |end: JobEnd| {
+            let (mut model, number) = installing();
+            model.job_ended(number, end)
+        };
+        assert!(changed(JobEnd::Finished(Outcome::Ok)));
+        assert!(changed(JobEnd::Finished(Outcome::Error(
+            ErrorKind::TransactionChanged
+        ))));
+        assert!(changed(JobEnd::NoResult {
+            exit: None,
+            unreadable: 0,
+            stderr: String::new()
+        }));
+        for end in [
+            JobEnd::PromptClosed,
+            JobEnd::HelperMissing,
+            JobEnd::NotAuthorised {
+                stderr: String::new(),
+            },
+            JobEnd::HelperRefusedToStart {
+                stderr: String::new(),
+            },
+            JobEnd::CouldNotStart {
+                reason: String::new(),
+            },
+        ] {
+            assert!(!changed(end.clone()), "{end:?}");
+        }
+        let (mut model, number) = installing();
+        assert!(!model.job_ended(number + 1, JobEnd::Finished(Outcome::Ok)));
     }
 
     #[test]
