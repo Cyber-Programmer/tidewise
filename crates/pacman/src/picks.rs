@@ -5,7 +5,8 @@
 //! version rule, and only the names are matched here. Whether a *chosen* package really satisfies a version rule is
 //! pacman's call, and the callers ask it with a dry run.
 
-use crate::{Dependency, PackageDetails, PackageRef};
+use crate::{Comparison, Dependency, PackageDetails, PackageRef};
+use tidewise_names::is_valid_package_name;
 
 /// One name pacman answered itself: `dependency`, and the package it took.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,19 +75,77 @@ pub trait UpdateFacts {
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, Self::Error>;
 }
 
-/// The picks of `provider_picks` that are a choice in a system UPDATE (decision 0009). Stub.
+/// The picks of `provider_picks` that are a choice in a system UPDATE (decision 0009). Installs keep naming every
+/// pick; an update has no way to name one, so two cases where pacman has nothing to ask are let through:
+///
+/// - exactly one package in the repositories can provide the name;
+/// - every listed dependency on the name is still satisfied after the update: `pacman -T` says it is now, and an
+///   installed package among the repository providers stays (or, for a need without a version, is upgraded to a
+///   version that still provides it).
+///
+/// `-T` alone is not enough: it answers for what is installed NOW, and a provider whose new version drops the name
+/// leaves pacman with a choice (measured). What satisfies a name and is in no repository is not seen, so such a pick
+/// stays (fails closed).
 pub fn update_picks<F: UpdateFacts>(
     picks: Vec<ProviderPick>,
-    _listed: &[&PackageDetails],
-    _is_installed: impl Fn(&str) -> bool,
-    _facts: &mut F,
+    listed: &[&PackageDetails],
+    is_installed: impl Fn(&str) -> bool,
+    facts: &mut F,
 ) -> Result<Vec<ProviderPick>, F::Error> {
-    Ok(picks)
+    let mut kept = Vec::new();
+    for pick in picks {
+        let name = pick.dependency.as_str();
+        let providers = facts.providers(name)?;
+        let lone = !providers.is_empty() && providers.iter().all(|p| p.name == pick.provider.name);
+        if lone {
+            continue;
+        }
+        let upgraded = |package: &str| listed.iter().any(|d| d.name == package);
+        let mut still_satisfied = true;
+        for dependency in listed
+            .iter()
+            .flat_map(|d| &d.depends_on)
+            .filter(|dependency| dependency.name == name)
+        {
+            // The new version of an upgraded provider is not compared with a version rule.
+            let stays = providers.iter().any(|p| {
+                is_installed(&p.name) && (!upgraded(&p.name) || dependency.rule.is_none())
+            });
+            if !stays || !facts.satisfied(dependency)? {
+                still_satisfied = false;
+                break;
+            }
+        }
+        if !still_satisfied {
+            kept.push(pick);
+        }
+    }
+    Ok(kept)
 }
 
-/// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if it is not plain. Stub.
-pub fn dependency_text(_dependency: &Dependency) -> Option<String> {
-    None
+/// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
+/// It comes from pacman's own `-Si`, and is checked again before it is an argument.
+pub fn dependency_text(dependency: &Dependency) -> Option<String> {
+    if !is_valid_package_name(&dependency.name) {
+        return None;
+    }
+    let Some(rule) = &dependency.rule else {
+        return Some(dependency.name.clone());
+    };
+    let version = &rule.version;
+    let plain = !version.is_empty()
+        && !version.starts_with('-')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '~' | ':' | '-'));
+    let operator = match rule.comparison {
+        Comparison::Equal => "=",
+        Comparison::Less => "<",
+        Comparison::LessOrEqual => "<=",
+        Comparison::Greater => ">",
+        Comparison::GreaterOrEqual => ">=",
+    };
+    plain.then(|| format!("{}{operator}{version}", dependency.name))
 }
 
 #[cfg(test)]
@@ -286,7 +345,7 @@ mod tests {
 
     // ---- the update's reading of the rule (decision 0009) -------------------------------------------------
 
-    use crate::{Comparison, VersionRule};
+    use crate::VersionRule;
 
     struct Facts {
         providers: Vec<&'static str>,

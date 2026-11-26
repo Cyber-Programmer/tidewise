@@ -2117,6 +2117,8 @@ mod update_lookup_tests {
                 Some("-Su") => print.clone(),
                 Some("-Si") => si.clone(),
                 Some("-Qi") => qi.clone(),
+                // The `provider` case has a pick: the repositories are asked, and have nothing to say here.
+                Some("-Ss") => output(1, "", ""),
                 other => panic!("unexpected command {other:?}"),
             })
         });
@@ -2139,6 +2141,7 @@ mod update_lookup_tests {
                 "-Si -- tidewise-test/tidewise-dummy-upd tidewise-test/tidewise-dummy-prov-a \
                  tidewise-test/tidewise-dummy-upd-virt",
                 "-Qi",
+                "-Ss -- ^tidewise-virtual$",
             ]
         );
         let Ok(UpdateLookup::Plan(plan)) = result else {
@@ -2194,6 +2197,61 @@ mod update_lookup_tests {
             matches!(other, Err(PacmanError::Failed { ref stderr, .. }) if stderr.contains("something else")),
             "{other:?}"
         );
+    }
+
+    /// The `provider` case with these answers to `-Ss` and `-T`; the candidates' `-Si` is answered from the list's.
+    fn with_providers(ss: &str, deptest: i32) -> (UpdatePlan, Vec<String>) {
+        let si = saved!("provider", "si.stdout");
+        let a = si
+            .split("\n\n")
+            .find(|record| record.contains("tidewise-dummy-prov-a"))
+            .unwrap();
+        let candidates = format!("{a}\n\n{}\n\n", a.replace("prov-a", "prov-b"));
+        let seen = RefCell::new(Vec::new());
+        let result = update_lookup_with(&|args| {
+            let line = args.join(" ");
+            seen.borrow_mut().push(line.clone());
+            Ok(match args.first().map(String::as_str) {
+                Some("-Qu") => output(0, saved!("provider", "qu.stdout"), ""),
+                Some("-Su") => output(0, saved!("provider", "print.stdout"), ""),
+                Some("-Qi") => output(0, saved!("provider", "qi.stdout"), ""),
+                Some("-Ss") => output(0, ss, ""),
+                Some("-T") => output(deptest, "", ""),
+                Some("-Si") if line.contains("upd-virt") => output(0, si, ""),
+                Some("-Si") => output(0, &candidates, ""),
+                other => panic!("unexpected command {other:?}"),
+            })
+        });
+        let Ok(UpdateLookup::Plan(plan)) = result else {
+            panic!("{result:?}");
+        };
+        (*plan, seen.into_inner())
+    }
+
+    #[test]
+    fn a_pick_with_two_possible_providers_stays_after_asking_the_repositories() {
+        let (plan, seen) = with_providers(saved!("provider", "ss.stdout"), 127);
+        assert_eq!(plan.picks.len(), 1);
+        assert!(
+            seen.contains(&"-Ss -- ^tidewise-virtual$".to_string()),
+            "{seen:?}"
+        );
+        assert!(
+            seen.iter()
+                .any(|line| line.starts_with("-Si --") && line.contains("prov-b"))
+        );
+    }
+
+    #[test]
+    fn a_lone_provider_is_not_a_pick_in_the_review() {
+        let only_a: String = saved!("provider", "ss.stdout")
+            .lines()
+            .take(2)
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let (plan, seen) = with_providers(&only_a, 127);
+        assert!(plan.picks.is_empty(), "{:?}", plan.picks);
+        assert!(!seen.iter().any(|line| line.starts_with("-T")), "{seen:?}");
     }
 
     #[test]
