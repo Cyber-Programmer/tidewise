@@ -2305,10 +2305,12 @@ mod tests {
             ok(&print_text(&items)),
             ok(&installed_without(&items, "vim")),
             ok(&si),
+            ok(&found(&["vim", "nano"])),
+            ok(&editors(&["vim", "nano"])),
         ]);
         let (result, _) = go_full(&request, &mut fake);
         assert_eq!(result.outcome, Outcome::Error(ErrorKind::ProviderNotChosen));
-        assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+        assert_eq!(fake.ran.len(), 6, "{:?}", fake.ran);
         assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
         assert_eq!(result.lists, Some(ListsState::Untouched));
         assert!(fake.ran.iter().all(|c| !refreshes_the_real_lists(c)));
@@ -2359,6 +2361,155 @@ mod tests {
             Outcome::Error(ErrorKind::TransactionChanged)
         );
         assert_eq!(fake.moved_after, None);
+    }
+
+    /// `-Ss` output naming these packages of `extra`.
+    fn found(names: &[&str]) -> String {
+        names
+            .iter()
+            .map(|name| format!("extra/{name} 1-1\n    test\n"))
+            .collect()
+    }
+
+    /// `-Si` of these candidates: each provides `editor`.
+    fn editors(names: &[&str]) -> String {
+        names
+            .iter()
+            .map(|name| {
+                let item = TransactionItem {
+                    repo: "extra".to_string(),
+                    name: (*name).to_string(),
+                    version: "1-1".to_string(),
+                };
+                record(&item, "editor", "None")
+            })
+            .collect()
+    }
+
+    /// An update where vim is new and provides `editor`, which zsh needs, up to the first read about providers.
+    /// `extra` are more installed packages; `more` the answers after the list's `-Si`.
+    fn update_with_a_pick(
+        extra: &str,
+        more: Vec<Result<RunOutput, RunnerError>>,
+    ) -> (JobResult, Fake) {
+        let request = request(UPDATE);
+        let items = transaction_of(&request);
+        let si: String = items
+            .iter()
+            .map(|i| match i.name.as_str() {
+                "vim" => record(i, "editor", "None"),
+                "zsh" => record(i, "None", "editor"),
+                _ => record(i, "None", "None"),
+            })
+            .collect();
+        let installed = format!("{}{extra}", installed_without(&items, "vim"));
+        let mut script = vec![
+            ok(SYNC_OUT),
+            ok(&print_text(&items)),
+            ok(&installed),
+            ok(&si),
+        ];
+        script.extend(more);
+        // What a job that goes on needs.
+        script.extend([
+            ok(&print_text(&items)),
+            ok(&installed_text(&items)),
+            ok(REAL_INSTALL_OUT),
+            ok(&installed_text(&items)),
+        ]);
+        let mut fake = Fake::new(script);
+        let (result, _) = go_full(&request, &mut fake);
+        (result, fake)
+    }
+
+    fn deptest() -> PacmanCommand {
+        PacmanCommand::DepTest(tidewise_pacman::Dependency {
+            name: "editor".to_string(),
+            rule: None,
+        })
+    }
+
+    #[test]
+    fn a_lone_provider_is_not_a_pick_in_an_update() {
+        let (result, fake) =
+            update_with_a_pick("", vec![ok(&found(&["vim"])), ok(&editors(&["vim"]))]);
+        assert_eq!(result.outcome, Outcome::Ok);
+        assert_eq!(
+            fake.ran[4..6],
+            [
+                PacmanCommand::PrivateSearch("editor".to_string()),
+                PacmanCommand::PrivatePackageDetails(vec![pkg("extra", "vim")]),
+            ]
+        );
+        assert!(!fake.ran.contains(&deptest()));
+        assert_eq!(fake.moved_after, Some(6));
+    }
+
+    #[test]
+    fn an_installed_provider_that_stays_is_not_a_pick_in_an_update() {
+        let (result, fake) = update_with_a_pick(
+            "nano 1-1\n",
+            vec![
+                ok(&found(&["vim", "nano"])),
+                ok(&editors(&["vim", "nano"])),
+                ok(""),
+            ],
+        );
+        assert_eq!(result.outcome, Outcome::Ok);
+        assert_eq!(fake.ran[6], deptest());
+        assert_eq!(fake.moved_after, Some(7));
+    }
+
+    #[test]
+    fn a_deptest_that_is_not_satisfied_keeps_the_refusal() {
+        let (result, fake) = update_with_a_pick(
+            "nano 1-1\n",
+            vec![
+                ok(&found(&["vim", "nano"])),
+                ok(&editors(&["vim", "nano"])),
+                out(127, "editor\n", ""),
+            ],
+        );
+        assert_eq!(result.outcome, Outcome::Error(ErrorKind::ProviderNotChosen));
+        assert_eq!(fake.moved_after, None);
+    }
+
+    #[test]
+    fn an_installed_package_that_is_not_among_the_new_providers_keeps_the_refusal() {
+        // The one that satisfies `editor` now drops it in this update: `-T` would say yes, pacman would still ask.
+        let (result, fake) = update_with_a_pick(
+            "old-editor 1-1\n",
+            vec![
+                ok(&found(&["vim", "nano"])),
+                ok(&editors(&["vim", "nano"])),
+                ok(""),
+            ],
+        );
+        assert_eq!(result.outcome, Outcome::Error(ErrorKind::ProviderNotChosen));
+        assert_eq!(fake.moved_after, None);
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+    }
+
+    #[test]
+    fn a_search_or_a_deptest_that_fails_refuses_the_update_with_the_lists_untouched() {
+        let both = || ok(&editors(&["vim", "nano"]));
+        for more in [
+            vec![out(1, "", "error: boom\n")],
+            vec![ok("not pacman\n")],
+            vec![
+                ok(&found(&["vim", "nano"])),
+                both(),
+                out(1, "", "error: boom\n"),
+            ],
+        ] {
+            let (result, fake) = update_with_a_pick("nano 1-1\n", more);
+            assert!(
+                matches!(result.outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{:?}",
+                result.outcome
+            );
+            assert_eq!(fake.moved_after, None);
+        }
     }
 
     // ---- shape --------------------------------------------------------------------------------------------
