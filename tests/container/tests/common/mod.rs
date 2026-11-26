@@ -284,9 +284,12 @@ pub fn differences(
 
 // Not named tidewise-*: reset_world removes every /tmp/tidewise-* marker, and this backup must survive it.
 const ORIGINAL_DB: &str = "/tmp/original-test-repo.db";
-const LATER_FILES: [&str; 2] = [
+const LATER_FILES: [&str; 5] = [
     "tidewise-dummy-upd-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-new-1.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-needs-upd-2.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-upd-conf-2.0-1-any.pkg.tar.zst",
 ];
 
 /// Only the local test repository: core and extra would need the network to sync, and the helper's update flow runs
@@ -307,6 +310,23 @@ pub fn local_repository_only() {
     fs::write("/etc/pacman.conf", kept).unwrap();
 }
 
+/// `IgnorePkg = name` in pacman.conf (test container only). `reset_world` takes it out again.
+pub fn ignore_package(name: &str) {
+    let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
+    let conf = conf.replacen("[options]", &format!("[options]\nIgnorePkg = {name}"), 1);
+    fs::write("/etc/pacman.conf", conf).unwrap();
+}
+
+fn stop_ignoring() {
+    let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
+    let kept: String = conf
+        .lines()
+        .filter(|line| !line.starts_with("IgnorePkg = tidewise-"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    fs::write("/etc/pacman.conf", kept).unwrap();
+}
+
 /// Puts the container back the way the image left it, as far as the tests care: no stale lock, the original
 /// repository database, no dummy packages installed, no markers, no work folder. Call it first in every job test.
 pub fn reset_world() {
@@ -319,6 +339,7 @@ pub fn reset_world() {
         let _ = fs::copy(version_backup, version_file);
     }
     local_repository_only();
+    stop_ignoring();
     if !Path::new(ORIGINAL_DB).exists() {
         fs::copy(format!("{REPO_DIR}/tidewise-test.db.tar.gz"), ORIGINAL_DB).unwrap();
     }

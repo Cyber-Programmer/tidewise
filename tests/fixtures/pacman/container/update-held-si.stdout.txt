@@ -1,0 +1,19 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-upd-virt
+Version         : 2.0-1
+Description     : Tidewise test package, newer version that needs tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-virtual
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 13:47:14 2026
+Validated By    : SHA-256 Sum
+

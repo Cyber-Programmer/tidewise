@@ -105,3 +105,12 @@ name, version, `Provides`, `Depends On`); build dates and sizes change with ever
 
 An installed package that is named again is listed again, as a reinstall
 (`an_installed_package_named_in_a_dry_run_is_listed_again`).
+
+## A full update (WBS 6.5, captured 26 Nov 2026)
+
+`update-<case>-{qu,print,si,qi}`: `-Qu`, `-Su --print --print-format '%r/%n %v %s'`, `-Si` of the printed packages and
+`-Qi` of the installed dummy packages, same pacman 7.1.0, captured in a throwaway container on the cached test image.
+`tests/container/tests/pacman_update.rs` compares the `-Qu` and dry-run text with pacman on every run (sizes
+excluded). Cases: `provider` (an upgrade needs `tidewise-virtual`), `replace` (a replacement plus an upgrade),
+`replace-only` (`-Qu` is empty and exits 1, the dry run still lists the replacement), `held` (`IgnorePkg`),
+`needs-held` (an upgrade needs a held package: the dry run fails, exit 1, text on both streams), `conflict`.

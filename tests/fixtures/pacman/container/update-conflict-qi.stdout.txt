@@ -1,0 +1,44 @@
+Name            : tidewise-dummy-conf-x
+Version         : 1.0-1
+Description     : Tidewise test package that conflicts with conf-y
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : tidewise-dummy-conf-y
+Replaces        : None
+Installed Size  : 26.00 B
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 09:05:19 2026
+Install Date    : Thu Nov 26 13:47:29 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : SHA-256 Sum
+
+Name            : tidewise-dummy-upd-conf
+Version         : 1.0-1
+Description     : Tidewise test package whose newer version conflicts with conf-x
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 28.00 B
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 13:47:22 2026
+Install Date    : Thu Nov 26 13:47:29 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : SHA-256 Sum
+

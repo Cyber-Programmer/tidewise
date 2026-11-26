@@ -1,0 +1,66 @@
+Name            : tidewise-dummy-prov-a
+Version         : 1.0-1
+Description     : Tidewise test provider A of tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-virtual
+Depends On      : None
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 26.00 B
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 09:06:12 2026
+Install Date    : Thu Nov 26 13:47:28 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : SHA-256 Sum
+
+Name            : tidewise-dummy-upd
+Version         : 1.0-1
+Description     : Tidewise test package that has a newer version in pkgs-later
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 23.00 B
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 09:06:36 2026
+Install Date    : Thu Nov 26 13:47:28 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : SHA-256 Sum
+
+Name            : tidewise-dummy-upd-virt
+Version         : 1.0-1
+Description     : Tidewise test package whose newer version needs tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Required By     : None
+Optional For    : None
+Conflicts With  : None
+Replaces        : None
+Installed Size  : 28.00 B
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 13:47:12 2026
+Install Date    : Thu Nov 26 13:47:28 2026
+Install Reason  : Explicitly installed
+Install Script  : No
+Validated By    : SHA-256 Sum
+

@@ -1,0 +1,19 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-upd-conf
+Version         : 2.0-1
+Description     : Tidewise test package, newer version that conflicts with conf-x
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : tidewise-dummy-conf-x
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 13:47:24 2026
+Validated By    : SHA-256 Sum
+
