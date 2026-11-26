@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use crate::{
     DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageDetails, PackageRef,
     PacmanError, PendingUpdate, PrintFailure, PrintedPackage, SearchResult, install_decision,
+    provider_picks,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -296,12 +297,6 @@ fn blockers_of(failure: PrintFailure) -> Vec<Blocker> {
             })
             .collect(),
     }
-}
-
-/// Shared libraries are provided by `soname` (`libz.so=1-64`): every package that links one would be a "provider
-/// choice" otherwise. They are never a choice the user can make.
-fn is_soname(name: &str) -> bool {
-    name.ends_with(".so") || name.contains(".so.")
 }
 
 impl<'a> Engine<'a> {
@@ -647,8 +642,7 @@ impl<'a> Engine<'a> {
     }
 
     /// The names a dry run satisfied through `Provides` with a package nobody named, where the answer is not given
-    /// yet: `(dependency, the provider pacman took)`. The last provider in the list is the one pacman took for the
-    /// dependency (what it needs comes first).
+    /// yet: `(dependency, the provider pacman took)`. The rule is `provider_picks`, which the helper uses too.
     fn picks(
         &self,
         list: &[PrintedPackage],
@@ -656,32 +650,18 @@ impl<'a> Engine<'a> {
         answers: &[ProviderAnswer],
         installed: &HashMap<String, InstalledPackage>,
     ) -> Vec<(String, PackageRef)> {
-        let mut found: Vec<(String, PackageRef)> = Vec::new();
-        for needer in list {
-            let Some(needer_details) = self.details_of(&printed_ref(needer)) else {
-                continue;
-            };
-            for dependency in &needer_details.depends_on {
-                let name = &dependency.name;
-                if is_soname(name)
-                    || answers.iter().any(|a| a.dependency == *name)
-                    || found.iter().any(|(n, _)| n == name)
-                {
-                    continue;
-                }
-                let provider = list.iter().rev().find(|p| {
-                    p.name != needer.name
-                        && p.name != *name
-                        && !installed.contains_key(&p.name)
-                        && !asked.contains(&printed_ref(p))
-                        && self.provides(&printed_ref(p), name)
-                });
-                if let Some(provider) = provider {
-                    found.push((name.clone(), printed_ref(provider)));
-                }
-            }
-        }
-        found
+        let refs: Vec<PackageRef> = list.iter().map(printed_ref).collect();
+        let answered: Vec<&str> = answers.iter().map(|a| a.dependency.as_str()).collect();
+        provider_picks(
+            &refs,
+            |item| self.details_of(item),
+            asked,
+            &answered,
+            |name| installed.contains_key(name),
+        )
+        .into_iter()
+        .map(|pick| (pick.dependency, pick.provider))
+        .collect()
     }
 
     /// A requested package that is not in the list under its own name is never silently dropped.
