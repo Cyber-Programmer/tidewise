@@ -263,6 +263,37 @@ fn a_single_provider_is_named_and_nothing_that_satisfies_a_dependency_is_its_own
     );
 }
 
+/// Threat model 42 (a): real pacman lists both providers of one name needed at two versions and asks nothing, and a
+/// request can name only one of them, so the resolver stops here instead of calling it ready.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn one_name_needed_at_two_versions_is_blocked_before_it_reaches_the_helper() {
+    assert_inside_the_test_container();
+    reset_world();
+    let listed = pacman_stdout(&[
+        "-S",
+        "--print",
+        "--print-format",
+        "%n",
+        "--",
+        "tidewise-dummy-needs-jv-8",
+        "tidewise-dummy-needs-jv-9",
+    ]);
+    for provider in ["tidewise-dummy-jv-8", "tidewise-dummy-jv-9"] {
+        assert!(listed.lines().any(|line| line == provider), "{listed}");
+    }
+    assert_eq!(
+        resolved(&["needs-jv-8", "needs-jv-9"], &[], None),
+        r#"blocked TwoVersionsNeeded { dependency: "tidewise-jv" }"#
+    );
+    // One of them alone stays an ordinary install.
+    let ready = resolved(&["needs-jv-9"], &[], None);
+    assert!(
+        ready.ends_with(&format!("providers=[tidewise-jv={}]", dummy("jv-9"))),
+        "{ready}"
+    );
+}
+
 /// Review 5.8 R-08 with the resolver in the middle: whatever plan the resolver calls ready is what the real
 /// transaction installs, package for package and version for version.
 #[test]
