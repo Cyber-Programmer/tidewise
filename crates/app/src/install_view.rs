@@ -1766,7 +1766,6 @@ mod tests {
             ErrorKind::TransactionChanged,
             ErrorKind::DatabaseLocked,
             ErrorKind::VersionMismatch,
-            ErrorKind::ProviderNotChosen,
         ] {
             let view = ended(JobEnd::Finished(Outcome::Error(kind.clone())));
             assert_eq!(
@@ -1790,6 +1789,16 @@ mod tests {
                 vec!["error: one", "error: two"]
             )
         );
+    }
+
+    #[test]
+    fn the_card_that_says_go_back_has_a_back_button() {
+        let view = ended(JobEnd::Finished(Outcome::Error(
+            ErrorKind::ProviderNotChosen,
+        )));
+        assert!(view.body.contains("Go back and choose again."));
+        assert_eq!(view.primary, button("Check again", true));
+        assert_eq!(view.secondary, button("Back", true));
     }
 
     #[test]
