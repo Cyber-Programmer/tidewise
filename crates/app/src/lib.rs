@@ -25,3 +25,4 @@ pub mod search_model;
 pub mod search_view;
 pub mod size_text;
 pub mod update_check;
+pub mod update_words;
