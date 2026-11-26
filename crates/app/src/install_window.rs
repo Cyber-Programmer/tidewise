@@ -39,6 +39,7 @@ use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::apps_window::Apps;
 use crate::search_window::Search;
+use crate::update_window::Updates;
 use crate::{
     ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
     InstallStageState, InstalledRowData, MainWindow, NavBridge, ReviewKey, ReviewRowData,
@@ -76,6 +77,8 @@ struct Screen {
     apps: Apps,
     /// Set once Search exists (it is made after this screen, which it starts installs on).
     search: Option<Search>,
+    /// Set once the update screen exists; the stale card's button opens it.
+    updates: Option<Updates>,
     slow_timer: Timer,
     /// The card, and the number of its last focus move, as last painted: a new card starts its list at the top.
     shown_kind: CardKind,
@@ -108,6 +111,7 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         jobs: mpsc::channel(),
         apps,
         search: None,
+        updates: None,
         slow_timer: Timer::default(),
         shown_kind: CardKind::Closed,
         shown_serial: 0,
@@ -212,6 +216,11 @@ impl Install {
         self.screen.borrow_mut().search = Some(search);
     }
 
+    /// Where "Update system" on the stale card goes.
+    pub fn set_updates(&self, updates: Updates) {
+        self.screen.borrow_mut().updates = Some(updates);
+    }
+
     /// The Install button of Search details: opens the install screen for this package.
     pub fn open_package(&self, package: PackageRef) {
         let ticket = self.screen.borrow_mut().model.open(package);
@@ -242,6 +251,7 @@ fn primary(screen: &Rc<RefCell<Screen>>) {
     let shown = match screen.borrow().model.phase() {
         Phase::Ready(_) => Shown::Review,
         Phase::Installed { .. } => Shown::Installed,
+        Phase::Stale => Shown::Stale,
         _ => Shown::Other,
     };
     match shown {
@@ -271,6 +281,15 @@ fn primary(screen: &Rc<RefCell<Screen>>) {
             }
             return;
         }
+        Shown::Stale => {
+            let updates = screen.borrow().updates.clone();
+            screen.borrow_mut().model.cancel();
+            repaint(screen);
+            if let Some(updates) = updates {
+                updates.open();
+            }
+            return;
+        }
         Shown::Other => {}
     }
     let ticket = {
@@ -292,6 +311,7 @@ fn primary(screen: &Rc<RefCell<Screen>>) {
 enum Shown {
     Review,
     Installed,
+    Stale,
     Other,
 }
 

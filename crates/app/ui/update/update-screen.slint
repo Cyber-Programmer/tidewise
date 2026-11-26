@@ -1,0 +1,244 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TwButton } from "../widgets/button.slint";
+import { InstallFocus } from "../install/bridge.slint";
+import { ReviewTile } from "../install/review-list.slint";
+import { InstallProgress } from "../install/progress-card.slint";
+import { UpdateBridge, UpdateCardKind } from "bridge.slint";
+import { UpdateList } from "update-list.slint";
+
+// A wrapped paragraph of the card.
+component Words inherits Text {
+    vertical-stretch: 0;
+    color: Theme.text-2;
+    font-size: Theme.size-body;
+    wrap: word-wrap;
+}
+
+// The one card of the update screen. What it shows depends on what Rust filled in.
+component UpdateCard inherits Rectangle {
+    // A card with a list takes the spare height; any other card stays as short as its words.
+    out property <bool> has-list: UpdateBridge.rows.length > 0 || UpdateBridge.replacement-lines.length > 0 || UpdateBridge.held-title != "";
+    property <bool> warns: UpdateBridge.kind == UpdateCardKind.blocked || UpdateBridge.kind == UpdateCardKind.alert || (UpdateBridge.kind == UpdateCardKind.done && UpdateBridge.attention);
+    // View state only: is the "Technical details" part open?
+    property <bool> technical-open: false;
+
+    background: Theme.surface;
+    border-radius: Theme.radius-panel;
+    border-width: 1px;
+    border-color: UpdateBridge.kind == UpdateCardKind.review ? Theme.control-border : Theme.border;
+    preferred-width: Theme.content-max-width;
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-m;
+
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+
+            if root.warns: VerticalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: Theme.warning-bg;
+                    Text {
+                        text: "!";
+                        color: Theme.warning;
+                        font-weight: Theme.weight-semibold;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: UpdateBridge.title;
+                color: Theme.text;
+                font-size: Theme.size-dialog-title;
+                font-weight: Theme.weight-semibold;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                accessible-role: text;
+            }
+
+            if UpdateBridge.percent-text != "": Text {
+                text: UpdateBridge.percent-text;
+                color: Theme.text-2;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-body;
+                vertical-alignment: center;
+            }
+        }
+
+        if UpdateBridge.body != "": Words {
+            text: UpdateBridge.body;
+        }
+
+        if UpdateBridge.advice != "": Rectangle {
+            vertical-stretch: 0;
+            background: Theme.bg;
+            border-radius: Theme.radius-chip;
+            VerticalLayout {
+                padding: Theme.space-m;
+                Words {
+                    text: UpdateBridge.advice;
+                    color: Theme.text;
+                }
+            }
+        }
+
+        if UpdateBridge.kind == UpdateCardKind.progress: InstallProgress {
+            vertical-stretch: 0;
+            stages: UpdateBridge.stages;
+            percent: UpdateBridge.percent;
+            percent-text: UpdateBridge.percent-text;
+            bar-label: "Update progress";
+        }
+
+        if UpdateBridge.tiles.length > 0: HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+            for tile in UpdateBridge.tiles: ReviewTile {
+                tile: tile;
+            }
+        }
+
+        if root.has-list: UpdateList {
+            vertical-stretch: 1;
+            min-height: 3 * (Theme.review-row + 1px);
+            technical: root.technical-open;
+        }
+
+        // The small print of the review, close together so the list keeps its height.
+        if UpdateBridge.notes.length > 0: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-xs;
+            for note in UpdateBridge.notes: Words {
+                text: note;
+                font-size: Theme.size-label;
+            }
+            if UpdateBridge.password-line != "": Words {
+                text: UpdateBridge.password-line;
+                font-size: Theme.size-label;
+            }
+        }
+
+        // A card without a list shows its technical lines under the words.
+        if root.technical-open && !root.has-list: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-xs;
+            for line in UpdateBridge.technical: Words {
+                text: line;
+                font-family: Theme.font-mono;
+                font-size: Theme.size-label;
+            }
+        }
+
+        if UpdateBridge.primary-note != "": Words {
+            text: UpdateBridge.primary-note;
+            font-size: Theme.size-label;
+        }
+
+        if UpdateBridge.hint != "": Words {
+            text: UpdateBridge.hint;
+            font-size: Theme.size-label;
+        }
+
+        // The buttons keep their size at the bottom of the card.
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-m;
+
+            if UpdateBridge.has-primary: TwButton {
+                text: UpdateBridge.primary-text;
+                primary: true;
+                autofocus: UpdateBridge.focus == InstallFocus.primary;
+                focus-request: UpdateBridge.focus-serial;
+                clicked => {
+                    UpdateBridge.primary();
+                }
+            }
+
+            if UpdateBridge.has-secondary: TwButton {
+                text: UpdateBridge.secondary-text;
+                autofocus: UpdateBridge.focus == InstallFocus.secondary;
+                focus-request: UpdateBridge.focus-serial;
+                clicked => {
+                    UpdateBridge.secondary();
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            if UpdateBridge.technical.length > 0: TwButton {
+                text: root.technical-open ? "Hide technical details" : "Technical details";
+                clicked => {
+                    UpdateBridge.list-y = 0px;
+                    root.technical-open = !root.technical-open;
+                }
+            }
+        }
+    }
+}
+
+// "Update system": heading, then one card. Escape = the secondary button. The column stretches up to
+// `Theme.content-max-width`; the screen scrolls only when even the smallest card does not fit.
+export component UpdateScreen inherits Rectangle {
+    background: Theme.bg;
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape && UpdateBridge.has-secondary) {
+                UpdateBridge.secondary();
+                return accept;
+            }
+            return reject;
+        }
+
+        scroller := ScrollView {
+            content-height: max(page.min-height, scroller.visible-height);
+
+            page := VerticalLayout {
+                padding-left: Theme.page-padding-x;
+                padding-right: Theme.page-padding-x;
+                padding-top: Theme.page-padding-y;
+                padding-bottom: Theme.page-padding-y;
+
+                HorizontalLayout {
+                    alignment: center;
+
+                    VerticalLayout {
+                        max-width: Theme.content-max-width;
+                        horizontal-stretch: 1;
+                        spacing: Theme.section-gap;
+
+                        Text {
+                            vertical-stretch: 0;
+                            text: "Update system";
+                            color: Theme.text;
+                            font-size: Theme.size-page-title;
+                            font-weight: Theme.weight-semibold;
+                            accessible-role: text;
+                        }
+
+                        card := UpdateCard {
+                            vertical-stretch: card.has-list ? 1 : 0;
+                            max-height: card.has-list ? 100000px : card.preferred-height;
+                        }
+
+                        // Takes the height a short card leaves.
+                        if !card.has-list: Rectangle {
+                            vertical-stretch: 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

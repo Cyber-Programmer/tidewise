@@ -5,6 +5,8 @@ import { NavBridge, Screen } from "nav/bridge.slint";
 import { SearchScreen } from "search/search-screen.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
 import { InstallScreen } from "install/install-screen.slint";
+import { UpdateScreen } from "update/update-screen.slint";
+import { UpdateBridge, UpdateCardKind } from "update/bridge.slint";
 import { InstallBridge, InstallCardKind, InstallFocus, InstallStageData, InstallStageState, InstalledRowData } from "install/bridge.slint";
 import { ChoiceOption } from "widgets/choice-list.slint";
 import { AppsBridge, BodyKind, DetailsData, ListKey, PackageRow } from "apps/bridge.slint";
@@ -16,7 +18,7 @@ import "./fonts/IBMPlexSans-SemiBold.ttf";
 import "./fonts/IBMPlexMono-Regular.ttf";
 
 // Rust reaches these through the generated code, so they are re-exported here.
-export { AppsBridge, BodyKind, ChoiceOption, DetailsData, InstallBridge, InstallCardKind, InstallFocus, InstallStageData, InstallStageState, InstalledRowData, ListKey, NavBridge, PackageRow, ResultRow, Screen, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme }
+export { AppsBridge, BodyKind, ChoiceOption, DetailsData, InstallBridge, InstallCardKind, InstallFocus, InstallStageData, InstallStageState, InstalledRowData, ListKey, NavBridge, PackageRow, ResultRow, Screen, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme, UpdateBridge, UpdateCardKind }
 
 export component MainWindow inherits Window {
     in property <string> app-name;
@@ -47,6 +49,11 @@ export component MainWindow inherits Window {
         }
 
         if NavBridge.current == Screen.search && InstallBridge.open: InstallScreen {
+            horizontal-stretch: 1;
+        }
+
+        // The update screen's state lives in Rust: leaving it and coming back shows the same card.
+        if NavBridge.current == Screen.updates: UpdateScreen {
             horizontal-stretch: 1;
         }
     }

@@ -1,0 +1,56 @@
+// The only place Rust and the update screen meet. Rust fills the `in` properties (all decided and worded in
+// crates/app/src/update_view.rs); the screen only lays them out and reports clicks and keys back.
+import { InstallFocus, InstallStageData, ReviewKey, ReviewRowData, TileData } from "../install/bridge.slint";
+
+export enum UpdateCardKind {
+    start,
+    checking,
+    review,
+    up-to-date,
+    blocked,
+    alert,
+    progress,
+    done,
+}
+
+export global UpdateBridge {
+    in property <UpdateCardKind> kind;
+    in property <string> title;
+    in property <string> body;
+    // What to run in a terminal.
+    in property <string> advice;
+    in property <[TileData]> tiles;
+    in property <[ReviewRowData]> rows;
+    in property <[string]> replacement-lines;
+    in property <string> held-title;
+    in property <[string]> held-lines;
+    in property <string> held-warning;
+    in property <[string]> notes;
+    in property <string> password-line;
+    in property <bool> has-primary;
+    in property <string> primary-text;
+    in property <bool> has-secondary;
+    in property <string> secondary-text;
+    in property <string> primary-note;
+    in property <string> hint;
+    in property <[string]> technical;
+    in property <[InstallStageData]> stages;
+    in property <int> percent;
+    in property <string> percent-text;
+    // The done card warns instead of confirming.
+    in property <bool> attention;
+    in property <InstallFocus> focus;
+    in property <int> focus-serial;
+    // Where the list is scrolled to (content-y) and how much of it shows.
+    in-out property <length> list-y;
+    in-out property <length> list-visible-height;
+
+    callback primary();
+    // Cancel or Close (also Escape).
+    callback secondary();
+    // A scrolling key on the list, with the height of everything in it.
+    callback review-key(ReviewKey, length);
+    // Fired on the UI thread when a worker has put an answer in its mailbox.
+    callback check-done();
+    callback job-event();
+}
