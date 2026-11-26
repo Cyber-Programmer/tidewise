@@ -176,7 +176,7 @@ fn helper_command(summary: &str) -> Command {
 
 /// Runs the helper once and waits for it. **Blocks** for as long as the password window is open and pacman runs, so
 /// call it on a worker thread. There is no time limit and no stop: a transaction is never cut short from here.
-pub fn run_install(request: HelperRequest, on_event: impl FnMut(Event)) -> JobEnd {
+pub fn run_helper(request: HelperRequest, on_event: impl FnMut(Event)) -> JobEnd {
     // Asked before the password window, which would only end in an error.
     if !Path::new(HELPER_PATH).is_file() {
         return JobEnd::HelperMissing;

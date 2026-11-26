@@ -4,7 +4,8 @@
 
 use crate::error_words::{Doing, error_text, error_view};
 use crate::helper_run::JobEnd;
-use crate::install_model::{Draft, InstallModel, Job, JobFailure, Phase, Step};
+use crate::install_model::{Draft, InstallModel, Phase, Step};
+use crate::job::{Job, JobFailure};
 use crate::size_text::{format_size, split_size};
 use crate::update_check::ListsNote;
 use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
@@ -232,7 +233,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             view.secondary = button(back_label(model), true);
         }
         Phase::Ready(plan) => review(&mut view, model, plan, &label),
-        Phase::Installing(job) => progress(&mut view, job, &label),
+        Phase::Installing(running) => progress(&mut view, &running.job, &label),
         Phase::Installed { notices } => installed(&mut view, model, notices, &label),
         Phase::InstallFailed(failure) => {
             install_failed(&mut view, failure, &label);
