@@ -4,7 +4,8 @@
 //! scripted fake. The order is the point:
 //!
 //! Install:   lock look -> `-Qu` (pending updates block a plain install) -> dry run must equal the confirmed list ->
-//!            real `-S --noconfirm --ask 66` -> `-D --asdeps` for the chosen providers -> post-check.
+//!            no provider pick the request does not name (`-Q`, `-Si`; golden rule 10) -> real `-S --noconfirm --ask 66`
+//!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
 //!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
@@ -16,11 +17,16 @@
 //! between) is reported as a `Notice`, count only. Nothing here removes, creates or fixes `db.lck`: it is only looked
 //! at, and pacman's own advice about it is never shown (golden rule 9).
 
+use std::collections::{HashMap, HashSet};
+
 use tidewise_helper_protocol::{
     Action, Details, ErrorKind, Event, Install, Notice, Outcome, PackageRef, Request,
     TransactionItem,
 };
-use tidewise_pacman::{InstallDecision, install_decision, parse_qu};
+use tidewise_pacman::{
+    InstallDecision, PackageDetails, PackageRef as ListedRef, install_decision, parse_qu, parse_si,
+    provider_picks,
+};
 
 use crate::lists::{ListsError, MoveError};
 use crate::output::{
@@ -133,7 +139,8 @@ fn install_job(
             runner,
             PacmanCommand::DryRunInstall(names.clone()),
             &install.transaction,
-        )
+        )?;
+        check_providers(runner, install)
     })();
     if let Err(kind) = before_the_real_run {
         return (Err(kind), Counts::default());
@@ -263,6 +270,19 @@ fn check_nothing_pending(runner: &mut dyn Runner) -> Step {
 
 /// The dry run must give exactly the list the user confirmed (T-09).
 fn dry_run(runner: &mut dyn Runner, command: PacmanCommand, confirmed: &[TransactionItem]) -> Step {
+    let found = print_of(runner, command)?;
+    if same_transaction(confirmed, &found) {
+        Ok(())
+    } else {
+        Err(ErrorKind::TransactionChanged)
+    }
+}
+
+/// The list a dry run prints, or why there is none.
+fn print_of(
+    runner: &mut dyn Runner,
+    command: PacmanCommand,
+) -> Result<Vec<TransactionItem>, ErrorKind> {
     let output = runner.run(&command, &mut |_| {}).map_err(runner_failure)?;
     if output.timed_out {
         return Err(failure_of(&output));
@@ -281,13 +301,125 @@ fn dry_run(runner: &mut dyn Runner, command: PacmanCommand, confirmed: &[Transac
         }
         return Err(failure_of(&output));
     }
-    let found =
-        parse_print(&output.stdout).map_err(|_| failed("pacman's dry run could not be read."))?;
-    if same_transaction(confirmed, &found) {
+    parse_print(&output.stdout).map_err(|_| failed("pacman's dry run could not be read."))
+}
+
+/// Golden rule 10: pacman must not have answered a provider question the request does not answer. The app's resolver
+/// names every pick, but the helper trusts nothing about its caller (A1), so it looks for itself, after the dry run
+/// has equalled the confirmed list. A package named as a target counts as named. All reads; the rule for "a pick" is
+/// `provider_picks`, the resolver's own.
+///
+/// An answer is not enough on its own. The package it names must provide the name, and if the list holds another
+/// provider of that name nobody asked for, the chosen package must bring it by itself (its own dry run): otherwise it
+/// is pacman's pick, for example when the chosen version does not fit the dependency.
+fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
+    let installed = read_installed_list(runner)
+        .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
+    let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
+    let details = read_details(runner, &install.transaction)?;
+
+    let listed: Vec<ListedRef> = install
+        .transaction
+        .iter()
+        .map(|item| listed_ref(&item.repo, &item.name))
+        .collect();
+    let asked: Vec<ListedRef> = names_of(install)
+        .iter()
+        .map(|package| listed_ref(&package.repo, &package.name))
+        .collect();
+    let provides = |item: &ListedRef, name: &str| {
+        details
+            .get(item)
+            .is_some_and(|d| d.provides.iter().any(|p| p.name == name))
+    };
+
+    for answer in &install.providers {
+        let name = answer.dependency.as_str();
+        if !provides(&listed_ref(&answer.chosen.repo, &answer.chosen.name), name) {
+            return Err(ErrorKind::ProviderNotChosen);
+        }
+        let others: Vec<&ListedRef> = listed
+            .iter()
+            .filter(|p| !asked.contains(p) && !installed.contains(&p.name) && provides(p, name))
+            .collect();
+        if others.is_empty() {
+            continue;
+        }
+        let brought = print_of(
+            runner,
+            PacmanCommand::DryRunInstall(vec![answer.chosen.clone()]),
+        )?;
+        if others
+            .iter()
+            .any(|other| !brought.iter().any(|item| item.name == other.name))
+        {
+            return Err(ErrorKind::ProviderNotChosen);
+        }
+    }
+
+    let answered: Vec<&str> = install
+        .providers
+        .iter()
+        .map(|answer| answer.dependency.as_str())
+        .collect();
+    let picks = provider_picks(
+        &listed,
+        |item| details.get(item),
+        &asked,
+        &answered,
+        |name| installed.contains(name),
+    );
+    if picks.is_empty() {
         Ok(())
     } else {
-        Err(ErrorKind::TransactionChanged)
+        Err(ErrorKind::ProviderNotChosen)
     }
+}
+
+fn listed_ref(repo: &str, name: &str) -> ListedRef {
+    ListedRef {
+        repo: repo.to_string(),
+        name: name.to_string(),
+    }
+}
+
+/// `pacman -Si` of every package of the confirmed list. Each one must be there, at the confirmed version: another
+/// version means the package lists changed since the dry run.
+fn read_details(
+    runner: &mut dyn Runner,
+    confirmed: &[TransactionItem],
+) -> Result<HashMap<ListedRef, PackageDetails>, ErrorKind> {
+    let unreadable = || failed("pacman's package details could not be read.");
+    let command = PacmanCommand::PackageDetails(
+        confirmed
+            .iter()
+            .map(|item| PackageRef {
+                repo: item.repo.clone(),
+                name: item.name.clone(),
+            })
+            .collect(),
+    );
+    let output = runner.run(&command, &mut |_| {}).map_err(runner_failure)?;
+    if output.truncated {
+        return Err(unreadable());
+    }
+    if output.timed_out || output.exit != Some(0) {
+        return Err(failure_of(&output));
+    }
+    let details: HashMap<ListedRef, PackageDetails> = parse_si(&output.stdout)
+        .map_err(|_| unreadable())?
+        .into_iter()
+        .map(|d| (listed_ref(&d.repo, &d.name), d))
+        .collect();
+    for item in confirmed {
+        let found = details
+            .get(&listed_ref(&item.repo, &item.name))
+            .ok_or_else(unreadable)?;
+        if found.version != item.version {
+            return Err(ErrorKind::TransactionChanged);
+        }
+    }
+    Ok(details)
 }
 
 /// The real transaction between two `pacman -Q` lists, then `-D --asdeps` for the chosen providers that were not
@@ -1528,6 +1660,22 @@ mod tests {
             saved!("si-virtual-prov-b-named.txt"),
             real_run(print, false),
         );
+        assert_eq!(go(&request, &mut fake).0, Outcome::Ok, "{:?}", fake.ran);
+    }
+
+    #[test]
+    fn an_installed_package_the_list_brings_again_is_not_a_pick() {
+        // The provider is installed already (an older version here) and the list upgrades it: nothing was chosen.
+        let print = saved!("print-virtual-unnamed.stdout.txt");
+        let request = dummy_install(&["needs-virtual"], &[], print);
+        let mut script = vec![
+            out(1, "", ""),
+            ok(print),
+            ok("pacman 7.1.0-1\ntidewise-dummy-prov-a 0.9-1\n"),
+            ok(saved!("si-virtual-unnamed.txt")),
+        ];
+        script.extend(real_run(print, false));
+        let mut fake = Fake::new(script);
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok, "{:?}", fake.ran);
     }
 
