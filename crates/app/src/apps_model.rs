@@ -102,6 +102,8 @@ pub struct AppsModel {
     load_running: bool,
     /// True once a running load has taken too long (the screen adds a "taking longer" note).
     slow: bool,
+    /// A name to select when the next list arrives (`show`).
+    wanted: Option<String>,
 }
 
 impl AppsModel {
@@ -118,6 +120,9 @@ impl AppsModel {
             Ok(packages) => {
                 self.packages = packages;
                 self.state = ListState::Loaded;
+                if let Some(name) = self.wanted.take() {
+                    self.selected = Some(name);
+                }
                 self.fix_selection();
             }
             Err(error) => {
@@ -142,9 +147,13 @@ impl AppsModel {
         true
     }
 
-    /// "Show in Apps": reload and select `name`. `true` means "start the worker thread now".
-    pub fn show(&mut self, _name: &str) -> bool {
-        false
+    /// "Show in Apps" after an install: the All tab, no search, a fresh list, and `name` selected once it arrives.
+    /// `true` means "start the worker thread now" (see `begin_reload`).
+    pub fn show(&mut self, name: &str) -> bool {
+        self.tab = Tab::All;
+        self.search.clear();
+        self.wanted = Some(name.to_string());
+        self.begin_reload()
     }
 
     /// Called when a load has run for too long. Ignored unless a load is running.
