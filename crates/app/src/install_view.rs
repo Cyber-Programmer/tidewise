@@ -650,6 +650,7 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
             view.body = text.body;
             view.report = REPORT.to_string();
         }
+        Some(Blocker::TwoVersionsNeeded { .. }) => {}
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -682,6 +683,7 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::MissingFromList { requested } => {
             format!("missing from pacman's list: {}", spec(requested))
         }
+        Blocker::TwoVersionsNeeded { .. } => String::new(),
     }
 }
 
@@ -1179,6 +1181,29 @@ mod tests {
              Search again to see what is there now."
         );
         assert_eq!(view.technical, ["not found: dbeaver"]);
+    }
+
+    #[test]
+    fn two_versions_of_one_name_say_so_and_offer_no_way_on() {
+        let model = blocked(
+            "need8",
+            vec![Blocker::TwoVersionsNeeded {
+                dependency: "jv".to_string(),
+            }],
+        );
+        let view = install_view(&model);
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(
+            view.title_before,
+            "These packages need two different versions of jv; Tidewise can't install them together yet."
+        );
+        assert_eq!(view.body, "");
+        assert_eq!(view.primary, None);
+        assert_eq!(view.technical, ["jv: needed at two versions"]);
+        assert_eq!(
+            view.unchanged,
+            "Nothing was installed and nothing on your system changed."
+        );
     }
 
     #[test]
