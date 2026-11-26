@@ -7,7 +7,7 @@ use tidewise_helper_protocol::{
     self as protocol, Action, Install, InvalidRequest, PROTOCOL_VERSION, ProtocolError,
     ProviderChoice, Request, TransactionItem, request_json, summary, validate,
 };
-use tidewise_pacman::{InstallDecision, InstallPlan, PackageRef};
+use tidewise_pacman::{InstallDecision, InstallPlan, PackageRef, UpdatePlan};
 
 /// What one helper run needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,12 @@ pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError
         summary: summary(&request),
         json: request_json(&request).map_err(RequestError::Unwritable)?,
     })
+}
+
+/// The request for a full system update: every line of the dry run, skipped ones included, since the helper compares
+/// the whole list.
+pub fn update_request(_plan: &UpdatePlan) -> Result<HelperRequest, RequestError> {
+    Err(RequestError::NeedsSystemUpdate)
 }
 
 fn wire_ref(package: &PackageRef) -> protocol::PackageRef {
@@ -149,5 +155,32 @@ mod tests {
                 reason: Reason::Duplicate,
             }))
         );
+    }
+
+    #[test]
+    fn an_update_sends_the_whole_dry_run_as_the_transaction() {
+        // The skipped line goes too: the helper compares the whole list.
+        let plan = UpdatePlan {
+            items: vec![item("zsh", "5.9-5"), item("new-pkg", "1-1")],
+            skipped: vec![pkg("new-pkg")],
+            ..UpdatePlan::default()
+        };
+        let made = update_request(&plan).unwrap();
+        assert_eq!(made.summary, "update system (2 packages)");
+        assert_eq!(
+            String::from_utf8(made.json.clone()).unwrap(),
+            r#"{"protocol_version":1,"action":{"update_system":{"transaction":[{"repo":"extra","name":"zsh","version":"5.9-5"},{"repo":"extra","name":"new-pkg","version":"1-1"}]}}}"#
+        );
+        let read = parse_request(&made.json).unwrap();
+        assert_eq!(tidewise_helper_protocol::summary(&read), made.summary);
+    }
+
+    #[test]
+    fn an_update_the_helper_would_refuse_is_never_summarised() {
+        let empty = UpdatePlan::default();
+        assert!(matches!(
+            update_request(&empty),
+            Err(RequestError::Invalid(_))
+        ));
     }
 }
