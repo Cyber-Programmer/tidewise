@@ -3,9 +3,11 @@
 //! "M2 Install flow" and "M4 Install questions".
 
 use crate::error_words::{Doing, error_text, error_view};
-use crate::install_model::{Draft, InstallModel, Phase, Step};
+use crate::helper_run::JobEnd;
+use crate::install_model::{Draft, InstallModel, Job, JobFailure, Phase, Step};
 use crate::size_text::{format_size, split_size};
 use crate::update_check::ListsNote;
+use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
 use tidewise_pacman::{
     Blocker, InstallPlan, NotFresh, PackageRef, PacmanError, PlanItem, Question, Role,
 };
@@ -228,9 +230,17 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             view.secondary = button(back_label(model), true);
         }
         Phase::Ready(plan) => review(&mut view, model, plan, &label),
-        Phase::Installing(_) | Phase::Installed { .. } | Phase::InstallFailed(_) => {}
+        Phase::Installing(job) => progress(&mut view, job, &label),
+        Phase::Installed { notices } => installed(&mut view, model, notices, &label),
+        Phase::InstallFailed(failure) => install_failed(&mut view, failure, &label),
     }
-    view.lists_note = model.lists_note().map(lists_note).unwrap_or_default();
+    // What the updates check said belongs to the question and review cards, not to what happened afterwards.
+    if !matches!(
+        model.phase(),
+        Phase::Installing(_) | Phase::Installed { .. } | Phase::InstallFailed(_)
+    ) {
+        view.lists_note = model.lists_note().map(lists_note).unwrap_or_default();
+    }
     view.focus = match view.kind {
         CardKind::Provider | CardKind::Choice | CardKind::Review => FocusTarget::List,
         CardKind::Members if !view.options.is_empty() => FocusTarget::List,
@@ -509,12 +519,160 @@ fn review(view: &mut InstallView, model: &InstallModel, plan: &InstallPlan, labe
         download_tile(plan.download_total),
         disk,
     ];
-    // Installing arrives with WBS 6.4.
-    view.primary = button(&format!("Install {}", packages(plan.items.len())), false);
-    view.primary_note =
-        "Tidewise can't install yet: this step comes in a later version.".to_string();
+    view.primary = button(&format!("Install {}", packages(plan.items.len())), true);
+    if model.prompt_was_closed() {
+        view.primary_note = "The password prompt was closed. Nothing was changed.".to_string();
+    }
     view.secondary = button(back_label(model), true);
     view.hint = "Your desktop asks for your password once.".to_string();
+}
+
+/// The helper's four phases, in order, as the progress card names them.
+const STAGES: [(Stage, &str); 4] = [
+    (Stage::Checking, "Checking the list again"),
+    (Stage::Downloading, "Downloading packages"),
+    (Stage::Installing, "Installing"),
+    (Stage::Hooks, "Finishing (pacman hooks)"),
+];
+
+/// The running job. There is no button: nothing here can stop it.
+fn progress(view: &mut InstallView, job: &Job, label: &str) {
+    view.kind = CardKind::Progress;
+    view.current_pill = 2;
+    view.heading = format!("Installing {label}");
+    let now = job.progress.and_then(|progress| {
+        STAGES
+            .iter()
+            .position(|(stage, _)| *stage == progress.phase)
+    });
+    view.stages = STAGES
+        .iter()
+        .enumerate()
+        .map(|(index, (_, name))| StageView {
+            label: (*name).to_string(),
+            state: match now {
+                Some(now) if index < now => StageState::Done,
+                Some(now) if index == now => StageState::Now,
+                _ => StageState::Later,
+            },
+        })
+        .collect();
+    let Some(progress) = job.progress else {
+        view.title_before = "Waiting for your password".to_string();
+        view.body = "Your desktop asks for it. Tidewise never sees your password.".to_string();
+        return;
+    };
+    let counted = |verb: &str| {
+        if progress.current == 0 {
+            format!("{verb} packages")
+        } else {
+            format!("{verb} {} of {}", progress.current, progress.total)
+        }
+    };
+    view.title_before = match progress.phase {
+        Stage::Checking => "Checking the list again".to_string(),
+        Stage::Downloading => counted("Downloading"),
+        Stage::Installing => counted("Installing"),
+        Stage::Hooks => "Finishing (pacman hooks)".to_string(),
+    };
+    view.percent = job.percent;
+    view.percent_text = format!("{} %", job.percent);
+    view.hint =
+        "Installing can't be stopped halfway. Keep Tidewise open until it's done.".to_string();
+}
+
+fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], label: &str) {
+    let request = model.request();
+    let several = request.targets.len() + request.groups.len() > 1;
+    let is = if several { "are" } else { "is" };
+    view.kind = CardKind::Done;
+    view.current_pill = 2;
+    view.heading = "Installed".to_string();
+    if notices.is_empty() {
+        view.title_before = format!("{label} {is} installed");
+        view.body = format!("{label} {is} installed and ready to use.");
+    } else {
+        view.title_before = "The install finished".to_string();
+        view.body = notices
+            .iter()
+            .map(Notice::plain_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if !request.targets.is_empty() {
+        view.primary = button("Show in Apps", true);
+    }
+    view.secondary = button("Done", true);
+}
+
+fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
+    view.kind = CardKind::Alert;
+    view.current_pill = 2;
+    view.title_before = format!("Tidewise couldn't install {label}");
+    view.primary = button("Check again", true);
+    view.secondary = button("Close", true);
+    let lines = |text: &str| text.lines().map(str::to_string).collect::<Vec<_>>();
+    let end = match failure {
+        JobFailure::NotSent(error) => {
+            view.body =
+                "Tidewise made a request its helper would refuse. Nothing was changed.".to_string();
+            view.technical = vec![format!("{error:?}")];
+            view.report = REPORT.to_string();
+            return;
+        }
+        JobFailure::Ended(end) => end,
+    };
+    match end {
+        JobEnd::Finished(Outcome::Error(kind)) => {
+            view.body = kind.plain_text().to_string();
+            if let ErrorKind::PacmanFailed(details) = kind {
+                view.technical = lines(details.as_str());
+            }
+        }
+        JobEnd::NotAuthorised { stderr } => {
+            view.body = "Tidewise did not get permission to make this change. Nothing was changed."
+                .to_string();
+            view.technical = lines(stderr);
+        }
+        JobEnd::HelperMissing => {
+            view.body = "Tidewise's helper is not installed, so Tidewise can't install apps. \
+                         Reinstall Tidewise. Nothing was changed."
+                .to_string();
+        }
+        JobEnd::HelperRefusedToStart { stderr } => {
+            view.body = "Tidewise's helper refused to start. Nothing was changed.".to_string();
+            view.technical = lines(stderr);
+        }
+        JobEnd::CouldNotStart { reason } => {
+            view.body =
+                "Tidewise could not start the password window. Nothing was changed.".to_string();
+            view.technical = lines(reason);
+        }
+        // Neither of the first two reaches this card (the model shows them elsewhere); if one did, nothing is claimed.
+        JobEnd::Finished(Outcome::Ok) | JobEnd::PromptClosed => unknown_result(view, label),
+        JobEnd::NoResult {
+            exit,
+            unreadable,
+            stderr,
+        } => {
+            unknown_result(view, label);
+            view.technical = vec![
+                exit.map_or_else(
+                    || "exit code: none (stopped by a signal)".to_string(),
+                    |code| format!("exit code: {code}"),
+                ),
+                format!("unreadable lines from the helper: {unreadable}"),
+            ];
+            view.technical.extend(lines(stderr));
+        }
+    }
+}
+
+fn unknown_result(view: &mut InstallView, label: &str) {
+    view.title_before = format!("The result of installing {label} is unknown");
+    view.body = "Tidewise could not tell whether the install finished. Check Apps, or look in the \
+                 system journal."
+        .to_string();
 }
 
 fn review_row(model: &InstallModel, item: &PlanItem) -> ReviewRow {
@@ -723,11 +881,8 @@ fn technical_line(blocker: &Blocker) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helper_run::JobEnd;
     use crate::install_model::WorkAnswer;
-    use tidewise_helper_protocol::{
-        Details, ErrorKind, Event, Notice, Outcome, Phase as Stage, Progress,
-    };
+    use tidewise_helper_protocol::{Details, Event, Progress};
     use tidewise_pacman::{
         Blocker, Candidate, GroupChoice, InstallDecision, InstallPlan, PackageRef, PacmanError,
         PlanItem, Question, Resolution, Role,
