@@ -60,34 +60,46 @@ pub fn block_words(block: &UpdateBlock) -> BlockWords {
             "",
         ),
         UpdateBlock::Conflict(conflicts) => {
-            let pairs: Vec<String> = conflicts
-                .iter()
-                .map(|c| {
+            const STOPPED: &str = "Tidewise never removes packages during an update, so it stopped here. \
+                                   Nothing was changed.";
+            let body = match conflicts.as_slice() {
+                [one] => format!(
+                    "The new {} can't be installed next to your {}. {STOPPED}",
+                    one.package, one.installed
+                ),
+                several => {
+                    let list: String = several
+                        .iter()
+                        .map(|c| format!("\n{} (conflicts with {})", c.package, c.installed))
+                        .collect();
                     format!(
-                        "The new {} can't be installed next to your {}.",
-                        c.package, c.installed
+                        "Some new packages can't be installed next to ones you have. {STOPPED}{list}"
                     )
-                })
-                .collect();
+                }
+            };
             (
                 "This update would need to remove a package",
-                format!(
-                    "{} Tidewise never removes packages during an update, so it stopped here. Nothing was changed.",
-                    pairs.join(" ")
-                ),
+                body,
                 "Run sudo pacman -Syu in a terminal; pacman will ask before removing anything.",
             )
         }
-        UpdateBlock::Pick(picks) => (
-            "This update needs a choice Tidewise can't make yet",
+        UpdateBlock::Pick(picks) => {
             // One name is enough to explain it; pacman asks about every one in the terminal.
-            format!(
-                "One of the updates now needs {}, and several packages can provide it. Tidewise doesn't ask that \
-                 question during updates yet, so it won't let pacman pick for you. Nothing was changed.",
-                picks.first().map_or("something", |p| p.dependency.as_str())
-            ),
-            "Run sudo pacman -Syu in a terminal; pacman will ask you which one.",
-        ),
+            let first = picks.first().map_or("something", |p| p.dependency.as_str());
+            let more = match picks.len().saturating_sub(1) {
+                0 => String::new(),
+                count => format!(" and {count} more"),
+            };
+            (
+                "This update needs a choice Tidewise can't make yet",
+                format!(
+                    "One of the updates now needs {first}{more}, and several packages can provide it. Tidewise \
+                     doesn't ask that question during updates yet, so it won't let pacman pick for you. Nothing was \
+                     changed."
+                ),
+                "Run sudo pacman -Syu in a terminal; pacman will ask you which one.",
+            )
+        }
     };
     BlockWords {
         title: title.to_string(),
