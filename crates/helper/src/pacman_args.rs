@@ -45,6 +45,9 @@ pub enum PacmanCommand {
     /// `pacman -Si -- repo/name ...`: what the repositories say about these (a read). The provider check of an install
     /// reads `Depends On` and `Provides` from it (golden rule 10).
     PackageDetails(Vec<PackageRef>),
+    /// `pacman -Si --dbpath /run/tidewise-helper-lists/ -- repo/name ...`: the same, from the PRIVATE copy of the
+    /// package lists (a read). The provider check of a system update, before anything is moved (golden rule 10).
+    PrivatePackageDetails(Vec<PackageRef>),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
     /// run: the difference shows what disappeared.
     ListInstalled,
@@ -106,6 +109,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::PackageDetails(packages) => {
             build(&["-Si"], &[], repo_and_name(packages)?, Names::Required)
         }
+        PacmanCommand::PrivatePackageDetails(_) => Err(ArgsRefused::NoTargets),
         PacmanCommand::ListInstalled => Ok(fixed(&["-Q"])),
     }
 }
@@ -209,6 +213,7 @@ mod tests {
             PacmanCommand::RealUpdate(vec![]),
             PacmanCommand::MarkAsDeps(two()),
             PacmanCommand::PackageDetails(two()),
+            PacmanCommand::PrivatePackageDetails(two()),
             PacmanCommand::ListInstalled,
         ]
     }
@@ -230,10 +235,11 @@ mod tests {
             PacmanCommand::ListInstalled => 7,
             PacmanCommand::PrivateDryRunUpdate(_) => 8,
             PacmanCommand::PackageDetails(_) => 9,
+            PacmanCommand::PrivatePackageDetails(_) => 10,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 9;
+    const LAST: usize = 10;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -363,6 +369,18 @@ mod tests {
                 PacmanCommand::PackageDetails(two()),
                 strings(&["-Si", "--", "extra/dbeaver", "extra/jre-openjdk"]),
             ),
+            // The provider check of a system update: the private copy, its fixed path, nothing else.
+            (
+                PacmanCommand::PrivatePackageDetails(two()),
+                strings(&[
+                    "-Si",
+                    "--dbpath",
+                    "/run/tidewise-helper-lists/",
+                    "--",
+                    "extra/dbeaver",
+                    "extra/jre-openjdk",
+                ]),
+            ),
             // The whole installed list: fixed argv, no names at all.
             (PacmanCommand::ListInstalled, strings(&["-Q"])),
         ];
@@ -442,6 +460,19 @@ mod tests {
         }
     }
 
+    /// The commands that read or write the private copy of the lists.
+    fn may_name_a_dbpath(command: &PacmanCommand) -> bool {
+        may_name_a_logfile(command) || matches!(command, PacmanCommand::PrivatePackageDetails(_))
+    }
+
+    /// The two that would otherwise write to pacman's log (`-Si` writes nothing there).
+    fn may_name_a_logfile(command: &PacmanCommand) -> bool {
+        matches!(
+            command,
+            PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
+        )
+    }
+
     // ---- the options that would make the helper a root shell (T-04, T-05) --------------------------------
 
     #[test]
@@ -478,14 +509,12 @@ mod tests {
         ];
         for command in all_commands() {
             let built = args(&command).unwrap();
-            let private = matches!(
-                command,
-                PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
-            );
             for arg in &built {
                 for option in forbidden {
-                    // The two private commands carry these two, with fixed values (next test).
-                    if private && (option == "--dbpath" || option == "--logfile") {
+                    // The private commands carry these, with fixed values (next test).
+                    if (option == "--dbpath" && may_name_a_dbpath(&command))
+                        || (option == "--logfile" && may_name_a_logfile(&command))
+                    {
                         continue;
                     }
                     assert!(
@@ -501,10 +530,6 @@ mod tests {
     fn the_two_dangerous_looking_options_exist_only_with_their_fixed_values() {
         for command in all_commands() {
             let built = args(&command).unwrap();
-            let private = matches!(
-                command,
-                PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
-            );
             for (option, value) in [
                 ("--dbpath", "/run/tidewise-helper-lists/"),
                 ("--logfile", "/dev/null"),
@@ -515,7 +540,12 @@ mod tests {
                     .filter(|(_, arg)| *arg == option || arg.starts_with(&format!("{option}=")))
                     .map(|(i, _)| i)
                     .collect();
-                if private {
+                let allowed = if option == "--dbpath" {
+                    may_name_a_dbpath(&command)
+                } else {
+                    may_name_a_logfile(&command)
+                };
+                if allowed {
                     assert_eq!(at.len(), 1, "{command:?}: {option}");
                     assert_eq!(built.get(at[0]), Some(&option.to_string()));
                     assert_eq!(
