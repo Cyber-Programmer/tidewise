@@ -1,0 +1,38 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-one-prov
+Version         : 1.0-1
+Description     : Tidewise test: the only provider of tidewise-single
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-single
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:37 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-needs-one
+Version         : 1.0-1
+Description     : Tidewise test package that needs tidewise-single
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-single
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:19 2026
+Validated By    : SHA-256 Sum
+

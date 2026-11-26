@@ -260,3 +260,101 @@ fn the_failure_and_chain_fixtures_are_what_pacman_prints_now() {
         same_as_fixture(stem, &print_args(&[qualified(candidate)]), "", alone, None);
     }
 }
+
+/// The `-Si` fields the provider rule reads (WBS 6.4a). Build dates and sizes change with every image build, so the
+/// records are compared field by field, not as text.
+fn rule_fields(text: &str) -> Vec<String> {
+    tidewise_pacman::parse_si(text)
+        .unwrap()
+        .iter()
+        .map(|p| {
+            format!(
+                "{}/{} {} provides {:?} depends {:?}",
+                p.repo, p.name, p.version, p.provides, p.depends_on
+            )
+        })
+        .collect()
+}
+
+/// What the helper reads to find a provider pick (WBS 6.4a): `pacman -Si -- repo/name ...` of each dry-run list.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn the_details_fixtures_are_what_pacman_prints_now() {
+    assert_inside_the_test_container();
+    reset_world();
+
+    macro_rules! si {
+        ($stem:literal, $($name:literal),+) => {
+            (
+                $stem,
+                vec![$(qualified($name)),+],
+                include_str!(concat!("../../fixtures/pacman/container/", $stem, ".txt")),
+            )
+        };
+    }
+    for (stem, names, saved) in [
+        si!("si-virtual-unnamed", "prov-a", "needs-virtual"),
+        si!("si-vvirtual-unnamed", "vprov-2", "needs-vvirtual"),
+        si!("si-one-unnamed", "one-prov", "needs-one"),
+        si!("si-chain-unnamed", "chain-b", "chain-a", "needs-chain"),
+        si!("si-virtual-prov-b-named", "prov-b", "needs-virtual"),
+        si!(
+            "si-b-vprov-1-with-hello",
+            "vprov-2",
+            "needs-vvirtual",
+            "hello",
+            "vprov-1"
+        ),
+    ] {
+        let mut args = strings(&["-Si", "--"]);
+        args.extend(names);
+        let (out, _) = pacman_typing(&args, "");
+        assert_eq!(
+            rule_fields(&out),
+            rule_fields(saved),
+            "{stem} is not what pacman says any more"
+        );
+    }
+
+    same_as_fixture(
+        "print-virtual-prov-b-named",
+        &print_args(&[qualified("needs-virtual"), qualified("prov-b")]),
+        "",
+        fixture!("print-virtual-prov-b-named", "stdout"),
+        None,
+    );
+    same_as_fixture(
+        "print-vprov-1-alone",
+        &print_args(&[qualified("vprov-1")]),
+        "",
+        fixture!("print-vprov-1-alone", "stdout"),
+        None,
+    );
+    // One unknown name: the others are still printed, and the exit is not 0.
+    let (out, err) = pacman_typing(
+        &strings(&["-Si", "--", &qualified("hello"), &qualified("nosuch")]),
+        "",
+    );
+    assert_eq!(err, fixture!("si-one-not-found", "stderr"));
+    assert_eq!(
+        rule_fields(&out),
+        rule_fields(fixture!("si-one-not-found", "stdout"))
+    );
+}
+
+/// An installed package named in a dry run is listed again, as a reinstall (measured for WBS 6.4a): the helper's
+/// "the chosen package is in the list" check does not turn such an answer away.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_installed_package_named_in_a_dry_run_is_listed_again() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-prov-b"]);
+    same_as_fixture(
+        "print-virtual-prov-b-named",
+        &print_args(&[qualified("needs-virtual"), qualified("prov-b")]),
+        "",
+        fixture!("print-virtual-prov-b-named", "stdout"),
+        None,
+    );
+}

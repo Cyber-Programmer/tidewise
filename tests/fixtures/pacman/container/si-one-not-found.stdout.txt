@@ -1,0 +1,19 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-hello
+Version         : 1.0-1
+Description     : Tidewise test package with no dependencies
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.46 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:09 2026
+Validated By    : SHA-256 Sum
+

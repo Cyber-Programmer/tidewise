@@ -1,0 +1,57 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-chain-b
+Version         : 1.0-1
+Description     : Tidewise test provider of tidewise-chain, pulled in by chain-a
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-chain
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:05:55 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-chain-a
+Version         : 1.0-1
+Description     : Tidewise test provider of tidewise-chain that depends on another provider of it
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-chain
+Depends On      : tidewise-dummy-chain-b
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:05:52 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-needs-chain
+Version         : 1.0-1
+Description     : Tidewise test package that needs tidewise-chain
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-chain
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:16 2026
+Validated By    : SHA-256 Sum
+

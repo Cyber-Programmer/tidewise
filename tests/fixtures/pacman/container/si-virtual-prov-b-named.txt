@@ -1,0 +1,38 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-prov-b
+Version         : 1.0-1
+Description     : Tidewise test provider B of tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-virtual
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:44 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-needs-virtual
+Version         : 1.0-1
+Description     : Tidewise test package that needs a provider of tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-virtual
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.49 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:26 2026
+Validated By    : SHA-256 Sum
+

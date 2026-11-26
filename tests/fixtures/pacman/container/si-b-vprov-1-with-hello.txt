@@ -1,0 +1,76 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-vprov-2
+Version         : 1.0-1
+Description     : Tidewise test provider of tidewise-vvirtual=2
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-vvirtual=2
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:07:16 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-needs-vvirtual
+Version         : 1.0-1
+Description     : Tidewise test package that needs tidewise-vvirtual>=2
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : tidewise-vvirtual>=2
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:30 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-hello
+Version         : 1.0-1
+Description     : Tidewise test package with no dependencies
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.46 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:06:09 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-vprov-1
+Version         : 1.0-1
+Description     : Tidewise test provider of tidewise-vvirtual=1
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-vvirtual=1
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.46 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 19 09:07:12 2026
+Validated By    : SHA-256 Sum
+

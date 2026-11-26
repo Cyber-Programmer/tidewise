@@ -85,3 +85,23 @@ compared with the image on container runs. `FMT` is `'%r/%n %v %s'`.
 | `sizes-print-upgrade.txt` | the same with 1.0 installed and 2.0 in the lists (0) | The list says nothing about the installed version |
 | `sizes-si.txt` | `pacman -Si measure-big measure-data` (0) | `Installed Size` is rounded to 2 decimals, in pacman's choice of unit (`6835.94 KiB`). `Download Size` is the whole file, **cached or not** |
 | `sizes-summaries.txt` | `printf 'n\n' \| pacman -S …` for: 1 empty cache, 2 dependency cached, 3 all cached, 3b partial, 4 reinstall, 5 upgrade (1) | pacman's own totals: `Total Download Size` follows `%s` (line absent when 0); `Total Installed Size` is the new packages' sizes; `Net Upgrade Size` (new − old) appears only when something installed is replaced: 0.00 MiB on a reinstall, 2.12 MiB on the upgrade |
+
+## Package details for the helper's provider check (WBS 6.4a, captured 26 Nov 2026)
+
+`env -i LC_ALL=C /usr/bin/pacman -Si -- tidewise-test/…` in the cached test image, for the packages of each dry-run list.
+`pacman_providers.rs` (`the_details_fixtures_are_what_pacman_prints_now`) compares the fields the rule reads (repository,
+name, version, `Provides`, `Depends On`); build dates and sizes change with every image build.
+
+| File | Packages, in the order asked | Goes with |
+|---|---|---|
+| `si-virtual-unnamed.txt` | prov-a, needs-virtual | `print-virtual-unnamed` |
+| `si-vvirtual-unnamed.txt` | vprov-2, needs-vvirtual | `print-vvirtual-unnamed` |
+| `si-one-unnamed.txt` | one-prov, needs-one | `print-one-unnamed` |
+| `si-chain-unnamed.txt` | chain-b, chain-a, needs-chain | `print-chain-unnamed` (the same list when `chain-a` is named) |
+| `si-virtual-prov-b-named.txt` | prov-b, needs-virtual | `print-virtual-prov-b-named.stdout.txt` |
+| `si-b-vprov-1-with-hello.txt` | vprov-2, needs-vvirtual, hello, vprov-1 | `print-b-vprov-1-with-hello` |
+| `print-vprov-1-alone.stdout.txt` | (dry run of `vprov-1` by itself) | what a chosen package brings |
+| `si-one-not-found.*` | hello and a name that does not exist (exit 1) | the others are still printed |
+
+An installed package that is named again is listed again, as a reinstall
+(`an_installed_package_named_in_a_dry_run_is_listed_again`).
