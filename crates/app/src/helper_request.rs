@@ -5,9 +5,9 @@
 
 use tidewise_helper_protocol::{
     self as protocol, Action, Install, InvalidRequest, PROTOCOL_VERSION, ProtocolError,
-    ProviderChoice, Request, TransactionItem, request_json, summary, validate,
+    ProviderChoice, Request, TransactionItem, UpdateSystem, request_json, summary, validate,
 };
-use tidewise_pacman::{InstallDecision, InstallPlan, PackageRef, UpdatePlan};
+use tidewise_pacman::{InstallDecision, InstallPlan, PackageRef, PlanItem, UpdatePlan};
 
 /// What one helper run needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,28 +34,33 @@ pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError
     if !matches!(plan.decision, InstallDecision::Allowed { .. }) {
         return Err(RequestError::NeedsSystemUpdate);
     }
+    sealed(Action::Install(Install {
+        targets: plan.targets.iter().map(wire_ref).collect(),
+        providers: plan
+            .providers
+            .iter()
+            .map(|answer| ProviderChoice {
+                dependency: answer.dependency.clone(),
+                chosen: wire_ref(&answer.chosen),
+            })
+            .collect(),
+        transaction: plan.items.iter().map(wire_item).collect(),
+    }))
+}
+
+/// The request for a full system update: every line of the dry run, skipped ones included, since the helper compares
+/// the whole list.
+pub fn update_request(plan: &UpdatePlan) -> Result<HelperRequest, RequestError> {
+    sealed(Action::UpdateSystem(UpdateSystem {
+        transaction: plan.items.iter().map(wire_item).collect(),
+    }))
+}
+
+/// `validate` first, then `summary` and the bytes: the only way a request is made.
+fn sealed(action: Action) -> Result<HelperRequest, RequestError> {
     let request = Request {
         protocol_version: PROTOCOL_VERSION,
-        action: Action::Install(Install {
-            targets: plan.targets.iter().map(wire_ref).collect(),
-            providers: plan
-                .providers
-                .iter()
-                .map(|answer| ProviderChoice {
-                    dependency: answer.dependency.clone(),
-                    chosen: wire_ref(&answer.chosen),
-                })
-                .collect(),
-            transaction: plan
-                .items
-                .iter()
-                .map(|item| TransactionItem {
-                    repo: item.package.repo.clone(),
-                    name: item.package.name.clone(),
-                    version: item.version.clone(),
-                })
-                .collect(),
-        }),
+        action,
     };
     validate(&request).map_err(RequestError::Invalid)?;
     Ok(HelperRequest {
@@ -64,10 +69,12 @@ pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError
     })
 }
 
-/// The request for a full system update: every line of the dry run, skipped ones included, since the helper compares
-/// the whole list.
-pub fn update_request(_plan: &UpdatePlan) -> Result<HelperRequest, RequestError> {
-    Err(RequestError::NeedsSystemUpdate)
+fn wire_item(item: &PlanItem) -> TransactionItem {
+    TransactionItem {
+        repo: item.package.repo.clone(),
+        name: item.package.name.clone(),
+        version: item.version.clone(),
+    }
 }
 
 fn wire_ref(package: &PackageRef) -> protocol::PackageRef {
@@ -81,7 +88,7 @@ fn wire_ref(package: &PackageRef) -> protocol::PackageRef {
 mod tests {
     use super::*;
     use tidewise_helper_protocol::{Field, Reason, parse_request};
-    use tidewise_pacman::{PlanItem, ProviderAnswer, Role};
+    use tidewise_pacman::{ProviderAnswer, Role};
 
     fn pkg(name: &str) -> PackageRef {
         PackageRef {
