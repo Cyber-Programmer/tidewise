@@ -50,23 +50,33 @@ pub struct BlockWords {
     pub advice: String,
 }
 
-/// pacman lists a package that replaces its own name in every update, so "run it once" would not be true.
-fn self_replacement_words(name: &str) -> BlockWords {
+/// pacman lists a package that replaces its own name in every update, so "run it once" would not be true while any
+/// listed replacement is one. `name` is the first such package; the other replaced names are listed so none is hidden.
+fn self_replacement_words(name: &str, replacements: &[Replacement]) -> BlockWords {
+    let mut others: Vec<&str> = Vec::new();
+    for old in replacements.iter().map(|r| r.old.as_str()) {
+        if old != name && !others.contains(&old) {
+            others.push(old);
+        }
+    }
     BlockWords {
         title: format!(
             "{name} marks itself as a replacement, so Tidewise can't update while it's installed"
         ),
-        body: String::new(),
+        body: if others.is_empty() {
+            String::new()
+        } else {
+            format!("Also replaced: {}.", others.join(", "))
+        },
         advice: "Update with sudo pacman -Syu in a terminal instead.".to_string(),
     }
 }
 
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
     if let UpdateBlock::Replacement(replacements) = block
-        && let [only] = replacements.as_slice()
-        && only.new.name == only.old
+        && let Some(own) = replacements.iter().find(|r| r.new.name == r.old)
     {
-        return self_replacement_words(&only.old);
+        return self_replacement_words(&own.old, replacements);
     }
     let (title, body, advice) = match block {
         UpdateBlock::Replacement(_) => (
