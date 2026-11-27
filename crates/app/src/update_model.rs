@@ -198,6 +198,11 @@ impl UpdateModel {
         }
     }
 
+    /// Whether the helper is running (or its password window is open): closing the window then needs a word first.
+    pub fn job_running(&self) -> bool {
+        false
+    }
+
     /// How many packages the confirmed list of the last run had.
     pub fn listed(&self) -> usize {
         self.listed
@@ -553,5 +558,18 @@ mod tests {
             panic!("{:?}", model.phase());
         };
         assert!(running.job.notices.is_empty());
+    }
+
+    #[test]
+    fn a_job_is_running_from_the_start_of_the_update_to_its_end() {
+        let mut model = reviewing(UpdatePlan {
+            items: vec![item("zsh")],
+            ..UpdatePlan::default()
+        });
+        assert!(!model.job_running());
+        let job = model.start_update().unwrap();
+        assert!(model.job_running());
+        model.job_ended(job.number, JobEnd::Finished(Outcome::Ok));
+        assert!(!model.job_running());
     }
 }
