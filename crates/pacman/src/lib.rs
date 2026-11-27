@@ -27,6 +27,7 @@ mod qi;
 mod qq;
 mod qu;
 mod record;
+mod replaces;
 mod resolve;
 mod run;
 mod sg;
@@ -51,6 +52,7 @@ pub use private_lists::{Lists, NotFresh, RefreshWhy, refresh_private_lists};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
 pub use qu::{PendingUpdate, parse_qu};
+pub use replaces::listed_replacements;
 pub use resolve::{
     Blocker, Candidate, GroupAnswer, GroupChoice, InstallPlan, MAX_ROUNDS, PlanItem,
     ProviderAnswer, Question, Resolution, ResolveInput, Role,

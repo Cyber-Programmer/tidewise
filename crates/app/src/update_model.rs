@@ -387,6 +387,25 @@ mod tests {
         );
     }
 
+    /// Decision of 27 Nov: any replacement blocks, whatever else is listed.
+    #[test]
+    fn a_replacement_blocks_the_update_before_the_password() {
+        let replacement = tidewise_pacman::Replacement {
+            new: pkg("new"),
+            old: "old".to_string(),
+        };
+        for names in [&["new"][..], &["zsh", "new"][..]] {
+            let mut blocked = plan(names);
+            blocked.replacements.push(replacement.clone());
+            let mut model = reviewing(blocked);
+            assert_eq!(
+                *model.phase(),
+                Phase::Blocked(UpdateBlock::Replacement(vec![replacement.clone()]))
+            );
+            assert_eq!(model.start_update(), None);
+        }
+    }
+
     #[test]
     fn a_failed_check_says_so_and_can_be_tried_again() {
         let mut model = UpdateModel::new();

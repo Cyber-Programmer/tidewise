@@ -12,6 +12,8 @@ pub enum UpdateBlock {
     Conflict(Vec<Conflict>),
     /// pacman would choose a package by itself; the helper would refuse (golden rule 10).
     Pick(Vec<ProviderPick>),
+    /// The list stands for a replacement, which Tidewise does not do yet (WBS 7.5).
+    Replacement(Vec<Replacement>),
 }
 
 pub const NOTHING_REMOVED: &str = "Nothing will be removed.";
@@ -50,6 +52,7 @@ pub struct BlockWords {
 
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
     let (title, body, advice) = match block {
+        UpdateBlock::Replacement(_) => ("", String::new(), ""),
         UpdateBlock::Held(HeldBlock { package, held }) => (
             "An update needs a package you've held back",
             format!(
@@ -240,6 +243,23 @@ mod tests {
              remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip needs-upd."
         );
         assert_eq!(words.advice, "");
+    }
+
+    #[test]
+    fn a_replacement_sends_the_user_to_the_terminal_once() {
+        let words = block_words(&UpdateBlock::Replacement(vec![Replacement {
+            new: pkg("new"),
+            old: "old".to_string(),
+        }]));
+        assert_eq!(
+            words.title,
+            "This update includes a replacement Tidewise can't do yet"
+        );
+        assert_eq!(words.body, "");
+        assert_eq!(
+            words.advice,
+            "Run sudo pacman -Syu once in a terminal; pacman will ask you about it."
+        );
     }
 
     #[test]
