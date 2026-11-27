@@ -709,4 +709,62 @@ mod tests {
         );
         assert_eq!(labels(&missing), (Some("Check again"), Some("Close")));
     }
+
+    fn ended_with(notices: &[Notice], kind: ErrorKind) -> UpdateView {
+        let mut model = reviewing(mixed());
+        let job = model.start_update().unwrap();
+        for notice in notices {
+            model.job_event(job.number, Event::Notice(*notice));
+        }
+        model.job_ended(job.number, JobEnd::Finished(Outcome::Error(kind)));
+        update_view(&model)
+    }
+
+    const UNREACHABLE: &str =
+        include_str!("../../../tests/fixtures/pacman/container/download-su-unresolvable.stderr");
+
+    #[test]
+    fn a_failed_download_says_so_with_pacmans_words_underneath() {
+        let view = ended_with(
+            &[Notice::PackagesNotInstalled(2)],
+            ErrorKind::PacmanFailed(Details::from_raw(UNREACHABLE)),
+        );
+        assert_eq!(view.title, "Tidewise couldn't update your system");
+        assert_eq!(
+            view.body,
+            "Tidewise couldn't download the packages. Your connection may be slow or a mirror may be down. Nothing \
+             was changed."
+        );
+        assert_eq!(view.technical, UNREACHABLE.lines().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_failure_that_installed_nothing_says_nothing_was_installed() {
+        let view = ended_with(
+            &[Notice::PackagesNotInstalled(2)],
+            ErrorKind::PacmanFailed(Details::from_raw("error: x")),
+        );
+        assert!(
+            view.body.ends_with("\nNothing was installed."),
+            "{}",
+            view.body
+        );
+    }
+
+    #[test]
+    fn a_done_card_that_installed_nothing_says_so_and_asks_for_no_restart() {
+        let view = finished(&["linux", "zsh"], &[Notice::PackagesNotInstalled(2)]);
+        assert_eq!(view.title, "The update finished");
+        assert_eq!(view.body, "Nothing was installed.");
+    }
+
+    #[test]
+    fn a_held_lock_says_another_update_is_still_running() {
+        let view = ended_with(&[], ErrorKind::DatabaseLocked);
+        assert_eq!(
+            view.body,
+            "Another update is still running (maybe one Tidewise started earlier). Wait for it to finish, then check \
+             again."
+        );
+    }
 }

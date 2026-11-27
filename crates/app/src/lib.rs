@@ -15,6 +15,7 @@
 pub mod apps_model;
 pub mod apps_view;
 pub mod error_words;
+pub mod failure_words;
 pub mod helper_request;
 pub mod helper_run;
 pub mod install_model;

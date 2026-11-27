@@ -1,0 +1,4 @@
+error: failed retrieving file 't-b-2.0-1-any.pkg.tar.zst' from localhost:8443 : The requested URL returned error: 404
+error: failed retrieving file 't-a-2.0-1-any.pkg.tar.zst' from localhost:8443 : Operation too slow. Less than 1 bytes/sec transferred the last 10 seconds
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)

@@ -1,0 +1,4 @@
+error: failed retrieving file 't-b-2.0-1-any.pkg.tar.zst' from 127.0.0.1:1 : Failed to connect to 127.0.0.1:1 after 0 ms: Could not connect to server
+error: failed retrieving file 't-a-2.0-1-any.pkg.tar.zst' from 127.0.0.1:1 : Failed to connect to 127.0.0.1:1 after 0 ms: Could not connect to server
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)
