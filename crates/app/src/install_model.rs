@@ -488,6 +488,11 @@ impl InstallModel {
         self.begin(request, false)
     }
 
+    /// A button of the shared-library card: a normal install of that candidate. Stub.
+    pub fn install_choice(&mut self, _index: usize) -> Option<Ticket> {
+        None
+    }
+
     /// "Try again" after a failed resolve, and "Check again" after a failed install: that one starts the request
     /// afresh, because what failed may have changed what there is to ask.
     pub fn try_again(&mut self) -> Option<Ticket> {
@@ -1424,6 +1429,25 @@ mod tests {
         model.done(ticket.number, ready());
         assert_eq!(model.back(), Back::Closed);
         assert!(!model.is_open());
+    }
+
+    #[test]
+    fn a_shared_library_candidate_starts_a_normal_install_of_it() {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("carla")).unwrap();
+        let blockers = vec![Blocker::SonameChoice {
+            dependency: "libjack.so".to_string(),
+            candidates: vec![pkg("jack2"), pkg("pipewire-jack")],
+        }];
+        assert_eq!(model.install_choice(0), None);
+        model.done(ticket.number, blocked(blockers));
+        assert_eq!(model.install_choice(2), None);
+        let ticket = model.install_choice(1).unwrap();
+        assert_eq!(ticket.input.targets, [pkg("pipewire-jack")]);
+        assert_eq!(ticket.input.round, 0);
+        // A fresh install: the updates check runs again.
+        assert!(ticket.check_lists);
+        assert_eq!(model.request().targets, [pkg("pipewire-jack")]);
     }
 
     #[test]

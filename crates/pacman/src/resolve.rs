@@ -143,6 +143,8 @@ pub enum Blocker {
     /// about a soname (review 6.5 R-02).
     SonameChoice {
         dependency: String,
+        /// The repository packages that provide that version: each is offered as an install of its own.
+        candidates: Vec<PackageRef>,
     },
 }
 
@@ -480,6 +482,7 @@ impl<'a> Engine<'a> {
                 if let Some(dependency) = self.soname_choice(sonames, &listed, &installed)? {
                     return Ok(Resolution::Blocked(vec![Blocker::SonameChoice {
                         dependency,
+                        candidates: Vec::new(),
                     }]));
                 }
                 if let Some(dependency) =

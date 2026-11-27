@@ -148,6 +148,8 @@ pub struct InstallView {
     pub code_lines: Vec<String>,
     pub primary: Option<ButtonView>,
     pub secondary: Option<ButtonView>,
+    /// Buttons of equal weight, none preselected: one per package the user may install first.
+    pub choices: Vec<ButtonView>,
     /// "Nothing was installed and nothing on your system changed.", or empty.
     pub unchanged: String,
     /// "This is taking longer than usual.", or empty.
@@ -869,7 +871,7 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                  Tidewise can't install them together yet."
             );
         }
-        Some(Blocker::SonameChoice { dependency }) => {
+        Some(Blocker::SonameChoice { dependency, .. }) => {
             view.title_before = format!("{label} needs a choice Tidewise can't make yet");
             view.body = format!(
                 "It needs {dependency}, and several packages can provide it. Tidewise doesn't ask that question for \
@@ -910,7 +912,7 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::MissingFromList { requested } => {
             format!("missing from pacman's list: {}", spec(requested))
         }
-        Blocker::SonameChoice { dependency } => {
+        Blocker::SonameChoice { dependency, .. } => {
             format!("{dependency}: several packages provide it")
         }
         Blocker::TwoVersionsNeeded { dependency } => {
@@ -1051,30 +1053,57 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_library_choice_blocks_with_its_own_words() {
+    fn a_shared_library_choice_names_it_and_offers_each_candidate() {
+        let of = |repo: &str, name: &str| PackageRef {
+            repo: repo.to_string(),
+            name: name.to_string(),
+        };
         let view = install_view(&answered(
-            "dbeaver",
+            "carla",
             Resolution::Blocked(vec![Blocker::SonameChoice {
                 dependency: "libjack.so".to_string(),
+                candidates: vec![of("extra", "jack2"), of("extra", "pipewire-jack")],
             }]),
         ));
         assert_eq!(view.kind, CardKind::Alert);
         assert_eq!(
             view.title_before,
-            "dbeaver needs a choice Tidewise can't make yet"
+            "carla needs a choice Tidewise can't make yet"
         );
         assert_eq!(
             view.body,
-            "It needs libjack.so, and several packages can provide it. Tidewise doesn't ask that question for \
-             shared libraries yet, so it won't let pacman pick for you."
+            "carla needs a libjack.so library, and more than one package can provide it. Install one of them \
+             first, then try again:"
         );
         assert_eq!(
-            view.hint,
-            "Run sudo pacman -S dbeaver in a terminal; pacman will ask you which one."
+            view.choices,
+            [
+                button("Install jack2", true).unwrap(),
+                button("Install pipewire-jack", true).unwrap()
+            ]
         );
+        // No pick by Tidewise: no main button, and the focus is not on a candidate.
+        assert_eq!(view.primary, None);
+        assert_eq!(view.focus, FocusTarget::Secondary);
+        assert_eq!(view.hint, "");
         assert_eq!(view.unchanged, UNCHANGED);
         assert_eq!(view.technical, ["libjack.so: several packages provide it"]);
-        assert_eq!(view.primary, None);
+
+        // The same name in two repositories is told apart.
+        let view = install_view(&answered(
+            "carla",
+            Resolution::Blocked(vec![Blocker::SonameChoice {
+                dependency: "libjack.so".to_string(),
+                candidates: vec![of("extra", "jack2"), of("extra-testing", "jack2")],
+            }]),
+        ));
+        assert_eq!(
+            view.choices,
+            [
+                button("Install extra/jack2", true).unwrap(),
+                button("Install extra-testing/jack2", true).unwrap()
+            ]
+        );
     }
 
     #[test]
