@@ -727,7 +727,14 @@ fn a_shared_library_two_packages_provide_blocks_the_install() {
     assert_eq!(
         resolve_with(&want(&["needs-soname"]), &world).unwrap(),
         Resolution::Blocked(vec![Blocker::SonameChoice {
-            dependency: "libz.so".to_string()
+            dependency: "libz.so".to_string(),
+            // Every provider of that version, none preferred.
+            candidates: ["zlib", "zlib-ng"]
+                .map(|name| PackageRef {
+                    repo: "test".to_string(),
+                    name: name.to_string(),
+                })
+                .to_vec(),
         }])
     );
 }
