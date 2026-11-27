@@ -466,6 +466,58 @@ fn ss_on_a_private_copy_finds_packages_that_only_provide_the_name() {
     assert_eq!(search("^tidewise-nothing$"), (Some(1), vec![]));
 }
 
+/// Why a soname is judged at all (review 6.5 R-02): pacman asks between two providers of the same version, and does
+/// not offer the one of another version.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn pacman_asks_between_two_providers_of_one_shared_library_version() {
+    assert_inside_the_test_container();
+    reset_world();
+    let out = pacman(&["-S", "--noconfirm", "--", "tidewise-dummy-needs-so"]);
+    let text = text(&out.stdout);
+    assert!(
+        text.contains("2 providers available for libtidewise.so=1-64"),
+        "{text}"
+    );
+    assert!(!text.contains("tidewise-dummy-so-32"), "{text}");
+}
+
+/// The helper counts providers with ONE search for many names: it must find what one search per name finds, a name
+/// that is only provided and one with plus signs included.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn one_batched_search_finds_what_one_search_per_name_finds() {
+    assert_inside_the_test_container();
+    reset_world();
+    let found = |pattern: &str| -> Vec<String> {
+        text(&pacman(&["-Ss", "--", pattern]).stdout)
+            .lines()
+            .filter(|line| !line.starts_with(' '))
+            .map(|line| line.split(' ').next().unwrap().to_string())
+            .collect()
+    };
+    let mut one_by_one: Vec<String> = [
+        r"^libtide\+\+\.so$",
+        r"^libtidewise\.so$",
+        "^tidewise-single$",
+        "^tidewise-virtual$",
+        "^tidewise-dummy-hello$",
+    ]
+    .iter()
+    .flat_map(|pattern| found(pattern))
+    .collect();
+    one_by_one.sort();
+    let batch = r"^(libtide\+\+\.so|libtidewise\.so|tidewise-single|tidewise-virtual|tidewise-dummy-hello)$";
+    let mut batched = found(batch);
+    batched.sort();
+    assert_eq!(batched, one_by_one);
+    assert!(batched.contains(&format!("{REPO}/tidewise-dummy-one-prov")));
+    assert_eq!(
+        pacman_stdout(&["-Ss", "--", batch]),
+        fixture!("search-batch.stdout.txt")
+    );
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn si_reads_a_private_copy_of_the_lists() {

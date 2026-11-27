@@ -730,6 +730,56 @@ fn an_update_that_would_upgrade_a_replaced_package_nobody_listed_is_refused() {
     assert!(!Path::new(LOCK).exists());
 }
 
+/// An install of `target`, with the list its dry run prints and no provider named.
+fn install_of(target: &str) -> Ran {
+    assert_inside_the_test_container();
+    reset_world();
+    let items = confirmed("-S", &[&format!("{REPO}/{target}")]);
+    let (request, summary) = install_request(&[(REPO, target)], &[], &items);
+    run(&summary, request.as_bytes())
+}
+
+/// Review 6.5 R-02: two packages provide `libtidewise.so=1-64` and pacman would take the first by itself.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_install_where_pacman_would_choose_a_shared_library_is_refused() {
+    let ran = install_of("tidewise-dummy-needs-so");
+    finished_with(&ran, "provider_not_chosen");
+    assert_eq!(installed_version("tidewise-dummy-needs-so"), None);
+    assert!(
+        ran.stdout.contains("\"phase\":\"checking\""),
+        "{}",
+        ran.stdout
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_install_with_a_lone_shared_library_provider_goes_through() {
+    let ran = install_of("tidewise-dummy-needs-oneso");
+    assert_ok(&ran);
+    assert!(installed_version("tidewise-dummy-so-one").is_some());
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_where_pacman_would_choose_a_shared_library_is_refused() {
+    let ran = update_of(&["tidewise-dummy-upd-so"], &["upd-so"]);
+    finished_with(&ran, "provider_not_chosen");
+    assert_eq!(
+        installed_version("tidewise-dummy-upd-so").as_deref(),
+        Some("1.0-1")
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_with_a_lone_shared_library_provider_goes_through() {
+    let ran = update_of(&["tidewise-dummy-upd-oneso"], &["upd-oneso"]);
+    assert_ok(&ran);
+    assert!(installed_version("tidewise-dummy-so-one").is_some());
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_changed_update_list_leaves_the_real_sync_databases_untouched() {
