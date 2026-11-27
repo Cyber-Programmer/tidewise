@@ -48,17 +48,19 @@ nothing in `-Qu`). `--ask 66` does not change what `-Su --print` lists, and comp
 not cover S-01 or S-02 and refused ordinary updates under one `IgnoreGroup` case (S-06).
 
 **The rule** (`listed_replacements`, one function for app and helper): any package in the dry run, **installed ones
-too** (an installed replacer is listed again, measured), whose `Replaces` names an installed package other than itself.
+too** (an installed replacer is listed again, measured), whose `Replaces` names an installed package, **its own name
+included** (human's decision of 27 Nov, review T-01: a self-replacement that was declined installed unlisted packages).
 A versioned entry counts only when `pacman -T` says the installed version fits (47 name-only matches on the
 development machine, none fitting their version). The app shows "This update includes a replacement Tidewise can't do
 yet. Run sudo pacman -Syu once in a terminal; pacman will ask you about it." before the password; the helper refuses
 (`transaction_changed`, lists untouched) for both update actions. No new helper command; the helper now reads the
 private `-Si` for every update. **Replacements themselves are WBS 7.5.**
 
-**Open (third review, T-01):** the rule skips a package that replaces its own name; one that is not newer than the
-installed copy can still lead the real run to install unlisted packages. **Not safe to release until decided.**
-**T-02:** with `IgnorePkg` on the replaced package, or a replacer in a later repository, Tidewise blocks although
-pacman would ask nothing.
+**A consequence of T-01's fix, measured:** a package that replaces its own name is listed by **every** `-Su`, also
+when it is up to date and also after the replacement was accepted in a terminal. While such a package is installed,
+Tidewise shows the replacement card every time and never "up to date" or a review, and the card's advice ("run it
+once") does not clear it. `extra/python-pylint-pydantic` and `extra/python-pylint-plugin-utils` replace their own
+names. It errs on the safe side; WBS 7.5 (replacements) is where it can be lifted.
 
 Consequence: while a replacement is pending, nothing can be updated in Tidewise. A replacement the user always
 declines blocks every update until they accept it, remove one of the two, or ignore it in `pacman.conf`.
@@ -102,6 +104,9 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 - A **versioned** provider count: all providers of the name count, also ones whose version could not fit.
 - From reading, not reproduced: an installed provider held by `IgnorePkg` is judged by its repository version's
   `Provides`, and `-T` may be satisfied by a different package.
+- False replacement block (T-02): with `IgnorePkg` on the replaced package, or a replacer from a later repository,
+  pacman asks nothing but Tidewise blocks. Errs on the safe side.
+- A package that replaces its own name blocks every update while it is installed (T-01's fix, above).
 - A repository whose `Usage` lacks `Search` is not seen by `-Ss`: a provider there is not counted (R-06, accepted).
 - A soname need spelled differently from the `Provides` (`>=`, or without the release part) is not judged, so pacman
   may choose a provider unasked (S-03, accepted; the second review found no such need in the official repositories).
