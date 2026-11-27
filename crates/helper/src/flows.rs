@@ -7,7 +7,8 @@
 //!            no provider pick the request does not name (`-Q`, `-Si`; golden rule 10) -> real `-S --noconfirm --ask 66`
 //!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
-//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> (plain
+//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> every
+//!            upgrade `-Qu` names there is on that list (review 6.5 R-01) -> (plain
 //!            update only) no provider pick: `-Q`, `-Si` on the private copy if anything is new, and for a pick
 //!            `-Ss`/`-Si` there and `-T` (decision 0009) -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
@@ -26,8 +27,9 @@ use tidewise_helper_protocol::{
     TransactionItem,
 };
 use tidewise_pacman::{
-    Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef, UpdateFacts,
-    dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks, update_picks,
+    Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef, PendingUpdate,
+    UpdateFacts, dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks,
+    update_picks,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -198,6 +200,12 @@ fn update_job(
         PacmanCommand::PrivateDryRunUpdate(names.to_vec()),
         transaction,
     ) {
+        return (Err(kind), untouched());
+    }
+
+    // The dry run leaves out an upgrade the real run would still make (a declined replacement of a package that has a
+    // newer version, review 6.5 R-01): nothing may be upgraded that the confirmed list does not name.
+    if let Err(kind) = check_nothing_unlisted(runner, transaction) {
         return (Err(kind), untouched());
     }
 
@@ -378,9 +386,34 @@ fn check_lock(runner: &dyn Runner) -> Step {
 /// A plain install while updates are pending would be a partial upgrade (golden rule 4). Updates held back by
 /// `IgnorePkg` do not count: a full update would not install them either.
 fn check_nothing_pending(runner: &mut dyn Runner) -> Step {
-    let output = runner
-        .run(&PacmanCommand::PendingUpdates, &mut |_| {})
-        .map_err(runner_failure)?;
+    let updates = pending_of(runner, PacmanCommand::PendingUpdates)?;
+    match install_decision(&updates) {
+        InstallDecision::Allowed { .. } => Ok(()),
+        InstallDecision::MustUpdateSystem { .. } => Err(ErrorKind::SystemOutOfDate),
+    }
+}
+
+/// Every upgrade `-Qu` names on the private copy, `IgnorePkg` ones aside, must be on the confirmed list. Answered as
+/// a changed transaction: the app then looks again and blocks the same case with its reason.
+fn check_nothing_unlisted(runner: &mut dyn Runner, confirmed: &[TransactionItem]) -> Step {
+    let listed: HashSet<&str> = confirmed.iter().map(|item| item.name.as_str()).collect();
+    let updates = pending_of(runner, PacmanCommand::PrivatePendingUpdates)?;
+    if updates
+        .iter()
+        .any(|update| !update.ignored && !listed.contains(update.name.as_str()))
+    {
+        Err(ErrorKind::TransactionChanged)
+    } else {
+        Ok(())
+    }
+}
+
+/// The updates a `-Qu` command lists, or why they cannot be known.
+fn pending_of(
+    runner: &mut dyn Runner,
+    command: PacmanCommand,
+) -> Result<Vec<PendingUpdate>, ErrorKind> {
+    let output = runner.run(&command, &mut |_| {}).map_err(runner_failure)?;
     // `pacman -Qu` exits 1 when there is nothing to list, and also for most errors: an "error:" line on stderr decides
     // (a warning, for example about a database that was never synced, does not).
     let has_error_line = output.stderr.lines().any(|line| line.starts_with("error:"));
@@ -392,12 +425,7 @@ fn check_nothing_pending(runner: &mut dyn Runner) -> Step {
     if output.timed_out || output.truncated || !usable {
         return Err(failure_of(&output));
     }
-    let updates = parse_qu(&output.stdout)
-        .map_err(|_| failed("pacman's list of updates could not be read."))?;
-    match install_decision(&updates) {
-        InstallDecision::Allowed { .. } => Ok(()),
-        InstallDecision::MustUpdateSystem { .. } => Err(ErrorKind::SystemOutOfDate),
-    }
+    parse_qu(&output.stdout).map_err(|_| failed("pacman's list of updates could not be read."))
 }
 
 /// The dry run must give exactly the list the user confirmed (T-09).

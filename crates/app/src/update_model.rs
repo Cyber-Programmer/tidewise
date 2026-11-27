@@ -248,7 +248,13 @@ impl UpdateModel {
 
 /// Where a plan leads: nothing to do, a reason it cannot go on, or the review.
 fn reviewed(plan: Box<UpdatePlan>) -> Phase {
-    if plan.installing().next().is_none() {
+    // First: with only a replacer listed nothing counts as installing, yet the real run would upgrade.
+    if !plan.unlisted.is_empty() {
+        Phase::Blocked(UpdateBlock::Unlisted {
+            pending: plan.unlisted,
+            replacements: plan.replacements,
+        })
+    } else if plan.installing().next().is_none() {
         Phase::UpToDate(plan)
     } else if !plan.conflicts.is_empty() {
         Phase::Blocked(UpdateBlock::Conflict(plan.conflicts))
