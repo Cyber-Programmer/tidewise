@@ -59,9 +59,10 @@ private `-Si` for every update. **Replacements themselves are WBS 7.5.**
 **A consequence of T-01's fix, measured:** a package that replaces its own name is listed by **every** `-Su`, also
 when it is up to date and also after the replacement was accepted in a terminal. While such a package is installed,
 Tidewise shows the replacement card every time and never "up to date" or a review. Running `-Syu` once does not clear
-it, so when it is the only replacement the card says instead (human's words, 27 Nov): "{pkg} marks itself as a
-replacement, so Tidewise can't update while it's installed. Update with sudo pacman -Syu in a terminal instead."
-With two or more replacements listed, self-replacing ones included, the card keeps the general words. `extra/python-pylint-pydantic` and `extra/python-pylint-plugin-utils` replace their own
+it, so whenever any listed replacement replaces its own name the card says instead (human's words, 27 Nov): "{pkg}
+marks itself as a replacement, so Tidewise can't update while it's installed. Update with sudo pacman -Syu in a
+terminal instead." `{pkg}` is the first such package in the list; any other replaced names follow on their own line,
+"Also replaced: {names}.", so nothing listed is hidden. Without a self-replacement the card keeps the general words. `extra/python-pylint-pydantic` and `extra/python-pylint-plugin-utils` replace their own
 names. It errs on the safe side; WBS 7.5 (replacements) is where it can be lifted.
 
 Consequence: while a replacement is pending, nothing can be updated in Tidewise. A replacement the user always
