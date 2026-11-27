@@ -1,0 +1,5 @@
+error: failed retrieving file 't-b-2.0-1-any.pkg.tar.zst' from mirror.invalid : Could not resolve host: mirror.invalid
+warning: fatal error from mirror.invalid, skipping for the remainder of this transaction
+error: failed retrieving file 't-a-2.0-1-any.pkg.tar.zst' from mirror.invalid : Could not resolve host: mirror.invalid
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)

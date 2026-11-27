@@ -1,0 +1,2 @@
+error: failed retrieving file 'r.db' from localhost:8443 : Operation too slow. Less than 1 bytes/sec transferred the last 10 seconds
+error: failed to synchronize all databases (failed to retrieve some files)

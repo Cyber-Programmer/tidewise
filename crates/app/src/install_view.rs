@@ -2299,4 +2299,45 @@ mod tests {
         let model = answered("dbeaver", Resolution::Ready(plan(1)));
         assert_eq!(install_view(&model).lists_note, "");
     }
+
+    fn ended_with(notices: &[Notice], kind: ErrorKind) -> InstallView {
+        let (mut model, number) = installing();
+        for notice in notices {
+            model.job_event(number, Event::Notice(*notice));
+        }
+        model.job_ended(number, JobEnd::Finished(Outcome::Error(kind)));
+        install_view(&model)
+    }
+
+    #[test]
+    fn a_failed_download_of_an_install_says_so() {
+        let text =
+            include_str!("../../../tests/fixtures/pacman/container/download-su-refused.stderr");
+        let view = ended_with(
+            &[Notice::PackagesNotInstalled(1)],
+            ErrorKind::PacmanFailed(Details::from_raw(text)),
+        );
+        assert_eq!(view.title_before, "Tidewise couldn't install dbeaver");
+        assert_eq!(
+            view.body,
+            "Tidewise couldn't download the packages. Your connection may be slow or a mirror may be down. Nothing \
+             was changed."
+        );
+        assert_eq!(view.technical, text.lines().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn an_install_that_installed_nothing_or_met_a_lock_says_so() {
+        let view = ended_with(
+            &[Notice::PackagesNotInstalled(1)],
+            ErrorKind::PacmanFailed(Details::from_raw("error: x")),
+        );
+        assert!(
+            view.body.ends_with("\nNothing was installed."),
+            "{}",
+            view.body
+        );
+        let locked = ended_with(&[], ErrorKind::DatabaseLocked);
+        assert!(locked.body.starts_with("Another update is still running"));
+    }
 }

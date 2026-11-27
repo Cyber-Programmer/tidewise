@@ -123,3 +123,8 @@ upgrade? [y/N]` (default no). Also seen under a real terminal (`script`).
 with one pattern per name, over the soname dummies (`so-a`, `so-b`, `so-32`, `so-one`). The batched one must find the
 same packages; `tests/container/tests/pacman_update.rs` compares it with pacman.
 `update-replace-newer-*`: a replaced package that also has a newer version (review R-01).
+
+`download-*.stderr` (WBS 6.5, 27 Nov 2026): pacman 7.1 stderr when downloads fail, `su-` from `-Su --noconfirm`, `sy-`
+from `-Syy`, in a `--network=none` container with a mirror that does not resolve, refuses, stalls (an `openssl s_server`
+on loopback that sends nothing) or answers 404.
+
