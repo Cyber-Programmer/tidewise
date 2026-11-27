@@ -27,9 +27,9 @@ use tidewise_helper_protocol::{
     TransactionItem,
 };
 use tidewise_pacman::{
-    Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef, PendingUpdate,
-    UpdateFacts, dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks,
-    update_picks,
+    ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
+    PendingUpdate, dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks,
+    real_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -290,7 +290,7 @@ fn check_update_providers(
     // An update cannot name a provider: let through what pacman has nothing to ask about (decision 0009).
     let listed_details: Vec<&PackageDetails> =
         listed.iter().filter_map(|item| details.get(item)).collect();
-    let left = update_picks(
+    let left = real_choices(
         picks,
         &listed_details,
         |name| installed.contains(name),
@@ -303,19 +303,19 @@ fn check_update_providers(
     }
 }
 
-/// The reads behind `update_picks`, all from the private copy except `-T`, which asks about installed packages.
+/// The reads behind `real_choices`, all from the private copy except `-T`, which asks about installed packages.
 struct HelperFacts<'a> {
     runner: &'a mut dyn Runner,
 }
 
-impl UpdateFacts for HelperFacts<'_> {
+impl ChoiceFacts for HelperFacts<'_> {
     type Error = ErrorKind;
 
-    fn providers(&mut self, name: &str) -> Result<Vec<ListedRef>, ErrorKind> {
+    fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, ErrorKind> {
         let unreadable = || failed("pacman's search could not be read.");
         let output = self
             .runner
-            .run(&PacmanCommand::PrivateSearch(name.to_string()), &mut |_| {})
+            .run(&PacmanCommand::PrivateSearch(names.to_vec()), &mut |_| {})
             .map_err(runner_failure)?;
         if output.truncated {
             return Err(unreadable());
@@ -349,12 +349,7 @@ impl UpdateFacts for HelperFacts<'_> {
         if output.timed_out || output.exit != Some(0) {
             return Err(failure_of(&output));
         }
-        Ok(parse_si(&output.stdout)
-            .map_err(|_| unreadable())?
-            .into_iter()
-            .filter(|d| d.provides.iter().any(|p| p.name == name))
-            .map(|d| listed_ref(&d.repo, &d.name))
-            .collect())
+        parse_si(&output.stdout).map_err(|_| unreadable())
     }
 
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, ErrorKind> {
@@ -2563,7 +2558,7 @@ mod tests {
         assert_eq!(
             fake.ran[5..7],
             [
-                PacmanCommand::PrivateSearch("editor".to_string()),
+                PacmanCommand::PrivateSearch(vec!["editor".to_string()]),
                 PacmanCommand::PrivatePackageDetails(vec![pkg("extra", "vim")]),
             ]
         );

@@ -65,12 +65,15 @@ pub fn provider_picks<'a>(
     found
 }
 
-/// What the update's reading of golden rule 10 asks the repositories and the system. The app answers by running pacman
-/// as the user, the helper by its fixed commands.
-pub trait UpdateFacts {
+/// Most names one search takes; more are split into several searches, none dropped.
+pub const SEARCH_BATCH: usize = 100;
+
+/// What judging whether a pick is a real choice asks the repositories and the system. The app answers by running
+/// pacman as the user, the helper by its fixed commands.
+pub trait ChoiceFacts {
     type Error;
-    /// The repository packages that provide `name` (`-Ss '^name$'`, each confirmed with `-Si`).
-    fn providers(&mut self, name: &str) -> Result<Vec<PackageRef>, Self::Error>;
+    /// Every repository package that one search for these names finds (`-Ss '^(a|b)$'`), as `-Si` describes it.
+    fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, Self::Error>;
     /// `pacman -T`: is `dependency` satisfied by what is installed now?
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, Self::Error>;
 }
@@ -86,16 +89,29 @@ pub trait UpdateFacts {
 /// `-T` alone is not enough: it answers for what is installed NOW, and a provider whose new version drops the name
 /// leaves pacman with a choice (measured). What satisfies a name and is in no repository is not seen, so such a pick
 /// stays (fails closed).
-pub fn update_picks<F: UpdateFacts>(
+pub fn real_choices<F: ChoiceFacts>(
     picks: Vec<ProviderPick>,
     listed: &[&PackageDetails],
     is_installed: impl Fn(&str) -> bool,
     facts: &mut F,
 ) -> Result<Vec<ProviderPick>, F::Error> {
+    if picks.is_empty() {
+        return Ok(picks);
+    }
+    let names: Vec<String> = picks.iter().map(|pick| pick.dependency.clone()).collect();
+    // Stub: one search, however many names.
+    let found = facts.candidates(&names)?;
     let mut kept = Vec::new();
     for pick in picks {
         let name = pick.dependency.as_str();
-        let providers = facts.providers(name)?;
+        let providers: Vec<PackageRef> = found
+            .iter()
+            .filter(|d| d.provides.iter().any(|p| p.name == name))
+            .map(|d| PackageRef {
+                repo: d.repo.clone(),
+                name: d.name.clone(),
+            })
+            .collect();
         // The same name in two repositories is two providers: pacman asks between them (R-07).
         let lone = !providers.is_empty() && providers.iter().all(|p| *p == pick.provider);
         if lone {
@@ -158,7 +174,7 @@ pub fn dependency_text(dependency: &Dependency) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse_si;
+    use crate::{parse_si, parse_ss};
 
     macro_rules! saved {
         ($name:literal) => {
@@ -360,16 +376,28 @@ mod tests {
         asked: Vec<String>,
     }
 
-    impl UpdateFacts for Facts {
+    impl ChoiceFacts for Facts {
         type Error = ();
-        fn providers(&mut self, name: &str) -> Result<Vec<PackageRef>, ()> {
-            self.asked.push(format!("providers {name}"));
-            Ok(self.providers.iter().map(|n| plain(n)).collect())
+        fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, ()> {
+            self.asked.push(format!("search {}", names.join(" ")));
+            Ok(self
+                .providers
+                .iter()
+                .map(|n| provider(n, "extra", names))
+                .collect())
         }
         fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, ()> {
             self.asked.push(format!("satisfied {}", dependency.name));
             Ok(self.satisfied)
         }
+    }
+
+    /// A repository package that provides every one of `names`.
+    fn provider(name: &str, repo: &str, names: &[String]) -> PackageDetails {
+        let mut details = listed(name, vec![]);
+        details.repo = repo.to_string();
+        details.provides = names.iter().map(|n| dependency(n, None)).collect();
+        details
     }
 
     fn plain(name: &str) -> PackageRef {
@@ -423,7 +451,7 @@ mod tests {
             provider: plain("new"),
         }];
         let kept =
-            update_picks(picks, &listed, |name| installed.contains(&name), &mut facts).unwrap();
+            real_choices(picks, &listed, |name| installed.contains(&name), &mut facts).unwrap();
         (kept.len(), facts.asked)
     }
 
@@ -441,12 +469,13 @@ mod tests {
         ];
         let listed: Vec<&PackageDetails> = details.iter().collect();
         struct TwoRepos;
-        impl UpdateFacts for TwoRepos {
+        impl ChoiceFacts for TwoRepos {
             type Error = ();
-            fn providers(&mut self, _: &str) -> Result<Vec<PackageRef>, ()> {
-                let mut other = plain("new");
-                other.repo = "extra-testing".to_string();
-                Ok(vec![plain("new"), other])
+            fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, ()> {
+                Ok(vec![
+                    provider("new", "extra", names),
+                    provider("new", "extra-testing", names),
+                ])
             }
             fn satisfied(&mut self, _: &Dependency) -> Result<bool, ()> {
                 Ok(false)
@@ -456,7 +485,7 @@ mod tests {
             dependency: "virtual".to_string(),
             provider: plain("new"),
         }];
-        let kept = update_picks(picks, &listed, |_| false, &mut TwoRepos).unwrap();
+        let kept = real_choices(picks, &listed, |_| false, &mut TwoRepos).unwrap();
         assert_eq!(kept.len(), 1);
     }
 
@@ -504,7 +533,7 @@ mod tests {
             dependency: "virtual".to_string(),
             provider: plain("new"),
         }];
-        update_picks(picks, &listed, |name| name == "other", &mut facts)
+        real_choices(picks, &listed, |name| name == "other", &mut facts)
             .unwrap()
             .len()
     }
@@ -543,10 +572,13 @@ mod tests {
         ];
         let listed: Vec<&PackageDetails> = details.iter().collect();
         struct Only;
-        impl UpdateFacts for Only {
+        impl ChoiceFacts for Only {
             type Error = ();
-            fn providers(&mut self, _: &str) -> Result<Vec<PackageRef>, ()> {
-                Ok(vec![plain("new"), plain("other")])
+            fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, ()> {
+                Ok(vec![
+                    provider("new", "extra", names),
+                    provider("other", "extra", names),
+                ])
             }
             fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, ()> {
                 Ok(dependency.rule.is_none())
@@ -556,27 +588,112 @@ mod tests {
             dependency: "virtual".to_string(),
             provider: plain("new"),
         }];
-        let kept = update_picks(picks, &listed, |name| name == "other", &mut Only).unwrap();
+        let kept = real_choices(picks, &listed, |name| name == "other", &mut Only).unwrap();
         assert_eq!(kept.len(), 1);
     }
 
     #[test]
     fn a_lone_provider_needs_no_deptest_and_no_picks_ask_nothing() {
-        assert_eq!(
-            left(None, &["new"], false, &[], &[]).1,
-            ["providers virtual"]
-        );
+        assert_eq!(left(None, &["new"], false, &[], &[]).1, ["search virtual"]);
         let mut facts = Facts {
             providers: vec![],
             satisfied: false,
             asked: Vec::new(),
         };
         assert!(
-            update_picks(vec![], &[], |_| false, &mut facts)
+            real_choices(vec![], &[], |_| false, &mut facts)
                 .unwrap()
                 .is_empty()
         );
         assert!(facts.asked.is_empty());
+    }
+
+    /// More names than one search takes: several searches, every name in one of them, none refused.
+    #[test]
+    fn many_names_are_searched_in_batches_and_none_is_dropped() {
+        let count = SEARCH_BATCH * 2 + 3;
+        let names: Vec<String> = (0..count).map(|n| format!("virtual{n}")).collect();
+        let details = [
+            listed("app", names.iter().map(|n| dependency(n, None)).collect()),
+            listed("new", vec![]),
+        ];
+        let listed: Vec<&PackageDetails> = details.iter().collect();
+        let picks: Vec<ProviderPick> = names
+            .iter()
+            .map(|name| ProviderPick {
+                dependency: name.clone(),
+                provider: plain("new"),
+            })
+            .collect();
+        struct Batches(Vec<Vec<String>>);
+        impl ChoiceFacts for Batches {
+            type Error = ();
+            fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, ()> {
+                self.0.push(names.to_vec());
+                Ok(vec![provider("new", "extra", names)])
+            }
+            fn satisfied(&mut self, _: &Dependency) -> Result<bool, ()> {
+                Ok(false)
+            }
+        }
+        let mut facts = Batches(Vec::new());
+        let kept = real_choices(picks, &listed, |_| false, &mut facts).unwrap();
+        // Each has the one provider its own batch found.
+        assert!(kept.is_empty(), "{kept:?}");
+        assert_eq!(facts.0.len(), 3);
+        assert!(facts.0.iter().all(|batch| batch.len() <= SEARCH_BATCH));
+        let mut searched: Vec<String> = facts.0.concat();
+        searched.sort();
+        let mut wanted = names.clone();
+        wanted.sort();
+        assert_eq!(searched, wanted);
+    }
+
+    /// The batched search must find exactly what one search per name finds (real pacman output; the container test
+    /// compares them again on every run). `tidewise-single` is only PROVIDED, `libtide++.so` has plus signs.
+    #[test]
+    fn one_batched_search_finds_what_one_search_per_name_finds() {
+        let found = |text: &str| -> Vec<(String, String)> {
+            parse_ss(text)
+                .unwrap()
+                .into_iter()
+                .map(|r| (r.repo, r.name))
+                .collect()
+        };
+        let mut one_by_one: Vec<(String, String)> = [
+            saved!("search-one-libtide.stdout.txt"),
+            saved!("search-one-libtidewise.stdout.txt"),
+            saved!("search-one-single.stdout.txt"),
+            saved!("search-one-virtual.stdout.txt"),
+            saved!("search-one-hello.stdout.txt"),
+        ]
+        .iter()
+        .flat_map(|text| found(text))
+        .collect();
+        one_by_one.sort();
+        let mut batched = found(saved!("search-batch.stdout.txt"));
+        batched.sort();
+        assert_eq!(batched, one_by_one);
+        assert!(
+            batched
+                .iter()
+                .any(|(_, name)| name == "tidewise-dummy-one-prov")
+        );
+        // The fixture was captured with exactly the pattern the code builds for these names.
+        let names: Vec<String> = [
+            "libtide++.so",
+            "libtidewise.so",
+            "tidewise-single",
+            "tidewise-virtual",
+            "tidewise-dummy-hello",
+        ]
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+        assert_eq!(
+            crate::exact_pattern_any(&names),
+            r"^(libtide\+\+\.so|libtidewise\.so|tidewise-single|tidewise-virtual|tidewise-dummy-hello)$"
+        );
     }
 
     #[test]

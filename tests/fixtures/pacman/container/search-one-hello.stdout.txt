@@ -1,0 +1,2 @@
+tidewise-test/tidewise-dummy-hello 1.0-1
+    Tidewise test package with no dependencies

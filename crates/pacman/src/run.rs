@@ -14,10 +14,10 @@ use std::process::{Command, Output, Stdio};
 use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
-    Dependency, DetailsLookup, GroupMember, HeldBlock, InstalledPackage, PackageRef, PacmanError,
-    ParseError, PendingUpdate, Resolution, ResolveInput, SearchResult, SyncLists, UpdateFacts,
-    UpdatePlan, dependency_text, held_block, parse_print, parse_qi, parse_qu, parse_si, parse_ss,
-    update_picks, update_plan,
+    ChoiceFacts, Dependency, DetailsLookup, GroupMember, HeldBlock, InstalledPackage,
+    PackageDetails, PackageRef, PacmanError, ParseError, PendingUpdate, Resolution, ResolveInput,
+    SearchResult, SyncLists, UpdatePlan, dependency_text, held_block, parse_print, parse_qi,
+    parse_qu, parse_si, parse_ss, real_choices, update_plan,
 };
 use crate::{parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
@@ -446,6 +446,11 @@ pub fn exact_pattern(name: &str) -> String {
     format!("^{}$", escape_ere(name))
 }
 
+/// One pattern for many names, each matched as itself only. Stub.
+pub fn exact_pattern_any(_names: &[String]) -> String {
+    String::new()
+}
+
 /// A dry run's result: the list, or one of the failures the resolver has a state for. Anything else is an error
 /// with pacman's own words.
 fn dry_run_from_output(output: &Output) -> Result<DryRun, PacmanError> {
@@ -544,7 +549,7 @@ fn update_lookup_with(
     if !plan.picks.is_empty() {
         let details = parse_si(&si)?;
         let installed: HashSet<String> = parse_qi(&qi)?.into_iter().map(|p| p.name).collect();
-        plan.picks = update_picks(
+        plan.picks = real_choices(
             std::mem::take(&mut plan.picks),
             &details.iter().collect::<Vec<_>>(),
             |name| installed.contains(name),
@@ -554,31 +559,27 @@ fn update_lookup_with(
     Ok(UpdateLookup::Plan(Box::new(plan)))
 }
 
-/// The reads behind `update_picks`, the same ones the helper makes.
+/// The reads behind `real_choices`, the same ones the helper makes.
 struct LookupFacts<'a> {
     run: &'a dyn Fn(&[String]) -> Result<Output, PacmanError>,
 }
 
-impl UpdateFacts for LookupFacts<'_> {
+impl ChoiceFacts for LookupFacts<'_> {
     type Error = PacmanError;
 
-    fn providers(&mut self, name: &str) -> Result<Vec<PackageRef>, PacmanError> {
-        let found = results_from_output(&(self.run)(&exact_search_args(name))?)?;
-        let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
-        if request.is_empty() {
-            return Ok(Vec::new());
+    /// Stub: still one search per name.
+    fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, PacmanError> {
+        let mut all = Vec::new();
+        for name in names {
+            let found = results_from_output(&(self.run)(&exact_search_args(name))?)?;
+            let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
+            if request.is_empty() {
+                continue;
+            }
+            let output = (self.run)(&details_args(&request))?;
+            all.extend(lookup_from_output(&output, &request)?.found);
         }
-        let output = (self.run)(&details_args(&request))?;
-        // `-Ss` also matches names and descriptions: only what `-Si` says provides the name counts.
-        Ok(lookup_from_output(&output, &request)?
-            .found
-            .into_iter()
-            .filter(|d| d.provides.iter().any(|p| p.name == name))
-            .map(|d| PackageRef {
-                repo: d.repo,
-                name: d.name,
-            })
-            .collect())
+        Ok(all)
     }
 
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, PacmanError> {
@@ -2194,7 +2195,7 @@ mod update_lookup_tests {
                 "-Si -- tidewise-test/tidewise-dummy-upd tidewise-test/tidewise-dummy-prov-a \
                  tidewise-test/tidewise-dummy-upd-virt",
                 "-Qi",
-                "-Ss -- ^tidewise-virtual$",
+                "-Ss -- ^(tidewise-virtual)$",
             ]
         );
         let Ok(UpdateLookup::Plan(plan)) = result else {
@@ -2295,7 +2296,7 @@ mod update_lookup_tests {
         let (plan, seen) = with_providers(saved!("provider", "ss.stdout"), 127);
         assert_eq!(plan.picks.len(), 1);
         assert!(
-            seen.contains(&"-Ss -- ^tidewise-virtual$".to_string()),
+            seen.contains(&"-Ss -- ^(tidewise-virtual)$".to_string()),
             "{seen:?}"
         );
         assert!(

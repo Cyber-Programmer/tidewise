@@ -1,0 +1,6 @@
+tidewise-test/tidewise-dummy-so-32 1.0-1
+    Tidewise test provider of another version of that name
+tidewise-test/tidewise-dummy-so-a 1.0-1
+    Tidewise test provider A of a shared library name
+tidewise-test/tidewise-dummy-so-b 1.0-1
+    Tidewise test provider B of a shared library name

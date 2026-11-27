@@ -138,6 +138,7 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::PrivatePendingUpdates
         | PacmanCommand::PrivatePackageDetails(_)
         | PacmanCommand::PrivateSearch(_)
+        | PacmanCommand::Search(_)
         | PacmanCommand::DepTest(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
         PacmanCommand::PrivateSync
@@ -427,7 +428,8 @@ mod tests {
             PacmanCommand::PackageDetails(list.clone()),
             PacmanCommand::PrivatePendingUpdates,
             PacmanCommand::PrivatePackageDetails(list.clone()),
-            PacmanCommand::PrivateSearch("editor".to_string()),
+            PacmanCommand::PrivateSearch(vec!["editor".to_string()]),
+            PacmanCommand::Search(vec!["editor".to_string()]),
             PacmanCommand::DepTest(tidewise_pacman::Dependency {
                 name: "editor".to_string(),
                 rule: None,

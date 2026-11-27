@@ -13,7 +13,7 @@
 //! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
-use tidewise_pacman::{Dependency, dependency_text, exact_pattern};
+use tidewise_pacman::{Dependency, dependency_text};
 
 use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
@@ -52,9 +52,11 @@ pub enum PacmanCommand {
     /// `pacman -Si --dbpath /run/tidewise-helper-lists/ -- repo/name ...`: the same, from the PRIVATE copy of the
     /// package lists (a read). The provider check of a system update, before anything is moved (golden rule 10).
     PrivatePackageDetails(Vec<PackageRef>),
-    /// `pacman -Ss --dbpath /run/tidewise-helper-lists/ -- ^name$`: which packages of the private copy are named so
-    /// or provide it (a read). The update's provider check counts them (decision 0009).
-    PrivateSearch(String),
+    /// `pacman -Ss --dbpath /run/tidewise-helper-lists/ -- ^(name|name)$`: which packages of the private copy are
+    /// named so or provide one of them (a read). The update's provider check counts them (decision 0009).
+    PrivateSearch(Vec<String>),
+    /// `pacman -Ss -- ^(name|name)$`: the same against the real lists, for the provider check of an install.
+    Search(Vec<String>),
     /// `pacman -T -- name[<op>version]`: is this satisfied by what is installed? (a read; exit 127 means no).
     DepTest(Dependency),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
@@ -125,17 +127,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             repo_and_name(packages)?,
             Names::Required,
         ),
-        PacmanCommand::PrivateSearch(name) => {
-            if !is_valid_package_name(name) {
-                return Err(ArgsRefused::BadName);
-            }
-            build(
-                &["-Ss"],
-                &["--dbpath", LISTS_DBPATH],
-                vec![exact_pattern(name)],
-                Names::Required,
-            )
-        }
+        PacmanCommand::PrivateSearch(_) | PacmanCommand::Search(_) => Err(ArgsRefused::NoTargets),
         PacmanCommand::DepTest(dependency) => {
             let text = dependency_text(dependency).ok_or(ArgsRefused::BadName)?;
             build(&["-T"], &[], vec![text], Names::Required)
@@ -246,7 +238,8 @@ mod tests {
             PacmanCommand::MarkAsDeps(two()),
             PacmanCommand::PackageDetails(two()),
             PacmanCommand::PrivatePackageDetails(two()),
-            PacmanCommand::PrivateSearch("tidewise-virtual".to_string()),
+            PacmanCommand::PrivateSearch(strings(&["tidewise-virtual"])),
+            PacmanCommand::Search(strings(&["libstdc++.so", "a.b"])),
             PacmanCommand::DepTest(need("java-runtime", Some("17"))),
             PacmanCommand::ListInstalled,
         ]
@@ -273,10 +266,11 @@ mod tests {
             PacmanCommand::PrivateSearch(_) => 11,
             PacmanCommand::DepTest(_) => 12,
             PacmanCommand::PrivatePendingUpdates => 13,
+            PacmanCommand::Search(_) => 14,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 13;
+    const LAST: usize = 14;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -422,16 +416,20 @@ mod tests {
                     "extra/jre-openjdk",
                 ]),
             ),
-            // The name is anchored and its regex characters are escaped: it matches itself only.
+            // Every name anchored and escaped, so it matches itself only: `.` and `+` are not left to the regex.
             (
-                PacmanCommand::PrivateSearch("gtk+-x11.so".to_string()),
+                PacmanCommand::PrivateSearch(strings(&["gtk+-x11.so"])),
                 strings(&[
                     "-Ss",
                     "--dbpath",
                     "/run/tidewise-helper-lists/",
                     "--",
-                    "^gtk\\+-x11\\.so$",
+                    "^(gtk\\+-x11\\.so)$",
                 ]),
+            ),
+            (
+                PacmanCommand::Search(strings(&["libstdc++.so", "a.b", "libGL.so"])),
+                strings(&["-Ss", "--", "^(libstdc\\+\\+\\.so|a\\.b|libGL\\.so)$"]),
             ),
             (
                 PacmanCommand::DepTest(need("java-runtime", Some("1:17"))),
@@ -536,18 +534,33 @@ mod tests {
 
     #[test]
     fn the_search_and_the_deptest_take_nothing_that_is_not_plain() {
-        for bad in ["-x", "a b", "", "a$(b)", "a|b", "*", "../x"] {
-            assert_eq!(
-                args(&PacmanCommand::PrivateSearch(bad.to_string())),
-                Err(ArgsRefused::BadName),
-                "{bad:?}"
-            );
+        // Nothing outside the allow-list can reach the pattern, wherever in the list it is: no `|`, `)`, `*` or space
+        // that would turn one name into a wider regex.
+        for bad in [
+            "-x", "a b", "", "a$(b)", "a|b", "*", "../x", "a)|(.*", "a\\", ".a", "a\n",
+        ] {
+            for names in [
+                strings(&[bad]),
+                strings(&["good", bad]),
+                strings(&[bad, "good"]),
+            ] {
+                for command in [
+                    PacmanCommand::PrivateSearch(names.clone()),
+                    PacmanCommand::Search(names.clone()),
+                ] {
+                    assert_eq!(args(&command), Err(ArgsRefused::BadName), "{command:?}");
+                }
+            }
             assert_eq!(
                 args(&PacmanCommand::DepTest(need(bad, None))),
                 Err(ArgsRefused::BadName),
                 "{bad:?}"
             );
         }
+        assert_eq!(
+            args(&PacmanCommand::Search(vec![])),
+            Err(ArgsRefused::NoTargets)
+        );
         for version in ["", "-1", "1 2", "1;2"] {
             assert_eq!(
                 args(&PacmanCommand::DepTest(need("a", Some(version)))),
