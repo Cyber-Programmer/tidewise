@@ -1598,19 +1598,15 @@ R-04, R-07: unit tests, and the reviewer's scratch reproductions re-run against 
 expectations about the update rule were wrong and changed in the red commit. (4) No WBS sheet update (as asked).
 
 ### 6.5 manual checklist (the first real update through Tidewise)
-**While S-01 and S-02 are open: if the review shows "Not done by Tidewise" (any replacement), or step 3's two lists
-disagree, do not press Update** (steps 5-8). Only your `sudo` lines and the installed helper run pacman as root. Do it
-on the final commit.
+Only your `sudo` lines and the installed helper run pacman as root. Do it on the final commit.
 1. Build and install as in the 6.4b checklist, steps 1-2 (`pacman -U` of the local package; the list must show only
    `tidewise`). Save what you have: `pacman -Q > ~/before.txt`. Read https://archlinux.org/news/ first.
 2. Start Tidewise, open **Updates**, press "Check for updates". No password. The card says what it found.
    `ls -l /var/lib/pacman/sync/*.db` has the same times as before the check.
 3. In a terminal, compare (read only, as you):
-   `pacman -Qu --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"` and
-   `pacman -Su --print --print-format '%n %v' --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"`.
-   Every name of the first that is not marked `[ignored]` must be in the second, and in the review. If one is
-   missing, Tidewise must show the "replacement" card instead of a review. **If the review shows "Not done by
-   Tidewise", stop here (S-01, S-02).**
+   `pacman -Su --print --print-format '%n %v' --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"`: the same packages as the
+   review. If a `sudo pacman -Syu` would ask "Replace ... ?", Tidewise must show "This update includes a replacement
+   Tidewise can't do yet" and offer no Update button.
 4. Check the review: rows `old → new` with sizes, "Packages", "Download", the disk tile, "Nothing will be removed.", the
    news line. Technical details open and close. Up, Down, Page Up, Page Down, Home, End scroll the list.
 5. Press "Update N packages", close the password window. Back on the review: "The password prompt was closed. Nothing
@@ -1626,10 +1622,12 @@ on the final commit.
 10. Optional: Search for a package on a system with updates pending: the "needs updating first" card's "Update system"
     button opens Updates and checks.
 11. Keyboard and Orca: is each card's title spoken, does the bar read its value, Tab order on review, blocked and done.
-    The smallest window size: with a replacement or held box, are the package rows still reachable?
+    The smallest window size: with a held box, are the package rows still reachable?
 12. Install (shared libraries): Search a package that needs libraries you do not have (for example `gimp`) and press
     Install up to the review, then Cancel. It must reach the review in a few seconds. On a system with neither `jack2`
-    nor `pipewire-jack`, something that needs `libjack.so` shows "needs a choice Tidewise can't make yet".
+    nor `pipewire-jack`, something that needs `libjack.so` shows "needs a choice Tidewise can't make yet" with
+    "Install jack2" and "Install pipewire-jack": neither is highlighted, the focus is on Back, Tab reaches both, and
+    pressing one starts a normal install of it (cancel at the review).
 13. Install one small package: after the password the card says "Checking the list again" before it downloads, and
     never sits on "Waiting for your password" while it checks. Remove it again with `sudo pacman -Rns <it>`.
 14. Back to how it was: `sudo pacman -Rns tidewise` (the list must show only `tidewise`), `rm -r ~/tidewise-build
@@ -1658,3 +1656,25 @@ afterwards from the pre-fix commit in a temporary worktree. (2) One measurement 
 the test image (read-only `--print` and `-Si` calls); the container rule allows read-only mounts of binaries only.
 (3) Test mistakes corrected in green commits (two pick tests; refusals now expect the "checking" event). (4) No red
 step for the container tests added after the fixes. (5) No WBS sheet update.
+
+## 2026-11-27 — 6.5 replacements block, soname choice card, third review
+Done:
+- **Replacements block** (your decision): `-Qu` check removed (`ab29cb3`); shared `listed_replacements` (`8758b92`):
+  installed replacers count too (measured), versioned entries judged with `pacman -T`. The helper now reads the private
+  `-Si` for every update (the "pure upgrades skip" shortcut is gone). No new command. S-01, S-02, S-06 closed.
+- **Soname card on installs** (`fb75f9b`): one "Install <candidate>" button each, no default.
+- **S-03, S-04** recorded as limits.
+- **Third review:** **T-01 (Medium, open):** the self-replacement exemption lets unlisted installs through (verified).
+  T-02 (false refusals). Not fixed (stop was asked).
+- **Checks** on `fb75f9b`: `cargo test --all` 1303 passed, 0 failed, 164 ignored; fmt, clippy, `cargo deny`, release
+  build, fuzz fmt: exit 0. `fuzz build` failed on a removed method, fixed in the next commit (`039c02f`).
+- **Fuzz** on `039c02f`, 600 s each, exit 0, no artifacts: `update` 2,637,140 runs, `choices` 1,747,556. A first try
+  was cut short by a machine suspend (two "slow unit" files that run in milliseconds); rerun in full.
+- **Container:** **`tests/container/run.sh` could not run: six tries, `archive.archlinux.org` timed out building the
+  test image. The 18 package tests did not run.** Stand-in for the other files: a throwaway offline layer with the new
+  dummy packages on the cached test image, same `podman run` flags, read-only binaries only: 140 passed, 0 failed.
+Next: your decision on T-01; `tests/container/run.sh` when the archive answers; checklist; push; PR.
+Blockers: T-01; the package tests. For v0.1 also threat model 40 (6.6).
+Open: `fds.rs` flaky test (not touched).
+Rules bent: (1) the container run is a stand-in, not `run.sh`. (2) No red step for the container tests written after the
+fix. (3) A network probe of the archive was denied; not retried. (4) No WBS sheet update.

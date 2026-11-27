@@ -1,8 +1,7 @@
 # 0009 — Update system: what the review shows, and what blocks it
 
-- Status: **Accepted** (26 Nov 2026), amended 27 Nov 2026 after the review
-  (`docs/security/reviews/6.5-update-system.md`). **Not safe to release:** the second review found that R-01 is only
-  partly closed (S-01, S-02, open). R-02 is fixed except two smaller gaps (S-03, S-04).
+- Status: **Accepted** (26 Nov 2026), amended 27 Nov 2026 twice after the reviews
+  (`docs/security/reviews/6.5-update-system.md`): **replacements are blocked, not skipped.**
 - Decided by: Bahauddin Hassan (human), 26 Nov 2026: Arch news (a); rule 10 (a); skip replacements, block conflicts;
   then A1 and B1 after the measurements
 - Task: WBS 6.5 (PLAN D9; golden rules 4, 5, 10, 11, 13; threat model 41)
@@ -40,24 +39,36 @@ no choice are let through. **Installs are unchanged** and still name every pick.
    The second half is Claude's addition: the human asked for `-T`, and `-T` alone would let the "drops the name" case
    through. It uses only the approved reads.
 
-## Nothing the dry run leaves out (review R-01, 27 Nov 2026)
+## No update with a replacement (human's decision, 27 Nov 2026; reviews R-01, S-01, S-02, S-06)
 
-`--ask 66` (or any other flag) does not change what `-Su --print` lists, measured. So the preview cannot be made equal
-to the real run that way. Instead: the helper runs `-Qu --dbpath /run/tidewise-helper-lists/` (approved) and refuses
-when a non-`[ignored]` upgrade it names is not on the confirmed list; the app blocks the same case from its own `-Qu`
-before the password. Such an update has to be done in a terminal.
+**The v0.1 rule changes from "skip" to "block".** Skipping was not safe: after `--ask 66` declines a replacement,
+pacman can upgrade the replaced package and install what that or another upgrade needs, none of it in the dry run
+(R-01: the old package has a newer version; S-01: an upgrade needs a name the replacer provides; S-02: the same with
+nothing in `-Qu`). `--ask 66` does not change what `-Su --print` lists, and comparing `-Qu` (built, then removed) did
+not cover S-01 or S-02 and refused ordinary updates under one `IgnoreGroup` case (S-06).
 
-**This is not enough (second review).** A declined replacement can still install packages nobody listed when an upgrade
-needs a name the replacer provides and a package is literally called that (S-01), and `-Qu` shows nothing when an
-earlier repository's `Usage` lacks `Upgrade` (S-02). It can also refuse an ordinary update when only a new version
-joins an `IgnoreGroup` (S-06). Proposed, not built (a new command): a second private dry run with
-`--ignore <the replacers>`, whose every line must be on the confirmed list; it predicted the real run in the measured
-cases and could replace the `-Qu` comparison.
+**The rule** (`listed_replacements`, one function for app and helper): any package in the dry run, **installed ones
+too** (an installed replacer is listed again, measured), whose `Replaces` names an installed package other than itself.
+A versioned entry counts only when `pacman -T` says the installed version fits (47 name-only matches on the
+development machine, none fitting their version). The app shows "This update includes a replacement Tidewise can't do
+yet. Run sudo pacman -Syu once in a terminal; pacman will ask you about it." before the password; the helper refuses
+(`transaction_changed`, lists untouched) for both update actions. No new helper command; the helper now reads the
+private `-Si` for every update. **Replacements themselves are WBS 7.5.**
+
+**Open (third review, T-01):** the rule skips a package that replaces its own name; one that is not newer than the
+installed copy can still lead the real run to install unlisted packages. **Not safe to release until decided.**
+**T-02:** with `IgnorePkg` on the replaced package, or a replacer in a later repository, Tidewise blocks although
+pacman would ask nothing.
+
+Consequence: while a replacement is pending, nothing can be updated in Tidewise. A replacement the user always
+declines blocks every update until they accept it, remove one of the two, or ignore it in `pacman.conf`.
 
 ## Shared libraries (review R-02, 27 Nov 2026)
 
 A soname need counts only providers with the identical version. A real choice (several, and none installed that stays
-and satisfies `-T`) refuses an update and blocks an install; Tidewise never asks about a soname. In the repositories of
+and satisfies `-T`) refuses an update (the terminal card) and blocks an install. The install card names the choice,
+"<package> needs a <library> library, and more than one package can provide it. Install one of them first, then try
+again:", with one "Install <candidate>" button each, a normal install of that package; no default (human, 27 Nov). In the repositories of
 27 Nov 2026 only six soname entries have two providers (`zlib`/`zlib-ng-compat`, 32 and 64 bit; `jack2`/`pipewire-jack`,
 two entries; mariadb; iptables). **Consequence:** on a system with neither `jack2` nor `pipewire-jack`, installing
 plasma or gnome is blocked (they need `libjack.so`).
@@ -79,10 +90,7 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
    -- repo/name ...`), and answers `provider_not_chosen`. The helper always runs `pacman -Q`; `-Si` and the pick rule
    are skipped when everything listed is installed already. (The plan said the `-Q` could be skipped too; it cannot:
    `-Q` is how that is known.) The protocol is unchanged.
-3. **Replacements are skipped,** with "<new> replaces <old>. Tidewise doesn't do replacements yet; run sudo pacman
-   -Syu in a terminal to accept it." The replacer, and what only it needs, are not counted. The helper is still sent
-   the whole dry run, so the password window can count more than the button; the review says so.
-4. **Nothing but replacements:** no Update button; "Your system is up to date" with the replacement line (A1).
+3. **Replacements block** (see above; this replaces "skip", and with it A1's "nothing but replacements").
 5. **A held package that an upgrade needs** blocks the update with its own card, naming both and the terminal way
    (B1). **A conflict** with an installed package blocks it before the password.
 6. **Restart line** after a successful update that installed an official kernel, `systemd`, `mesa` or `nvidia*`.
@@ -95,6 +103,10 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 - From reading, not reproduced: an installed provider held by `IgnorePkg` is judged by its repository version's
   `Provides`, and `-T` may be satisfied by a different package.
 - A repository whose `Usage` lacks `Search` is not seen by `-Ss`: a provider there is not counted (R-06, accepted).
+- A soname need spelled differently from the `Provides` (`>=`, or without the release part) is not judged, so pacman
+  may choose a provider unasked (S-03, accepted; the second review found no such need in the official repositories).
+- False refusal: when a package names the provider before the soname, pacman asks nothing but Tidewise refuses or
+  blocks (S-04, accepted; for example `mariadb-libs` before `libmariadb.so`).
 - Conflicts and replacements with a version rule: versioned conflicts are not judged (pacman aborts the real run);
   a replacement is matched by name only.
 - `-Si` of a very large update can pass the helper's 4 MiB output cap (about 5000 packages); the update is refused.
