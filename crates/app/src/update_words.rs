@@ -261,16 +261,51 @@ mod tests {
         );
     }
 
+    /// The self-replacing one is what keeps Tidewise blocked, so it is named even when it is listed second.
     #[test]
-    fn a_self_replacement_next_to_another_one_keeps_the_general_words() {
+    fn a_self_replacement_next_to_a_normal_one_names_itself_and_lists_the_other() {
         let words = block_words(&UpdateBlock::Replacement(vec![
-            replacement("self", "self"),
             replacement("new", "old"),
+            replacement("python-pylint-pydantic", "python-pylint-pydantic"),
         ]));
         assert_eq!(
             words.title,
-            "This update includes a replacement Tidewise can't do yet"
+            "python-pylint-pydantic marks itself as a replacement, so Tidewise can't update while it's installed"
         );
+        assert_eq!(words.body, "Also replaced: old.");
+        assert_eq!(
+            words.advice,
+            "Update with sudo pacman -Syu in a terminal instead."
+        );
+    }
+
+    #[test]
+    fn two_self_replacements_name_the_first_and_list_the_second() {
+        let words = block_words(&UpdateBlock::Replacement(vec![
+            replacement("python-pylint-plugin-utils", "python-pylint-plugin-utils"),
+            replacement("python-pylint-pydantic", "python-pylint-pydantic"),
+        ]));
+        assert_eq!(
+            words.title,
+            "python-pylint-plugin-utils marks itself as a replacement, so Tidewise can't update while it's installed"
+        );
+        assert_eq!(words.body, "Also replaced: python-pylint-pydantic.");
+        assert_eq!(
+            words.advice,
+            "Update with sudo pacman -Syu in a terminal instead."
+        );
+    }
+
+    /// Nothing listed is hidden, and a name listed twice is said once.
+    #[test]
+    fn every_other_replaced_name_is_listed_once() {
+        let words = block_words(&UpdateBlock::Replacement(vec![
+            replacement("self", "self"),
+            replacement("self", "self-git"),
+            replacement("new", "old"),
+            replacement("newer", "old"),
+        ]));
+        assert_eq!(words.body, "Also replaced: self-git, old.");
     }
 
     #[test]
