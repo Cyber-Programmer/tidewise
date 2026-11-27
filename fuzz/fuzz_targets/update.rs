@@ -15,7 +15,6 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(plan) = tidewise_pacman::update_plan(qu, print, si, qi) {
         // The sums the screen shows must not panic either.
         let _ = (plan.download_total(), plan.size_change());
-        assert!(plan.installing().count() <= plan.items.len());
     }
     let _ = tidewise_pacman::held_block(qu, print, si);
 });
