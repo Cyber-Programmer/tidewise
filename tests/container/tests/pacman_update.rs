@@ -28,6 +28,7 @@ const UPD_SINGLE: &str = "tidewise-dummy-upd-single-2.0-1-any.pkg.tar.zst";
 const UPD_DROP: &str = "tidewise-dummy-upd-drop-2.0-1-any.pkg.tar.zst";
 const UPD_MOVING: &str = "tidewise-dummy-upd-moving-2.0-1-any.pkg.tar.zst";
 const UPD_BOTH: &str = "tidewise-dummy-upd-both-2.0-1-any.pkg.tar.zst";
+const OLD_NEWER: &str = "tidewise-dummy-old-2.0-1-any.pkg.tar.zst";
 const NEW_DEP: &str = "tidewise-dummy-new-dep-1.0-1-any.pkg.tar.zst";
 
 fn dry_run() -> Output {
@@ -178,6 +179,34 @@ fn what_only_a_declined_replacement_needs_is_listed_but_not_installed() {
     assert!(real.status.success(), "{}", text(&real.stderr));
     assert_eq!(installed_version("tidewise-dummy-new-dep"), None);
     assert_eq!(installed_version("tidewise-dummy-hello"), None);
+}
+
+/// Review 6.5 R-01: the replaced package also has a newer version. The dry run lists only the replacer, whatever
+/// `--ask` says; the real run declines the replacement and then upgrades the old package and what it needs. `-Qu`
+/// is what shows it.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_declined_replacement_upgrades_the_old_package_although_no_dry_run_lists_it() {
+    setup(&["tidewise-dummy-old"], &[OLD_NEWER, NEW]);
+    matches_fixtures(
+        fixture!("update-replace-newer-qu.stdout.txt"),
+        fixture!("update-replace-newer-print.stdout.txt"),
+    );
+    let listed = text(&dry_run().stdout);
+    for extra in [&["--ask", "66"][..], &["--noconfirm", "--ask", "66"]] {
+        let mut args = vec!["-Su", "--print", "--print-format", "%r/%n %v %s"];
+        args.extend(extra);
+        assert_eq!(pacman_stdout(&args), listed, "{extra:?}");
+    }
+
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert_eq!(
+        installed_version("tidewise-dummy-old").as_deref(),
+        Some("2.0-1")
+    );
+    assert!(installed_version("tidewise-dummy-hello").is_some());
+    assert_eq!(installed_version("tidewise-dummy-new"), None);
 }
 
 #[test]

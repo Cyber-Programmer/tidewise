@@ -1,0 +1,19 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-new
+Version         : 1.0-1
+Description     : Tidewise test package that replaces tidewise-dummy-old
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : tidewise-dummy-old
+Download Size   : 2.46 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 16:28:43 2026
+Validated By    : SHA-256 Sum
+

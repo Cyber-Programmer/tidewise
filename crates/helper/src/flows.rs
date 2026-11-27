@@ -1965,7 +1965,8 @@ mod tests {
         let items = transaction_of(&request);
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
-            ok(&print_text(&items)),     // the private copy
+            ok(&print_text(&items)),
+            out(1, "", ""),              // the private copy
             ok(&installed_text(&items)), // the provider check: all installed already
             ok(&print_text(&items)),     // the real lists, after the move
             ok("pacman 7.1.0-1\n"),
@@ -1979,6 +1980,7 @@ mod tests {
             vec![
                 PacmanCommand::PrivateSync,
                 PacmanCommand::PrivateDryRunUpdate(vec![]),
+                PacmanCommand::PrivatePendingUpdates,
                 PacmanCommand::ListInstalled,
                 PacmanCommand::DryRunUpdate(vec![]),
                 PacmanCommand::ListInstalled,
@@ -1989,7 +1991,7 @@ mod tests {
         // The folder was made and checked once, before the first command; the move happened after the private dry run
         // (two commands had run) and before the dry run on the real lists.
         assert_eq!(fake.prepared, 1);
-        assert_eq!(fake.moved_after, Some(3));
+        assert_eq!(fake.moved_after, Some(4));
         assert_eq!(result.lists, Some(ListsState::Moved));
         // One refresh, and it is the private one: no command refreshes the real lists.
         assert_eq!(
@@ -2037,7 +2039,7 @@ mod tests {
         let request = request(UPDATE);
         let mut items = transaction_of(&request);
         items.pop();
-        let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
+        let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items)), out(1, "", "")]);
         let (result, _) = go_full(&request, &mut fake);
         assert_eq!(
             result.outcome,
@@ -2065,6 +2067,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_text(&items)),
             ok(&print_text(&changed)),
         ]);
@@ -2073,8 +2076,8 @@ mod tests {
             result.outcome,
             Outcome::Error(ErrorKind::TransactionChanged)
         );
-        assert_eq!(fake.ran.len(), 4);
-        assert_eq!(fake.moved_after, Some(3));
+        assert_eq!(fake.ran.len(), 5);
+        assert_eq!(fake.moved_after, Some(4));
         assert_eq!(result.lists, Some(ListsState::Moved));
     }
 
@@ -2141,6 +2144,7 @@ mod tests {
             let mut fake = Fake::new(vec![
                 ok(SYNC_OUT),
                 ok(&print_text(&items)),
+                out(1, "", ""),
                 ok(&installed_text(&items)),
             ]);
             fake.move_result = Err(MoveError { error, renamed: 0 });
@@ -2156,7 +2160,7 @@ mod tests {
             }
             assert_eq!(
                 fake.ran.len(),
-                3,
+                4,
                 "{error:?}: nothing runs after a refused move"
             );
             assert_eq!(result.lists, Some(ListsState::Untouched), "{error:?}");
@@ -2171,6 +2175,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_text(&items)),
             ok(&print_text(&items)), // the real dry run still equals the list
             ok("pacman 7.1.0-1\n"),
@@ -2190,6 +2195,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_text(&items)),
         ]);
         fake.move_result = Err(MoveError {
@@ -2201,7 +2207,7 @@ mod tests {
             result.outcome,
             Outcome::Error(ErrorKind::PacmanFailed(_))
         ));
-        assert_eq!(fake.ran.len(), 3);
+        assert_eq!(fake.ran.len(), 4);
         assert_eq!(result.lists, Some(ListsState::Moved));
     }
 
@@ -2229,7 +2235,7 @@ mod tests {
             let request = request(text);
             let mut items = transaction_of(&request);
             items.pop();
-            let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items))]);
+            let mut fake = Fake::new(vec![ok(SYNC_OUT), ok(&print_text(&items)), out(1, "", "")]);
             let (outcome, _) = go(&request, &mut fake);
             assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
             assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
@@ -2257,6 +2263,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
@@ -2265,12 +2272,13 @@ mod tests {
         ]);
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
         // The targets are in BOTH dry runs, and the move sits between them.
-        assert_eq!(fake.moved_after, Some(2));
+        assert_eq!(fake.moved_after, Some(3));
         assert_eq!(
             fake.ran,
             vec![
                 PacmanCommand::PrivateSync,
                 PacmanCommand::PrivateDryRunUpdate(names_of(&install)),
+                PacmanCommand::PrivatePendingUpdates,
                 PacmanCommand::DryRunUpdate(names_of(&install)),
                 PacmanCommand::ListInstalled,
                 PacmanCommand::RealUpdate(names_of(&install)),
@@ -2294,6 +2302,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_text(&items)),
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
@@ -2330,6 +2339,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_text(&items)),
             ok(&print_text(&items)),
             ok(&installed_text(&items)),
@@ -2355,6 +2365,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_without(&items, "vim")),
             ok(&si),
             ok(&print_text(&items)),
@@ -2364,11 +2375,11 @@ mod tests {
         ]);
         assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
         assert_eq!(
-            fake.ran[2..4],
+            fake.ran[3..5],
             [PacmanCommand::ListInstalled, private_details(&request)]
         );
         // Both reads happen before the lists are moved in.
-        assert_eq!(fake.moved_after, Some(4));
+        assert_eq!(fake.moved_after, Some(5));
     }
 
     #[test]
@@ -2387,6 +2398,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_without(&items, "vim")),
             ok(&si),
             ok(&found(&["vim", "nano"])),
@@ -2394,7 +2406,7 @@ mod tests {
         ]);
         let (result, _) = go_full(&request, &mut fake);
         assert_eq!(result.outcome, Outcome::Error(ErrorKind::ProviderNotChosen));
-        assert_eq!(fake.ran.len(), 6, "{:?}", fake.ran);
+        assert_eq!(fake.ran.len(), 7, "{:?}", fake.ran);
         assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
         assert_eq!(result.lists, Some(ListsState::Untouched));
         assert!(fake.ran.iter().all(|c| !refreshes_the_real_lists(c)));
@@ -2412,7 +2424,7 @@ mod tests {
                 out(1, "", "error: boom\n"),
             ],
         ] {
-            let mut script = vec![ok(SYNC_OUT), ok(&print_text(&items))];
+            let mut script = vec![ok(SYNC_OUT), ok(&print_text(&items)), out(1, "", "")];
             script.extend(answers);
             let mut fake = Fake::new(script);
             let (result, _) = go_full(&request, &mut fake);
@@ -2436,6 +2448,7 @@ mod tests {
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed_without(&items, "vim")),
             ok(&si),
         ]);
@@ -2490,6 +2503,7 @@ mod tests {
         let mut script = vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
+            out(1, "", ""),
             ok(&installed),
             ok(&si),
         ];
@@ -2519,14 +2533,14 @@ mod tests {
             update_with_a_pick("", vec![ok(&found(&["vim"])), ok(&editors(&["vim"]))]);
         assert_eq!(result.outcome, Outcome::Ok);
         assert_eq!(
-            fake.ran[4..6],
+            fake.ran[5..7],
             [
                 PacmanCommand::PrivateSearch("editor".to_string()),
                 PacmanCommand::PrivatePackageDetails(vec![pkg("extra", "vim")]),
             ]
         );
         assert!(!fake.ran.contains(&deptest()));
-        assert_eq!(fake.moved_after, Some(6));
+        assert_eq!(fake.moved_after, Some(7));
     }
 
     #[test]
@@ -2540,8 +2554,8 @@ mod tests {
             ],
         );
         assert_eq!(result.outcome, Outcome::Ok);
-        assert_eq!(fake.ran[6], deptest());
-        assert_eq!(fake.moved_after, Some(7));
+        assert_eq!(fake.ran[7], deptest());
+        assert_eq!(fake.moved_after, Some(8));
     }
 
     #[test]
@@ -2587,6 +2601,74 @@ mod tests {
             ],
         ] {
             let (result, fake) = update_with_a_pick("nano 1-1\n", more);
+            assert!(
+                matches!(result.outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{:?}",
+                result.outcome
+            );
+            assert_eq!(fake.moved_after, None);
+        }
+    }
+
+    // ---- update: no upgrade the list does not name (review 6.5 R-01) ----------------------------------------
+
+    /// An update up to the private `-Qu`, which answers `pending`.
+    fn update_with_pending(
+        text: &str,
+        pending: Result<RunOutput, RunnerError>,
+    ) -> (JobResult, Fake) {
+        let request = request(text);
+        let items = transaction_of(&request);
+        let mut fake = Fake::new(vec![
+            ok(SYNC_OUT),
+            ok(&print_text(&items)),
+            pending,
+            ok(&installed_text(&items)),
+            ok(&print_text(&items)),
+            ok(&installed_text(&items)),
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            ok(&installed_text(&items)),
+        ]);
+        let (result, _) = go_full(&request, &mut fake);
+        (result, fake)
+    }
+
+    #[test]
+    fn an_upgrade_the_list_does_not_name_refuses_before_anything_moves() {
+        // Both update flows: a replaced package with a newer version is exactly this.
+        for text in [UPDATE, BOTH] {
+            let (result, fake) =
+                update_with_pending(text, ok("glibc 2.42-1 -> 2.42-2\nold-pkg 1-1 -> 2-1\n"));
+            assert_eq!(
+                result.outcome,
+                Outcome::Error(ErrorKind::TransactionChanged),
+                "{text}"
+            );
+            assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
+            assert_eq!(result.lists, Some(ListsState::Untouched));
+            assert_eq!(fake.ran.last(), Some(&PacmanCommand::PrivatePendingUpdates));
+        }
+    }
+
+    #[test]
+    fn listed_upgrades_and_held_ones_let_the_update_go_on() {
+        let (result, fake) = update_with_pending(
+            UPDATE,
+            ok("glibc 2.42-1 -> 2.42-2\nold-pkg 1-1 -> 2-1 [ignored]\n"),
+        );
+        assert_eq!(result.outcome, Outcome::Ok);
+        assert!(fake.ran.contains(&PacmanCommand::PrivatePendingUpdates));
+    }
+
+    #[test]
+    fn a_pending_list_that_cannot_be_read_refuses_with_the_lists_untouched() {
+        for pending in [
+            out(1, "", "error: failed to open database\n"),
+            ok("not a line\n"),
+            out(2, "", ""),
+        ] {
+            let (result, fake) = update_with_pending(UPDATE, pending);
             assert!(
                 matches!(result.outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
                 "{:?}",
