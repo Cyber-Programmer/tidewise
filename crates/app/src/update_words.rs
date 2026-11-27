@@ -1,5 +1,6 @@
 //! What the "Update system" cards say (WBS 6.5). Plain strings, no Slint.
 
+use crate::failure_words::refusal_text;
 use tidewise_helper_protocol::ErrorKind;
 use tidewise_pacman::{Conflict, HeldBlock, PendingUpdate, ProviderPick, Replacement};
 
@@ -150,7 +151,7 @@ pub fn refusal_body(kind: &ErrorKind) -> &'static str {
             "pacman would have chosen a package by itself, so nothing was changed. Run sudo pacman -Syu in a \
              terminal; pacman will ask you which one."
         }
-        other => other.plain_text(),
+        other => refusal_text(other),
     }
 }
 
@@ -406,8 +407,8 @@ mod tests {
              terminal; pacman will ask you which one."
         );
         assert_eq!(
-            refusal_body(&ErrorKind::DatabaseLocked),
-            ErrorKind::DatabaseLocked.plain_text()
+            refusal_body(&ErrorKind::SystemOutOfDate),
+            ErrorKind::SystemOutOfDate.plain_text()
         );
     }
 

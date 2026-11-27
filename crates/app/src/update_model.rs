@@ -60,6 +60,8 @@ pub struct Ended {
 pub struct UpdateModel {
     phase: Phase,
     last_number: u64,
+    /// How many packages the confirmed list of the last run had.
+    listed: usize,
     /// The check whose answer is wanted.
     wanted: Option<u64>,
     lists_note: Option<ListsNote>,
@@ -179,6 +181,7 @@ impl UpdateModel {
         match update_request(&plan) {
             Ok(request) => {
                 self.last_number += 1;
+                self.listed = plan.items.len();
                 self.phase = Phase::Updating(Box::new(Updating {
                     plan,
                     job: Job::new(self.last_number),
@@ -193,6 +196,11 @@ impl UpdateModel {
                 None
             }
         }
+    }
+
+    /// How many packages the confirmed list of the last run had.
+    pub fn listed(&self) -> usize {
+        self.listed
     }
 
     pub fn job_event(&mut self, number: u64, event: Event) {

@@ -109,6 +109,8 @@ pub struct InstallModel {
     steps: Vec<Step>,
     current: usize,
     last_number: u64,
+    /// How many packages the confirmed list of the last run had.
+    listed: usize,
     wanted: Option<u64>,
     running: Option<Ticket>,
     pending: Option<Ticket>,
@@ -531,6 +533,7 @@ impl InstallModel {
         match install_request(&plan) {
             Ok(request) => {
                 self.last_number += 1;
+                self.listed = plan.items.len();
                 self.phase = Phase::Installing(Box::new(Installing {
                     plan,
                     job: Job::new(self.last_number),
@@ -545,6 +548,11 @@ impl InstallModel {
                 None
             }
         }
+    }
+
+    /// How many packages the confirmed list of the last run had.
+    pub fn listed(&self) -> usize {
+        self.listed
     }
 
     /// A `Progress` or `Notice` event of job `number`.
