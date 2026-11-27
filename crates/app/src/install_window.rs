@@ -197,6 +197,16 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         repaint(&handle);
     });
     let handle = screen.clone();
+    bridge.on_pick(move |index| {
+        let ticket = usize::try_from(index)
+            .ok()
+            .and_then(|index| handle.borrow_mut().model.install_choice(index));
+        if let Some(ticket) = ticket {
+            spawn_worker(&handle, ticket);
+        }
+        repaint(&handle);
+    });
+    let handle = screen.clone();
     bridge.on_cancel(move || {
         handle.borrow_mut().model.cancel();
         repaint(&handle);
@@ -577,6 +587,12 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
             .into(),
     );
     bridge.set_primary_enabled(view.primary.as_ref().is_some_and(|button| button.enabled));
+    bridge.set_choices(ModelRc::new(VecModel::from(
+        view.choices
+            .iter()
+            .map(|button| SharedString::from(button.label.as_str()))
+            .collect::<Vec<_>>(),
+    )));
     bridge.set_has_secondary(view.secondary.is_some());
     bridge.set_secondary_text(
         view.secondary

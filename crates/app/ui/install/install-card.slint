@@ -466,6 +466,21 @@ export component InstallCard inherits Rectangle {
             wrap: word-wrap;
         }
 
+        // Packages to choose from: the same plain button for each, so none looks like the answer.
+        if InstallBridge.choices.length > 0: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-s;
+            for choice[index] in InstallBridge.choices: HorizontalLayout {
+                alignment: start;
+                TwButton {
+                    text: choice;
+                    clicked => {
+                        InstallBridge.pick(index);
+                    }
+                }
+            }
+        }
+
         // The buttons: they stay at the bottom of the card and keep their size.
         HorizontalLayout {
             vertical-stretch: 0;

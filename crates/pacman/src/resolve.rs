@@ -13,6 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::picks::provides_for;
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
@@ -479,10 +480,12 @@ impl<'a> Engine<'a> {
                 .map(|pick| (pick.dependency, pick.provider))
                 .collect();
             if picks.is_empty() {
-                if let Some(dependency) = self.soname_choice(sonames, &listed, &installed)? {
+                if let Some((dependency, candidates)) =
+                    self.soname_choice(sonames, &listed, &installed)?
+                {
                     return Ok(Resolution::Blocked(vec![Blocker::SonameChoice {
                         dependency,
-                        candidates: Vec::new(),
+                        candidates,
                     }]));
                 }
                 if let Some(dependency) =
@@ -742,13 +745,14 @@ impl<'a> Engine<'a> {
     }
 
     /// The first shared library pacman would choose a provider for by itself, if any: more than one package provides
-    /// that version and nothing installed answers it (`real_choices`, the helper's rule too).
+    /// that version and nothing installed answers it (`real_choices`, the helper's rule too). With it, the packages
+    /// that could be installed first, by name.
     fn soname_choice(
         &mut self,
         picks: Vec<ProviderPick>,
         listed: &[PackageRef],
         installed: &HashMap<String, InstalledPackage>,
-    ) -> Result<Option<String>, PacmanError> {
+    ) -> Result<Option<(String, Vec<PackageRef>)>, PacmanError> {
         if picks.is_empty() {
             return Ok(None);
         }
@@ -756,13 +760,31 @@ impl<'a> Engine<'a> {
             .iter()
             .filter_map(|item| self.details_of(item).cloned())
             .collect();
+        let mut facts = EngineFacts {
+            engine: self,
+            found: Vec::new(),
+        };
         let choices = real_choices(
             picks,
             &details.iter().collect::<Vec<_>>(),
             |name| installed.contains_key(name),
-            &mut EngineFacts { engine: self },
+            &mut facts,
         )?;
-        Ok(choices.into_iter().next().map(|pick| pick.dependency))
+        let Some(pick) = choices.into_iter().next() else {
+            return Ok(None);
+        };
+        let mut candidates: Vec<PackageRef> = facts
+            .found
+            .iter()
+            .filter(|d| provides_for(d, &pick.dependency, pick.version.as_ref()))
+            .map(|d| PackageRef {
+                repo: d.repo.clone(),
+                name: d.name.clone(),
+            })
+            .collect();
+        candidates.sort_by(|a, b| (&a.name, &a.repo).cmp(&(&b.name, &b.repo)));
+        candidates.dedup();
+        Ok(Some((pick.dependency, candidates)))
     }
 
     /// A requested package that is not in the list under its own name is never silently dropped.
@@ -846,6 +868,8 @@ impl<'a> Engine<'a> {
 /// The reads `real_choices` needs, through the engine's own caches.
 struct EngineFacts<'e, 'a> {
     engine: &'e mut Engine<'a>,
+    /// Everything the searches turned up, to name the candidates of a choice.
+    found: Vec<PackageDetails>,
 }
 
 impl ChoiceFacts for EngineFacts<'_, '_> {
@@ -855,10 +879,12 @@ impl ChoiceFacts for EngineFacts<'_, '_> {
         let found = self.engine.facts.search_any(names)?;
         let refs: Vec<PackageRef> = found.iter().map(PackageRef::from).collect();
         self.engine.load_details(&refs)?;
-        Ok(refs
+        let details: Vec<PackageDetails> = refs
             .iter()
             .filter_map(|item| self.engine.details_of(item).cloned())
-            .collect())
+            .collect();
+        self.found.extend(details.clone());
+        Ok(details)
     }
 
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, PacmanError> {
