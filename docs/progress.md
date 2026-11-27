@@ -1697,3 +1697,13 @@ Blockers: none for 6.5 beyond the checklist. For v0.1: threat model 40 (6.6).
 Open: `fds.rs` flaky test (helper code, not touched); R-05 (6.6, which must also add the replacement block to the
 resolver for "update and install").
 Rules bent: no WBS sheet update (as asked).
+
+## 2026-11-27 — 6.5 card words for a lone self-replacement
+Done: when the only replacement is a package replacing its own name, the card no longer says "run it once" (red
+`415964b`, fix `f040c13`, your words: first sentence as title, second as advice). `cargo test --all` 1307 passed,
+0 failed, 165 ignored; fmt, clippy, `cargo deny`, release build: exit 0. Container tests not rerun (app words only).
+Next: the 6.5 manual checklist, push, PR.
+Blockers: none.
+Open: two or more self-replacing packages (or one next to another replacement) still get the general "run it once".
+Rules bent: no WBS sheet update (as asked).
+
