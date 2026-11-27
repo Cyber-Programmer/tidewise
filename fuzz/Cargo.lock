@@ -227,6 +227,7 @@ version = "0.1.0"
 name = "tidewise-pacman"
 version = "0.1.0"
 dependencies = [
+ "rustix",
  "tidewise-names",
 ]
 
