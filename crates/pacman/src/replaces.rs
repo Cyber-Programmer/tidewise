@@ -5,17 +5,36 @@
 //! real run (`--ask 66`) declines it and then upgrades the replaced package with whatever that needs, none of it
 //! listed (measured).
 
-use crate::{Dependency, PackageDetails, Replacement};
+use crate::{Dependency, PackageDetails, PackageRef, Replacement};
 
 /// The replacements a dry run's list stands for: a listed package whose `Replaces` names an installed package other
 /// than itself. A versioned entry counts only when `satisfied` says the installed version fits (`pacman -T`); a caller
 /// that cannot ask must say it does.
 pub fn listed_replacements<E>(
-    _listed: &[&PackageDetails],
-    _is_installed: impl Fn(&str) -> bool,
-    _satisfied: impl FnMut(&Dependency) -> Result<bool, E>,
+    listed: &[&PackageDetails],
+    is_installed: impl Fn(&str) -> bool,
+    mut satisfied: impl FnMut(&Dependency) -> Result<bool, E>,
 ) -> Result<Vec<Replacement>, E> {
-    Ok(Vec::new())
+    let mut found = Vec::new();
+    for package in listed {
+        for old in &package.replaces {
+            // pacman replaces by package name, never by a provided name.
+            if old.name == package.name || !is_installed(&old.name) {
+                continue;
+            }
+            if old.rule.is_some() && !satisfied(old)? {
+                continue;
+            }
+            found.push(Replacement {
+                new: PackageRef {
+                    repo: package.repo.clone(),
+                    name: package.name.clone(),
+                },
+                old: old.name.clone(),
+            });
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]

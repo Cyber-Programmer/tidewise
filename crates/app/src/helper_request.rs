@@ -48,8 +48,7 @@ pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError
     }))
 }
 
-/// The request for a full system update: every line of the dry run, skipped ones included, since the helper compares
-/// the whole list.
+/// The request for a full system update: every line of the dry run, since the helper compares the whole list.
 pub fn update_request(plan: &UpdatePlan) -> Result<HelperRequest, RequestError> {
     sealed(Action::UpdateSystem(UpdateSystem {
         transaction: plan.items.iter().map(wire_item).collect(),
@@ -166,10 +165,8 @@ mod tests {
 
     #[test]
     fn an_update_sends_the_whole_dry_run_as_the_transaction() {
-        // The skipped line goes too: the helper compares the whole list.
         let plan = UpdatePlan {
             items: vec![item("zsh", "5.9-5"), item("new-pkg", "1-1")],
-            skipped: vec![pkg("new-pkg")],
             ..UpdatePlan::default()
         };
         let made = update_request(&plan).unwrap();

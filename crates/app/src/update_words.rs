@@ -1,7 +1,7 @@
 //! What the "Update system" cards say (WBS 6.5). Plain strings, no Slint.
 
 use tidewise_helper_protocol::ErrorKind;
-use tidewise_pacman::{Conflict, HeldBlock, PendingUpdate, ProviderPick, Replacement, UpdatePlan};
+use tidewise_pacman::{Conflict, HeldBlock, PendingUpdate, ProviderPick, Replacement};
 
 /// Why the review offers no Update button.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +52,11 @@ pub struct BlockWords {
 
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
     let (title, body, advice) = match block {
-        UpdateBlock::Replacement(_) => ("", String::new(), ""),
+        UpdateBlock::Replacement(_) => (
+            "This update includes a replacement Tidewise can't do yet",
+            String::new(),
+            "Run sudo pacman -Syu once in a terminal; pacman will ask you about it.",
+        ),
         UpdateBlock::Held(HeldBlock { package, held }) => (
             "An update needs a package you've held back",
             format!(
@@ -123,32 +127,11 @@ pub fn refusal_body(kind: &ErrorKind) -> &'static str {
     }
 }
 
-pub fn replacement_line(replacement: &Replacement) -> String {
-    format!(
-        "{} replaces {}. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal to accept it.",
-        replacement.new.name, replacement.old
-    )
-}
-
 pub fn held_line(held: &PendingUpdate) -> String {
     format!(
         "{} {} → {}, not updated.",
         held.name, held.installed_version, held.new_version
     )
-}
-
-/// The line under the button when the password window may count more packages than the button does: the helper is
-/// sent, and counts, the whole list.
-pub fn password_count_line(plan: &UpdatePlan) -> Option<String> {
-    let skipped: Vec<&str> = plan.skipped.iter().map(|p| p.name.as_str()).collect();
-    let count = skipped.len();
-    let noun = if count == 1 { "package" } else { "packages" };
-    (count > 0).then(|| {
-        format!(
-            "The password window may count {count} more {noun}: {}, which pacman lists but Tidewise skips.",
-            skipped.join(", ")
-        )
-    })
 }
 
 /// Whether installing these names calls for a restart: a kernel, systemd or a graphics driver.
@@ -161,25 +144,12 @@ pub fn needs_restart<'a>(installed: impl IntoIterator<Item = &'a str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tidewise_pacman::{PackageRef, PlanItem, Role};
+    use tidewise_pacman::PackageRef;
 
     fn pkg(name: &str) -> PackageRef {
         PackageRef {
             repo: "extra".to_string(),
             name: name.to_string(),
-        }
-    }
-
-    fn item(name: &str) -> PlanItem {
-        PlanItem {
-            package: pkg(name),
-            version: "2-1".to_string(),
-            role: Role::Update,
-            installed_version: Some("1-1".to_string()),
-            download_size: 1,
-            installed_size: 2,
-            installed_size_text: String::new(),
-            current_size: Some(1),
         }
     }
 
@@ -198,19 +168,6 @@ mod tests {
         assert_eq!(
             RESTART_LINE,
             "A new kernel or core system part was installed. Restart when convenient."
-        );
-    }
-
-    #[test]
-    fn a_replacement_says_what_it_means_and_how_to_accept_it() {
-        let line = replacement_line(&Replacement {
-            new: pkg("new-pkg"),
-            old: "old-pkg".to_string(),
-        });
-        assert_eq!(
-            line,
-            "new-pkg replaces old-pkg. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal to \
-             accept it."
         );
     }
 
@@ -352,32 +309,6 @@ mod tests {
         assert_eq!(
             refusal_body(&ErrorKind::DatabaseLocked),
             ErrorKind::DatabaseLocked.plain_text()
-        );
-    }
-
-    #[test]
-    fn the_password_window_line_names_what_is_listed_but_skipped() {
-        let mut plan = UpdatePlan {
-            items: vec![item("upd")],
-            ..UpdatePlan::default()
-        };
-        assert_eq!(password_count_line(&plan), None);
-        plan.items.push(item("new"));
-        plan.skipped.push(pkg("new"));
-        assert_eq!(
-            password_count_line(&plan).as_deref(),
-            Some(
-                "The password window may count 1 more package: new, which pacman lists but Tidewise skips."
-            )
-        );
-        plan.items.push(item("new-dep"));
-        plan.skipped.push(pkg("new-dep"));
-        assert_eq!(
-            password_count_line(&plan).as_deref(),
-            Some(
-                "The password window may count 2 more packages: new, new-dep, which pacman lists but Tidewise \
-                 skips."
-            )
         );
     }
 

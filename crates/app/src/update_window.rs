@@ -276,12 +276,10 @@ fn set_texts(bridge: &UpdateBridge, view: &UpdateView) {
     bridge.set_advice(view.advice.as_str().into());
     bridge.set_tiles(model(view.tiles.iter().map(tile)));
     bridge.set_rows(model(view.rows.iter().map(row)));
-    bridge.set_replacement_lines(strings(&view.replacement_lines));
     bridge.set_held_title(view.held_title.as_str().into());
     bridge.set_held_lines(strings(&view.held_lines));
     bridge.set_held_warning(view.held_warning.as_str().into());
     bridge.set_notes(strings(&view.notes));
-    bridge.set_password_line(view.password_line.as_str().into());
     bridge.set_has_primary(view.primary.is_some());
     bridge.set_primary_text(
         view.primary

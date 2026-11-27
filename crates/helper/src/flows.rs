@@ -7,8 +7,8 @@
 //!            no provider pick the request does not name (`-Q`, `-Si`; golden rule 10) -> real `-S --noconfirm --ask 66`
 //!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
-//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> -> (plain
-//!            update only) no provider pick: `-Q`, `-Si` on the private copy if anything is new, and for a pick
+//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> -> no
+//!            replacement (`-Q`, `-Si`) -> (plain update only) no provider pick, for a pick
 //!            `-Ss`/`-Si` there and `-T` (decision 0009) -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
 //!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
@@ -27,8 +27,8 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{
     ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
-    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, parse_qu, parse_si,
-    parse_ss, provider_picks, real_choices,
+    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, listed_replacements,
+    parse_qu, parse_si, parse_ss, provider_picks, real_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -204,10 +204,9 @@ fn update_job(
         return (Err(kind), untouched());
     }
 
-    // A plain update names no providers, so it must not need any (6.6 will pass the targets and answers).
-    if names.is_empty()
-        && let Err(kind) = check_update_providers(runner, transaction, &[], &[])
-    {
+    // No replacement in either update action; and a plain update, which names no providers, must not need any
+    // (6.6 will pass the targets and answers).
+    if let Err(kind) = check_update_list(runner, transaction, names.is_empty()) {
         return (Err(kind), untouched());
     }
 
@@ -246,45 +245,62 @@ fn update_job(
     (step, counts)
 }
 
-/// Golden rule 10 for a system update (threat model 41): pacman must not pick a provider the request does not name.
-/// Runs on the PRIVATE copy, before anything is moved, so a refusal leaves the real lists as they were.
+/// The checks of an update's list that need `-Si`, on the PRIVATE copy and before anything is moved, so a refusal
+/// leaves the real lists as they were.
 ///
-/// A pick needs a package that is not installed, so when every line of the list is an upgrade there is nothing to
-/// check and `-Si` is not run. `asked` and `answered` are empty for a plain update (6.6 passes the targets and their
-/// answers). Unlike the install's check it does not verify answers, because a plain update has none.
-fn check_update_providers(
+/// - No replacement (decision of 27 Nov, review 6.5 R-01): a listed package, installed or not, that replaces an
+///   installed one. The real run declines it and may then upgrade the replaced package and what that needs, none of
+///   it listed. Answered as a changed transaction: the app then looks again and shows why.
+/// - Golden rule 10, for a plain update (`judge_providers`; threat model 41): pacman must not pick a provider the
+///   request does not name. A pick needs a package that is not installed, so a list of upgrades only has none.
+fn check_update_list(
     runner: &mut dyn Runner,
     transaction: &[TransactionItem],
-    asked: &[ListedRef],
-    answered: &[&str],
+    judge_providers: bool,
 ) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
-    if transaction
-        .iter()
-        .all(|item| installed.contains(&item.name))
-    {
-        return Ok(());
-    }
     let details = read_details(runner, transaction, PacmanCommand::PrivatePackageDetails)?;
     let listed: Vec<ListedRef> = transaction
         .iter()
         .map(|item| listed_ref(&item.repo, &item.name))
         .collect();
+    let listed_details: Vec<&PackageDetails> =
+        listed.iter().filter_map(|item| details.get(item)).collect();
+
+    let replacements = listed_replacements(
+        &listed_details,
+        |name| installed.contains(name),
+        // A version that cannot be written as an argument counts as fitting: refuse rather than guess.
+        |old| match dependency_text(old) {
+            Some(_) => HelperFacts {
+                runner: &mut *runner,
+                private: true,
+            }
+            .satisfied(old),
+            None => Ok(true),
+        },
+    )?;
+    if !replacements.is_empty() {
+        return Err(ErrorKind::TransactionChanged);
+    }
+    if !judge_providers
+        || transaction
+            .iter()
+            .all(|item| installed.contains(&item.name))
+    {
+        return Ok(());
+    }
+
     let picks = provider_picks(
         &listed,
         |item| details.get(item),
-        asked,
-        answered,
+        &[],
+        &[],
         |name| installed.contains(name),
     );
-    if picks.is_empty() {
-        return Ok(());
-    }
     // An update cannot name a provider: let through what pacman has nothing to ask about (decision 0009).
-    let listed_details: Vec<&PackageDetails> =
-        listed.iter().filter_map(|item| details.get(item)).collect();
     let left = real_choices(
         picks,
         &listed_details,

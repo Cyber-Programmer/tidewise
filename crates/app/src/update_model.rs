@@ -216,7 +216,7 @@ impl UpdateModel {
         let mut check = None;
         match end {
             JobEnd::Finished(Outcome::Ok) => {
-                let installed = running.plan.installing().map(|i| i.package.name.as_str());
+                let installed = running.plan.items.iter().map(|i| i.package.name.as_str());
                 self.phase = Phase::Updated {
                     restart: needs_restart(installed),
                     notices: running.job.notices.clone(),
@@ -248,7 +248,10 @@ impl UpdateModel {
 
 /// Where a plan leads: nothing to do, a reason it cannot go on, or the review.
 fn reviewed(plan: Box<UpdatePlan>) -> Phase {
-    if plan.installing().next().is_none() {
+    // A replacement comes first: pacman would not do what the list says (WBS 7.5 does replacements).
+    if !plan.replacements.is_empty() {
+        Phase::Blocked(UpdateBlock::Replacement(plan.replacements))
+    } else if plan.items.is_empty() {
         Phase::UpToDate(plan)
     } else if !plan.conflicts.is_empty() {
         Phase::Blocked(UpdateBlock::Conflict(plan.conflicts))
@@ -336,14 +339,10 @@ mod tests {
     }
 
     #[test]
-    fn nothing_to_install_is_up_to_date_even_with_a_replacement_listed() {
-        let mut replacement = plan(&["new-pkg"]);
-        replacement.skipped.push(pkg("new-pkg"));
-        for nothing in [plan(&[]), replacement] {
-            let mut model = reviewing(nothing);
-            assert!(matches!(model.phase(), Phase::UpToDate(_)));
-            assert_eq!(model.start_update(), None);
-        }
+    fn nothing_listed_is_up_to_date() {
+        let mut model = reviewing(plan(&[]));
+        assert!(matches!(model.phase(), Phase::UpToDate(_)));
+        assert_eq!(model.start_update(), None);
     }
 
     #[test]
@@ -501,19 +500,6 @@ mod tests {
                 }
             );
         }
-    }
-
-    #[test]
-    fn a_kernel_that_is_skipped_asks_for_no_restart() {
-        let mut skipped = plan(&["zsh", "linux"]);
-        skipped.skipped.push(pkg("linux"));
-        let mut model = reviewing(skipped);
-        let job = model.start_update().unwrap();
-        model.job_ended(job.number, JobEnd::Finished(Outcome::Ok));
-        assert!(matches!(
-            model.phase(),
-            Phase::Updated { restart: false, .. }
-        ));
     }
 
     #[test]

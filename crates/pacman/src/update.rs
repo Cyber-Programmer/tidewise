@@ -3,7 +3,8 @@
 //! text in, a plan out. The facts it rests on are measured in `tests/container/tests/pacman_update.rs` (decision 0009).
 //!
 //! What the dry run does not say, and this works out:
-//! - it lists a replacement, and what only the replacement needs, but the real run (`--ask 66`) installs neither;
+//! - a replacement in it is declined by the real run, which may then upgrade the replaced package and what that
+//!   needs, none of it listed: such an update is blocked (`listed_replacements`, filled in by `update_lookup`);
 //! - it says nothing about a conflict, and the real run then aborts the whole update;
 //! - it takes the first provider of a virtual name without saying so (golden rule 10: the helper refuses that).
 
@@ -17,7 +18,7 @@ use crate::{
     parse_si, provider_picks,
 };
 
-/// A package that would replace an installed one. Tidewise does not do replacements: it is listed but skipped.
+/// A package that would replace an installed one. Tidewise does not do replacements yet: the update is blocked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replacement {
     pub new: PackageRef,
@@ -43,8 +44,7 @@ pub struct HeldBlock {
 pub struct UpdatePlan {
     /// Every line of the dry run, in pacman's order: the list the helper compares.
     pub items: Vec<PlanItem>,
-    /// Listed packages the real run does not install: replacements, and what only they need.
-    pub skipped: Vec<PackageRef>,
+    /// Not known to `update_plan`: a versioned `Replaces` needs pacman to judge (`listed_replacements`).
     pub replacements: Vec<Replacement>,
     /// `[ignored]` updates: held back by `IgnorePkg` / `IgnoreGroup`.
     pub held_back: Vec<PendingUpdate>,
@@ -54,21 +54,15 @@ pub struct UpdatePlan {
 }
 
 impl UpdatePlan {
-    /// The packages the real run installs or upgrades.
-    pub fn installing(&self) -> impl Iterator<Item = &PlanItem> {
+    /// Bytes still to download.
+    pub fn download_total(&self) -> u64 {
+        self.items.iter().map(|item| item.download_size).sum()
+    }
+
+    /// How much more (or less) disk space the new versions take, in bytes.
+    pub fn size_change(&self) -> i64 {
         self.items
             .iter()
-            .filter(|item| !self.skipped.contains(&item.package))
-    }
-
-    /// Bytes still to download for those.
-    pub fn download_total(&self) -> u64 {
-        self.installing().map(|item| item.download_size).sum()
-    }
-
-    /// How much more (or less) disk space those take afterwards, in bytes.
-    pub fn size_change(&self) -> i64 {
-        self.installing()
             .map(|item| {
                 let new = i64::try_from(item.installed_size).unwrap_or(i64::MAX);
                 let old = i64::try_from(item.current_size.unwrap_or(0)).unwrap_or(i64::MAX);
@@ -124,28 +118,7 @@ pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePl
         });
     }
 
-    let replacements: Vec<Replacement> = listed
-        .iter()
-        .filter(|l| l.item.installed_version.is_none())
-        .flat_map(|l| {
-            l.details
-                .replaces
-                .iter()
-                // pacman replaces by package name, never by a provided name.
-                .filter(|old| installed.contains_key(&old.name))
-                .map(|old| Replacement {
-                    new: l.item.package.clone(),
-                    old: old.name.clone(),
-                })
-        })
-        .collect();
-
-    let skipped = skipped_packages(&listed, &replacements);
-    let installing: Vec<&Listed> = listed
-        .iter()
-        .filter(|l| !skipped.contains(&l.item.package))
-        .collect();
-    let conflicts = conflicts_of(&installing, &relations);
+    let conflicts = conflicts_of(&listed.iter().collect::<Vec<_>>(), &relations);
 
     // The whole list, as the helper sees it: it checks every line it is sent.
     let refs: Vec<PackageRef> = listed.iter().map(|l| l.item.package.clone()).collect();
@@ -159,8 +132,7 @@ pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePl
 
     Ok(UpdatePlan {
         items: listed.into_iter().map(|l| l.item).collect(),
-        skipped,
-        replacements,
+        replacements: Vec::new(),
         held_back,
         conflicts,
         picks,
@@ -201,43 +173,6 @@ impl Listed<'_> {
     fn answers(&self, name: &str) -> bool {
         self.item.package.name == name || self.details.provides.iter().any(|p| p.name == name)
     }
-}
-
-/// What the replacers bring that no upgrade needs: the real run declines the replacement, and so installs neither
-/// the replacer nor what was pulled in for it alone.
-fn skipped_packages(listed: &[Listed], replacements: &[Replacement]) -> Vec<PackageRef> {
-    let upgrades = listed.iter().filter(|l| l.item.installed_version.is_some());
-    let needed = reachable(listed, upgrades.collect());
-    let replacers = listed
-        .iter()
-        .filter(|l| replacements.iter().any(|r| r.new == l.item.package));
-    let brought = reachable(listed, replacers.collect());
-    listed
-        .iter()
-        .map(|l| &l.item.package)
-        .filter(|p| brought.contains(p) && !needed.contains(p))
-        .cloned()
-        .collect()
-}
-
-/// `start` and every new (not installed) listed package its dependencies lead to.
-fn reachable<'a>(listed: &'a [Listed], start: Vec<&'a Listed<'a>>) -> Vec<&'a PackageRef> {
-    let mut found: Vec<&PackageRef> = start.iter().map(|l| &l.item.package).collect();
-    let mut queue = start;
-    while let Some(next) = queue.pop() {
-        for dependency in &next.details.depends_on {
-            for other in listed {
-                if other.item.installed_version.is_none()
-                    && !found.contains(&&other.item.package)
-                    && other.answers(&dependency.name)
-                {
-                    found.push(&other.item.package);
-                    queue.push(other);
-                }
-            }
-        }
-    }
-    found
 }
 
 /// The names an installed package provides and conflicts with (`-Qi`; the Apps list needs neither).
@@ -367,7 +302,7 @@ mod tests {
         assert_eq!(plan.items[1].role, Role::Dependency);
         assert_eq!(plan.items[1].installed_version, None);
         assert_eq!(plan.items[1].current_size, None);
-        assert!(plan.skipped.is_empty() && plan.replacements.is_empty());
+        assert!(plan.replacements.is_empty());
         assert!(plan.held_back.is_empty() && plan.conflicts.is_empty());
         assert_eq!(plan.download_total(), 2505 + 2520 + 2533);
     }
@@ -378,50 +313,6 @@ mod tests {
         assert_eq!(plan.picks.len(), 1);
         assert_eq!(plan.picks[0].dependency, "tidewise-virtual");
         assert_eq!(plan.picks[0].provider.name, dummy("prov-a"));
-    }
-
-    #[test]
-    fn a_replacement_is_listed_but_not_installed() {
-        let plan = plan!("replace");
-        assert_eq!(plan.items.len(), 2);
-        assert_eq!(
-            plan.replacements,
-            [Replacement {
-                new: PackageRef {
-                    repo: "tidewise-test".to_string(),
-                    name: dummy("new"),
-                },
-                old: dummy("old"),
-            }]
-        );
-        assert_eq!(names(plan.installing()), [dummy("upd")]);
-        assert_eq!(plan.download_total(), 2505);
-        // The replacer conflicts with nothing that matters: it is not installed.
-        assert!(plan.conflicts.is_empty());
-    }
-
-    #[test]
-    fn with_only_a_replacement_nothing_is_installed() {
-        let plan = plan!("replace-only");
-        assert_eq!(plan.items.len(), 1);
-        assert_eq!(plan.replacements.len(), 1);
-        assert_eq!(plan.installing().count(), 0);
-        assert_eq!(plan.download_total(), 0);
-        assert_eq!(plan.size_change(), 0);
-    }
-
-    #[test]
-    fn what_only_a_replacement_needs_is_skipped_too() {
-        let plan = plan!("replace-dep");
-        assert_eq!(
-            plan.skipped
-                .iter()
-                .map(|p| p.name.clone())
-                .collect::<Vec<_>>(),
-            [dummy("hello"), dummy("new-dep")]
-        );
-        assert_eq!(plan.installing().count(), 0);
-        assert_eq!(plan.replacements.len(), 1);
     }
 
     #[test]
