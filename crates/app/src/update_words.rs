@@ -219,6 +219,43 @@ mod tests {
         );
     }
 
+    fn replacement(new: &str, old: &str) -> Replacement {
+        Replacement {
+            new: pkg(new),
+            old: old.to_string(),
+        }
+    }
+
+    /// Running `-Syu` once does not clear this one: pacman lists it in every update.
+    #[test]
+    fn a_package_that_only_replaces_itself_is_not_cured_by_running_pacman_once() {
+        let words = block_words(&UpdateBlock::Replacement(vec![replacement(
+            "python-pylint-pydantic",
+            "python-pylint-pydantic",
+        )]));
+        assert_eq!(
+            words.title,
+            "python-pylint-pydantic marks itself as a replacement, so Tidewise can't update while it's installed"
+        );
+        assert_eq!(words.body, "");
+        assert_eq!(
+            words.advice,
+            "Update with sudo pacman -Syu in a terminal instead."
+        );
+    }
+
+    #[test]
+    fn a_self_replacement_next_to_another_one_keeps_the_general_words() {
+        let words = block_words(&UpdateBlock::Replacement(vec![
+            replacement("self", "self"),
+            replacement("new", "old"),
+        ]));
+        assert_eq!(
+            words.title,
+            "This update includes a replacement Tidewise can't do yet"
+        );
+    }
+
     #[test]
     fn a_conflict_says_a_package_would_have_to_go() {
         let words = block_words(&UpdateBlock::Conflict(vec![Conflict {
