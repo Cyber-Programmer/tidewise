@@ -7,8 +7,8 @@
 
 use crate::{Dependency, PackageDetails, PackageRef, Replacement};
 
-/// The replacements a dry run's list stands for: a listed package whose `Replaces` names an installed package other
-/// than itself. A versioned entry counts only when `satisfied` says the installed version fits (`pacman -T`); a caller
+/// The replacements a dry run's list stands for: a listed package whose `Replaces` names an installed package, its own
+/// name included. A versioned entry counts only when `satisfied` says the installed version fits (`pacman -T`); a caller
 /// that cannot ask must say it does.
 pub fn listed_replacements<E>(
     listed: &[&PackageDetails],
@@ -19,7 +19,8 @@ pub fn listed_replacements<E>(
     for package in listed {
         for old in &package.replaces {
             // pacman replaces by package name, never by a provided name.
-            if old.name == package.name || !is_installed(&old.name) {
+            // Its own name too: pacman asks about that replacement like any other (review T-01).
+            if !is_installed(&old.name) {
                 continue;
             }
             if old.rule.is_some() && !satisfied(old)? {
