@@ -284,7 +284,11 @@ pub fn differences(
 
 // Not named tidewise-*: reset_world removes every /tmp/tidewise-* marker, and this backup must survive it.
 const ORIGINAL_DB: &str = "/tmp/original-test-repo.db";
-const LATER_FILES: [&str; 13] = [
+const LATER_FILES: [&str; 17] = [
+    "tidewise-dummy-new-foo-1.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-upd-foo-2.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-upd-grp-2.0-1-any.pkg.tar.zst",
+    "tidewise-dummy-upd-ver-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-upd-so-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-upd-oneso-2.0-1-any.pkg.tar.zst",
     "tidewise-dummy-old-2.0-1-any.pkg.tar.zst",
@@ -318,6 +322,54 @@ pub fn local_repository_only() {
     fs::write("/etc/pacman.conf", kept).unwrap();
 }
 
+/// `IgnoreGroup = group` in pacman.conf. `reset_world` takes it out again.
+pub fn ignore_group(group: &str) {
+    let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
+    let conf = conf.replacen("[options]", &format!("[options]\nIgnoreGroup = {group}"), 1);
+    fs::write("/etc/pacman.conf", conf).unwrap();
+}
+
+const FIRST_REPOSITORY: &str = "[tidewise-first]\nSigLevel = Never\nUsage = Sync Search Install\n\
+                                Server = file:///srv/tidewise-first\n";
+
+/// A second repository BEFORE the test one that holds `file` and takes no part in upgrades (`Usage` without
+/// `Upgrade`), then a refresh. `reset_world` takes it out again.
+pub fn first_repository_without_upgrade(file: &str) {
+    fs::create_dir_all("/srv/tidewise-first").unwrap();
+    fs::copy(
+        format!("{REPO_DIR}/{file}"),
+        format!("/srv/tidewise-first/{file}"),
+    )
+    .unwrap();
+    let added = Command::new("/usr/bin/repo-add")
+        .arg("/srv/tidewise-first/tidewise-first.db.tar.gz")
+        .arg(format!("/srv/tidewise-first/{file}"))
+        .env_clear()
+        .env("PATH", "/usr/bin")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(added.success(), "repo-add failed");
+    let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
+    let conf = conf.replacen(
+        &format!("[{REPO}]"),
+        &format!("{FIRST_REPOSITORY}\n[{REPO}]"),
+        1,
+    );
+    fs::write("/etc/pacman.conf", conf).unwrap();
+    assert!(pacman(&["-Syy"]).status.success());
+}
+
+fn drop_first_repository() {
+    let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
+    fs::write(
+        "/etc/pacman.conf",
+        conf.replace(&format!("{FIRST_REPOSITORY}\n"), ""),
+    )
+    .unwrap();
+}
+
 /// `IgnorePkg = name` in pacman.conf (test container only). `reset_world` takes it out again.
 pub fn ignore_package(name: &str) {
     let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
@@ -329,7 +381,10 @@ fn stop_ignoring() {
     let conf = fs::read_to_string("/etc/pacman.conf").unwrap();
     let kept: String = conf
         .lines()
-        .filter(|line| !line.starts_with("IgnorePkg = tidewise-"))
+        .filter(|line| {
+            !line.starts_with("IgnorePkg = tidewise-")
+                && !line.starts_with("IgnoreGroup = tidewise-")
+        })
         .map(|line| format!("{line}\n"))
         .collect();
     fs::write("/etc/pacman.conf", kept).unwrap();
@@ -348,6 +403,7 @@ pub fn reset_world() {
     }
     local_repository_only();
     stop_ignoring();
+    drop_first_repository();
     if !Path::new(ORIGINAL_DB).exists() {
         fs::copy(format!("{REPO_DIR}/tidewise-test.db.tar.gz"), ORIGINAL_DB).unwrap();
     }

@@ -209,6 +209,29 @@ fn a_declined_replacement_upgrades_the_old_package_although_no_dry_run_lists_it(
     assert_eq!(installed_version("tidewise-dummy-new"), None);
 }
 
+/// Why the replacement rule looks at every listed package: an installed replacer is listed again, and the real run
+/// declines it, upgrades the replaced package and installs what that needs, which no list names.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_installed_replacer_is_listed_again_and_the_old_package_is_upgraded_anyway() {
+    assert_inside_the_test_container();
+    reset_world();
+    add_newer(NEW);
+    install_directly(&["tidewise-dummy-old", "tidewise-dummy-new"]);
+    add_newer(OLD_NEWER);
+    assert_eq!(
+        without_sizes(&text(&dry_run().stdout)),
+        ["tidewise-test/tidewise-dummy-new 1.0-1"]
+    );
+    let real = real_run();
+    assert!(real.status.success(), "{}", text(&real.stderr));
+    assert_eq!(
+        installed_version("tidewise-dummy-old").as_deref(),
+        Some("2.0-1")
+    );
+    assert!(installed_version("tidewise-dummy-hello").is_some());
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_held_package_is_marked_by_qu_and_left_out_of_the_dry_run() {
