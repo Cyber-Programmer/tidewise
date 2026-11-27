@@ -27,8 +27,7 @@ pub const REFRESH_LIMIT: Duration = Duration::from_secs(3 * 60);
 
 /// Whether a running refresh is to be stopped now.
 fn must_stop(cancelled: bool, elapsed: Duration) -> bool {
-    let _ = (cancelled, elapsed);
-    false
+    cancelled || elapsed >= REFRESH_LIMIT
 }
 
 /// Why the app wants fresh lists.
@@ -210,13 +209,25 @@ impl PrivateFolder {
     }
 
     /// Waits up to `wait` for the folder's `flock`. `Ok(None)`: someone else still has it.
+    #[cfg(test)]
     fn lock(&self, wait: Duration) -> io::Result<Option<FolderLock<'_>>> {
+        self.lock_unless(wait, &AtomicBool::new(false))
+    }
+
+    /// As `lock`, giving up the wait as soon as `cancel` is set.
+    fn lock_unless(
+        &self,
+        wait: Duration,
+        cancel: &AtomicBool,
+    ) -> io::Result<Option<FolderLock<'_>>> {
         let file = File::open(&self.path)?;
         let start = Instant::now();
         loop {
             match file.try_lock() {
                 Ok(()) => return Ok(Some(FolderLock { folder: self, file })),
-                Err(TryLockError::WouldBlock) if start.elapsed() < wait => {
+                Err(TryLockError::WouldBlock)
+                    if start.elapsed() < wait && !cancel.load(Ordering::Relaxed) =>
+                {
                     std::thread::sleep(Duration::from_millis(20));
                 }
                 Err(TryLockError::WouldBlock) => return Ok(None),
@@ -275,16 +286,20 @@ fn refresh_in(
     cancel: &AtomicBool,
     run: impl FnOnce(&[String], File) -> io::Result<Output>,
 ) -> Lists {
-    let _ = cancel;
     let asked = SystemTime::now();
-    let lock = match folder.lock(wait) {
+    let cancelled = || cancel.load(Ordering::Relaxed);
+    let lock = match folder.lock_unless(wait, cancel) {
         Ok(Some(lock)) => lock,
+        Ok(None) if cancelled() => return Lists::Real(NotFresh::Failed),
         Ok(None) => return Lists::Real(NotFresh::Busy),
         Err(_) => return Lists::Real(NotFresh::Unavailable),
     };
     let private = Lists::Private(PathBuf::from(folder.dbpath()));
     if !needs_refresh(folder.refreshed_at(), asked, why) {
         return private;
+    }
+    if cancelled() {
+        return Lists::Real(NotFresh::Failed);
     }
     let refreshed = (|| {
         // Marked as old before pacman starts, so a failed or killed refresh is tried again next time.
@@ -322,7 +337,8 @@ fn usable_folder(
 /// Then read `Lists::Private(folder)` with `pending_updates_in` or `ResolveInput::dbpath`. For `Lists::Real` read the
 /// real lists, and say how old they are. A plain install must keep using the real lists: the helper installs from them.
 ///
-/// Blocks: for the download, or up to 60 s while another refresh holds the folder. Never on a timer: call it when a
+/// Blocks: for the download, or up to 60 s while another refresh holds the folder. Setting `cancel` ends it, and so does
+/// `REFRESH_LIMIT`; the answer is then the real lists, as for any failed refresh. Never on a timer: call it when a
 /// screen with an update list opens, and after the helper refused.
 pub fn refresh_private_lists(why: RefreshWhy, cancel: &AtomicBool) -> Lists {
     let unavailable = Lists::Real(NotFresh::Unavailable);
@@ -343,7 +359,10 @@ pub fn refresh_private_lists(why: RefreshWhy, cancel: &AtomicBool) -> Lists {
     );
     match folder {
         Some(folder) => refresh_in(&folder, why, WAIT_FOR_ANOTHER, cancel, |args, lock| {
-            run::run_holding(Path::new(SETPRIV), args, lock, &|| false)
+            let started = Instant::now();
+            run::run_holding(Path::new(SETPRIV), args, lock, &|| {
+                must_stop(cancel.load(Ordering::Relaxed), started.elapsed())
+            })
         }),
         None => unavailable,
     }
