@@ -92,8 +92,18 @@ mod tests {
             [pair("new", "old")]
         );
         assert_eq!(found(&listed, &[], false).0, []);
-        // A package naming itself replaces nothing.
-        assert_eq!(found(&[record("old", "old")], &["old"], false).0, []);
+    }
+
+    /// Review T-01: pacman asks about a self-replacement too, and declining it can install what no list names.
+    #[test]
+    fn a_package_that_replaces_its_own_name_is_a_replacement_like_any_other() {
+        let own = [record("old", "old  old-git")];
+        assert_eq!(found(&own, &["old"], false).0, [pair("old", "old")]);
+        assert_eq!(found(&own, &[], false).0, []);
+        // A versioned self-replacement is asked about like any other.
+        let versioned = [record("old", "old<1.0")];
+        assert_eq!(found(&versioned, &["old"], false).0, []);
+        assert_eq!(found(&versioned, &["old"], true).0, [pair("old", "old")]);
     }
 
     #[test]
