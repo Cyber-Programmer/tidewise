@@ -98,9 +98,14 @@ pub fn real_choices<F: ChoiceFacts>(
     if picks.is_empty() {
         return Ok(picks);
     }
-    let names: Vec<String> = picks.iter().map(|pick| pick.dependency.clone()).collect();
-    // Stub: one search, however many names.
-    let found = facts.candidates(&names)?;
+    let mut names: Vec<String> = picks.iter().map(|pick| pick.dependency.clone()).collect();
+    names.sort();
+    names.dedup();
+    // Many names are several searches: none is dropped, and none is a reason to refuse.
+    let mut found = Vec::new();
+    for batch in names.chunks(SEARCH_BATCH) {
+        found.extend(facts.candidates(batch)?);
+    }
     let mut kept = Vec::new();
     for pick in picks {
         let name = pick.dependency.as_str();
