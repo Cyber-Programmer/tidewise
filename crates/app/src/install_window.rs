@@ -451,7 +451,7 @@ fn work(ticket: &Ticket) -> (Option<Option<ListsNote>>, Result<WorkAnswer, Pacma
         // Updates waiting: Tidewise only installs on an up-to-date system, so do not even resolve.
         let check = check_for_updates(
             tidewise_pacman::pending_updates_in,
-            || tidewise_pacman::refresh_private_lists(RefreshWhy::Opening),
+            || tidewise_pacman::refresh_private_lists(RefreshWhy::Opening, &Default::default()),
             || {
                 tidewise_pacman::sync_lists()
                     .ok()

@@ -6,6 +6,7 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::run;
@@ -20,6 +21,15 @@ const STAMP: &str = "refreshed";
 const WAIT_FOR_ANOTHER: Duration = Duration::from_secs(60);
 /// Lists younger than this are not downloaded again just because a screen was opened.
 const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
+
+/// The longest one refresh may take (the human's choice, 27 Nov: about 50 KB/s still gets the lists).
+pub const REFRESH_LIMIT: Duration = Duration::from_secs(3 * 60);
+
+/// Whether a running refresh is to be stopped now.
+fn must_stop(cancelled: bool, elapsed: Duration) -> bool {
+    let _ = (cancelled, elapsed);
+    false
+}
 
 /// Why the app wants fresh lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,8 +272,10 @@ fn refresh_in(
     folder: &PrivateFolder,
     why: RefreshWhy,
     wait: Duration,
+    cancel: &AtomicBool,
     run: impl FnOnce(&[String], File) -> io::Result<Output>,
 ) -> Lists {
+    let _ = cancel;
     let asked = SystemTime::now();
     let lock = match folder.lock(wait) {
         Ok(Some(lock)) => lock,
@@ -312,7 +324,7 @@ fn usable_folder(
 ///
 /// Blocks: for the download, or up to 60 s while another refresh holds the folder. Never on a timer: call it when a
 /// screen with an update list opens, and after the helper refused.
-pub fn refresh_private_lists(why: RefreshWhy) -> Lists {
+pub fn refresh_private_lists(why: RefreshWhy, cancel: &AtomicBool) -> Lists {
     let unavailable = Lists::Real(NotFresh::Unavailable);
     let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     // `/proc/self` belongs to the user this process runs as (std has no `getuid`).
@@ -330,8 +342,8 @@ pub fn refresh_private_lists(why: RefreshWhy) -> Lists {
         this_process.uid(),
     );
     match folder {
-        Some(folder) => refresh_in(&folder, why, WAIT_FOR_ANOTHER, |args, lock| {
-            run::run_holding(Path::new(SETPRIV), args, lock)
+        Some(folder) => refresh_in(&folder, why, WAIT_FOR_ANOTHER, cancel, |args, lock| {
+            run::run_holding(Path::new(SETPRIV), args, lock, &|| false)
         }),
         None => unavailable,
     }
@@ -708,10 +720,16 @@ mod tests {
     /// Runs one refresh with a pretend pacman that ends with `code`, and says whether it was started.
     fn refresh(folder: &PrivateFolder, why: RefreshWhy, code: i32) -> (Lists, bool) {
         let started = Cell::new(false);
-        let lists = refresh_in(folder, why, Duration::from_millis(50), |_, _| {
-            started.set(true);
-            ran(code, if code == 0 { "" } else { DOWNLOAD })
-        });
+        let lists = refresh_in(
+            folder,
+            why,
+            Duration::from_millis(50),
+            &AtomicBool::new(false),
+            |_, _| {
+                started.set(true);
+                ran(code, if code == 0 { "" } else { DOWNLOAD })
+            },
+        );
         (lists, started.get())
     }
 
@@ -724,10 +742,16 @@ mod tests {
         let session = Session::new("first");
         let folder = session.prepare().unwrap();
         let mut seen = Vec::new();
-        let lists = refresh_in(&folder, RefreshWhy::Opening, Duration::ZERO, |args, _| {
-            seen = args.to_vec();
-            ran(0, "")
-        });
+        let lists = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            |args, _| {
+                seen = args.to_vec();
+                ran(0, "")
+            },
+        );
         assert_eq!(lists, private(&folder));
         assert_eq!(seen, refresh_args(&folder.dbpath()));
         assert_eq!(
@@ -760,9 +784,13 @@ mod tests {
     fn a_program_that_cannot_start_is_a_failed_refresh() {
         let session = Session::new("nostart");
         let folder = session.prepare().unwrap();
-        let lists = refresh_in(&folder, RefreshWhy::Opening, Duration::ZERO, |_, _| {
-            Err(io::Error::from(io::ErrorKind::NotFound))
-        });
+        let lists = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            |_, _| Err(io::Error::from(io::ErrorKind::NotFound)),
+        );
         assert_eq!(lists, Lists::Real(NotFresh::Failed));
     }
 
@@ -772,10 +800,16 @@ mod tests {
         let folder = session.prepare().unwrap();
         let stale = session.lists().join("db.lck");
         fs::write(&stale, b"").unwrap();
-        let lists = refresh_in(&folder, RefreshWhy::Opening, Duration::ZERO, |_, _| {
-            assert!(!stale.exists(), "removed before pacman starts");
-            ran(0, "")
-        });
+        let lists = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            |_, _| {
+                assert!(!stale.exists(), "removed before pacman starts");
+                ran(0, "")
+            },
+        );
         assert_eq!(lists, private(&folder));
     }
 
@@ -784,11 +818,17 @@ mod tests {
         let session = Session::new("handed");
         let folder = session.prepare().unwrap();
         let mut kept = None;
-        refresh_in(&folder, RefreshWhy::Opening, Duration::ZERO, |_, stdin| {
-            assert!(stdin.metadata().unwrap().is_dir());
-            kept = Some(stdin); // as an orphaned pacman would
-            ran(0, "")
-        });
+        refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            |_, stdin| {
+                assert!(stdin.metadata().unwrap().is_dir());
+                kept = Some(stdin); // as an orphaned pacman would
+                ran(0, "")
+            },
+        );
         assert!(folder.lock(Duration::ZERO).unwrap().is_none(), "still held");
         drop(kept);
         assert!(folder.lock(Duration::ZERO).unwrap().is_some());
@@ -826,6 +866,7 @@ mod tests {
             &folder,
             RefreshWhy::AfterRefusal,
             Duration::from_secs(10),
+            &AtomicBool::new(false),
             |_, _| {
                 started.set(true);
                 ran(0, "")
@@ -851,5 +892,83 @@ mod tests {
         assert!(!session.runtime.join("tidewise").exists());
         assert!(usable(runtime, [&there, &there]));
         assert!(session.lists().is_dir());
+    }
+
+    #[test]
+    fn a_refresh_is_stopped_by_a_cancel_or_after_three_minutes() {
+        assert_eq!(REFRESH_LIMIT, Duration::from_secs(180));
+        assert!(!must_stop(false, Duration::ZERO));
+        assert!(!must_stop(false, Duration::from_secs(179)));
+        assert!(must_stop(false, Duration::from_secs(180)));
+        assert!(must_stop(true, Duration::ZERO));
+    }
+
+    #[test]
+    fn a_cancel_before_pacman_starts_starts_nothing() {
+        let session = Session::new("cancelled");
+        let folder = session.prepare().unwrap();
+        let lists = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(true),
+            |_, _| panic!("pacman must not be started"),
+        );
+        assert_eq!(lists, Lists::Real(NotFresh::Failed));
+    }
+
+    #[test]
+    fn a_cancel_ends_the_wait_for_another_refresh() {
+        let session = Session::new("cancelwait");
+        let folder = session.prepare().unwrap();
+        let _other = folder.lock(Duration::ZERO).unwrap().unwrap();
+        let again = session.prepare().unwrap();
+        let started = Instant::now();
+        let lists = refresh_in(
+            &again,
+            RefreshWhy::Opening,
+            Duration::from_secs(8),
+            &AtomicBool::new(true),
+            |_, _| panic!("pacman must not be started"),
+        );
+        assert_eq!(lists, Lists::Real(NotFresh::Failed));
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    /// A stopped pacman leaves its `db.lck`. The next refresh removes it under the folder's `flock` and goes on.
+    #[test]
+    fn a_cancelled_refresh_is_followed_by_a_fresh_one() {
+        let session = Session::new("cancelthen");
+        let folder = session.prepare().unwrap();
+        let left = session.lists().join("db.lck");
+        let cancel = AtomicBool::new(false);
+        let lists = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &cancel,
+            |_, _| {
+                cancel.store(true, Ordering::Relaxed);
+                fs::write(&left, b"").unwrap();
+                Ok(Output {
+                    status: ExitStatus::from_raw(15),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            },
+        );
+        assert_eq!(lists, Lists::Real(NotFresh::Failed));
+        assert!(left.exists());
+        let next = refresh_in(
+            &folder,
+            RefreshWhy::Opening,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            |_, _| {
+                assert!(!left.exists(), "removed before pacman starts");
+                ran(0, "")
+            },
+        );
+        assert_eq!(next, private(&folder));
     }
 }
