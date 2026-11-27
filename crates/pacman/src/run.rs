@@ -7,12 +7,14 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io;
+use std::io::{self, Read};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
 
-use rustix::process::Pid;
+use rustix::process::{Pid, Signal, getpgrp, kill_process_group};
 
 use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
@@ -53,24 +55,75 @@ const STOP_GRACE: Duration = Duration::from_secs(2);
 /// The process group to signal for a child started with `process_group(0)`: the child's own pid. Never group 0
 /// ("mine"), 1 (everything the user may signal) or `ours`, the group this app is in.
 fn own_child_group(child: u32, ours: Option<Pid>) -> Option<Pid> {
-    let _ = (child, ours);
-    None
+    let ours = ours?;
+    let pid = i32::try_from(child).ok().filter(|pid| *pid > 1)?;
+    let group = Pid::from_raw(pid)?;
+    (group != ours).then_some(group)
 }
 
-/// Runs `program` with `held` as its stdin, and waits for it. For the private list refresh (`private_lists`), which
-/// passes its locked folder this way: the child and whatever it starts then keep the lock. pacman reads nothing from
-/// it (`-Sy` asks nothing; a folder can't be read as input anyway).
+/// Ends a child that was started in its own process group, with everything it started in that group: SIGTERM, a
+/// grace, then SIGKILL. SIGTERM first matters: `fakeroot`'s script then stops its daemon `faked`, which has a group of
+/// its own and would survive a SIGKILL (measured, WBS 6.5).
+///
+/// The caller must not have reaped the child yet: until then its pid, and so the group, cannot be anyone else's.
+fn stop_group(child: &mut Child) {
+    match own_child_group(child.id(), Some(getpgrp())) {
+        Some(group) => {
+            // An error means there is nothing left to signal.
+            let _ = kill_process_group(group, Signal::TERM);
+            std::thread::sleep(STOP_GRACE);
+            let _ = kill_process_group(group, Signal::KILL);
+        }
+        None => {
+            let _ = child.kill();
+        }
+    }
+}
+
+/// Runs `program` with `held` as its stdin, in a process group of its own, and waits for it. For the private list
+/// refresh (`private_lists`), which passes its locked folder this way: the child and whatever it starts then keep the
+/// lock. pacman reads nothing from it (`-Sy` asks nothing; a folder can't be read as input anyway).
+///
+/// `stop` is asked twenty times a second; once it says yes the whole group is ended. Only stderr is kept.
 pub(crate) fn run_holding(
     program: &Path,
     args: &[String],
     held: File,
     stop: &dyn Fn() -> bool,
 ) -> io::Result<Output> {
-    let _ = stop;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    pacman_command(program, &args)
+    let mut child = pacman_command(program, &args)
         .stdin(Stdio::from(held))
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()?;
+    let (sender, errors) = mpsc::channel();
+    if let Some(mut pipe) = child.stderr.take() {
+        // Read as it comes, so a full pipe never blocks the child.
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            let _ = sender.send(bytes);
+        });
+    }
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if stop() {
+            stop_group(&mut child);
+            break child.wait()?;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    // A program that left the group could still hold the pipe open, so this wait has a limit too.
+    let stderr = errors.recv_timeout(STOP_GRACE).unwrap_or_default();
+    Ok(Output {
+        status,
+        stdout: Vec::new(),
+        stderr,
+    })
 }
 
 /// pacman's database folder, from `pacman-conf DBPath`.
