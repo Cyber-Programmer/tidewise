@@ -438,17 +438,17 @@ fn group_args(group: &str) -> Vec<String> {
 
 /// `-Ss -- '^name$'`: the packages with exactly this name, or providing it.
 fn exact_search_args(name: &str) -> Vec<String> {
-    vec!["-Ss".to_string(), "--".to_string(), exact_pattern(name)]
+    vec![
+        "-Ss".to_string(),
+        "--".to_string(),
+        format!("^{}$", escape_ere(name)),
+    ]
 }
 
-/// The `-Ss` pattern that matches `name` itself and nothing longer: anchored, its regex characters escaped.
-pub fn exact_pattern(name: &str) -> String {
-    format!("^{}$", escape_ere(name))
-}
-
-/// One pattern for many names, each matched as itself only. Stub.
-pub fn exact_pattern_any(_names: &[String]) -> String {
-    String::new()
+/// One `-Ss` pattern for many names: anchored, each name's regex characters escaped, so each matches itself only.
+pub fn exact_pattern_any(names: &[String]) -> String {
+    let escaped: Vec<String> = names.iter().map(|name| escape_ere(name)).collect();
+    format!("^({})$", escaped.join("|"))
 }
 
 /// A dry run's result: the list, or one of the failures the resolver has a state for. Anything else is an error
@@ -567,19 +567,20 @@ struct LookupFacts<'a> {
 impl ChoiceFacts for LookupFacts<'_> {
     type Error = PacmanError;
 
-    /// Stub: still one search per name.
     fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, PacmanError> {
-        let mut all = Vec::new();
-        for name in names {
-            let found = results_from_output(&(self.run)(&exact_search_args(name))?)?;
-            let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
-            if request.is_empty() {
-                continue;
-            }
-            let output = (self.run)(&details_args(&request))?;
-            all.extend(lookup_from_output(&output, &request)?.found);
+        let search = [
+            "-Ss".to_string(),
+            "--".to_string(),
+            exact_pattern_any(names),
+        ];
+        let found = results_from_output(&(self.run)(&search)?)?;
+        let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
+        if request.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(all)
+        let output = (self.run)(&details_args(&request))?;
+        // `-Ss` also matches descriptions: the rule keeps only what `-Si` says provides a name.
+        Ok(lookup_from_output(&output, &request)?.found)
     }
 
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, PacmanError> {

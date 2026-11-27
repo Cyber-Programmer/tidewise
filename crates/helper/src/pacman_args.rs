@@ -13,7 +13,7 @@
 //! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
-use tidewise_pacman::{Dependency, dependency_text};
+use tidewise_pacman::{Dependency, dependency_text, exact_pattern_any};
 
 use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
@@ -127,7 +127,15 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             repo_and_name(packages)?,
             Names::Required,
         ),
-        PacmanCommand::PrivateSearch(_) | PacmanCommand::Search(_) => Err(ArgsRefused::NoTargets),
+        PacmanCommand::PrivateSearch(names) => build(
+            &["-Ss"],
+            &["--dbpath", LISTS_DBPATH],
+            vec![search_pattern(names)?],
+            Names::Required,
+        ),
+        PacmanCommand::Search(names) => {
+            build(&["-Ss"], &[], vec![search_pattern(names)?], Names::Required)
+        }
         PacmanCommand::DepTest(dependency) => {
             let text = dependency_text(dependency).ok_or(ArgsRefused::BadName)?;
             build(&["-T"], &[], vec![text], Names::Required)
@@ -190,6 +198,18 @@ fn repo_and_name(packages: &[PackageRef]) -> Result<Vec<String>, ArgsRefused> {
         .iter()
         .map(|package| format!("{}/{}", package.repo, package.name))
         .collect())
+}
+
+/// The one argument of a search: every name passes the allow-list first, then each is anchored and escaped.
+fn search_pattern(names: &[String]) -> Result<String, ArgsRefused> {
+    if names.is_empty() {
+        return Err(ArgsRefused::NoTargets);
+    }
+    if names.iter().all(|name| is_valid_package_name(name)) {
+        Ok(exact_pattern_any(names))
+    } else {
+        Err(ArgsRefused::BadName)
+    }
 }
 
 /// `name`, for `-D` (it takes installed package names).

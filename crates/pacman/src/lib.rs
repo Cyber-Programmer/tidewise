@@ -55,8 +55,8 @@ pub use resolve::{
     ProviderAnswer, Question, Resolution, ResolveInput, Role,
 };
 pub use run::{
-    UpdateLookup, exact_pattern, exact_pattern_any, installed_packages, package_details,
-    pending_updates, pending_updates_in, resolve, search, sync_lists, update_lookup,
+    UpdateLookup, exact_pattern_any, installed_packages, package_details, pending_updates,
+    pending_updates_in, resolve, search, sync_lists, update_lookup,
 };
 pub use sg::{GroupMember, parse_sg};
 pub use si::{
