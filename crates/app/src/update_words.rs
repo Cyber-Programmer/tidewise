@@ -55,7 +55,38 @@ pub struct BlockWords {
 
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
     let (title, body, advice) = match block {
-        UpdateBlock::Unlisted { .. } => ("", String::new(), ""),
+        UpdateBlock::Unlisted {
+            pending,
+            replacements,
+        } => {
+            let replaced = replacements
+                .iter()
+                .find(|r| pending.iter().any(|update| update.name == r.old));
+            match replaced {
+                Some(Replacement { new, old }) => (
+                    "This update has a replacement Tidewise can't do yet",
+                    format!(
+                        "pacman lists {} in place of {old}, but {old} also has a newer version. Without the \
+                         replacement pacman would update {old} and what it needs, which is not on the list. Nothing \
+                         was changed.",
+                        new.name
+                    ),
+                    "Run sudo pacman -Syu in a terminal; pacman will ask you about the replacement.",
+                ),
+                None => (
+                    "This update would change more than its list",
+                    format!(
+                        "pacman would update {}, which is not on its own list of changes. Nothing was changed.",
+                        pending
+                            .iter()
+                            .map(|update| update.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    "Run sudo pacman -Syu in a terminal.",
+                ),
+            }
+        }
         UpdateBlock::Held(HeldBlock { package, held }) => (
             "An update needs a package you've held back",
             format!(

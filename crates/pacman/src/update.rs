@@ -83,10 +83,8 @@ impl UpdatePlan {
 
 /// The plan, from `-Qu`, the dry run, `-Si` of the printed packages and `-Qi` of everything installed.
 pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePlan, ParseError> {
-    let held_back = parse_qu(qu)?
-        .into_iter()
-        .filter(|update| update.ignored)
-        .collect();
+    let (held_back, pending): (Vec<PendingUpdate>, Vec<PendingUpdate>) =
+        parse_qu(qu)?.into_iter().partition(|update| update.ignored);
     let printed = parse_print(print)?;
     let details: HashMap<PackageRef, PackageDetails> = parse_si(si)?
         .into_iter()
@@ -127,6 +125,12 @@ pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePl
         });
     }
 
+    // The same comparison the helper makes.
+    let unlisted = pending
+        .into_iter()
+        .filter(|update| !printed.iter().any(|line| line.name == update.name))
+        .collect();
+
     let replacements: Vec<Replacement> = listed
         .iter()
         .filter(|l| l.item.installed_version.is_none())
@@ -165,7 +169,7 @@ pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePl
         skipped,
         replacements,
         held_back,
-        unlisted: Vec::new(),
+        unlisted,
         conflicts,
         picks,
     })

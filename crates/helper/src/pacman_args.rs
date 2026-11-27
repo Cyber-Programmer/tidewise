@@ -118,7 +118,7 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::PackageDetails(packages) => {
             build(&["-Si"], &[], repo_and_name(packages)?, Names::Required)
         }
-        PacmanCommand::PrivatePendingUpdates => Err(ArgsRefused::NoTargets),
+        PacmanCommand::PrivatePendingUpdates => Ok(fixed(&["-Qu", "--dbpath", LISTS_DBPATH])),
         PacmanCommand::PrivatePackageDetails(packages) => build(
             &["-Si"],
             &["--dbpath", LISTS_DBPATH],
