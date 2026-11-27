@@ -1,0 +1,4 @@
+tidewise-test/tidewise-dummy-prov-a 1.0-1
+    Tidewise test provider A of tidewise-virtual
+tidewise-test/tidewise-dummy-prov-b 1.0-1
+    Tidewise test provider B of tidewise-virtual

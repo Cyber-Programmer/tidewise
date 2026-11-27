@@ -40,7 +40,9 @@ mod update;
 
 pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
-pub use picks::{ProviderPick, UpdateFacts, dependency_text, provider_picks, update_picks};
+pub use picks::{
+    ChoiceFacts, ProviderPick, SEARCH_BATCH, dependency_text, provider_picks, real_choices,
+};
 pub use print::{
     PrintFailure, PrintedPackage, UnsatisfiedDependency, parse_print, parse_print_failure,
 };
@@ -53,8 +55,8 @@ pub use resolve::{
     ProviderAnswer, Question, Resolution, ResolveInput, Role,
 };
 pub use run::{
-    UpdateLookup, exact_pattern, installed_packages, package_details, pending_updates,
-    pending_updates_in, resolve, search, sync_lists, update_lookup,
+    UpdateLookup, exact_pattern, exact_pattern_any, installed_packages, package_details,
+    pending_updates, pending_updates_in, resolve, search, sync_lists, update_lookup,
 };
 pub use sg::{GroupMember, parse_sg};
 pub use si::{

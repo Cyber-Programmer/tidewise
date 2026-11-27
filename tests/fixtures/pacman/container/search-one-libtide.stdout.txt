@@ -1,0 +1,2 @@
+tidewise-test/tidewise-dummy-so-one 1.0-1
+    Tidewise test: the only provider of a shared library name with plus signs

@@ -1,0 +1,2 @@
+tidewise-test/tidewise-dummy-one-prov 1.0-1
+    Tidewise test: the only provider of tidewise-single

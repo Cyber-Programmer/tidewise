@@ -1,0 +1,152 @@
+Repository      : tidewise-test
+Name            : tidewise-dummy-hello
+Version         : 1.0-1
+Description     : Tidewise test package with no dependencies
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : None
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.45 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 16:25:23 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-one-prov
+Version         : 1.0-1
+Description     : Tidewise test: the only provider of tidewise-single
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-single
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 16:26:53 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-prov-a
+Version         : 1.0-1
+Description     : Tidewise test provider A of tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-virtual
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 16:26:58 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-prov-b
+Version         : 1.0-1
+Description     : Tidewise test provider B of tidewise-virtual
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : tidewise-virtual
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Thu Nov 26 16:27:03 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-so-32
+Version         : 1.0-1
+Description     : Tidewise test provider of another version of that name
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : libtidewise.so=1-32
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Fri Nov 27 03:47:39 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-so-a
+Version         : 1.0-1
+Description     : Tidewise test provider A of a shared library name
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : libtidewise.so=1-64
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.46 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Fri Nov 27 03:47:32 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-so-b
+Version         : 1.0-1
+Description     : Tidewise test provider B of a shared library name
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : libtidewise.so=1-64
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.47 KiB
+Installed Size  : 0.02 KiB
+Packager        : Unknown Packager
+Build Date      : Fri Nov 27 03:47:36 2026
+Validated By    : SHA-256 Sum
+
+Repository      : tidewise-test
+Name            : tidewise-dummy-so-one
+Version         : 1.0-1
+Description     : Tidewise test: the only provider of a shared library name with plus signs
+Architecture    : any
+URL             : https://github.com/Cyber-Programmer/tidewise
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : libtide++.so=2-64
+Depends On      : None
+Optional Deps   : None
+Conflicts With  : None
+Replaces        : None
+Download Size   : 2.48 KiB
+Installed Size  : 0.03 KiB
+Packager        : Unknown Packager
+Build Date      : Fri Nov 27 03:47:43 2026
+Validated By    : SHA-256 Sum
+

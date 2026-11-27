@@ -1,0 +1,16 @@
+tidewise-test/tidewise-dummy-hello 1.0-1
+    Tidewise test package with no dependencies
+tidewise-test/tidewise-dummy-one-prov 1.0-1
+    Tidewise test: the only provider of tidewise-single
+tidewise-test/tidewise-dummy-prov-a 1.0-1
+    Tidewise test provider A of tidewise-virtual
+tidewise-test/tidewise-dummy-prov-b 1.0-1
+    Tidewise test provider B of tidewise-virtual
+tidewise-test/tidewise-dummy-so-32 1.0-1
+    Tidewise test provider of another version of that name
+tidewise-test/tidewise-dummy-so-a 1.0-1
+    Tidewise test provider A of a shared library name
+tidewise-test/tidewise-dummy-so-b 1.0-1
+    Tidewise test provider B of a shared library name
+tidewise-test/tidewise-dummy-so-one 1.0-1
+    Tidewise test: the only provider of a shared library name with plus signs
