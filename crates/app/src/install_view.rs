@@ -871,14 +871,34 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                  Tidewise can't install them together yet."
             );
         }
-        Some(Blocker::SonameChoice { dependency, .. }) => {
+        Some(Blocker::SonameChoice {
+            dependency,
+            candidates,
+        }) => {
             view.title_before = format!("{label} needs a choice Tidewise can't make yet");
             view.body = format!(
-                "It needs {dependency}, and several packages can provide it. Tidewise doesn't ask that question for \
-                 shared libraries yet, so it won't let pacman pick for you."
+                "{label} needs a {dependency} library, and more than one package can provide it. Install one of \
+                 them first, then try again:"
             );
-            view.hint =
-                format!("Run sudo pacman -S {label} in a terminal; pacman will ask you which one.");
+            view.choices = candidates
+                .iter()
+                .map(|candidate| {
+                    let twice = candidates
+                        .iter()
+                        .filter(|other| other.name == candidate.name)
+                        .count()
+                        > 1;
+                    let name = if twice {
+                        spec(candidate)
+                    } else {
+                        candidate.name.clone()
+                    };
+                    ButtonView {
+                        label: format!("Install {name}"),
+                        enabled: true,
+                    }
+                })
+                .collect();
         }
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();

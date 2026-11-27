@@ -96,6 +96,8 @@ export global InstallBridge {
     in property <bool> has-primary;
     in property <string> primary-text;
     in property <bool> primary-enabled;
+    // Buttons of equal weight under the words: one per package the user may install first.
+    in property <[string]> choices;
     in property <bool> has-secondary;
     in property <string> secondary-text;
     in property <string> unchanged;
@@ -142,6 +144,8 @@ export global InstallBridge {
     callback primary();
     // Cancel or Back (also Escape).
     callback secondary();
+    // A button of `choices`.
+    callback pick(int);
     // The "Search" part of the breadcrumb: leave the install.
     callback cancel();
     // Fired on the UI thread when the worker thread has put its answer in its mailbox.

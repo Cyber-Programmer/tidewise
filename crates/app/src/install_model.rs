@@ -488,9 +488,16 @@ impl InstallModel {
         self.begin(request, false)
     }
 
-    /// A button of the shared-library card: a normal install of that candidate. Stub.
-    pub fn install_choice(&mut self, _index: usize) -> Option<Ticket> {
-        None
+    /// A button of the shared-library card: a normal install of that candidate, from the start.
+    pub fn install_choice(&mut self, index: usize) -> Option<Ticket> {
+        let Phase::Blocked(blockers) = &self.phase else {
+            return None;
+        };
+        let Some(Blocker::SonameChoice { candidates, .. }) = blockers.first() else {
+            return None;
+        };
+        let candidate = candidates.get(index)?.clone();
+        self.open(candidate)
     }
 
     /// "Try again" after a failed resolve, and "Check again" after a failed install: that one starts the request

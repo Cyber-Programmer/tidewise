@@ -25,7 +25,11 @@ pub fn is_soname(name: &str) -> bool {
 }
 
 /// Does `details` provide `name`, with exactly `version` when one is asked for?
-fn provides_for(details: &PackageDetails, name: &str, version: Option<&VersionRule>) -> bool {
+pub(crate) fn provides_for(
+    details: &PackageDetails,
+    name: &str,
+    version: Option<&VersionRule>,
+) -> bool {
     details
         .provides
         .iter()
