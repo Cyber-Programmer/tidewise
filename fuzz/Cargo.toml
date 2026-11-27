@@ -108,3 +108,10 @@ path = "fuzz_targets/update.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "choices"
+path = "fuzz_targets/choices.rs"
+test = false
+doc = false
+bench = false
