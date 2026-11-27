@@ -22,6 +22,7 @@ pub mod install_model;
 pub mod install_view;
 pub mod job;
 pub mod list_scroll;
+pub mod refresh_stop;
 pub mod search_model;
 pub mod search_view;
 pub mod size_text;
