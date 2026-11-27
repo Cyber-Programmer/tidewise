@@ -13,6 +13,8 @@ use std::os::unix::fs::{PermissionsExt, chown};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use tidewise_pacman::{Lists, RefreshWhy, pending_updates_in, refresh_private_lists};
@@ -36,11 +38,20 @@ fn app_private_child() {
     let Ok(why) = std::env::var("TW_REFRESH") else {
         return;
     };
+    // "cancel": the flag is set two seconds in, long before pacman would give up on the mirror by itself.
+    let cancel = Arc::new(AtomicBool::new(false));
+    if why == "cancel" {
+        let cancel = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            cancel.store(true, Ordering::Relaxed);
+        });
+    }
     let why = match why.as_str() {
-        "refusal" => RefreshWhy::AfterRefusal,
+        "refusal" | "cancel" => RefreshWhy::AfterRefusal,
         _ => RefreshWhy::Opening,
     };
-    let lists = refresh_private_lists(why);
+    let lists = refresh_private_lists(why, &cancel);
     let dbpath = match &lists {
         Lists::Private(folder) => Some(folder.as_path()),
         Lists::Real(_) => None,
@@ -265,4 +276,57 @@ fn app_private_after_a_crash_the_next_window_waits_60_s_and_leaves_the_running_p
     fs::remove_file(format!("{REPO_DIR}/tidewise-test.db.tar.gz")).unwrap();
     repository_without_the_update();
     assert_eq!(refreshed("refusal"), private(""));
+}
+
+/// The command names of every process of `nobody` that is still there (zombies included).
+fn processes_of_nobody() -> Vec<String> {
+    fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|entry| {
+            let status = fs::read_to_string(entry.ok()?.path().join("status")).ok()?;
+            let field = |name: &str| status.lines().find_map(|l| l.strip_prefix(name));
+            let uid = field("Uid:")?.split_whitespace().next()?;
+            let state = field("State:")?.trim();
+            (uid == NOBODY.to_string() && !state.starts_with('Z'))
+                .then(|| field("Name:").unwrap_or_default().trim().to_string())
+        })
+        .collect()
+}
+
+/// Cancel during a download from a mirror that never answers: the whole group goes (fakeroot, its daemon, pacman),
+/// and the folder works again on the next try, the stopped pacman's `db.lck` notwithstanding.
+#[test]
+#[ignore = "runs real pacman: only inside the test container (tests/container/run.sh)"]
+fn a_cancelled_refresh_leaves_nothing_running_and_the_next_one_works() {
+    start();
+    let mirror = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = mirror.local_addr().unwrap();
+    // Connections are taken and kept, and nothing is ever sent.
+    std::thread::spawn(move || {
+        let mut kept = Vec::new();
+        for stream in mirror.incoming() {
+            kept.push(stream);
+        }
+    });
+    let good = fs::read_to_string("/etc/pacman.conf").unwrap();
+    let silent = good.replace("file:///srv/tidewise-test", &format!("http://{address}"));
+    assert_ne!(good, silent);
+    fs::write("/etc/pacman.conf", silent).unwrap();
+
+    let started = Instant::now();
+    let answer = refreshed("cancel");
+    assert!(answer.starts_with("Real(Failed)"), "{answer}");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(processes_of_nobody(), Vec::<String>::new());
+    assert!(
+        Path::new(LISTS).join("db.lck").exists(),
+        "the stopped pacman left its lock"
+    );
+
+    fs::write("/etc/pacman.conf", good).unwrap();
+    assert_eq!(refreshed("refusal"), private(UPDATE));
 }

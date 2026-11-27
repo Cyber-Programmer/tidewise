@@ -10,6 +10,9 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::Duration;
+
+use rustix::process::Pid;
 
 use crate::resolve::{DryRun, Facts, resolve_with};
 use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
@@ -44,10 +47,26 @@ fn pacman_command(program: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// How long a stopped program has between SIGTERM and SIGKILL.
+const STOP_GRACE: Duration = Duration::from_secs(2);
+
+/// The process group to signal for a child started with `process_group(0)`: the child's own pid. Never group 0
+/// ("mine"), 1 (everything the user may signal) or `ours`, the group this app is in.
+fn own_child_group(child: u32, ours: Option<Pid>) -> Option<Pid> {
+    let _ = (child, ours);
+    None
+}
+
 /// Runs `program` with `held` as its stdin, and waits for it. For the private list refresh (`private_lists`), which
 /// passes its locked folder this way: the child and whatever it starts then keep the lock. pacman reads nothing from
 /// it (`-Sy` asks nothing; a folder can't be read as input anyway).
-pub(crate) fn run_holding(program: &Path, args: &[String], held: File) -> io::Result<Output> {
+pub(crate) fn run_holding(
+    program: &Path,
+    args: &[String],
+    held: File,
+    stop: &dyn Fn() -> bool,
+) -> io::Result<Output> {
+    let _ = stop;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     pacman_command(program, &args)
         .stdin(Stdio::from(held))
@@ -2413,5 +2432,89 @@ mod update_lookup_tests {
             matches!(result, Err(PacmanError::Failed { .. })),
             "{result:?}"
         );
+    }
+}
+
+/// Stopping the private refresh (WBS 6.5). These start real, harmless programs (`sleep`, `ls`).
+#[cfg(test)]
+mod holding_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+    use std::time::Instant;
+
+    fn held() -> File {
+        File::open("/").unwrap()
+    }
+
+    fn words(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn the_group_signalled_is_only_ever_the_childs_own() {
+        let ours = Pid::from_raw(500);
+        for refused in [0, 1, 500, u32::MAX] {
+            assert_eq!(own_child_group(refused, ours), None, "{refused}");
+        }
+        assert_eq!(own_child_group(501, ours), Pid::from_raw(501));
+        // Without knowing our own group there is nothing to compare with.
+        assert_eq!(own_child_group(501, None), None);
+    }
+
+    #[test]
+    fn a_stop_ends_a_running_program_early() {
+        let started = Instant::now();
+        let output = run_holding(Path::new("/usr/bin/sleep"), &words(&["8"]), held(), &|| {
+            true
+        })
+        .unwrap();
+        assert!(!output.status.success());
+        assert!(started.elapsed() < Duration::from_secs(6));
+    }
+
+    #[test]
+    fn a_program_that_ignores_sigterm_is_killed_after_the_grace() {
+        let started = Instant::now();
+        let output = run_holding(
+            Path::new("/usr/bin/env"),
+            &words(&["--ignore-signal=TERM", "/usr/bin/sleep", "20"]),
+            held(),
+            // Late enough for `env` to have set the signal aside.
+            &|| started.elapsed() > Duration::from_millis(500),
+        )
+        .unwrap();
+        assert_eq!(output.status.signal(), Some(9));
+        assert!(started.elapsed() >= STOP_GRACE);
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    /// Only the stopped child's group is signalled: another child, and this test process, carry on.
+    #[test]
+    fn stopping_one_program_leaves_another_running() {
+        let other = std::thread::spawn(|| {
+            run_holding(Path::new("/usr/bin/sleep"), &words(&["3"]), held(), &|| {
+                false
+            })
+            .unwrap()
+        });
+        let stopped = run_holding(Path::new("/usr/bin/sleep"), &words(&["8"]), held(), &|| {
+            true
+        })
+        .unwrap();
+        assert!(!stopped.status.success());
+        assert!(other.join().unwrap().status.success());
+    }
+
+    #[test]
+    fn a_program_that_ends_by_itself_keeps_its_status_and_its_errors() {
+        let output = run_holding(
+            Path::new("/usr/bin/ls"),
+            &words(&["/nonexistent-for-tidewise"]),
+            held(),
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("nonexistent-for-tidewise"));
     }
 }

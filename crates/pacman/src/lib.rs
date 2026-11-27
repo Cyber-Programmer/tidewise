@@ -48,7 +48,7 @@ pub use picks::{
 pub use print::{
     PrintFailure, PrintedPackage, UnsatisfiedDependency, parse_print, parse_print_failure,
 };
-pub use private_lists::{Lists, NotFresh, RefreshWhy, refresh_private_lists};
+pub use private_lists::{Lists, NotFresh, REFRESH_LIMIT, RefreshWhy, refresh_private_lists};
 pub use qi::{InstallReason, InstalledPackage, parse_qi};
 pub use qq::parse_qq;
 pub use qu::{PendingUpdate, parse_qu};

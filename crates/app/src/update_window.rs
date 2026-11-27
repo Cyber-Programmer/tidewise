@@ -150,7 +150,7 @@ fn spawn_check(state: &Rc<RefCell<State>>, ticket: CheckTicket) {
     };
     std::thread::spawn(move || {
         let result = review_updates(
-            || tidewise_pacman::refresh_private_lists(ticket.why),
+            || tidewise_pacman::refresh_private_lists(ticket.why, &Default::default()),
             tidewise_pacman::update_lookup,
             || {
                 tidewise_pacman::sync_lists()
