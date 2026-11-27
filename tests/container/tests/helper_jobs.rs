@@ -353,50 +353,116 @@ fn an_update_and_an_install_in_one_request_do_both() {
 
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn a_pending_replacement_is_declined_and_reported_as_a_notice_not_an_error() {
+fn a_pending_replacement_is_refused_and_nothing_changes() {
     assert_inside_the_test_container();
     reset_world();
-    let journal = FakeJournal::start(); // with a journal, the only notice is the one about the packages
     install_directly(&["tidewise-dummy-old"]);
     add_newer("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
-    // The dry run lists the replacing package (and says nothing about the removal), so that is the confirmed list.
-    let items = confirmed("-Su", &[]);
-    assert_eq!(items.len(), 1);
-    let (request, summary) = update_request(&items);
+    assert_replacement_refused();
+}
 
+/// The helper is given exactly what the dry run prints now, and refuses with nothing installed or removed.
+fn assert_replacement_refused() {
+    let items = confirmed("-Su", &[]);
+    assert!(!items.is_empty());
+    let (request, summary) = update_request(&items);
+    let packages_before = package_list();
     let ran = run(&summary, request.as_bytes());
-    assert_eq!(ran.status.code(), Some(0), "{}", ran.stdout);
-    let lines = ran.lines();
-    let n = lines.len();
-    assert_eq!(lines[n - 2], "{\"notice\":{\"packages_not_installed\":1}}");
-    assert_eq!(lines[n - 1], OK_LINE);
-    // Nothing was removed and the replacement was not installed.
+    finished_with(&ran, "transaction_changed");
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
+}
+
+/// Review S-01: an upgrade needs a name the replacer provides and a package is literally called that. The dry run
+/// takes the replacer; the real run would decline it and install the literal package and what it needs.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_replacer_that_stands_in_for_a_needed_name_is_refused() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-old", "tidewise-dummy-upd-foo"]);
+    add_newer("tidewise-dummy-upd-foo-2.0-1-any.pkg.tar.zst");
+    add_newer("tidewise-dummy-new-foo-1.0-1-any.pkg.tar.zst");
+    let listed: Vec<String> = confirmed("-Su", &[]).into_iter().map(|i| i.name).collect();
+    assert!(
+        !listed.contains(&"tidewise-dummy-foo".to_string()),
+        "{listed:?}"
+    );
+    assert_replacement_refused();
+    assert_eq!(installed_version("tidewise-dummy-foo"), None);
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
+}
+
+/// Review S-02: an earlier repository holds the replaced package but takes no part in upgrades, so `-Qu` shows
+/// nothing. The replacement is still in the dry run's list.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_replacement_that_qu_does_not_show_is_refused() {
+    assert_inside_the_test_container();
+    reset_world();
+    first_repository_without_upgrade("tidewise-dummy-old-1.0-1-any.pkg.tar.zst");
+    install_directly(&["tidewise-dummy-old"]);
+    add_newer("tidewise-dummy-old-2.0-1-any.pkg.tar.zst");
+    add_newer("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    assert_eq!(pacman_stdout(&["-Qu"]), "");
+    assert_replacement_refused();
     assert_eq!(
         installed_version("tidewise-dummy-old").as_deref(),
         Some("1.0-1")
     );
-    assert_eq!(installed_version("tidewise-dummy-new"), None);
+}
 
-    // The journal does not call that a clean ok (5.3c): the same fact, one line, with its count.
-    let entries = journal.datagrams();
-    assert_eq!(entries.len(), 2);
-    assert_fields(
-        &entries[1],
-        &[
-            ("PRIORITY", "4"),
-            ("TIDEWISE_OUTCOME", "ok_with_notices"),
-            ("TIDEWISE_NOT_INSTALLED", "1"),
-        ],
+/// The replacer is installed already: pacman lists it again, and the real run would upgrade the replaced package.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_replacement_by_an_installed_package_is_refused() {
+    assert_inside_the_test_container();
+    reset_world();
+    add_newer("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    install_directly(&["tidewise-dummy-old", "tidewise-dummy-new"]);
+    add_newer("tidewise-dummy-old-2.0-1-any.pkg.tar.zst");
+    assert_replacement_refused();
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
+}
+
+/// A versioned `Replaces` that does not fit the installed version is no replacement (`-T` says so).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_versioned_replaces_that_does_not_fit_lets_the_update_through() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-old", "tidewise-dummy-upd-ver"]);
+    add_newer("tidewise-dummy-upd-ver-2.0-1-any.pkg.tar.zst");
+    let (request, summary) = update_request(&confirmed("-Su", &[]));
+    let ran = run(&summary, request.as_bytes());
+    assert_ok(&ran);
+    assert!(installed_version("tidewise-dummy-ver").is_some());
+    assert_eq!(
+        installed_version("tidewise-dummy-old").as_deref(),
+        Some("1.0-1")
     );
-    assert!(
-        entries[1].contains("(1 not installed, 0 removed)"),
-        "{}",
-        entries[1]
+}
+
+/// Review S-06: only the new version is in an `IgnoreGroup`. The update goes through, leaving it alone.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_with_a_new_version_in_an_ignored_group_goes_through() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd-grp", "tidewise-dummy-upd"]);
+    add_newer("tidewise-dummy-upd-grp-2.0-1-any.pkg.tar.zst");
+    add_newer("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    ignore_group("tidewise-grp");
+    let (request, summary) = update_request(&confirmed("-Su", &[]));
+    let ran = run(&summary, request.as_bytes());
+    assert_ok(&ran);
+    assert_eq!(
+        installed_version("tidewise-dummy-upd").as_deref(),
+        Some("2.0-1")
     );
-    assert!(
-        !entries[1].contains("REMOVAL_CHECK"),
-        "the check ran: {}",
-        entries[1]
+    assert_eq!(
+        installed_version("tidewise-dummy-upd-grp").as_deref(),
+        Some("1.0-1")
     );
 }
 
