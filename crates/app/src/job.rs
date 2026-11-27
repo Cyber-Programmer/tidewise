@@ -46,6 +46,18 @@ impl Job {
     }
 }
 
+/// The dialog when the window is closed during a job.
+pub const CLOSE_WARNING: &str =
+    "The update keeps running if you close Tidewise. Keep it open until it's done.";
+pub const KEEP_OPEN: &str = "Keep open";
+pub const CLOSE_ANYWAY: &str = "Close anyway";
+
+/// How long the job has been running, shown under the bar so a quiet phase does not look stuck.
+pub fn elapsed_text(seconds: u64) -> String {
+    let _ = seconds;
+    String::new()
+}
+
 /// Why a job did not end well.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobFailure {
@@ -68,4 +80,32 @@ fn percent_of(progress: Progress) -> u8 {
     let done = u64::from(progress.current).min(total);
     let within = (to - from) * done / total;
     u8::try_from(from + within).unwrap_or(100)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_close_dialog_says_exactly_this() {
+        assert_eq!(
+            CLOSE_WARNING,
+            "The update keeps running if you close Tidewise. Keep it open until it's done."
+        );
+        assert_eq!((KEEP_OPEN, CLOSE_ANYWAY), ("Keep open", "Close anyway"));
+    }
+
+    #[test]
+    fn the_elapsed_time_is_said_in_plain_units() {
+        for (seconds, words) in [
+            (0, "Running for 0 s"),
+            (59, "Running for 59 s"),
+            (60, "Running for 1 min 0 s"),
+            (754, "Running for 12 min 34 s"),
+            (3600, "Running for 1 h 0 min"),
+            (7384, "Running for 2 h 3 min"),
+        ] {
+            assert_eq!(elapsed_text(seconds), words);
+        }
+    }
 }

@@ -60,6 +60,8 @@ pub struct UpdateView {
     pub stages: Vec<StageView>,
     pub percent: u8,
     pub percent_text: String,
+    /// No real percentage is known: the bar moves instead.
+    pub indeterminate: bool,
     pub attention: bool,
     pub focus: FocusTarget,
     pub focus_serial: u32,
@@ -775,5 +777,37 @@ mod tests {
             "Another update is still running (maybe one Tidewise started earlier). Wait for it to finish, then check \
              again."
         );
+    }
+
+    #[test]
+    fn only_a_counted_install_step_has_a_percentage() {
+        let mut model = reviewing(mixed());
+        let job = model.start_update().unwrap();
+        assert!(
+            !update_view(&model).indeterminate,
+            "waiting for the password"
+        );
+        let mut at = |phase, current| {
+            model.job_event(
+                job.number,
+                Event::Progress(Progress {
+                    phase,
+                    current,
+                    total: 3,
+                }),
+            );
+            let view = update_view(&model);
+            (view.title, view.percent_text, view.indeterminate)
+        };
+        let moving = |title: &str| (title.to_string(), String::new(), true);
+        assert_eq!(at(Stage::Checking, 0), moving("Checking the list again"));
+        assert_eq!(at(Stage::Downloading, 0), moving("Downloading packages"));
+        assert_eq!(at(Stage::Downloading, 2), moving("Downloading packages"));
+        assert_eq!(at(Stage::Installing, 0), moving("Updating packages"));
+        assert_eq!(
+            at(Stage::Installing, 1),
+            ("Updating 1 of 3".to_string(), "64 %".to_string(), false)
+        );
+        assert_eq!(at(Stage::Hooks, 0), moving("Finishing (pacman hooks)"));
     }
 }

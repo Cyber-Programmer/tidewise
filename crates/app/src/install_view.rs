@@ -175,6 +175,8 @@ pub struct InstallView {
     pub percent: u8,
     /// "42 %", or empty before the helper has said anything.
     pub percent_text: String,
+    /// No real percentage is known: the bar moves instead.
+    pub indeterminate: bool,
     /// The done card has something to warn about: a warning mark instead of the check mark.
     pub attention: bool,
     pub focus_serial: u32,
@@ -1729,6 +1731,7 @@ mod tests {
             );
             assert_eq!(view.body, "");
             assert_eq!((view.primary.clone(), view.secondary.clone()), (None, None));
+            assert_eq!(view.indeterminate, view.percent_text.is_empty());
             (
                 view.title_before.clone(),
                 view.percent_text.clone(),
@@ -1740,7 +1743,7 @@ mod tests {
             at(Stage::Checking, 0, 2),
             (
                 words("Checking the list again"),
-                words("0 %"),
+                words(""),
                 vec![Now, Later, Later, Later]
             )
         );
@@ -1748,15 +1751,15 @@ mod tests {
             at(Stage::Downloading, 0, 2),
             (
                 words("Downloading packages"),
-                words("5 %"),
+                words(""),
                 vec![Done, Now, Later, Later]
             )
         );
         assert_eq!(
             at(Stage::Downloading, 1, 2),
             (
-                words("Downloading 1 of 2"),
-                words("27 %"),
+                words("Downloading packages"),
+                words(""),
                 vec![Done, Now, Later, Later]
             )
         );
@@ -1765,7 +1768,7 @@ mod tests {
             at(Stage::Installing, 0, 2),
             (
                 words("Installing packages"),
-                words("50 %"),
+                words(""),
                 vec![Done, Done, Now, Later]
             )
         );
@@ -1781,7 +1784,7 @@ mod tests {
             at(Stage::Hooks, 0, 2),
             (
                 words("Finishing (pacman hooks)"),
-                words("92 %"),
+                words(""),
                 vec![Done, Done, Done, Now]
             )
         );
@@ -2348,5 +2351,13 @@ mod tests {
         );
         let locked = ended_with(&[], ErrorKind::DatabaseLocked);
         assert!(locked.body.starts_with("Another update is still running"));
+    }
+
+    #[test]
+    fn a_job_is_running_from_the_start_of_the_install_to_its_end() {
+        let (mut model, number) = installing();
+        assert!(model.job_running());
+        model.job_ended(number, JobEnd::PromptClosed);
+        assert!(!model.job_running());
     }
 }
