@@ -1603,6 +1603,8 @@ Only your `sudo` lines and the installed helper run pacman as root. Do it on the
    `tidewise`). Save what you have: `pacman -Q > ~/before.txt`. Read https://archlinux.org/news/ first.
 2. Start Tidewise, open **Updates**, press "Check for updates". No password. The card says what it found.
    `ls -l /var/lib/pacman/sync/*.db` has the same times as before the check.
+   If the card says the update includes a replacement although `sudo pacman -Syu` would only ask about a package
+   replacing its own name, that is expected (decision 0009): Tidewise cannot update while it is installed.
 3. In a terminal, compare (read only, as you):
    `pacman -Su --print --print-format '%n %v' --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/"`: the same packages as the
    review. If a `sudo pacman -Syu` would ask "Replace ... ?", Tidewise must show "This update includes a replacement
@@ -1678,3 +1680,20 @@ Blockers: T-01; the package tests. For v0.1 also threat model 40 (6.6).
 Open: `fds.rs` flaky test (not touched).
 Rules bent: (1) the container run is a stand-in, not `run.sh`. (2) No red step for the container tests written after the
 fix. (3) A network probe of the archive was denied; not retried. (4) No WBS sheet update.
+
+## 2026-11-27 — 6.5 T-01 closed, T-02 recorded, full container run
+Done:
+- **T-01** (your decision): no self-replacement exemption (`c253807`, red `57599cd`). The container reproduction failed
+  against the old helper (it answered ok) and passes now.
+- **A cost, measured:** a package that replaces its own name is listed by every `-Su`, even up to date and after
+  accepting it in a terminal. While one is installed, Tidewise always shows the replacement card.
+- **T-02** recorded as a limit.
+- **Checks** on `c253807`: `cargo test --all` 1305 passed, 0 failed, 165 ignored. fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and `fuzz build`: exit 0. Fuzzing not repeated (no parser changed).
+- **Container: the full `tests/container/run.sh` on `c253807`: 1464 passed, 0 failed**, `package` 16 and
+  `package_hostile` 2 included (the Arch Archive answered again). This replaces the stand-in of the previous entry.
+Next: the 6.5 manual checklist, then push and PR.
+Blockers: none for 6.5 beyond the checklist. For v0.1: threat model 40 (6.6).
+Open: `fds.rs` flaky test (helper code, not touched); R-05 (6.6, which must also add the replacement block to the
+resolver for "update and install").
+Rules bent: no WBS sheet update (as asked).
