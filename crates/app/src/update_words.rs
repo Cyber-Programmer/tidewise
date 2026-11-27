@@ -50,7 +50,24 @@ pub struct BlockWords {
     pub advice: String,
 }
 
+/// pacman lists a package that replaces its own name in every update, so "run it once" would not be true.
+fn self_replacement_words(name: &str) -> BlockWords {
+    BlockWords {
+        title: format!(
+            "{name} marks itself as a replacement, so Tidewise can't update while it's installed"
+        ),
+        body: String::new(),
+        advice: "Update with sudo pacman -Syu in a terminal instead.".to_string(),
+    }
+}
+
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
+    if let UpdateBlock::Replacement(replacements) = block
+        && let [only] = replacements.as_slice()
+        && only.new.name == only.old
+    {
+        return self_replacement_words(&only.old);
+    }
     let (title, body, advice) = match block {
         UpdateBlock::Replacement(_) => (
             "This update includes a replacement Tidewise can't do yet",
