@@ -48,6 +48,9 @@ pub struct UpdatePlan {
     pub replacements: Vec<Replacement>,
     /// `[ignored]` updates: held back by `IgnorePkg` / `IgnoreGroup`.
     pub held_back: Vec<PendingUpdate>,
+    /// Updates `-Qu` names that the dry run does not: the real run would still make them (review 6.5 R-01), so
+    /// nothing may be updated.
+    pub unlisted: Vec<PendingUpdate>,
     pub conflicts: Vec<Conflict>,
     /// Names pacman would answer itself with a new package (the helper refuses these).
     pub picks: Vec<ProviderPick>,
@@ -162,6 +165,7 @@ pub fn update_plan(qu: &str, print: &str, si: &str, qi: &str) -> Result<UpdatePl
         skipped,
         replacements,
         held_back,
+        unlisted: Vec::new(),
         conflicts,
         picks,
     })
@@ -422,6 +426,24 @@ mod tests {
         );
         assert_eq!(plan.installing().count(), 0);
         assert_eq!(plan.replacements.len(), 1);
+    }
+
+    /// Review 6.5 R-01: the dry run lists only the replacer, `-Qu` the old package the real run would upgrade.
+    #[test]
+    fn an_upgrade_the_dry_run_leaves_out_is_kept_apart() {
+        let plan = plan!("replace-newer");
+        assert_eq!(plan.unlisted.len(), 1);
+        assert_eq!(plan.unlisted[0].name, dummy("old"));
+        assert_eq!(plan.replacements.len(), 1);
+        for case in ["replace", "held", "provider", "conflict"] {
+            let plan = match case {
+                "replace" => plan!("replace"),
+                "held" => plan!("held"),
+                "provider" => plan!("provider"),
+                _ => plan!("conflict"),
+            };
+            assert!(plan.unlisted.is_empty(), "{case}");
+        }
     }
 
     #[test]

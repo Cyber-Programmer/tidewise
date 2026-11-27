@@ -12,6 +12,11 @@ pub enum UpdateBlock {
     Conflict(Vec<Conflict>),
     /// pacman would choose a package by itself; the helper would refuse (golden rule 10).
     Pick(Vec<ProviderPick>),
+    /// The real run would make upgrades the dry run does not list (review 6.5 R-01).
+    Unlisted {
+        pending: Vec<PendingUpdate>,
+        replacements: Vec<Replacement>,
+    },
 }
 
 pub const NOTHING_REMOVED: &str = "Nothing will be removed.";
@@ -50,6 +55,7 @@ pub struct BlockWords {
 
 pub fn block_words(block: &UpdateBlock) -> BlockWords {
     let (title, body, advice) = match block {
+        UpdateBlock::Unlisted { .. } => ("", String::new(), ""),
         UpdateBlock::Held(HeldBlock { package, held }) => (
             "An update needs a package you've held back",
             format!(
@@ -240,6 +246,48 @@ mod tests {
              remove it from IgnorePkg, or run sudo pacman -Syu in a terminal and choose to skip needs-upd."
         );
         assert_eq!(words.advice, "");
+    }
+
+    #[test]
+    fn an_upgrade_pacman_did_not_list_sends_the_user_to_the_terminal() {
+        let words = block_words(&UpdateBlock::Unlisted {
+            pending: vec![PendingUpdate {
+                name: "old".to_string(),
+                installed_version: "1-1".to_string(),
+                new_version: "2-1".to_string(),
+                ignored: false,
+            }],
+            replacements: vec![Replacement {
+                new: pkg("new"),
+                old: "old".to_string(),
+            }],
+        });
+        assert_eq!(
+            words.title,
+            "This update has a replacement Tidewise can't do yet"
+        );
+        assert_eq!(
+            words.body,
+            "pacman lists new in place of old, but old also has a newer version. Without the replacement pacman \
+             would update old and what it needs, which is not on the list. Nothing was changed."
+        );
+        assert_eq!(
+            words.advice,
+            "Run sudo pacman -Syu in a terminal; pacman will ask you about the replacement."
+        );
+        let words = block_words(&UpdateBlock::Unlisted {
+            pending: vec![PendingUpdate {
+                name: "other".to_string(),
+                installed_version: "1-1".to_string(),
+                new_version: "2-1".to_string(),
+                ignored: false,
+            }],
+            replacements: vec![],
+        });
+        assert_eq!(
+            words.body,
+            "pacman would update other, which is not on its own list of changes. Nothing was changed."
+        );
     }
 
     #[test]

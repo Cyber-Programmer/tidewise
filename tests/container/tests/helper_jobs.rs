@@ -708,6 +708,28 @@ fn an_update_whose_installed_provider_drops_the_name_is_refused() {
     );
 }
 
+/// Review 6.5 R-01 with the real helper: the list the dry run prints would let `--ask 66` upgrade the old package and
+/// install what it needs, neither of them on it. Refused, nothing changed.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn an_update_that_would_upgrade_a_replaced_package_nobody_listed_is_refused() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-old"]);
+    add_newer("tidewise-dummy-old-2.0-1-any.pkg.tar.zst");
+    add_newer("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    let items = confirmed("-Su", &[]);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].name, "tidewise-dummy-new");
+    let (request, summary) = update_request(&items);
+    let packages_before = package_list();
+
+    let ran = run(&summary, request.as_bytes());
+    finished_with(&ran, "transaction_changed");
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
+}
+
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
 fn a_changed_update_list_leaves_the_real_sync_databases_untouched() {
