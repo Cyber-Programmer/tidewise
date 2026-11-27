@@ -2,8 +2,8 @@
 //! the app, which otherwise leaves its pacman running with nobody to end it. No Slint.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 /// The worker's side: give `cancel()` to the refresh, and drop this when the refresh has returned.
@@ -27,6 +27,7 @@ pub struct Refreshes {
 impl Refreshes {
     /// A new refresh. The one before it, if it is still running, is told to stop.
     pub fn start(&mut self) -> RefreshFlag {
+        self.stop();
         let flag = Arc::new(AtomicBool::new(false));
         let (running, finished) = mpsc::channel();
         self.current = Some((flag.clone(), finished));
@@ -37,19 +38,29 @@ impl Refreshes {
     }
 
     /// Tells the current refresh to stop. Does not wait for it.
-    pub fn stop(&mut self) {}
+    pub fn stop(&mut self) {
+        if let Some((flag, _)) = &self.current {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
 
     /// Stops it and waits until it has returned. `false`: it had not after `limit`.
     pub fn stop_and_wait(&mut self, limit: Duration) -> bool {
-        let _ = limit;
-        false
+        self.stop();
+        match &self.current {
+            // The worker drops its sender when the refresh returns: that ends the wait with "disconnected".
+            Some((_, finished)) => matches!(
+                finished.recv_timeout(limit),
+                Err(RecvTimeoutError::Disconnected)
+            ),
+            None => true,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
     use std::time::Instant;
 
     fn stopped(flag: &RefreshFlag) -> bool {
