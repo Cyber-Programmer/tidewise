@@ -2701,6 +2701,132 @@ mod tests {
         }
     }
 
+    // ---- shared libraries (review 6.5 R-02) and the "checking" event -----------------------------------------
+
+    const SONAME: &str = "libeditor.so";
+
+    /// `-Si` of the install fixture's list where `dbeaver` needs a soname and `dbeaver-jdbc` brings it.
+    fn soname_si(items: &[TransactionItem]) -> String {
+        items
+            .iter()
+            .map(|item| match item.name.as_str() {
+                "jre-openjdk" => record(item, "java-runtime=25", "None"),
+                "dbeaver-jdbc" => record(item, "libeditor.so=1-64", "None"),
+                "dbeaver" => record(item, "None", "java-runtime>=21  libeditor.so=1-64"),
+                _ => record(item, "None", "None"),
+            })
+            .collect()
+    }
+
+    /// `-Si` of what the search finds: each provides the soname.
+    fn soname_providers(names: &[&str]) -> String {
+        names
+            .iter()
+            .map(|name| {
+                let item = TransactionItem {
+                    repo: "extra".to_string(),
+                    name: (*name).to_string(),
+                    version: "1-1".to_string(),
+                };
+                record(&item, "libeditor.so=1-64", "None")
+            })
+            .collect()
+    }
+
+    /// An install whose list has a soname need; `more` answers the reads after the list's `-Si`.
+    fn soname_install(
+        installed: &str,
+        more: Vec<Result<RunOutput, RunnerError>>,
+    ) -> (Outcome, Fake) {
+        let request = request(INSTALL);
+        let items = transaction_of(&request);
+        let mut script = vec![
+            out(1, "", ""),
+            ok(&print_text(&items)),
+            ok(installed),
+            ok(&soname_si(&items)),
+        ];
+        script.extend(more);
+        script.extend([
+            ok("pacman 7.1.0-1\n"),
+            ok(REAL_INSTALL_OUT),
+            ok(""),
+            ok(&installed_text(&items)),
+        ]);
+        let mut fake = Fake::new(script);
+        let (outcome, _) = go(&request, &mut fake);
+        (outcome, fake)
+    }
+
+    #[test]
+    fn an_install_with_a_lone_shared_library_provider_goes_through() {
+        let (outcome, fake) = soname_install(
+            "pacman 7.1.0-1\n",
+            vec![
+                ok(&found(&["dbeaver-jdbc"])),
+                ok(&soname_providers(&["dbeaver-jdbc"])),
+            ],
+        );
+        assert_eq!(outcome, Outcome::Ok);
+        // The real lists, one batched search: never the private ones.
+        assert_eq!(
+            fake.ran[4..6],
+            [
+                PacmanCommand::Search(vec![SONAME.to_string()]),
+                PacmanCommand::PackageDetails(vec![pkg("extra", "dbeaver-jdbc")]),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_install_where_pacman_would_choose_a_shared_library_is_refused() {
+        let (outcome, fake) = soname_install(
+            "pacman 7.1.0-1\n",
+            vec![
+                ok(&found(&["dbeaver-jdbc", "other-lib"])),
+                ok(&soname_providers(&["dbeaver-jdbc", "other-lib"])),
+            ],
+        );
+        assert_eq!(outcome, Outcome::Error(ErrorKind::ProviderNotChosen));
+        assert!(
+            !fake
+                .ran
+                .iter()
+                .any(|c| matches!(c, PacmanCommand::RealInstall(_)))
+        );
+    }
+
+    #[test]
+    fn an_install_whose_shared_library_an_installed_package_provides_goes_through() {
+        let (outcome, fake) = soname_install(
+            "pacman 7.1.0-1\nother-lib 1-1\n",
+            vec![
+                ok(&found(&["dbeaver-jdbc", "other-lib"])),
+                ok(&soname_providers(&["dbeaver-jdbc", "other-lib"])),
+                ok(""),
+            ],
+        );
+        assert_eq!(outcome, Outcome::Ok);
+        assert!(matches!(fake.ran[6], PacmanCommand::DepTest(_)));
+    }
+
+    #[test]
+    fn the_job_says_it_is_checking_before_the_provider_reads() {
+        for text in [INSTALL, UPDATE] {
+            let request = request(text);
+            // Only the lock look has happened when the first event arrives.
+            let mut fake = Fake::new(vec![]);
+            let (_, events) = go(&request, &mut fake);
+            assert!(
+                matches!(
+                    events.first(),
+                    Some(Event::Progress(p)) if p.phase == Phase::Checking && p.current == 0
+                ),
+                "{text}: {events:?}"
+            );
+        }
+    }
+
     // ---- shape --------------------------------------------------------------------------------------------
 
     #[test]

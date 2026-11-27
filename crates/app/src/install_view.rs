@@ -868,6 +868,7 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                  Tidewise can't install them together yet."
             );
         }
+        Some(Blocker::SonameChoice { .. }) => {}
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -900,6 +901,7 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::MissingFromList { requested } => {
             format!("missing from pacman's list: {}", spec(requested))
         }
+        Blocker::SonameChoice { .. } => String::new(),
         Blocker::TwoVersionsNeeded { dependency } => {
             format!("{dependency}: needed at two versions")
         }
@@ -1035,6 +1037,33 @@ mod tests {
             install_view(&model).slow_note,
             "This is taking longer than usual."
         );
+    }
+
+    #[test]
+    fn a_shared_library_choice_blocks_with_its_own_words() {
+        let view = install_view(&answered(
+            "dbeaver",
+            Resolution::Blocked(vec![Blocker::SonameChoice {
+                dependency: "libjack.so".to_string(),
+            }]),
+        ));
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(
+            view.title_before,
+            "dbeaver needs a choice Tidewise can't make yet"
+        );
+        assert_eq!(
+            view.body,
+            "It needs libjack.so, and several packages can provide it. Tidewise doesn't ask that question for \
+             shared libraries yet, so it won't let pacman pick for you."
+        );
+        assert_eq!(
+            view.hint,
+            "Run sudo pacman -S dbeaver in a terminal; pacman will ask you which one."
+        );
+        assert_eq!(view.unchanged, UNCHANGED);
+        assert_eq!(view.technical, ["libjack.so: several packages provide it"]);
+        assert_eq!(view.primary, None);
     }
 
     #[test]

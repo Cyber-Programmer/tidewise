@@ -630,6 +630,14 @@ impl Facts for RealFacts<'_> {
         results_from_output(&self.go(exact_search_args(name))?)
     }
 
+    fn search_any(&self, _names: &[String]) -> Result<Vec<SearchResult>, PacmanError> {
+        Ok(Vec::new())
+    }
+
+    fn satisfied(&self, _dependency: &Dependency) -> Result<bool, PacmanError> {
+        Ok(false)
+    }
+
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError> {
         group_from_output(&self.go(group_args(group))?, group)
     }

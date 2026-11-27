@@ -362,6 +362,7 @@ mod tests {
         let pick = |dependency: &str| ProviderPick {
             dependency: dependency.to_string(),
             provider: pkg("prov-a"),
+            version: None,
         };
         for (picks, start) in [
             (
@@ -383,6 +384,7 @@ mod tests {
         let words = block_words(&UpdateBlock::Pick(vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: pkg("prov-a"),
+            version: None,
         }]));
         assert_eq!(
             words.title,

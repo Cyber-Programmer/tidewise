@@ -373,6 +373,7 @@ mod tests {
         let pick = ProviderPick {
             dependency: "v".to_string(),
             provider: pkg("p"),
+            version: None,
         };
         let mut with_both = plan(&["a"]);
         with_both.conflicts.push(conflict.clone());

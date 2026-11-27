@@ -325,6 +325,25 @@ impl Facts for World {
             .collect())
     }
 
+    fn search_any(&self, names: &[String]) -> Result<Vec<SearchResult>, PacmanError> {
+        let mut found = Vec::new();
+        for name in names {
+            found.extend(self.search_exact(name)?);
+        }
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        found.dedup_by(|a, b| a.name == b.name && a.repo == b.repo);
+        Ok(found)
+    }
+
+    fn satisfied(&self, dependency: &Dependency) -> Result<bool, PacmanError> {
+        Ok(self.installed.iter().any(|(name, _, provides)| {
+            *name == dependency.name
+                || provides
+                    .iter()
+                    .any(|p| to_dependency(p).name == dependency.name)
+        }))
+    }
+
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError> {
         let members: Vec<GroupMember> = self
             .pkgs
@@ -700,6 +719,27 @@ fn a_provider_whose_own_dependency_provides_the_same_name_is_still_a_choice() {
     );
 }
 
+/// Review 6.5 R-02: two providers of a soname is a choice pacman makes unasked. No question: the install is blocked.
+#[test]
+fn a_shared_library_two_packages_provide_blocks_the_install() {
+    let mut world = World::base();
+    world.add("zlib-ng", &["libz.so=1"], &[]);
+    assert_eq!(
+        resolve_with(&want(&["needs-soname"]), &world).unwrap(),
+        Resolution::Blocked(vec![Blocker::SonameChoice {
+            dependency: "libz.so".to_string()
+        }])
+    );
+}
+
+#[test]
+fn a_shared_library_with_one_provider_of_its_version_is_no_choice() {
+    let mut world = World::base();
+    world.add("lib32-zlib", &["libz.so=2"], &[]);
+    let plan = plan(resolve_with(&want(&["needs-soname"]), &world));
+    assert!(plan.providers.is_empty());
+}
+
 #[test]
 fn a_shared_library_provided_by_soname_is_never_a_provider_choice() {
     let world = World::base();
@@ -973,6 +1013,12 @@ impl Facts for Scripted {
     }
     fn search_exact(&self, _name: &str) -> Result<Vec<SearchResult>, PacmanError> {
         Ok(Vec::new())
+    }
+    fn search_any(&self, _names: &[String]) -> Result<Vec<SearchResult>, PacmanError> {
+        Ok(Vec::new())
+    }
+    fn satisfied(&self, _dependency: &Dependency) -> Result<bool, PacmanError> {
+        Ok(false)
     }
     fn group_members(&self, _group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError> {
         Ok(None)
