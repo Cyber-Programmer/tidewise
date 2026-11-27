@@ -5,7 +5,7 @@
 //! version rule, and only the names are matched here. Whether a *chosen* package really satisfies a version rule is
 //! pacman's call, and the callers ask it with a dry run.
 
-use crate::{Comparison, Dependency, PackageDetails, PackageRef};
+use crate::{Comparison, Dependency, PackageDetails, PackageRef, VersionRule};
 use tidewise_names::is_valid_package_name;
 
 /// One name pacman answered itself: `dependency`, and the package it took.
@@ -13,6 +13,8 @@ use tidewise_names::is_valid_package_name;
 pub struct ProviderPick {
     pub dependency: String,
     pub provider: PackageRef,
+    /// For a shared library (`libz.so=1-64`): the version a provider must carry to count. `None` for other names.
+    pub version: Option<VersionRule>,
 }
 
 /// Shared libraries are provided by `soname` (`libz.so=1-64`): every package that links one would be a "provider
@@ -58,6 +60,7 @@ pub fn provider_picks<'a>(
                 found.push(ProviderPick {
                     dependency: name.clone(),
                     provider: provider.clone(),
+                    version: None,
                 });
             }
         }
@@ -356,8 +359,30 @@ mod tests {
     }
 
     #[test]
-    fn a_soname_is_never_a_pick() {
-        assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so=1-64"), []);
+    fn a_shared_library_is_judged_by_its_exact_version() {
+        // Review 6.5 R-02: pacman asks between two providers of a soname, so a soname is a name like any other...
+        let pick = ("libz.so".to_string(), "tidewise-dummy-zlib".to_string());
+        assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so=1-64"), [pick]);
+        // ...but only a provider of the same version counts (a lib32 package provides `=1-32`).
+        assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so=1-32"), []);
+        assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so"), []);
+    }
+
+    /// A target that provides the soname is what the user asked for: no pick, although another listed package
+    /// provides it too.
+    #[test]
+    fn a_shared_library_a_target_provides_is_not_a_pick() {
+        let si = record("app", "None", "libz.so=1-64")
+            + &record("asked-lib", "libz.so=1-64", "None")
+            + &record("other-lib", "libz.so=1-64", "None");
+        let found = picks(
+            &[named("asked-lib"), named("other-lib"), named("app")],
+            &si,
+            &[named("app"), named("asked-lib")],
+            &[],
+            &[],
+        );
+        assert_eq!(found, []);
     }
 
     #[test]
@@ -372,8 +397,6 @@ mod tests {
     }
 
     // ---- the update's reading of the rule (decision 0009) -------------------------------------------------
-
-    use crate::VersionRule;
 
     struct Facts {
         providers: Vec<&'static str>,
@@ -454,6 +477,7 @@ mod tests {
         let picks = vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: plain("new"),
+            version: None,
         }];
         let kept =
             real_choices(picks, &listed, |name| installed.contains(&name), &mut facts).unwrap();
@@ -489,6 +513,7 @@ mod tests {
         let picks = vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: plain("new"),
+            version: None,
         }];
         let kept = real_choices(picks, &listed, |_| false, &mut TwoRepos).unwrap();
         assert_eq!(kept.len(), 1);
@@ -537,6 +562,7 @@ mod tests {
         let picks = vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: plain("new"),
+            version: None,
         }];
         real_choices(picks, &listed, |name| name == "other", &mut facts)
             .unwrap()
@@ -592,6 +618,7 @@ mod tests {
         let picks = vec![ProviderPick {
             dependency: "virtual".to_string(),
             provider: plain("new"),
+            version: None,
         }];
         let kept = real_choices(picks, &listed, |name| name == "other", &mut Only).unwrap();
         assert_eq!(kept.len(), 1);
@@ -628,6 +655,7 @@ mod tests {
             .map(|name| ProviderPick {
                 dependency: name.clone(),
                 provider: plain("new"),
+                version: None,
             })
             .collect();
         struct Batches(Vec<Vec<String>>);
@@ -698,6 +726,88 @@ mod tests {
         assert_eq!(
             crate::exact_pattern_any(&names),
             r"^(libtide\+\+\.so|libtidewise\.so|tidewise-single|tidewise-virtual|tidewise-dummy-hello)$"
+        );
+    }
+
+    fn soname(version: &str) -> Dependency {
+        dependency("libx.so", Some((Comparison::Equal, version)))
+    }
+
+    /// `app` needs `libx.so=1-64` and the list brings `new` for it. `repository` is what the search finds (name and
+    /// the version it provides); returns the picks left.
+    fn soname_left(
+        repository: &[(&str, &str)],
+        satisfied: bool,
+        installed: &[&str],
+        upgraded: &[(&str, &str)],
+    ) -> usize {
+        struct Repo(Vec<PackageDetails>, bool);
+        impl ChoiceFacts for Repo {
+            type Error = ();
+            fn candidates(&mut self, _: &[String]) -> Result<Vec<PackageDetails>, ()> {
+                Ok(self.0.clone())
+            }
+            fn satisfied(&mut self, _: &Dependency) -> Result<bool, ()> {
+                Ok(self.1)
+            }
+        }
+        let found = repository
+            .iter()
+            .map(|(name, version)| {
+                let mut details = listed(name, vec![]);
+                details.provides = vec![soname(version)];
+                details
+            })
+            .collect();
+        let mut details = vec![listed("app", vec![soname("1-64")]), listed("new", vec![])];
+        for (name, version) in upgraded {
+            let mut upgrade = listed(name, vec![]);
+            upgrade.provides = vec![soname(version)];
+            details.push(upgrade);
+        }
+        let listed: Vec<&PackageDetails> = details.iter().collect();
+        let picks = vec![ProviderPick {
+            dependency: "libx.so".to_string(),
+            provider: plain("new"),
+            version: soname("1-64").rule,
+        }];
+        real_choices(
+            picks,
+            &listed,
+            |name| installed.contains(&name),
+            &mut Repo(found, satisfied),
+        )
+        .unwrap()
+        .len()
+    }
+
+    #[test]
+    fn a_shared_library_is_a_choice_only_between_providers_of_the_same_version() {
+        assert_eq!(soname_left(&[("new", "1-64")], false, &[], &[]), 0);
+        assert_eq!(
+            soname_left(&[("new", "1-64"), ("other", "1-32")], false, &[], &[]),
+            0
+        );
+        assert_eq!(
+            soname_left(&[("new", "1-64"), ("other", "1-64")], false, &[], &[]),
+            1
+        );
+    }
+
+    /// With the exact version compared, an installed provider that stays answers the need although it has a version.
+    #[test]
+    fn an_installed_provider_of_the_same_shared_library_is_not_a_choice() {
+        let both = [("new", "1-64"), ("other", "1-64")];
+        assert_eq!(soname_left(&both, true, &["other"], &[]), 0);
+        // `-T` must agree, and an upgraded one must still carry that version.
+        assert_eq!(soname_left(&both, false, &["other"], &[]), 1);
+        assert_eq!(
+            soname_left(&both, true, &["other"], &[("other", "1-64")]),
+            0
+        );
+        assert_eq!(
+            soname_left(&both, true, &["other"], &[("other", "2-64")]),
+            1
         );
     }
 

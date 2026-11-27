@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::{
-    DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageDetails, PackageRef,
-    PacmanError, PendingUpdate, PrintFailure, PrintedPackage, SearchResult, install_decision,
-    provider_picks,
+    Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageDetails,
+    PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage, SearchResult,
+    install_decision, provider_picks,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -139,6 +139,11 @@ pub enum Blocker {
     TwoVersionsNeeded {
         dependency: String,
     },
+    /// Several packages provide this shared library and pacman would choose one by itself. Tidewise asks no question
+    /// about a soname (review 6.5 R-02).
+    SonameChoice {
+        dependency: String,
+    },
 }
 
 /// The exact list for the confirm screen, and what to send to the helper.
@@ -192,6 +197,10 @@ pub(crate) trait Facts {
     fn details(&self, refs: &[PackageRef]) -> Result<DetailsLookup, PacmanError>;
     /// `pacman -Ss '^name$'`: the packages named so, or providing that name.
     fn search_exact(&self, name: &str) -> Result<Vec<SearchResult>, PacmanError>;
+    /// One search for all these names (`-Ss '^(a|b)$'`).
+    fn search_any(&self, names: &[String]) -> Result<Vec<SearchResult>, PacmanError>;
+    /// `pacman -T`: is `dependency` satisfied by what is installed?
+    fn satisfied(&self, dependency: &Dependency) -> Result<bool, PacmanError>;
     /// `None` when pacman does not know the group.
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError>;
     fn installed(&self) -> Result<Vec<InstalledPackage>, PacmanError>;
