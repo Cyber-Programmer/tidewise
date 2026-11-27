@@ -1,8 +1,8 @@
 # 0009 — Update system: what the review shows, and what blocks it
 
-- Status: **Accepted** (26 Nov 2026). Built, window included. **Not safe to release:** the review
-  (`docs/security/reviews/6.5-update-system.md`) found R-01 (a replaced package with a newer version is upgraded, with
-  unconfirmed dependencies) and R-02 (soname providers), both open.
+- Status: **Accepted** (26 Nov 2026), amended 27 Nov 2026 after the review
+  (`docs/security/reviews/6.5-update-system.md`). **Not safe to release:** the second review found that R-01 is only
+  partly closed (S-01, S-02, open). R-02 is fixed except two smaller gaps (S-03, S-04).
 - Decided by: Bahauddin Hassan (human), 26 Nov 2026: Arch news (a); rule 10 (a); skip replacements, block conflicts;
   then A1 and B1 after the measurements
 - Task: WBS 6.5 (PLAN D9; golden rules 4, 5, 10, 11, 13; threat model 41)
@@ -40,6 +40,33 @@ no choice are let through. **Installs are unchanged** and still name every pick.
    The second half is Claude's addition: the human asked for `-T`, and `-T` alone would let the "drops the name" case
    through. It uses only the approved reads.
 
+## Nothing the dry run leaves out (review R-01, 27 Nov 2026)
+
+`--ask 66` (or any other flag) does not change what `-Su --print` lists, measured. So the preview cannot be made equal
+to the real run that way. Instead: the helper runs `-Qu --dbpath /run/tidewise-helper-lists/` (approved) and refuses
+when a non-`[ignored]` upgrade it names is not on the confirmed list; the app blocks the same case from its own `-Qu`
+before the password. Such an update has to be done in a terminal.
+
+**This is not enough (second review).** A declined replacement can still install packages nobody listed when an upgrade
+needs a name the replacer provides and a package is literally called that (S-01), and `-Qu` shows nothing when an
+earlier repository's `Usage` lacks `Upgrade` (S-02). It can also refuse an ordinary update when only a new version
+joins an `IgnoreGroup` (S-06). Proposed, not built (a new command): a second private dry run with
+`--ignore <the replacers>`, whose every line must be on the confirmed list; it predicted the real run in the measured
+cases and could replace the `-Qu` comparison.
+
+## Shared libraries (review R-02, 27 Nov 2026)
+
+A soname need counts only providers with the identical version. A real choice (several, and none installed that stays
+and satisfies `-T`) refuses an update and blocks an install; Tidewise never asks about a soname. In the repositories of
+27 Nov 2026 only six soname entries have two providers (`zlib`/`zlib-ng-compat`, 32 and 64 bit; `jack2`/`pipewire-jack`,
+two entries; mariadb; iptables). **Consequence:** on a system with neither `jack2` nor `pipewire-jack`, installing
+plasma or gnome is blocked (they need `libjack.so`).
+
+Providers are counted with one search for all names, `-Ss -- ^(a|b|c)$` (approved: private lists for updates, real
+lists for installs), 100 names per search, none dropped. Measured in the test container (full core and extra lists):
+one search per name took 73 s (plasma, 85 names), 88 s (gnome, 108) and 104 s (all three groups, 127); one batched
+search took under 1 s and found the identical set of packages.
+
 Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper-lists/ -- ^name$` and `-T -- <dep>`
 (against the real local database). The rule is `update_picks` in `tidewise-pacman`, used by the app and the helper.
 
@@ -67,8 +94,7 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 - A **versioned** provider count: all providers of the name count, also ones whose version could not fit.
 - From reading, not reproduced: an installed provider held by `IgnorePkg` is judged by its repository version's
   `Provides`, and `-T` may be satisfied by a different package.
-- Not safe, open: soname dependencies are not judged (R-02); a repository without `Search` in `Usage` is not counted
-  (R-06).
+- A repository whose `Usage` lacks `Search` is not seen by `-Ss`: a provider there is not counted (R-06, accepted).
 - Conflicts and replacements with a version rule: versioned conflicts are not judged (pacman aborts the real run);
   a replacement is matched by name only.
 - `-Si` of a very large update can pass the helper's 4 MiB output cap (about 5000 packages); the update is refused.
