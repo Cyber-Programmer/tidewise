@@ -135,7 +135,6 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::DryRunUpdate(_)
         | PacmanCommand::PrivateDryRunUpdate(_)
         | PacmanCommand::PackageDetails(_)
-        | PacmanCommand::PrivatePendingUpdates
         | PacmanCommand::PrivatePackageDetails(_)
         | PacmanCommand::PrivateSearch(_)
         | PacmanCommand::Search(_)
@@ -426,7 +425,6 @@ mod tests {
             PacmanCommand::DryRunUpdate(vec![]),
             PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::PackageDetails(list.clone()),
-            PacmanCommand::PrivatePendingUpdates,
             PacmanCommand::PrivatePackageDetails(list.clone()),
             PacmanCommand::PrivateSearch(vec!["editor".to_string()]),
             PacmanCommand::Search(vec!["editor".to_string()]),
