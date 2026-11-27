@@ -2,6 +2,7 @@
 //! every string the window displays is unit-tested. Blocked-card, skipped, held and refusal words are the human's
 //! (board M4UpdateSystem).
 
+use crate::failure_words::{DOWNLOAD_FAILED, download_failure, nothing_installed, notice_line};
 use crate::helper_run::JobEnd;
 use crate::install_view::{
     ButtonView, FocusTarget, ReviewRow, StageState, StageView, TileView, download_tile, lists_note,
@@ -113,8 +114,8 @@ pub fn update_view(model: &UpdateModel) -> UpdateView {
             view.secondary = button("Close");
         }
         Phase::Updating(running) => progress(&mut view, &running.job),
-        Phase::Updated { notices, restart } => done(&mut view, notices, *restart),
-        Phase::UpdateFailed(failure) => failed(&mut view, failure),
+        Phase::Updated { notices, restart } => done(&mut view, notices, *restart, model.listed()),
+        Phase::UpdateFailed(failure) => failed(&mut view, failure, model.listed()),
     }
     view.focus = match view.kind {
         UpdateKind::Review => FocusTarget::List,
@@ -263,7 +264,7 @@ fn progress(view: &mut UpdateView, job: &Job) {
         "Updating can't be stopped halfway. Keep Tidewise open until it's done.".to_string();
 }
 
-fn done(view: &mut UpdateView, notices: &[Notice], restart: bool) {
+fn done(view: &mut UpdateView, notices: &[Notice], restart: bool, listed: usize) {
     view.kind = UpdateKind::Done;
     // A package missing or gone is worth a warning; a journal entry that was not written is not.
     view.attention = notices.iter().any(|notice| {
@@ -278,15 +279,18 @@ fn done(view: &mut UpdateView, notices: &[Notice], restart: bool) {
         UP_TO_DATE
     }
     .to_string();
-    let mut lines: Vec<String> = notices.iter().map(Notice::plain_text).collect();
-    if restart {
+    let mut lines: Vec<String> = notices
+        .iter()
+        .map(|notice| notice_line(notice, listed))
+        .collect();
+    if restart && !nothing_installed(notices, listed) {
         lines.push(RESTART_LINE.to_string());
     }
     view.body = lines.join("\n");
     view.primary = button("Done");
 }
 
-fn failed(view: &mut UpdateView, failure: &JobFailure) {
+fn failed(view: &mut UpdateView, failure: &JobFailure, listed: usize) {
     view.kind = UpdateKind::Alert;
     view.title = "Tidewise couldn't update your system".to_string();
     view.primary = button("Check again");
@@ -303,6 +307,11 @@ fn failed(view: &mut UpdateView, failure: &JobFailure) {
     };
     match end {
         JobEnd::Finished(Outcome::Error(kind)) => {
+            if let Some(details) = download_failure(kind, notices, listed) {
+                view.body = DOWNLOAD_FAILED.to_string();
+                view.technical = lines(details.as_str());
+                return;
+            }
             view.body = refusal_body(kind).to_string();
             if let ErrorKind::PacmanFailed(details) = kind {
                 // pacman may have stopped halfway, or after updating: claim neither.
@@ -351,7 +360,7 @@ fn failed(view: &mut UpdateView, failure: &JobFailure) {
     }
     for notice in notices {
         view.body.push('\n');
-        view.body.push_str(&notice.plain_text());
+        view.body.push_str(&notice_line(notice, listed));
     }
 }
 
@@ -664,7 +673,7 @@ mod tests {
 
     #[test]
     fn a_done_card_with_notices_warns_and_claims_no_more() {
-        let view = finished(&["linux"], &[Notice::PackagesNotInstalled(1)]);
+        let view = finished(&["linux", "zsh"], &[Notice::PackagesNotInstalled(1)]);
         assert_eq!(view.title, "The update finished");
         assert!(view.attention);
         assert_eq!(

@@ -3,6 +3,7 @@
 //! "M2 Install flow" and "M4 Install questions".
 
 use crate::error_words::{Doing, error_text, error_view};
+use crate::failure_words::{DOWNLOAD_FAILED, download_failure, notice_line, refusal_text};
 use crate::helper_run::JobEnd;
 use crate::install_model::{Draft, InstallModel, Phase, Step};
 use crate::job::{Job, JobFailure};
@@ -239,7 +240,7 @@ pub fn install_view(model: &InstallModel) -> InstallView {
         Phase::Installing(running) => progress(&mut view, &running.job, &label),
         Phase::Installed { notices } => installed(&mut view, model, notices, &label),
         Phase::InstallFailed(failure) => {
-            install_failed(&mut view, failure, &label);
+            install_failed(&mut view, failure, &label, model.listed());
             if model.can_return_to_review() {
                 view.secondary = button("Back", true);
             }
@@ -618,7 +619,7 @@ fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], l
         view.title_before = "The install finished".to_string();
         view.body = notices
             .iter()
-            .map(Notice::plain_text)
+            .map(|notice| notice_line(notice, model.listed()))
             .collect::<Vec<_>>()
             .join("\n");
     }
@@ -628,7 +629,7 @@ fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], l
     view.secondary = button("Done", true);
 }
 
-fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
+fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str, listed: usize) {
     view.kind = CardKind::Alert;
     view.current_pill = 2;
     view.title_before = format!("Tidewise couldn't install {label}");
@@ -647,7 +648,12 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
     };
     match end {
         JobEnd::Finished(Outcome::Error(kind)) => {
-            view.body = kind.plain_text().to_string();
+            if let Some(details) = download_failure(kind, notices, listed) {
+                view.body = DOWNLOAD_FAILED.to_string();
+                view.technical = lines(details.as_str());
+                return;
+            }
+            view.body = refusal_text(kind).to_string();
             if let ErrorKind::PacmanFailed(details) = kind {
                 // pacman may have stopped halfway, or after installing: claim neither.
                 view.title_before = format!("Installing {label} ended with an error");
@@ -694,7 +700,7 @@ fn install_failed(view: &mut InstallView, failure: &JobFailure, label: &str) {
     }
     for notice in notices {
         view.body.push('\n');
-        view.body.push_str(&notice.plain_text());
+        view.body.push_str(&notice_line(notice, listed));
     }
 }
 
@@ -1795,7 +1801,10 @@ mod tests {
 
     #[test]
     fn notices_change_the_heading_and_each_is_a_line() {
-        let (mut model, number) = installing();
+        let three =
+            ["dbeaver", "lib-a", "lib-b"].map(|name| item(name, Role::Target, 10, 20, None));
+        let mut model = answered("dbeaver", Resolution::Ready(plan_of(three.to_vec())));
+        let number = model.start_install().expect("a job").number;
         model.job_event(number, Event::Notice(Notice::PackagesNotInstalled(2)));
         model.job_event(number, Event::Notice(Notice::AuditEntryNotWritten));
         model.job_ended(number, JobEnd::Finished(Outcome::Ok));
@@ -1865,7 +1874,7 @@ mod tests {
                 failure(&view),
                 (
                     "Tidewise couldn't install dbeaver",
-                    kind.plain_text(),
+                    refusal_text(&kind),
                     Vec::new()
                 )
             );
@@ -1902,7 +1911,7 @@ mod tests {
         model.job_ended(number, JobEnd::Finished(Outcome::Error(kind.clone())));
         assert_eq!(
             install_view(&model).body,
-            format!("{}\n1 package was removed.", kind.plain_text())
+            format!("{}\n1 package was removed.", refusal_text(&kind))
         );
     }
 

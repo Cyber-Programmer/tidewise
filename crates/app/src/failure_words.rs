@@ -9,15 +9,32 @@ pub const UPDATE_RUNNING: &str = "Another update is still running (maybe one Tid
                                   finish, then check again.";
 pub const NOTHING_INSTALLED: &str = "Nothing was installed.";
 
+/// Whether the helper's count says that not one package of the confirmed list of `listed` was installed.
+pub fn nothing_installed(notices: &[Notice], listed: usize) -> bool {
+    notices.iter().any(|notice| match notice {
+        Notice::PackagesNotInstalled(count) => {
+            listed > 0 && usize::try_from(*count).is_ok_and(|count| count >= listed)
+        }
+        _ => false,
+    })
+}
+
 /// A notice in words. `listed` is how many packages the confirmed list had.
 pub fn notice_line(notice: &Notice, listed: usize) -> String {
-    let _ = listed;
-    notice.plain_text()
+    if nothing_installed(std::slice::from_ref(notice), listed) {
+        NOTHING_INSTALLED.to_string()
+    } else {
+        notice.plain_text()
+    }
 }
 
 /// The card body for a refusal or failure that has no words of its own on a screen.
 pub fn refusal_text(kind: &ErrorKind) -> &'static str {
-    kind.plain_text()
+    match kind {
+        // The helper's own words blame "another package manager"; the usual holder is an update still running.
+        ErrorKind::DatabaseLocked => UPDATE_RUNNING,
+        other => other.plain_text(),
+    }
 }
 
 /// pacman's words, when the run failed because the packages (or lists) could not be downloaded and so nothing was
@@ -27,8 +44,34 @@ pub fn download_failure<'a>(
     notices: &[Notice],
     listed: usize,
 ) -> Option<&'a Details> {
-    let _ = (kind, notices, listed);
-    None
+    let ErrorKind::PacmanFailed(details) = kind else {
+        return None;
+    };
+    // "Nothing was changed" needs the helper's counts to agree, when it sent any.
+    let something_changed = notices.iter().any(|notice| match notice {
+        Notice::PackagesRemoved(_) => true,
+        Notice::PackagesNotInstalled(_) => !nothing_installed(std::slice::from_ref(notice), listed),
+        Notice::AuditEntryNotWritten => false,
+    });
+    (!something_changed && says_download_failed(details.as_str())).then_some(details)
+}
+
+/// pacman ends a failed run with the reason in brackets. The helper keeps only the first 4 KiB, so when that line was
+/// cut off, the `failed retrieving file` lines before it decide.
+fn says_download_failed(text: &str) -> bool {
+    let closing = text.lines().rfind(|line| {
+        line.starts_with("error: failed to commit transaction (")
+            || line.starts_with("error: failed to synchronize all databases (")
+    });
+    match closing {
+        Some(line) => {
+            line.ends_with("(failed to retrieve some files)")
+                || line.ends_with("(download library error)")
+        }
+        None => text
+            .lines()
+            .any(|line| line.starts_with("error: failed retrieving file '")),
+    }
 }
 
 #[cfg(test)]
