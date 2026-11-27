@@ -1632,7 +1632,18 @@ Only your `sudo` lines and the installed helper run pacman as root. Do it on the
     pressing one starts a normal install of it (cancel at the review).
 13. Install one small package: after the password the card says "Checking the list again" before it downloads, and
     never sits on "Waiting for your password" while it checks. Remove it again with `sudo pacman -Rns <it>`.
-14. Back to how it was: `sudo pacman -Rns tidewise` (the list must show only `tidewise`), `rm -r ~/tidewise-build
+14. While a job runs, close the window: the dialog "The update keeps running if you close Tidewise. Keep it open until
+    it's done." with "Keep open" focused; Escape keeps open; the sidebar is not reachable by Tab; "Close anyway" closes.
+    When the job ends with the dialog up, it goes away by itself.
+15. While a job runs: a moving bar (no number) and "Running for …" counting each second during checking, downloading
+    and hooks; a percentage only while packages are installed. Check CPU stays modest.
+16. Press Cancel on "Refreshing package lists…" on a slow link, then `pgrep -a pacman; pgrep -a faked`: nothing of
+    yours within a few seconds; check again works. The same after closing the app during the refresh.
+17. With the network off, press Update and type the password: "Tidewise couldn't download the packages…", pacman's words
+    under Technical details.
+18. While one Tidewise update runs, start a second: "Another update is still running…".
+19. Do **not** log out or reboot during a real update (threat model 46).
+20. Back to how it was: `sudo pacman -Rns tidewise` (the list must show only `tidewise`), `rm -r ~/tidewise-build
     ~/before.txt ~/after.txt`.
 
 ## 2026-11-27 — 6.5 R-01, R-02, second review
@@ -1716,3 +1727,38 @@ words only).
 Next: the 6.5 manual checklist, push, PR.
 Blockers: none.
 Rules bent: no WBS sheet update (as asked).
+
+## 2026-11-27 — 6.5 findings of the manual check (slow mirrors)
+Done (app and read side only; nothing in `crates/helper*`):
+- Items 1, 2, 4 (`857aad2` red, `37f0795`); items 3, 6 (`b63e3de` red, `b304a8c`); item 5 (`d49b05a`, `38d3c56`,
+  `5b922ae` red, `15bc080`), rustix added to `tidewise-pacman` with your OK.
+- **Checks on `15bc080`:** `cargo test --all` 1340 passed, 0 failed, 166 ignored; fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and build: exit 0. **Full `tests/container/run.sh`: 1500 passed, 0 failed** (two earlier tries failed
+  on a large download from the Arch Archive). Fuzzing not run (no parser changed).
+- **Item 7 explained:** the machine was rebooted three minutes after job 2065326 was accepted; systemd sent the helper
+  SIGKILL, so it could not write an end line. **New release blocker, threat model 46:** the same would kill a real
+  transaction on logout or reboot. Your decision; nothing built.
+
+Measured for 6.17 (no code):
+- **Why 19 minutes before the real run.** No per-step log exists; inferred from measurements. The helper's private
+  folder is in `/run` and starts empty after a boot, and `-Sy` downloads any list the mirror has newer: `extra.db` is
+  8.6 MB, and the app's own refresh was measured at about 5 KB/s (29 minutes at that rate). The reads after it are
+  small: on this machine `-Su --print` 6.9 s, `-Q` 0.04 s, `-Si` of 42 packages 0.9 s, `-Qu` 1.0 s. The app downloads
+  the same lists into its own folder, so two copies compete for the line.
+- **What pacman prints while downloading, off a terminal:** after `:: Retrieving packages...` nothing, still nothing
+  after 45 s of a trickle; ` <file> downloading...` lines arrive late and together (buffered), so the helper's download
+  counter is not progress. The growing `/var/cache/pacman/pkg/download-*/*.part` is the only sign of life.
+- **Low-speed timeout.** pacman aborts a mirror below 1 byte/s for 10 s (its message) and offers only
+  `--disable-download-timeout`, which relaxes it; there is no option to make it stricter. Options, no decision:
+  (a) keep it: slow links finish eventually, a trickle can run for hours; (b) `--disable-download-timeout`: fewer
+  failures on stalling links, a dead mirror can hang the job; (c) the helper's own no-progress limit around a
+  download-only first step (`-Suw`, a new allow-list command), never around the install; (d) `XferCommand`-style own
+  downloader: changes how pacman fetches, not recommended.
+
+Next: your decision on threat model 46; the 6.5 manual checklist; push; PR.
+Blockers: threat model 46 and 40 for v0.1.
+Open: a stopped refresh leaves its `download-*` folder in the private lists until logout; the helper's `-Sy` and `-Su`
+have no limit; the close dialog says "update" for installs; `fds.rs` flaky test.
+Rules bent: no automated test for the window glue, the dialog, the moving bar or the Cancel wiring; I added rustix only
+after asking; the first container run of the fix was made before committing it (the package is built from HEAD); no WBS
+sheet update.

@@ -118,5 +118,12 @@ leaves an empty `download-*` folder in `<F>/sync`.
   as the user and no more separated than that. The two sandboxes apply.
 - The private lists can be written by anything running as the user. Only the app reads them; the helper never does, and
   re-checks the confirmed list itself (T-09).
-- The first caller has no time limit of its own (pacman's download timeout applies), and Cancel does not stop it.
+- ~~The first caller has no time limit of its own (pacman's download timeout applies), and Cancel does not stop it.~~
+  **Closed 27 Nov 2026 (6.5).** pacman's own cutoff (under 1 byte/s for 10 s) never fires on a trickle: measured about
+  5 KB/s, 29 minutes for the 8.6 MB `extra.db`. A refresh now stops after `REFRESH_LIMIT` (3 minutes, the human's
+  choice), on Cancel or leaving the check, and when the app is closed. It runs in its own process group (rustix, added
+  to `tidewise-pacman` with `std`, `process`): SIGTERM to that group only (never 0, 1 or the app's own), SIGKILL after
+  2 s. SIGTERM first so `fakeroot`'s trap stops `faked`, which has its own group (measured: it survives SIGKILL). The
+  stopped pacman leaves `db.lck` (the stale-lock rule removes it) and its `download-*` folder (stays until logout).
+  Not covered: an app that is itself killed leaves its pacman running.
 - No caller yet for `AfterRefusal` (6.5) or for update lists with `ResolveInput::dbpath` (6.6).

@@ -118,3 +118,19 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 - Conflicts and replacements with a version rule: versioned conflicts are not judged (pacman aborts the real run);
   a replacement is matched by name only.
 - `-Si` of a very large update can pass the helper's 4 MiB output cap (about 5000 packages); the update is refused.
+
+## From the manual check of 27 Nov (slow mirrors)
+
+The human's decisions, all in the app, no helper change:
+- A failed download has its own card text, chosen from pacman's `failed to retrieve some files` (measured: unreachable,
+  refused, stalled, 404; fixtures `tests/fixtures/pacman/container/download-*.stderr`), only when the helper's counts
+  show nothing changed. The helper keeps the first 4 KiB of stderr, so with the closing line cut off the
+  `failed retrieving file` lines decide.
+- "Nothing was installed." when the whole list is missing.
+- `database_locked` reads "Another update is still running…" for any holder; the app cannot tell a running Tidewise job
+  from another pacman (that would need a new error kind from the helper).
+- Closing the window during a job asks first. The words say "update", for installs too.
+- Only a counted install step shows a percentage. Elsewhere a moving bar and "Running for …": pacman prints nothing
+  while it downloads when stdout is not a terminal (measured). No reduced-motion setting is available to honour.
+- The private refresh has a limit and a Cancel (0008).
+
