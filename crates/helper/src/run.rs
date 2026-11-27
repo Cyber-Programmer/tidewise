@@ -824,7 +824,6 @@ mod tests {
         let script = vec![
             ok(":: Synchronizing package databases...\n"),
             ok(&print_text(&items)),
-            out(1, "", ""),
             ok(&installed_text(&items)), // the provider check: all installed already
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
@@ -846,7 +845,6 @@ mod tests {
         let script = vec![
             ok(":: Synchronizing package databases...\n"),
             ok(&print_text(&fewer)),
-            out(1, "", ""),
         ];
         let outcome = go_job(good_facts(UPDATE_SUMMARY), UPDATE.as_bytes(), script);
         let finished = log_text(&outcome, 1);
@@ -1687,10 +1685,9 @@ mod tests {
         }
         let script = vec![
             ok(":: Synchronizing package databases...\n"),
-            ok(&print_text(&transaction)),
-            out(1, "", ""),                    // the dry run on the private copy
+            ok(&print_text(&transaction)), // the dry run on the private copy
             ok(&installed_text(&transaction)), // the provider check
-            ok(&print_text(&transaction)),     // and on the real lists after the move
+            ok(&print_text(&transaction)), // and on the real lists after the move
             ok("pacman 7.1.0-1\n"),
             ok(&real),
             ok(&installed_text(&transaction)),
@@ -1833,7 +1830,7 @@ mod tests {
         // The last package is not installed after the run: that is a notice ("1 not installed") the user needs.
         let mut big = big_update(1500);
         let all_but_one = big.transaction[..1499].to_vec();
-        big.script[7] = ok(&installed_text(&all_but_one));
+        big.script[6] = ok(&installed_text(&all_but_one));
         let (gate, release, seen) = Gate::new();
         let started = start_run(
             good_facts(&big.summary),

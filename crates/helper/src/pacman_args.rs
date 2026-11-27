@@ -46,9 +46,6 @@ pub enum PacmanCommand {
     /// `pacman -Si -- repo/name ...`: what the repositories say about these (a read). The provider check of an install
     /// reads `Depends On` and `Provides` from it (golden rule 10).
     PackageDetails(Vec<PackageRef>),
-    /// `pacman -Qu --dbpath /run/tidewise-helper-lists/`: what the private copy says has a newer version (a read). An
-    /// update whose dry run leaves one of them out is refused (review 6.5 R-01).
-    PrivatePendingUpdates,
     /// `pacman -Si --dbpath /run/tidewise-helper-lists/ -- repo/name ...`: the same, from the PRIVATE copy of the
     /// package lists (a read). The provider check of a system update, before anything is moved (golden rule 10).
     PrivatePackageDetails(Vec<PackageRef>),
@@ -120,7 +117,6 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::PackageDetails(packages) => {
             build(&["-Si"], &[], repo_and_name(packages)?, Names::Required)
         }
-        PacmanCommand::PrivatePendingUpdates => Ok(fixed(&["-Qu", "--dbpath", LISTS_DBPATH])),
         PacmanCommand::PrivatePackageDetails(packages) => build(
             &["-Si"],
             &["--dbpath", LISTS_DBPATH],
@@ -246,7 +242,6 @@ mod tests {
         vec![
             PacmanCommand::PendingUpdates,
             PacmanCommand::PrivateSync,
-            PacmanCommand::PrivatePendingUpdates,
             PacmanCommand::PrivateDryRunUpdate(two()),
             PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::DryRunInstall(two()),
@@ -285,12 +280,11 @@ mod tests {
             PacmanCommand::PrivatePackageDetails(_) => 10,
             PacmanCommand::PrivateSearch(_) => 11,
             PacmanCommand::DepTest(_) => 12,
-            PacmanCommand::PrivatePendingUpdates => 13,
-            PacmanCommand::Search(_) => 14,
+            PacmanCommand::Search(_) => 13,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 14;
+    const LAST: usize = 13;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -420,10 +414,6 @@ mod tests {
                 PacmanCommand::PackageDetails(two()),
                 strings(&["-Si", "--", "extra/dbeaver", "extra/jre-openjdk"]),
             ),
-            (
-                PacmanCommand::PrivatePendingUpdates,
-                strings(&["-Qu", "--dbpath", "/run/tidewise-helper-lists/"]),
-            ),
             // The provider check of a system update: the private copy, its fixed path, nothing else.
             (
                 PacmanCommand::PrivatePackageDetails(two()),
@@ -525,7 +515,6 @@ mod tests {
                 PacmanCommand::PendingUpdates
                     | PacmanCommand::ListInstalled
                     | PacmanCommand::PrivateSync
-                    | PacmanCommand::PrivatePendingUpdates
                     | PacmanCommand::DryRunUpdate(_)
                     | PacmanCommand::PrivateDryRunUpdate(_)
                     | PacmanCommand::RealUpdate(_)
@@ -595,9 +584,7 @@ mod tests {
         may_name_a_logfile(command)
             || matches!(
                 command,
-                PacmanCommand::PrivatePackageDetails(_)
-                    | PacmanCommand::PrivateSearch(_)
-                    | PacmanCommand::PrivatePendingUpdates
+                PacmanCommand::PrivatePackageDetails(_) | PacmanCommand::PrivateSearch(_)
             )
     }
 

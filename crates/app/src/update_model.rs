@@ -248,13 +248,7 @@ impl UpdateModel {
 
 /// Where a plan leads: nothing to do, a reason it cannot go on, or the review.
 fn reviewed(plan: Box<UpdatePlan>) -> Phase {
-    // First: with only a replacer listed nothing counts as installing, yet the real run would upgrade.
-    if !plan.unlisted.is_empty() {
-        Phase::Blocked(UpdateBlock::Unlisted {
-            pending: plan.unlisted,
-            replacements: plan.replacements,
-        })
-    } else if plan.installing().next().is_none() {
+    if plan.installing().next().is_none() {
         Phase::UpToDate(plan)
     } else if !plan.conflicts.is_empty() {
         Phase::Blocked(UpdateBlock::Conflict(plan.conflicts))
@@ -391,32 +385,6 @@ mod tests {
             *reviewing(with_pick).phase(),
             Phase::Blocked(UpdateBlock::Pick(vec![pick]))
         );
-    }
-
-    /// Review 6.5 R-01. It comes before "up to date": with only the replacer listed, nothing counts as installing.
-    #[test]
-    fn an_unlisted_upgrade_blocks_even_when_nothing_else_would_be_installed() {
-        let pending = tidewise_pacman::PendingUpdate {
-            name: "old".to_string(),
-            installed_version: "1-1".to_string(),
-            new_version: "2-1".to_string(),
-            ignored: false,
-        };
-        for mut blocked in [plan(&["zsh"]), plan(&["new"])] {
-            if blocked.items[0].package.name == "new" {
-                blocked.skipped.push(pkg("new"));
-            }
-            blocked.unlisted.push(pending.clone());
-            let mut model = reviewing(blocked);
-            assert_eq!(
-                *model.phase(),
-                Phase::Blocked(UpdateBlock::Unlisted {
-                    pending: vec![pending.clone()],
-                    replacements: vec![],
-                })
-            );
-            assert_eq!(model.start_update(), None);
-        }
     }
 
     #[test]
