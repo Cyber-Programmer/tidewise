@@ -23,13 +23,13 @@
 use std::collections::{HashMap, HashSet};
 
 use tidewise_helper_protocol::{
-    Action, Details, ErrorKind, Event, Install, Notice, Outcome, PackageRef, Request,
-    TransactionItem,
+    Action, Details, ErrorKind, Event, Install, Notice, Outcome, PackageRef, Phase, Progress,
+    Request, TransactionItem,
 };
 use tidewise_pacman::{
     ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
-    PendingUpdate, dependency_text, install_decision, parse_qu, parse_si, parse_ss, provider_picks,
-    real_choices,
+    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, parse_qu, parse_si,
+    parse_ss, provider_picks, real_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -138,6 +138,7 @@ fn install_job(
     let names = names_of(install);
     let before_the_real_run = (|| -> Step {
         check_lock(runner)?;
+        checking(on_event, &install.transaction);
         check_nothing_pending(runner)?;
         dry_run(
             runner,
@@ -174,6 +175,7 @@ fn update_job(
     if let Err(kind) = check_lock(runner) {
         return (Err(kind), untouched());
     }
+    checking(on_event, transaction);
     if let Err(error) = runner.prepare_private_lists() {
         return (Err(lists_failure(error)), untouched());
     }
@@ -294,7 +296,10 @@ fn check_update_providers(
         picks,
         &listed_details,
         |name| installed.contains(name),
-        &mut HelperFacts { runner },
+        &mut HelperFacts {
+            runner,
+            private: true,
+        },
     )?;
     if left.is_empty() {
         Ok(())
@@ -306,6 +311,8 @@ fn check_update_providers(
 /// The reads behind `real_choices`, all from the private copy except `-T`, which asks about installed packages.
 struct HelperFacts<'a> {
     runner: &'a mut dyn Runner,
+    /// An update asks the private copy of the lists; an install the real ones, which it installs from.
+    private: bool,
 }
 
 impl ChoiceFacts for HelperFacts<'_> {
@@ -315,7 +322,14 @@ impl ChoiceFacts for HelperFacts<'_> {
         let unreadable = || failed("pacman's search could not be read.");
         let output = self
             .runner
-            .run(&PacmanCommand::PrivateSearch(names.to_vec()), &mut |_| {})
+            .run(
+                &if self.private {
+                    PacmanCommand::PrivateSearch(names.to_vec())
+                } else {
+                    PacmanCommand::Search(names.to_vec())
+                },
+                &mut |_| {},
+            )
             .map_err(runner_failure)?;
         if output.truncated {
             return Err(unreadable());
@@ -341,7 +355,14 @@ impl ChoiceFacts for HelperFacts<'_> {
         // `-Ss` also matches names and descriptions: only what `-Si` says provides the name counts.
         let output = self
             .runner
-            .run(&PacmanCommand::PrivatePackageDetails(found), &mut |_| {})
+            .run(
+                &if self.private {
+                    PacmanCommand::PrivatePackageDetails(found)
+                } else {
+                    PacmanCommand::PackageDetails(found)
+                },
+                &mut |_| {},
+            )
             .map_err(runner_failure)?;
         if output.truncated {
             return Err(unreadable());
@@ -367,6 +388,16 @@ impl ChoiceFacts for HelperFacts<'_> {
             _ => Err(failure_of(&output)),
         }
     }
+}
+
+/// Said as soon as the job starts: the reads before the real run (with a search for shared libraries) take a
+/// while, and the card must not look stuck on the password.
+fn checking(on_event: &mut dyn FnMut(Event), transaction: &[TransactionItem]) {
+    on_event(Event::Progress(Progress {
+        phase: Phase::Checking,
+        current: 0,
+        total: total_of(transaction),
+    }));
 }
 
 /// The lock is only looked at. pacman's own advice about it (to remove the file) is never shown.
@@ -517,14 +548,32 @@ fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
         .iter()
         .map(|answer| answer.dependency.as_str())
         .collect();
-    let picks = provider_picks(
+    // A name the request does not answer is refused as before. A shared library has no answer to give: it is refused
+    // only when pacman really had a choice (review 6.5 R-02).
+    let (sonames, others): (Vec<ProviderPick>, Vec<ProviderPick>) = provider_picks(
         &listed,
         |item| details.get(item),
         &asked,
         &answered,
         |name| installed.contains(name),
-    );
-    if picks.is_empty() {
+    )
+    .into_iter()
+    .partition(|pick| is_soname(&pick.dependency));
+    if !others.is_empty() {
+        return Err(ErrorKind::ProviderNotChosen);
+    }
+    let listed_details: Vec<&PackageDetails> =
+        listed.iter().filter_map(|item| details.get(item)).collect();
+    let choices = real_choices(
+        sonames,
+        &listed_details,
+        |name| installed.contains(name),
+        &mut HelperFacts {
+            runner,
+            private: false,
+        },
+    )?;
+    if choices.is_empty() {
         Ok(())
     } else {
         Err(ErrorKind::ProviderNotChosen)
@@ -1118,7 +1167,7 @@ mod tests {
         assert_eq!(outcome, Outcome::Error(ErrorKind::TransactionChanged));
         assert_eq!(fake.ran.len(), 2);
         assert!(matches!(fake.ran[1], PacmanCommand::DryRunInstall(_)));
-        assert!(events.is_empty());
+        assert_only_checking(&events);
     }
 
     #[test]
@@ -1732,6 +1781,14 @@ mod tests {
         script
     }
 
+    /// Before the real run the job only says that it is checking.
+    fn assert_only_checking(events: &[Event]) {
+        assert!(
+            matches!(events, [Event::Progress(p)] if p.phase == Phase::Checking && p.current == 0),
+            "{events:?}"
+        );
+    }
+
     fn assert_refused_before_the_real_run(request: &Request, fake: &mut Fake) {
         let (result, events) = go_full(request, fake);
         assert_eq!(
@@ -1740,7 +1797,7 @@ mod tests {
             "{:?}",
             fake.ran
         );
-        assert!(events.is_empty(), "{events:?}");
+        assert_only_checking(&events);
         assert!(
             !fake.ran.iter().any(|c| matches!(
                 c,

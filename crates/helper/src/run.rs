@@ -676,7 +676,10 @@ mod tests {
         assert_eq!(outcome.code, EXIT_ERROR_LINE);
         assert_eq!(
             lines(&outcome),
-            vec!["{\"finished\":{\"error\":\"transaction_changed\"}}"]
+            vec![
+                "{\"progress\":{\"phase\":\"checking\",\"current\":0,\"total\":5}}",
+                "{\"finished\":{\"error\":\"transaction_changed\"}}",
+            ]
         );
         assert_eq!(outcome.logged.len(), 2);
         let finished = log_text(&outcome, 1);

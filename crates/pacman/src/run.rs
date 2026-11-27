@@ -445,6 +445,24 @@ fn exact_search_args(name: &str) -> Vec<String> {
     ]
 }
 
+/// `-Ss -- '^(a|b)$'`: the packages named so, or providing one of the names.
+fn any_search_args(names: &[String]) -> Vec<String> {
+    vec![
+        "-Ss".to_string(),
+        "--".to_string(),
+        exact_pattern_any(names),
+    ]
+}
+
+/// `-T` prints what is NOT satisfied and exits 127 for it.
+fn deptest_from_output(output: &Output) -> Result<bool, PacmanError> {
+    if output.status.code() == Some(127) {
+        return Ok(false);
+    }
+    check_exit(output)?;
+    Ok(true)
+}
+
 /// One `-Ss` pattern for many names: anchored, each name's regex characters escaped, so each matches itself only.
 pub fn exact_pattern_any(names: &[String]) -> String {
     let escaped: Vec<String> = names.iter().map(|name| escape_ere(name)).collect();
@@ -568,12 +586,7 @@ impl ChoiceFacts for LookupFacts<'_> {
     type Error = PacmanError;
 
     fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, PacmanError> {
-        let search = [
-            "-Ss".to_string(),
-            "--".to_string(),
-            exact_pattern_any(names),
-        ];
-        let found = results_from_output(&(self.run)(&search)?)?;
+        let found = results_from_output(&(self.run)(&any_search_args(names))?)?;
         let request = details_request(&found.iter().map(PackageRef::from).collect::<Vec<_>>())?;
         if request.is_empty() {
             return Ok(Vec::new());
@@ -587,13 +600,7 @@ impl ChoiceFacts for LookupFacts<'_> {
         let Some(text) = dependency_text(dependency) else {
             return Ok(false);
         };
-        // `-T` prints what is NOT satisfied and exits 127 for it.
-        let output = (self.run)(&["-T".to_string(), "--".to_string(), text])?;
-        if output.status.code() == Some(127) {
-            return Ok(false);
-        }
-        check_exit(&output)?;
-        Ok(true)
+        deptest_from_output(&(self.run)(&["-T".to_string(), "--".to_string(), text])?)
     }
 }
 
@@ -630,12 +637,15 @@ impl Facts for RealFacts<'_> {
         results_from_output(&self.go(exact_search_args(name))?)
     }
 
-    fn search_any(&self, _names: &[String]) -> Result<Vec<SearchResult>, PacmanError> {
-        Ok(Vec::new())
+    fn search_any(&self, names: &[String]) -> Result<Vec<SearchResult>, PacmanError> {
+        results_from_output(&self.go(any_search_args(names))?)
     }
 
-    fn satisfied(&self, _dependency: &Dependency) -> Result<bool, PacmanError> {
-        Ok(false)
+    fn satisfied(&self, dependency: &Dependency) -> Result<bool, PacmanError> {
+        let Some(text) = dependency_text(dependency) else {
+            return Ok(false);
+        };
+        deptest_from_output(&self.go(vec!["-T".to_string(), "--".to_string(), text])?)
     }
 
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError> {
