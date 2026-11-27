@@ -6,10 +6,15 @@ mod job_clock;
 mod search_window;
 mod update_window;
 
+use std::time::Duration;
+
 use slint::CloseRequestResponse;
 use tidewise_app::job::{CLOSE_ANYWAY, CLOSE_WARNING, KEEP_OPEN};
 
 slint::include_modules!();
+
+/// How long leaving the app waits for a stopped list refresh: SIGTERM, 2 s, SIGKILL, then a margin.
+const REFRESH_EXIT_WAIT: Duration = Duration::from_secs(5);
 
 fn main() -> Result<(), slint::PlatformError> {
     let window = MainWindow::new()?;
@@ -23,8 +28,12 @@ fn main() -> Result<(), slint::PlatformError> {
     install.set_search(search.clone());
     let updates = update_window::start(&window, apps_for_updates, search);
     install.set_updates(updates.clone());
-    ask_before_closing(&window, install, updates);
-    window.run()
+    ask_before_closing(&window, install.clone(), updates.clone());
+    let result = window.run();
+    // A refresh left running would have nobody to end it.
+    install.stop_refresh();
+    updates.stop_refresh();
+    result
 }
 
 /// Closing the window during a job asks first: the helper keeps running without the window.

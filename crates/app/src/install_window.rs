@@ -33,6 +33,7 @@ use tidewise_app::list_scroll::{
     ScrollKey, content_y_to_offset, moved_selection, offset_to_content_y, scroll_by_key,
     scroll_to_show,
 };
+use tidewise_app::refresh_stop::{RefreshFlag, Refreshes};
 use tidewise_app::update_check::{ListsNote, check_for_updates};
 use tidewise_helper_protocol::Event;
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
@@ -43,8 +44,8 @@ use crate::search_window::Search;
 use crate::update_window::Updates;
 use crate::{
     ChoiceOption, CloseBridge, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
-    InstallStageState, InstalledRowData, MainWindow, NavBridge, ReviewKey, ReviewRowData,
-    Screen as NavScreen, Theme, TileData,
+    InstallStageState, InstalledRowData, MainWindow, NavBridge, REFRESH_EXIT_WAIT, ReviewKey,
+    ReviewRowData, Screen as NavScreen, Theme, TileData,
 };
 
 /// After this long the card adds "This is taking longer than usual."
@@ -87,6 +88,8 @@ struct Screen {
     /// Position of the row to keep in view in a radio list (the chosen one); `None` for other cards.
     chosen_row: Option<usize>,
     clock: JobClock,
+    /// The list refresh of the update check that is running.
+    refreshes: Refreshes,
 }
 
 /// How other screens start an install.
@@ -119,6 +122,7 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         shown_serial: 0,
         chosen_row: None,
         clock: JobClock::default(),
+        refreshes: Refreshes::default(),
     }));
 
     let handle = screen.clone();
@@ -237,6 +241,15 @@ impl Install {
     /// The helper is running for an install.
     pub fn job_running(&self) -> bool {
         self.screen.borrow().model.job_running()
+    }
+
+    /// On the way out of the app: ends a running refresh and gives its pacman time to go.
+    pub fn stop_refresh(&self) {
+        let _ = self
+            .screen
+            .borrow_mut()
+            .refreshes
+            .stop_and_wait(REFRESH_EXIT_WAIT);
     }
 
     /// The Install button of Search details: opens the install screen for this package.
@@ -415,12 +428,14 @@ fn time_job(screen: &Rc<RefCell<Screen>>) {
 }
 
 fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
-    let (sender, window) = {
-        let state = screen.borrow();
-        (state.mailbox.0.clone(), state.window.clone())
+    let (sender, window, flag) = {
+        let mut state = screen.borrow_mut();
+        // Only a ticket that checks the lists refreshes them.
+        let flag = ticket.check_lists.then(|| state.refreshes.start());
+        (state.mailbox.0.clone(), state.window.clone(), flag)
     };
     std::thread::spawn(move || {
-        let (checked, result) = work(&ticket);
+        let (checked, result) = work(&ticket, flag);
         // If the window closed meanwhile, nobody reads this and that is fine.
         let _ = sender.send((ticket.number, checked, result));
         let _ = slint::invoke_from_event_loop(move || {
@@ -445,13 +460,17 @@ fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
 
 /// What the worker thread does for one ticket. pacman only reads here, except that the updates check may refresh the
 /// app's own private copy of the package lists (WBS 6.11): as the user, no password, up to 60 s of waiting.
-fn work(ticket: &Ticket) -> (Option<Option<ListsNote>>, Result<WorkAnswer, PacmanError>) {
+fn work(
+    ticket: &Ticket,
+    flag: Option<RefreshFlag>,
+) -> (Option<Option<ListsNote>>, Result<WorkAnswer, PacmanError>) {
     let mut checked = None;
-    if ticket.check_lists {
+    if let Some(flag) = flag {
         // Updates waiting: Tidewise only installs on an up-to-date system, so do not even resolve.
         let check = check_for_updates(
             tidewise_pacman::pending_updates_in,
-            || tidewise_pacman::refresh_private_lists(RefreshWhy::Opening, &Default::default()),
+            // `flag` is dropped when the refresh returns, which is what leaving the app waits for.
+            move || tidewise_pacman::refresh_private_lists(RefreshWhy::Opening, flag.cancel()),
             || {
                 tidewise_pacman::sync_lists()
                     .ok()
@@ -496,6 +515,10 @@ fn repaint(screen: &Rc<RefCell<Screen>>) {
     let Some(window) = state.window.upgrade() else {
         return;
     };
+    // Cancel, Back, or anything else that leaves the check, ends its refresh.
+    if !matches!(state.model.phase(), Phase::Working) {
+        state.refreshes.stop();
+    }
     let view = install_view(&state.model);
     let bridge = window.global::<InstallBridge>();
     set_texts(&bridge, &view);

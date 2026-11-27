@@ -4,7 +4,7 @@
 //!
 //! A check refreshes the app's own private copy of the package lists (as the user, no password, up to 60 s of waiting)
 //! and reads it with pacman. The helper job runs on a thread of its own; closing the window ends the app, not the
-//! helper.
+//! helper. Leaving the check ends its refresh.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -18,6 +18,7 @@ use tidewise_app::job::JobTicket;
 use tidewise_app::list_scroll::{
     ScrollKey, content_y_to_offset, offset_to_content_y, scroll_by_key,
 };
+use tidewise_app::refresh_stop::Refreshes;
 use tidewise_app::update_check::review_updates;
 use tidewise_app::update_model::{CheckResult, CheckTicket, Phase, UpdateModel};
 use tidewise_app::update_view::{UpdateKind, UpdateView, update_view};
@@ -28,7 +29,8 @@ use crate::job_clock::JobClock;
 use crate::search_window::Search;
 use crate::{
     CloseBridge, InstallFocus, InstallStageData, InstallStageState, MainWindow, NavBridge,
-    ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData, UpdateBridge, UpdateCardKind,
+    REFRESH_EXIT_WAIT, ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData,
+    UpdateBridge, UpdateCardKind,
 };
 
 /// What the helper's worker thread has to say about job `.0`.
@@ -53,6 +55,8 @@ struct State {
     /// The last focus move painted: a new card starts its list at the top.
     shown_serial: u32,
     clock: JobClock,
+    /// The list refresh of the check that is running.
+    refreshes: Refreshes,
 }
 
 /// How other screens open the update screen.
@@ -72,6 +76,7 @@ pub fn start(window: &MainWindow, apps: Apps, search: Search) -> Updates {
         search,
         shown_serial: 0,
         clock: JobClock::default(),
+        refreshes: Refreshes::default(),
     }));
     let bridge = window.global::<UpdateBridge>();
     let handle = state.clone();
@@ -99,6 +104,15 @@ impl Updates {
     /// The helper is running for an update.
     pub fn job_running(&self) -> bool {
         self.state.borrow().model.job_running()
+    }
+
+    /// On the way out of the app: ends a running refresh and gives its pacman time to go.
+    pub fn stop_refresh(&self) {
+        let _ = self
+            .state
+            .borrow_mut()
+            .refreshes
+            .stop_and_wait(REFRESH_EXIT_WAIT);
     }
 
     /// The install screen's "Update system" button: shows the screen and checks.
@@ -144,13 +158,15 @@ fn primary(state: &Rc<RefCell<State>>) {
 }
 
 fn spawn_check(state: &Rc<RefCell<State>>, ticket: CheckTicket) {
-    let (sender, window) = {
-        let state = state.borrow();
-        (state.checks.0.clone(), state.window.clone())
+    let (sender, window, flag) = {
+        let mut state = state.borrow_mut();
+        let flag = state.refreshes.start();
+        (state.checks.0.clone(), state.window.clone(), flag)
     };
     std::thread::spawn(move || {
         let result = review_updates(
-            || tidewise_pacman::refresh_private_lists(ticket.why, &Default::default()),
+            // `flag` is dropped when the refresh returns, which is what leaving the app waits for.
+            move || tidewise_pacman::refresh_private_lists(ticket.why, flag.cancel()),
             tidewise_pacman::update_lookup,
             || {
                 tidewise_pacman::sync_lists()
@@ -263,6 +279,10 @@ fn repaint(state: &Rc<RefCell<State>>) {
     let Some(window) = state.window.upgrade() else {
         return;
     };
+    // Cancel, or anything else that leaves the check, ends its refresh.
+    if !matches!(state.model.phase(), Phase::Checking) {
+        state.refreshes.stop();
+    }
     let view = update_view(&state.model);
     let bridge = window.global::<UpdateBridge>();
     if view.focus_serial != state.shown_serial {
