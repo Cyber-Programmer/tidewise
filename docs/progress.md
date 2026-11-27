@@ -1707,3 +1707,12 @@ Blockers: none.
 Open: two or more self-replacing packages (or one next to another replacement) still get the general "run it once".
 Rules bent: no WBS sheet update (as asked).
 
+
+## 2026-11-27 — 6.5 self-replacing card also when other replacements are listed
+Done: closes the "Open" of the previous entry (red `23b7dc2`): whenever any listed replacement replaces its own name,
+the card names the first one and lists the other replaced names as "Also replaced: ..." (your words). `cargo test --all`
+1309 passed, 0 failed, 165 ignored; fmt, clippy, `cargo deny`, release build: exit 0. Container tests not rerun (app
+words only).
+Next: the 6.5 manual checklist, push, PR.
+Blockers: none.
+Rules bent: no WBS sheet update (as asked).
