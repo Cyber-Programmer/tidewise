@@ -425,6 +425,34 @@ fn a_replacement_by_an_installed_package_is_refused() {
     assert_eq!(installed_version("tidewise-dummy-hello"), None);
 }
 
+/// Review T-01: a package that replaces its own name is a replacement like any other. Installed is a NEWER version
+/// than the repository's, whose package also provides a name an upgrade needs: the dry run takes it, the real run
+/// declines it and installs the package literally called that, and what it needs, neither on any list.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn a_package_that_replaces_its_own_name_is_refused() {
+    assert_inside_the_test_container();
+    reset_world();
+    let installed = pacman(&[
+        "-U",
+        "--noconfirm",
+        "--",
+        &format!("{LATER_DIR}/tidewise-dummy-self-2.0-1-any.pkg.tar.zst"),
+    ]);
+    assert!(installed.status.success(), "setup: pacman -U failed");
+    install_directly(&["tidewise-dummy-upd-self"]);
+    add_newer("tidewise-dummy-upd-self-2.0-1-any.pkg.tar.zst");
+    let listed: Vec<String> = confirmed("-Su", &[]).into_iter().map(|i| i.name).collect();
+    assert!(
+        listed.contains(&"tidewise-dummy-self".to_string())
+            && !listed.contains(&"tidewise-dummy-selfneed".to_string()),
+        "{listed:?}"
+    );
+    assert_replacement_refused();
+    assert_eq!(installed_version("tidewise-dummy-selfneed"), None);
+    assert_eq!(installed_version("tidewise-dummy-hello"), None);
+}
+
 /// A versioned `Replaces` that does not fit the installed version is no replacement (`-T` says so).
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]

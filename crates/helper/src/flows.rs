@@ -2885,6 +2885,17 @@ mod tests {
         }
     }
 
+    /// Review T-01. The last package of the fixture (vim) is installed and names itself.
+    #[test]
+    fn a_listed_package_that_replaces_its_own_name_refuses_the_update() {
+        for text in [UPDATE, BOTH] {
+            let items = transaction_of(&request(text));
+            let own = items[items.len() - 1].name.clone();
+            let (result, fake) = update_replacing(text, &own, "", vec![]);
+            assert_refused_as_replacement(&result, &fake);
+        }
+    }
+
     #[test]
     fn replacing_something_that_is_not_installed_is_no_replacement() {
         let (result, _) = update_replacing(UPDATE, "old-pkg", "", vec![]);
