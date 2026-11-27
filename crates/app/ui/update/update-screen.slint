@@ -18,7 +18,7 @@ component Words inherits Text {
 // The one card of the update screen. What it shows depends on what Rust filled in.
 component UpdateCard inherits Rectangle {
     // A card with a list takes the spare height; any other card stays as short as its words.
-    out property <bool> has-list: UpdateBridge.rows.length > 0 || UpdateBridge.replacement-lines.length > 0 || UpdateBridge.held-title != "";
+    out property <bool> has-list: UpdateBridge.rows.length > 0 || UpdateBridge.held-title != "";
     property <bool> warns: UpdateBridge.kind == UpdateCardKind.blocked || UpdateBridge.kind == UpdateCardKind.alert || (UpdateBridge.kind == UpdateCardKind.done && UpdateBridge.attention);
     // View state only: is the "Technical details" part open?
     property <bool> technical-open: false;
@@ -119,10 +119,6 @@ component UpdateCard inherits Rectangle {
             spacing: Theme.space-xs;
             for note in UpdateBridge.notes: Words {
                 text: note;
-                font-size: Theme.size-label;
-            }
-            if UpdateBridge.password-line != "": Words {
-                text: UpdateBridge.password-line;
                 font-size: Theme.size-label;
             }
         }

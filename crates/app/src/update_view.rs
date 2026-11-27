@@ -12,7 +12,7 @@ use crate::size_text::format_size;
 use crate::update_model::{Phase, UpdateModel};
 use crate::update_words::{
     HELD_TITLE, HELD_WARNING, LISTS_CHANGED, NEWS_LINE, NOTHING_REMOVED, RESTART_LINE, UP_TO_DATE,
-    block_words, held_line, password_count_line, refusal_body, replacement_line,
+    UpdateBlock, block_words, held_line, refusal_body,
 };
 use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
 use tidewise_pacman::{PlanItem, UpdatePlan};
@@ -45,16 +45,12 @@ pub struct UpdateView {
     pub tiles: Vec<TileView>,
     /// Every package the update installs, in pacman's order.
     pub rows: Vec<ReviewRow>,
-    /// "<new> replaces <old>. …", one per replacement.
-    pub replacement_lines: Vec<String>,
     /// Empty when nothing is held.
     pub held_title: String,
     pub held_lines: Vec<String>,
     pub held_warning: String,
     /// "Nothing will be removed.", the news line, and what is said about older or changed lists.
     pub notes: Vec<String>,
-    /// Under the button: the password window may count more.
-    pub password_line: String,
     pub primary: Option<ButtonView>,
     pub secondary: Option<ButtonView>,
     pub primary_note: String,
@@ -89,7 +85,7 @@ pub fn update_view(model: &UpdateModel) -> UpdateView {
         Phase::UpToDate(plan) => {
             view.kind = UpdateKind::UpToDate;
             view.title = UP_TO_DATE.to_string();
-            skipped_and_held(&mut view, plan);
+            held(&mut view, plan);
             view.notes.extend(model.lists_note().map(lists_note));
             view.primary = button("Check again");
         }
@@ -99,6 +95,12 @@ pub fn update_view(model: &UpdateModel) -> UpdateView {
             view.title = words.title;
             view.body = words.body;
             view.advice = words.advice;
+            if let UpdateBlock::Replacement(replacements) = block {
+                view.technical = replacements
+                    .iter()
+                    .map(|r| format!("{}/{} replaces {}", r.new.repo, r.new.name, r.old))
+                    .collect();
+            }
             view.primary = button("Check again");
             view.secondary = button("Close");
         }
@@ -131,9 +133,8 @@ fn button(label: &str) -> Option<ButtonView> {
     })
 }
 
-/// What the update leaves alone: replacements, and what `IgnorePkg` holds.
-fn skipped_and_held(view: &mut UpdateView, plan: &UpdatePlan) {
-    view.replacement_lines = plan.replacements.iter().map(replacement_line).collect();
+/// What the update leaves alone: what `IgnorePkg` holds.
+fn held(view: &mut UpdateView, plan: &UpdatePlan) {
     if !plan.held_back.is_empty() {
         view.held_title = HELD_TITLE.to_string();
         view.held_lines = plan.held_back.iter().map(held_line).collect();
@@ -144,7 +145,7 @@ fn skipped_and_held(view: &mut UpdateView, plan: &UpdatePlan) {
 fn review(view: &mut UpdateView, model: &UpdateModel, plan: &UpdatePlan) {
     view.kind = UpdateKind::Review;
     view.title = "Review the update".to_string();
-    view.rows = plan.installing().map(row).collect();
+    view.rows = plan.items.iter().map(row).collect();
     let count = view.rows.len();
     let change = plan.size_change();
     let disk = if change < 0 {
@@ -161,15 +162,13 @@ fn review(view: &mut UpdateView, model: &UpdateModel, plan: &UpdatePlan) {
         download_tile(plan.download_total()),
         size_tile(disk, change.unsigned_abs()),
     ];
-    skipped_and_held(view, plan);
+    held(view, plan);
     if model.lists_changed() {
         view.notes.push(LISTS_CHANGED.to_string());
     }
     view.notes.push(NOTHING_REMOVED.to_string());
     view.notes.push(NEWS_LINE.to_string());
     view.notes.extend(model.lists_note().map(lists_note));
-    view.password_line = password_count_line(plan).unwrap_or_default();
-    // The whole list, skipped lines too: it is what the helper compares.
     view.technical = plan.items.iter().map(technical_item).collect();
     view.technical
         .push("pacman counts in MiB (1 MiB = 1,048,576 bytes)".to_string());
@@ -369,8 +368,7 @@ mod tests {
     use crate::update_check::ListsNote;
     use tidewise_helper_protocol::{Details, Event, Progress};
     use tidewise_pacman::{
-        HeldBlock, NotFresh, PackageRef, PacmanError, PendingUpdate, Replacement, Role,
-        UpdateLookup,
+        HeldBlock, NotFresh, PackageRef, PacmanError, PendingUpdate, Role, UpdateLookup,
     };
 
     fn pkg(name: &str) -> PackageRef {
@@ -399,16 +397,7 @@ mod tests {
 
     fn mixed() -> UpdatePlan {
         UpdatePlan {
-            items: vec![
-                item("zsh", Some("1-1")),
-                item("libnew", None),
-                item("new-pkg", None),
-            ],
-            skipped: vec![pkg("new-pkg")],
-            replacements: vec![Replacement {
-                new: pkg("new-pkg"),
-                old: "old-pkg".to_string(),
-            }],
+            items: vec![item("zsh", Some("1-1")), item("libnew", None)],
             held_back: vec![PendingUpdate {
                 name: "linux".to_string(),
                 installed_version: "1-1".to_string(),
@@ -458,11 +447,10 @@ mod tests {
     }
 
     #[test]
-    fn the_review_lists_what_is_installed_and_says_what_is_not() {
+    fn the_review_lists_every_package_and_what_is_held() {
         let view = update_view(&reviewing(mixed()));
         assert_eq!(view.kind, UpdateKind::Review);
         assert_eq!(view.title, "Review the update");
-        // The skipped replacement is not a row and is not counted.
         let rows: Vec<(&str, &str, &str)> = view
             .rows
             .iter()
@@ -489,13 +477,6 @@ mod tests {
                 ("Extra disk space", "5.0", "MB"),
             ]
         );
-        assert_eq!(
-            view.replacement_lines,
-            [
-                "new-pkg replaces old-pkg. Tidewise doesn't do replacements yet; run sudo pacman -Syu in a terminal \
-              to accept it."
-            ]
-        );
         assert_eq!(view.held_title, "Held back by your pacman.conf");
         assert_eq!(view.held_lines, ["linux 1-1 → 2-1, not updated."]);
         assert_eq!(
@@ -509,10 +490,6 @@ mod tests {
                 "Before updating, check Arch news for steps you must do by hand: archlinux.org/news",
             ]
         );
-        assert_eq!(
-            view.password_line,
-            "The password window may count 1 more package: new-pkg, which pacman lists but Tidewise skips."
-        );
         assert_eq!(labels(&view), (Some("Update 2 packages"), Some("Cancel")));
         assert_eq!(view.hint, "Your desktop asks for your password once.");
         assert_eq!(view.focus, FocusTarget::List);
@@ -520,7 +497,7 @@ mod tests {
             view.technical[0],
             "extra/zsh 2-1 · download 1500000 bytes · Installed Size : 2.86 MiB"
         );
-        assert_eq!(view.technical.len(), 4);
+        assert_eq!(view.technical.len(), 3);
     }
 
     #[test]
@@ -555,16 +532,33 @@ mod tests {
     }
 
     #[test]
-    fn up_to_date_still_shows_the_replacement_and_what_is_held() {
+    fn up_to_date_still_shows_what_is_held() {
         let mut plan = mixed();
-        plan.items.retain(|i| i.package.name == "new-pkg");
+        plan.items.clear();
         let view = update_view(&reviewing(plan));
         assert_eq!(view.kind, UpdateKind::UpToDate);
         assert_eq!(view.title, "Your system is up to date");
-        assert_eq!(view.replacement_lines.len(), 1);
         assert_eq!(view.held_lines.len(), 1);
-        assert!(view.rows.is_empty() && view.password_line.is_empty());
+        assert!(view.rows.is_empty());
         assert_eq!(labels(&view), (Some("Check again"), None));
+    }
+
+    #[test]
+    fn a_replacement_card_names_the_replacement_under_the_details() {
+        let mut plan = mixed();
+        plan.replacements.push(tidewise_pacman::Replacement {
+            new: pkg("new-pkg"),
+            old: "old-pkg".to_string(),
+        });
+        let view = update_view(&reviewing(plan));
+        assert_eq!(view.kind, UpdateKind::Blocked);
+        assert_eq!(
+            view.title,
+            "This update includes a replacement Tidewise can't do yet"
+        );
+        assert_eq!(view.technical, ["extra/new-pkg replaces old-pkg"]);
+        assert!(view.rows.is_empty());
+        assert_eq!(labels(&view), (Some("Check again"), Some("Close")));
     }
 
     #[test]

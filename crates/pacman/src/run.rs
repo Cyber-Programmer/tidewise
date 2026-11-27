@@ -16,8 +16,8 @@ use crate::sync::{parse_dbpath, parse_repo_list, sync_lists_in};
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, HeldBlock, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, ParseError, PendingUpdate, Resolution, ResolveInput,
-    SearchResult, SyncLists, UpdatePlan, dependency_text, held_block, parse_print, parse_qi,
-    parse_qu, parse_si, parse_ss, real_choices, update_plan,
+    SearchResult, SyncLists, UpdatePlan, dependency_text, held_block, listed_replacements,
+    parse_print, parse_qi, parse_qu, parse_si, parse_ss, real_choices, update_plan,
 };
 use crate::{parse_print_failure, parse_sg};
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
@@ -564,9 +564,19 @@ fn update_lookup_with(
     let qi = String::from_utf8_lossy(&qi.stdout);
 
     let mut plan = update_plan(&qu, &stdout, &si, &qi)?;
+    let details = parse_si(&si)?;
+    let installed: HashSet<String> = parse_qi(&qi)?.into_iter().map(|p| p.name).collect();
+    let mut facts = LookupFacts { run };
+    plan.replacements = listed_replacements(
+        &details.iter().collect::<Vec<_>>(),
+        |name| installed.contains(name),
+        // A version that cannot be written as an argument counts as fitting: block rather than guess.
+        |old| match dependency_text(old) {
+            Some(_) => facts.satisfied(old),
+            None => Ok(true),
+        },
+    )?;
     if !plan.picks.is_empty() {
-        let details = parse_si(&si)?;
-        let installed: HashSet<String> = parse_qi(&qi)?.into_iter().map(|p| p.name).collect();
         plan.picks = real_choices(
             std::mem::take(&mut plan.picks),
             &details.iter().collect::<Vec<_>>(),
