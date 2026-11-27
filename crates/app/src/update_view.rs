@@ -247,21 +247,21 @@ fn progress(view: &mut UpdateView, job: &Job) {
         view.body = "Your desktop asks for it. Tidewise never sees your password.".to_string();
         return;
     };
-    let counted = |verb: &str| {
-        if progress.current == 0 {
-            format!("{verb} packages")
-        } else {
-            format!("{verb} {} of {}", progress.current, progress.total)
-        }
-    };
     view.title = match progress.phase {
         Stage::Checking => "Checking the list again".to_string(),
-        Stage::Downloading => counted("Downloading"),
-        Stage::Installing => counted("Updating"),
+        Stage::Downloading => "Downloading packages".to_string(),
+        Stage::Installing if progress.current > 0 => {
+            format!("Updating {} of {}", progress.current, progress.total)
+        }
+        Stage::Installing => "Updating packages".to_string(),
         Stage::Hooks => "Finishing (pacman hooks)".to_string(),
     };
     view.percent = job.percent;
-    view.percent_text = format!("{} %", job.percent);
+    if job.has_real_percent() {
+        view.percent_text = format!("{} %", job.percent);
+    } else {
+        view.indeterminate = true;
+    }
     view.hint =
         "Updating can't be stopped halfway. Keep Tidewise open until it's done.".to_string();
 }

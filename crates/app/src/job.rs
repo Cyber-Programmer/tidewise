@@ -54,8 +54,27 @@ pub const CLOSE_ANYWAY: &str = "Close anyway";
 
 /// How long the job has been running, shown under the bar so a quiet phase does not look stuck.
 pub fn elapsed_text(seconds: u64) -> String {
-    let _ = seconds;
-    String::new()
+    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    match (hours, minutes) {
+        (0, 0) => format!("Running for {seconds} s"),
+        (0, _) => format!("Running for {minutes} min {seconds} s"),
+        _ => format!("Running for {hours} h {minutes} min"),
+    }
+}
+
+impl Job {
+    /// Only a counted install step has a real percentage. pacman prints nothing while it checks, downloads or runs
+    /// hooks (its output is not a terminal), so a number there would only look stuck.
+    pub fn has_real_percent(&self) -> bool {
+        matches!(
+            self.progress,
+            Some(Progress {
+                phase: Stage::Installing,
+                current: 1..,
+                ..
+            })
+        )
+    }
 }
 
 /// Why a job did not end well.

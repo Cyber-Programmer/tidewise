@@ -24,10 +24,11 @@ use tidewise_app::update_view::{UpdateKind, UpdateView, update_view};
 use tidewise_helper_protocol::Event;
 
 use crate::apps_window::Apps;
+use crate::job_clock::JobClock;
 use crate::search_window::Search;
 use crate::{
-    InstallFocus, InstallStageData, InstallStageState, MainWindow, NavBridge, ReviewKey,
-    ReviewRowData, Screen as NavScreen, Theme, TileData, UpdateBridge, UpdateCardKind,
+    CloseBridge, InstallFocus, InstallStageData, InstallStageState, MainWindow, NavBridge,
+    ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData, UpdateBridge, UpdateCardKind,
 };
 
 /// What the helper's worker thread has to say about job `.0`.
@@ -51,6 +52,7 @@ struct State {
     search: Search,
     /// The last focus move painted: a new card starts its list at the top.
     shown_serial: u32,
+    clock: JobClock,
 }
 
 /// How other screens open the update screen.
@@ -69,6 +71,7 @@ pub fn start(window: &MainWindow, apps: Apps, search: Search) -> Updates {
         apps,
         search,
         shown_serial: 0,
+        clock: JobClock::default(),
     }));
     let bridge = window.global::<UpdateBridge>();
     let handle = state.clone();
@@ -93,6 +96,11 @@ pub fn start(window: &MainWindow, apps: Apps, search: Search) -> Updates {
 }
 
 impl Updates {
+    /// The helper is running for an update.
+    pub fn job_running(&self) -> bool {
+        self.state.borrow().model.job_running()
+    }
+
     /// The install screen's "Update system" button: shows the screen and checks.
     pub fn open(&self) {
         if let Some(window) = self.state.borrow().window.upgrade() {
@@ -209,6 +217,7 @@ fn job_news(state: &Rc<RefCell<State>>) {
             }
         }
     }
+    time_job(state);
     if let Some(ticket) = recheck {
         spawn_check(state, ticket);
     }
@@ -220,6 +229,31 @@ fn job_news(state: &Rc<RefCell<State>>) {
         };
         apps.reload();
         search.refresh();
+    }
+}
+
+/// Runs the elapsed-time clock from the helper's first word to the end of the job.
+fn time_job(state: &Rc<RefCell<State>>) {
+    let state = state.borrow();
+    let Some(window) = state.window.upgrade() else {
+        return;
+    };
+    let said_something = matches!(
+        state.model.phase(),
+        Phase::Updating(running) if running.job.progress.is_some()
+    );
+    if said_something {
+        let weak = window.as_weak();
+        state.clock.start(move |text| {
+            if let Some(window) = weak.upgrade() {
+                window.global::<UpdateBridge>().set_elapsed(text.into());
+            }
+        });
+    } else if !state.model.job_running() {
+        state.clock.stop();
+        window.global::<UpdateBridge>().set_elapsed("".into());
+        // The question is moot once the job is over.
+        window.global::<CloseBridge>().set_open(false);
     }
 }
 
@@ -300,6 +334,7 @@ fn set_texts(bridge: &UpdateBridge, view: &UpdateView) {
     bridge.set_stages(model(view.stages.iter().map(stage)));
     bridge.set_percent(i32::from(view.percent));
     bridge.set_percent_text(view.percent_text.as_str().into());
+    bridge.set_indeterminate(view.indeterminate);
     bridge.set_attention(view.attention);
     bridge.set_focus(match view.focus {
         FocusTarget::List => InstallFocus::List,

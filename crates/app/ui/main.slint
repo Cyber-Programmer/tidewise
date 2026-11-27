@@ -1,6 +1,7 @@
 import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Sidebar } from "nav/sidebar.slint";
+import { CloseBridge, CloseDialog } from "widgets/close-dialog.slint";
 import { NavBridge, Screen } from "nav/bridge.slint";
 import { SearchScreen } from "search/search-screen.slint";
 import { AppsScreen } from "apps/apps-screen.slint";
@@ -18,7 +19,7 @@ import "./fonts/IBMPlexSans-SemiBold.ttf";
 import "./fonts/IBMPlexMono-Regular.ttf";
 
 // Rust reaches these through the generated code, so they are re-exported here.
-export { AppsBridge, BodyKind, ChoiceOption, DetailsData, InstallBridge, InstallCardKind, InstallFocus, InstallStageData, InstallStageState, InstalledRowData, ListKey, NavBridge, PackageRow, ResultRow, Screen, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme, UpdateBridge, UpdateCardKind }
+export { AppsBridge, BodyKind, ChoiceOption, CloseBridge, DetailsData, InstallBridge, InstallCardKind, InstallFocus, InstallStageData, InstallStageState, InstalledRowData, ListKey, NavBridge, PackageRow, ResultRow, Screen, SearchBodyKind, SearchBridge, SearchDetailsData, SearchDetailsKind, Theme, UpdateBridge, UpdateCardKind }
 
 export component MainWindow inherits Window {
     in property <string> app-name;
@@ -37,6 +38,8 @@ export component MainWindow inherits Window {
     }
 
     HorizontalLayout {
+        // Hidden while the close dialog is up, so that Tab cannot reach it.
+        visible: !CloseBridge.open;
         Sidebar { }
 
         if NavBridge.current == Screen.apps: AppsScreen {
@@ -56,5 +59,10 @@ export component MainWindow inherits Window {
         if NavBridge.current == Screen.updates: UpdateScreen {
             horizontal-stretch: 1;
         }
+    }
+
+    if CloseBridge.open: CloseDialog {
+        width: root.width;
+        height: root.height;
     }
 }

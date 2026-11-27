@@ -1,0 +1,81 @@
+// Asked when the window is closed while the helper is running. Words come from Rust. It covers the window.
+import { Theme } from "../theme.slint";
+import { TwButton } from "button.slint";
+
+export global CloseBridge {
+    in-out property <bool> open;
+    in property <string> warning;
+    in property <string> keep-text;
+    in property <string> close-text;
+    callback close-anyway();
+}
+
+export component CloseDialog inherits Rectangle {
+    background: Theme.bg;
+
+    // Swallows clicks meant for what is underneath.
+    TouchArea { }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                CloseBridge.open = false;
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 480px;
+                    background: Theme.surface;
+                    border-radius: Theme.radius-panel;
+                    border-width: 1px;
+                    border-color: Theme.control-border;
+                    accessible-role: groupbox;
+                    accessible-label: CloseBridge.warning;
+
+                    VerticalLayout {
+                        padding: Theme.space-xl;
+                        spacing: Theme.space-l;
+
+                        Text {
+                            text: CloseBridge.warning;
+                            color: Theme.text;
+                            font-size: Theme.size-body;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                        }
+
+                        HorizontalLayout {
+                            spacing: Theme.space-m;
+                            // The safe answer has the focus.
+                            TwButton {
+                                text: CloseBridge.keep-text;
+                                primary: true;
+                                autofocus: true;
+                                clicked => {
+                                    CloseBridge.open = false;
+                                }
+                            }
+
+                            TwButton {
+                                text: CloseBridge.close-text;
+                                clicked => {
+                                    CloseBridge.close-anyway();
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
