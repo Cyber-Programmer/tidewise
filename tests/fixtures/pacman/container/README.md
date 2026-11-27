@@ -118,3 +118,8 @@ excluded). Cases: `provider` (an upgrade needs `tidewise-virtual`), `replace` (a
 `update-needs-held-syu.stderr.txt`: stderr of an interactive `pacman -Syu` (no `--noconfirm`, answers on stdin) when an
 upgrade needs a held package. It records pacman's question, `:: Do you want to skip the above package for this
 upgrade? [y/N]` (default no). Also seen under a real terminal (`script`).
+
+`search-batch*`, `search-one-*` (WBS 6.5, review R-02, captured 27 Nov 2026): `-Ss` with one pattern for many names and
+with one pattern per name, over the soname dummies (`so-a`, `so-b`, `so-32`, `so-one`). The batched one must find the
+same packages; `tests/container/tests/pacman_update.rs` compares it with pacman.
+`update-replace-newer-*`: a replaced package that also has a newer version (review R-01).
