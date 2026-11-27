@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::{
-    Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage, PackageDetails,
-    PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage, SearchResult,
-    install_decision, provider_picks,
+    ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
+    PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
+    ProviderPick, SearchResult, install_decision, is_soname, provider_picks, real_choices,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -467,8 +467,21 @@ impl<'a> Engine<'a> {
                 return Ok(blocked);
             }
 
-            let picks = self.picks(&list, &asked, &providers, &installed);
+            // Shared libraries are never asked about: judged once the other providers are settled.
+            let (sonames, picks): (Vec<ProviderPick>, Vec<ProviderPick>) = self
+                .picks(&list, &asked, &providers, &installed)
+                .into_iter()
+                .partition(|pick| is_soname(&pick.dependency));
+            let picks: Vec<(String, PackageRef)> = picks
+                .into_iter()
+                .map(|pick| (pick.dependency, pick.provider))
+                .collect();
             if picks.is_empty() {
+                if let Some(dependency) = self.soname_choice(sonames, &listed, &installed)? {
+                    return Ok(Resolution::Blocked(vec![Blocker::SonameChoice {
+                        dependency,
+                    }]));
+                }
                 if let Some(dependency) =
                     self.second_provider(update, &providers, &asked, &listed, &installed)?
                 {
@@ -713,7 +726,7 @@ impl<'a> Engine<'a> {
         asked: &[PackageRef],
         answers: &[ProviderAnswer],
         installed: &HashMap<String, InstalledPackage>,
-    ) -> Vec<(String, PackageRef)> {
+    ) -> Vec<ProviderPick> {
         let refs: Vec<PackageRef> = list.iter().map(printed_ref).collect();
         let answered: Vec<&str> = answers.iter().map(|a| a.dependency.as_str()).collect();
         provider_picks(
@@ -723,9 +736,30 @@ impl<'a> Engine<'a> {
             &answered,
             |name| installed.contains_key(name),
         )
-        .into_iter()
-        .map(|pick| (pick.dependency, pick.provider))
-        .collect()
+    }
+
+    /// The first shared library pacman would choose a provider for by itself, if any: more than one package provides
+    /// that version and nothing installed answers it (`real_choices`, the helper's rule too).
+    fn soname_choice(
+        &mut self,
+        picks: Vec<ProviderPick>,
+        listed: &[PackageRef],
+        installed: &HashMap<String, InstalledPackage>,
+    ) -> Result<Option<String>, PacmanError> {
+        if picks.is_empty() {
+            return Ok(None);
+        }
+        let details: Vec<PackageDetails> = listed
+            .iter()
+            .filter_map(|item| self.details_of(item).cloned())
+            .collect();
+        let choices = real_choices(
+            picks,
+            &details.iter().collect::<Vec<_>>(),
+            |name| installed.contains_key(name),
+            &mut EngineFacts { engine: self },
+        )?;
+        Ok(choices.into_iter().next().map(|pick| pick.dependency))
     }
 
     /// A requested package that is not in the list under its own name is never silently dropped.
@@ -803,6 +837,29 @@ impl<'a> Engine<'a> {
             installed_total: items.iter().map(|i| i.installed_size).sum(),
             items,
         }
+    }
+}
+
+/// The reads `real_choices` needs, through the engine's own caches.
+struct EngineFacts<'e, 'a> {
+    engine: &'e mut Engine<'a>,
+}
+
+impl ChoiceFacts for EngineFacts<'_, '_> {
+    type Error = PacmanError;
+
+    fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, PacmanError> {
+        let found = self.engine.facts.search_any(names)?;
+        let refs: Vec<PackageRef> = found.iter().map(PackageRef::from).collect();
+        self.engine.load_details(&refs)?;
+        Ok(refs
+            .iter()
+            .filter_map(|item| self.engine.details_of(item).cloned())
+            .collect())
+    }
+
+    fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, PacmanError> {
+        self.engine.facts.satisfied(dependency)
     }
 }
 

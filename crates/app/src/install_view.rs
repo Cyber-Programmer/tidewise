@@ -801,6 +801,7 @@ pub(crate) fn technical_item(item: &PlanItem) -> String {
 }
 
 fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
+    let label = request_label(model);
     view.kind = CardKind::Alert;
     view.unchanged = UNCHANGED.to_string();
     view.secondary = button(back_label(model), true);
@@ -868,7 +869,15 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                  Tidewise can't install them together yet."
             );
         }
-        Some(Blocker::SonameChoice { .. }) => {}
+        Some(Blocker::SonameChoice { dependency }) => {
+            view.title_before = format!("{label} needs a choice Tidewise can't make yet");
+            view.body = format!(
+                "It needs {dependency}, and several packages can provide it. Tidewise doesn't ask that question for \
+                 shared libraries yet, so it won't let pacman pick for you."
+            );
+            view.hint =
+                format!("Run sudo pacman -S {label} in a terminal; pacman will ask you which one.");
+        }
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -901,7 +910,9 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::MissingFromList { requested } => {
             format!("missing from pacman's list: {}", spec(requested))
         }
-        Blocker::SonameChoice { .. } => String::new(),
+        Blocker::SonameChoice { dependency } => {
+            format!("{dependency}: several packages provide it")
+        }
         Blocker::TwoVersionsNeeded { dependency } => {
             format!("{dependency}: needed at two versions")
         }

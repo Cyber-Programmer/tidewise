@@ -1,9 +1,10 @@
 //! Finding a provider pick: a name a dry run satisfied through `Provides` with a package nobody named. One copy of
 //! the rule, used by the install resolver and by the root helper (golden rule 10, WBS 6.4a).
 //!
-//! Names are compared without versions: `parse_si` splits `java-runtime>=17` and `java-runtime=21` into a name and a
-//! version rule, and only the names are matched here. Whether a *chosen* package really satisfies a version rule is
-//! pacman's call, and the callers ask it with a dry run.
+//! Package names are compared without versions: `parse_si` splits `java-runtime>=17` and `java-runtime=21` into a
+//! name and a version rule, and only the names are matched here. Whether a *chosen* package really satisfies a version
+//! rule is pacman's call, and the callers ask it with a dry run. Shared libraries are the exception: a soname need
+//! (`libz.so=1-64`) is met only by a provider that carries the very same version.
 
 use crate::{Comparison, Dependency, PackageDetails, PackageRef, VersionRule};
 use tidewise_names::is_valid_package_name;
@@ -17,10 +18,18 @@ pub struct ProviderPick {
     pub version: Option<VersionRule>,
 }
 
-/// Shared libraries are provided by `soname` (`libz.so=1-64`): every package that links one would be a "provider
-/// choice" otherwise. They are never a choice the user can make.
-fn is_soname(name: &str) -> bool {
+/// Shared libraries are provided by `soname` (`libz.so=1-64`). Nearly every one has a single provider; the few with
+/// several are choices pacman makes unasked (review 6.5 R-02).
+pub fn is_soname(name: &str) -> bool {
     name.ends_with(".so") || name.contains(".so.")
+}
+
+/// Does `details` provide `name`, with exactly `version` when one is asked for?
+fn provides_for(details: &PackageDetails, name: &str, version: Option<&VersionRule>) -> bool {
+    details
+        .provides
+        .iter()
+        .any(|p| p.name == name && version.is_none_or(|wanted| p.rule.as_ref() == Some(wanted)))
 }
 
 /// The names the dry run `list` satisfied through `Provides` with a package that was not `asked` for and is not
@@ -33,8 +42,8 @@ pub fn provider_picks<'a>(
     answered: &[&str],
     is_installed: impl Fn(&str) -> bool,
 ) -> Vec<ProviderPick> {
-    let provides = |item: &PackageRef, name: &str| {
-        details_of(item).is_some_and(|d| d.provides.iter().any(|p| p.name == name))
+    let provides = |item: &PackageRef, name: &str, version: Option<&VersionRule>| {
+        details_of(item).is_some_and(|d| provides_for(d, name, version))
     };
     let mut found: Vec<ProviderPick> = Vec::new();
     for needer in list {
@@ -43,9 +52,17 @@ pub fn provider_picks<'a>(
         };
         for dependency in &needer_details.depends_on {
             let name = &dependency.name;
-            if is_soname(name)
-                || answered.contains(&name.as_str())
-                || found.iter().any(|pick| pick.dependency == *name)
+            // A soname need is its name AND version (`=1-32` and `=1-64` are two needs); other names go by name.
+            let version = is_soname(name).then(|| dependency.rule.clone()).flatten();
+            if answered.contains(&name.as_str())
+                || found
+                    .iter()
+                    .any(|pick| pick.dependency == *name && pick.version == version)
+                // A target that provides the library is what was asked for.
+                || (is_soname(name)
+                    && asked
+                        .iter()
+                        .any(|target| provides(target, name, version.as_ref())))
             {
                 continue;
             }
@@ -54,13 +71,13 @@ pub fn provider_picks<'a>(
                     && p.name != *name
                     && !is_installed(&p.name)
                     && !asked.contains(p)
-                    && provides(p, name)
+                    && provides(p, name, version.as_ref())
             });
             if let Some(provider) = provider {
                 found.push(ProviderPick {
                     dependency: name.clone(),
                     provider: provider.clone(),
-                    version: None,
+                    version,
                 });
             }
         }
@@ -112,37 +129,43 @@ pub fn real_choices<F: ChoiceFacts>(
     let mut kept = Vec::new();
     for pick in picks {
         let name = pick.dependency.as_str();
-        let providers: Vec<PackageRef> = found
-            .iter()
-            .filter(|d| d.provides.iter().any(|p| p.name == name))
-            .map(|d| PackageRef {
+        let version = pick.version.as_ref();
+        // Deduplicated: one search per batch may name a package more than once across batches.
+        let mut providers: Vec<PackageRef> = Vec::new();
+        for d in found.iter().filter(|d| provides_for(d, name, version)) {
+            let package = PackageRef {
                 repo: d.repo.clone(),
                 name: d.name.clone(),
-            })
-            .collect();
+            };
+            if !providers.contains(&package) {
+                providers.push(package);
+            }
+        }
         // The same name in two repositories is two providers: pacman asks between them (R-07).
         let lone = !providers.is_empty() && providers.iter().all(|p| *p == pick.provider);
         if lone {
             continue;
         }
-        // An installed provider the update keeps: not in the list, or upgraded to a version that still provides the
-        // name. The new version is the LISTED record's, not any package of that name the search found (R-04).
+        // An installed provider that stays: not in the list, or upgraded to a version that still provides the need.
+        // The new version is the LISTED record's, not any package of that name the search found (R-04).
         let stays = providers.iter().any(|p| {
             is_installed(&p.name)
                 && listed
                     .iter()
                     .find(|d| d.name == p.name)
-                    .is_none_or(|new| new.provides.iter().any(|entry| entry.name == name))
+                    .is_none_or(|new| provides_for(new, name, version))
         });
         let mut still_satisfied = stays;
         for dependency in listed
             .iter()
             .flat_map(|d| &d.depends_on)
             .filter(|dependency| dependency.name == name)
+            .filter(|dependency| version.is_none_or(|v| dependency.rule.as_ref() == Some(v)))
         {
-            // Versions are not compared here, and the one that satisfies `-T` now may be another than the one that
-            // stays: a versioned need never passes this way (R-03).
-            if !still_satisfied || dependency.rule.is_some() || !facts.satisfied(dependency)? {
+            // Versions are compared only for a soname (the same one, above). Any other versioned need never passes
+            // this way: the one that satisfies `-T` now may be another than the one that stays (R-03).
+            let versioned_elsewhere = version.is_none() && dependency.rule.is_some();
+            if !still_satisfied || versioned_elsewhere || !facts.satisfied(dependency)? {
                 still_satisfied = false;
                 break;
             }
@@ -361,7 +384,7 @@ mod tests {
     #[test]
     fn a_shared_library_is_judged_by_its_exact_version() {
         // Review 6.5 R-02: pacman asks between two providers of a soname, so a soname is a name like any other...
-        let pick = ("libz.so".to_string(), "tidewise-dummy-zlib".to_string());
+        let pick = ("libz.so".to_string(), "zlib".to_string());
         assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so=1-64"), [pick]);
         // ...but only a provider of the same version counts (a lib32 package provides `=1-32`).
         assert_eq!(picks_for("libz.so=1-64", "zlib", "libz.so=1-32"), []);
@@ -755,6 +778,7 @@ mod tests {
             .iter()
             .map(|(name, version)| {
                 let mut details = listed(name, vec![]);
+                details.repo = "extra".to_string();
                 details.provides = vec![soname(version)];
                 details
             })
