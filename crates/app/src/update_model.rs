@@ -200,7 +200,7 @@ impl UpdateModel {
 
     /// Whether the helper is running (or its password window is open): closing the window then needs a word first.
     pub fn job_running(&self) -> bool {
-        false
+        matches!(self.phase, Phase::Updating(_))
     }
 
     /// How many packages the confirmed list of the last run had.

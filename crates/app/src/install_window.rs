@@ -38,10 +38,11 @@ use tidewise_helper_protocol::Event;
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::apps_window::Apps;
+use crate::job_clock::JobClock;
 use crate::search_window::Search;
 use crate::update_window::Updates;
 use crate::{
-    ChoiceOption, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
+    ChoiceOption, CloseBridge, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
     InstallStageState, InstalledRowData, MainWindow, NavBridge, ReviewKey, ReviewRowData,
     Screen as NavScreen, Theme, TileData,
 };
@@ -85,6 +86,7 @@ struct Screen {
     shown_serial: u32,
     /// Position of the row to keep in view in a radio list (the chosen one); `None` for other cards.
     chosen_row: Option<usize>,
+    clock: JobClock,
 }
 
 /// How other screens start an install.
@@ -116,6 +118,7 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         shown_kind: CardKind::Closed,
         shown_serial: 0,
         chosen_row: None,
+        clock: JobClock::default(),
     }));
 
     let handle = screen.clone();
@@ -229,6 +232,11 @@ impl Install {
     /// Where "Update system" on the stale card goes.
     pub fn set_updates(&self, updates: Updates) {
         self.screen.borrow_mut().updates = Some(updates);
+    }
+
+    /// The helper is running for an install.
+    pub fn job_running(&self) -> bool {
+        self.screen.borrow().model.job_running()
     }
 
     /// The Install button of Search details: opens the install screen for this package.
@@ -367,6 +375,7 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
             }
         }
     }
+    time_job(screen);
     repaint(screen);
     if changed {
         let (apps, search) = {
@@ -377,6 +386,31 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
         if let Some(search) = search {
             search.refresh();
         }
+    }
+}
+
+/// Runs the elapsed-time clock from the helper's first word to the end of the job.
+fn time_job(screen: &Rc<RefCell<Screen>>) {
+    let state = screen.borrow();
+    let Some(window) = state.window.upgrade() else {
+        return;
+    };
+    let said_something = matches!(
+        state.model.phase(),
+        Phase::Installing(running) if running.job.progress.is_some()
+    );
+    if said_something {
+        let weak = window.as_weak();
+        state.clock.start(move |text| {
+            if let Some(window) = weak.upgrade() {
+                window.global::<InstallBridge>().set_elapsed(text.into());
+            }
+        });
+    } else if !state.model.job_running() {
+        state.clock.stop();
+        window.global::<InstallBridge>().set_elapsed("".into());
+        // The question is moot once the job is over.
+        window.global::<CloseBridge>().set_open(false);
     }
 }
 
@@ -618,6 +652,7 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
     )));
     bridge.set_percent(i32::from(view.percent));
     bridge.set_percent_text(view.percent_text.as_str().into());
+    bridge.set_indeterminate(view.indeterminate);
     bridge.set_attention(view.attention);
     bridge.set_focus(match view.focus {
         FocusTarget::List => InstallFocus::List,

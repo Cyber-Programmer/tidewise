@@ -113,6 +113,9 @@ export global InstallBridge {
     in property <[InstallStageData]> stages;
     in property <int> percent;
     in property <string> percent-text;
+    in property <bool> indeterminate;
+    // Filled once a second while a job runs.
+    in property <string> elapsed;
     // The done card warns instead of confirming.
     in property <bool> attention;
     // Under the buttons: why the primary one is off.
