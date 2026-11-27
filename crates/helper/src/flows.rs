@@ -248,8 +248,8 @@ fn update_job(
 /// The checks of an update's list that need `-Si`, on the PRIVATE copy and before anything is moved, so a refusal
 /// leaves the real lists as they were.
 ///
-/// - No replacement (decision of 27 Nov, review 6.5 R-01): a listed package, installed or not, that replaces an
-///   installed one. The real run declines it and may then upgrade the replaced package and what that needs, none of
+/// - No replacement (decision of 27 Nov, reviews 6.5 R-01 and T-01): a listed package, installed or not, that replaces
+///   an installed one, its own name included. The real run declines it and may then upgrade the replaced package and what that needs, none of
 ///   it listed. Answered as a changed transaction: the app then looks again and shows why.
 /// - Golden rule 10, for a plain update (`judge_providers`; threat model 41): pacman must not pick a provider the
 ///   request does not name. A pick needs a package that is not installed, so a list of upgrades only has none.
