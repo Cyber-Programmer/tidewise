@@ -533,6 +533,24 @@ mod tests {
         }
     }
 
+    /// `-Si` of a list with nothing to provide, need or replace (the update's list check).
+    fn plain_si(items: &[TransactionItem]) -> String {
+        items
+            .iter()
+            .map(|item| {
+                format!(
+                    "Repository      : {}\nName            : {}\nVersion         : {}\nDescription     : t\n\
+                     Architecture    : any\nURL             : https://example.invalid\nLicenses        : GPL\n\
+                     Groups          : None\nProvides        : None\nDepends On      : None\n\
+                     Optional Deps   : None\nConflicts With  : None\nReplaces        : None\n\
+                     Download Size   : 1.00 KiB\nInstalled Size  : 1.00 KiB\nPackager        : x\n\
+                     Build Date      : x\nValidated By    : None\n\n",
+                    item.repo, item.name, item.version
+                )
+            })
+            .collect()
+    }
+
     fn print_text(items: &[TransactionItem]) -> String {
         items
             .iter()
@@ -825,6 +843,7 @@ mod tests {
             ok(":: Synchronizing package databases...\n"),
             ok(&print_text(&items)),
             ok(&installed_text(&items)), // the provider check: all installed already
+            ok(&plain_si(&items)),
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
@@ -1687,6 +1706,7 @@ mod tests {
             ok(":: Synchronizing package databases...\n"),
             ok(&print_text(&transaction)), // the dry run on the private copy
             ok(&installed_text(&transaction)), // the provider check
+            ok(&plain_si(&transaction)),
             ok(&print_text(&transaction)), // and on the real lists after the move
             ok("pacman 7.1.0-1\n"),
             ok(&real),
@@ -1830,7 +1850,7 @@ mod tests {
         // The last package is not installed after the run: that is a notice ("1 not installed") the user needs.
         let mut big = big_update(1500);
         let all_but_one = big.transaction[..1499].to_vec();
-        big.script[6] = ok(&installed_text(&all_but_one));
+        big.script[7] = ok(&installed_text(&all_but_one));
         let (gate, release, seen) = Gate::new();
         let started = start_run(
             good_facts(&big.summary),

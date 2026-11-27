@@ -2336,6 +2336,61 @@ mod update_lookup_tests {
         assert!(!seen.iter().any(|line| line.starts_with("-T")), "{seen:?}");
     }
 
+    /// A case's review, with `-T` answering `deptest`.
+    fn reviewed(
+        print: &'static str,
+        si: &str,
+        qi: &'static str,
+        deptest: i32,
+    ) -> (UpdatePlan, Vec<String>) {
+        let seen = RefCell::new(Vec::new());
+        let result = update_lookup_with(&|args| {
+            seen.borrow_mut().push(args.join(" "));
+            Ok(match args.first().map(String::as_str) {
+                Some("-Qu") => output(1, "", ""),
+                Some("-Su") => output(0, print, ""),
+                Some("-Si") => output(0, si, ""),
+                Some("-Qi") => output(0, qi, ""),
+                Some("-T") => output(deptest, "", ""),
+                other => panic!("unexpected command {other:?}"),
+            })
+        });
+        let Ok(UpdateLookup::Plan(plan)) = result else {
+            panic!("{result:?}");
+        };
+        (*plan, seen.into_inner())
+    }
+
+    #[test]
+    fn the_review_knows_a_replacement_and_asks_pacman_about_a_versioned_one() {
+        let (plan, _) = reviewed(
+            saved!("replace-newer", "print.stdout"),
+            saved!("replace-newer", "si.stdout"),
+            saved!("replace-newer", "qi.stdout"),
+            0,
+        );
+        assert_eq!(plan.replacements.len(), 1);
+        assert_eq!(plan.replacements[0].old, "tidewise-dummy-old");
+
+        let versioned = saved!("replace-newer", "si.stdout").replace(
+            "Replaces        : tidewise-dummy-old",
+            "Replaces        : tidewise-dummy-old<1.0",
+        );
+        for (deptest, count) in [(127, 0), (0, 1)] {
+            let (plan, seen) = reviewed(
+                saved!("replace-newer", "print.stdout"),
+                &versioned,
+                saved!("replace-newer", "qi.stdout"),
+                deptest,
+            );
+            assert_eq!(plan.replacements.len(), count, "-T exit {deptest}");
+            assert!(
+                seen.contains(&"-T -- tidewise-dummy-old<1.0".to_string()),
+                "{seen:?}"
+            );
+        }
+    }
+
     #[test]
     fn a_qu_that_failed_with_an_error_line_is_not_no_updates() {
         let (result, _) = lookup([
