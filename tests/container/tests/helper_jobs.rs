@@ -1854,8 +1854,9 @@ fn jvm17_nobody_named(target: &str) {
         ("rt-jvm25", "1.0-1"),
         ("upd", "2.0-1"),
     ]);
+    // Refused, with the real lists and the package list unchanged. (`pacman -Q <name>` would not do as a further
+    // check: it also answers with a package that only provides the name.)
     refused_for_the_provider(target, &[("tidewise-jvm", "rt-jvm25")], &items);
-    assert!(installed_version(&dummy("rt-jvm17")).is_none());
 }
 
 #[test]
