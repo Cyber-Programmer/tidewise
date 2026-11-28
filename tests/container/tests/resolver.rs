@@ -454,3 +454,91 @@ fn the_helper_accepts_the_resolvers_plans_for_the_dummy_packages() {
         }
     }
 }
+
+// ---- update and install (WBS 6.6): resolve against a fresh private copy, then the real helper ----------------
+
+/// A private copy of the lists that already holds what the repository has now; the real lists do not.
+fn fresh_private_lists() -> &'static str {
+    let private = PathBuf::from("/tmp/lists-private");
+    let _ = fs::remove_dir_all(&private);
+    fs::create_dir_all(private.join("sync")).unwrap();
+    fs::copy(
+        "/srv/tidewise-test/tidewise-test.db.tar.gz",
+        private.join("sync/tidewise-test.db"),
+    )
+    .unwrap();
+    symlink("/var/lib/pacman/local", private.join("local")).unwrap();
+    let chmod = Command::new("/usr/bin/chmod")
+        .args(["-R", "a+rX"])
+        .arg(&private)
+        .status()
+        .unwrap();
+    assert!(chmod.success());
+    "/tmp/lists-private/"
+}
+
+/// The whole path a user takes: the resolver (as `nobody`, private lists) asks about the provider the system update
+/// brings, names it, and the real helper accepts the list and installs it.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn the_helper_accepts_an_update_and_install_the_resolver_worked_out() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd-virt"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-virt-2.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+
+    let asked = resolved(&["hello"], &[], Some(folder));
+    assert!(
+        asked.starts_with("ask tidewise-virtual "),
+        "the choice the update brings is asked: {asked}"
+    );
+    let ready = resolved(&["hello"], &[("tidewise-virtual", "prov-b")], Some(folder));
+    assert!(
+        ready.contains(&format!("{}@2.0-1:Update", dummy("upd-virt"))),
+        "{ready}"
+    );
+    let items: Vec<Item> = plan_items(&ready)
+        .into_iter()
+        .map(|(name, version)| Item {
+            repo: REPO.to_string(),
+            name,
+            version,
+        })
+        .collect();
+    let hello = dummy("hello");
+    let prov = dummy("prov-b");
+    let (request, summary) = update_and_install_request(
+        &[(REPO, &hello)],
+        &[("tidewise-virtual", REPO, &prov)],
+        &items,
+    );
+    let ran = run(&summary, request.as_bytes());
+    assert_eq!(ran.status.code(), Some(0), "{}\n{}", ran.stdout, ran.stderr);
+    assert!(installed_version(&dummy("hello")).is_some());
+    assert!(installed_version(&dummy("prov-b")).is_some());
+    assert_eq!(
+        installed_version(&dummy("upd-virt")).as_deref(),
+        Some("2.0-1")
+    );
+    // The real lists were moved in: nothing is pending against them.
+    assert_eq!(pacman_stdout(&["-Qu"]), "");
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}
+
+/// A replacement in the combined list blocks in the app, before any password.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_with_a_replacement_is_blocked_by_the_resolver() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-old", "tidewise-dummy-upd"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    change_repository_without_syncing("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+    let said = resolved(&["hello"], &[], Some(folder));
+    assert!(said.starts_with("blocked Replacement("), "{said}");
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}

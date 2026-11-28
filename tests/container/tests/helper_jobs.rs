@@ -1648,3 +1648,123 @@ fn a_request_larger_than_the_pipe_buffer_written_in_chunks_is_accepted_within_th
         Some("1.0-1")
     );
 }
+
+// ---- update and install: no unnamed provider (WBS 6.6; review 6.5 R-05, threat model 40) ------------------------
+
+/// The lines of a list, as `(dummy name, version)`.
+fn listed(items: &[(&str, &str)]) -> Vec<Item> {
+    items
+        .iter()
+        .map(|(name, version)| Item {
+            repo: REPO.to_string(),
+            name: dummy(name),
+            version: (*version).to_string(),
+        })
+        .collect()
+}
+
+/// `installed`, then a newer version of `later` in the repository that the real lists do not know yet.
+fn stale_with(installed: &str, later: &str) {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&[&dummy(installed)]);
+    std::thread::sleep(Duration::from_millis(1100));
+    change_repository_without_syncing(&format!("tidewise-dummy-{later}-2.0-1-any.pkg.tar.zst"));
+}
+
+/// "Update system and install `target`" with `providers` as `(dependency, dummy name)`.
+fn update_and_install(target: &str, providers: &[(&str, &str)], items: &[Item]) -> Ran {
+    let chosen: Vec<String> = providers.iter().map(|(_, name)| dummy(name)).collect();
+    let providers: Vec<(&str, &str, &str)> = providers
+        .iter()
+        .zip(&chosen)
+        .map(|((dependency, _), name)| (*dependency, REPO, name.as_str()))
+        .collect();
+    let (request, summary) =
+        update_and_install_request(&[(REPO, &dummy(target))], &providers, items);
+    run(&summary, request.as_bytes())
+}
+
+/// The helper refuses for the provider, and neither the real lists nor the packages change.
+fn refused_for_the_provider(target: &str, providers: &[(&str, &str)], items: &[Item]) {
+    let lists_before = fingerprint(REAL_SYNC);
+    let packages_before = package_list();
+    let ran = update_and_install(target, providers, items);
+    finished_with(&ran, "provider_not_chosen");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
+}
+
+/// The system update needs `tidewise-virtual` (two packages provide it) and nobody named one.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_provider_the_system_update_pulls_in_unnamed() {
+    stale_with("upd-virt", "upd-virt");
+    let items = listed(&[
+        ("prov-a", "1.0-1"),
+        ("upd-virt", "2.0-1"),
+        ("hello", "1.0-1"),
+    ]);
+    refused_for_the_provider("hello", &[], &items);
+}
+
+/// The same update with the provider named goes through, and marks it as a dependency.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_with_the_provider_named_does_both() {
+    stale_with("upd-virt", "upd-virt");
+    let items = listed(&[
+        ("prov-b", "1.0-1"),
+        ("upd-virt", "2.0-1"),
+        ("hello", "1.0-1"),
+    ]);
+    let ran = update_and_install("hello", &[("tidewise-virtual", "prov-b")], &items);
+    assert_ok(&ran);
+    assert_eq!(
+        installed_version(&dummy("upd-virt")).as_deref(),
+        Some("2.0-1")
+    );
+    assert!(installed_version(&dummy("hello")).is_some());
+    assert!(installed_version(&dummy("prov-a")).is_none());
+    assert!(
+        install_reason(&dummy("prov-b")).contains("dependency"),
+        "{}",
+        install_reason(&dummy("prov-b"))
+    );
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_provider_the_target_needs_unnamed() {
+    stale_with("upd", "upd");
+    let items = listed(&[
+        ("prov-a", "1.0-1"),
+        ("upd", "2.0-1"),
+        ("needs-virtual", "1.0-1"),
+    ]);
+    refused_for_the_provider("needs-virtual", &[], &items);
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_shared_library_choice() {
+    stale_with("upd", "upd");
+    let items = listed(&[("so-a", "1.0-1"), ("upd", "2.0-1"), ("needs-so", "1.0-1")]);
+    refused_for_the_provider("needs-so", &[], &items);
+}
+
+/// Replacements are refused for update and install too, with the real lists untouched.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_replacement() {
+    stale_with("old", "upd");
+    change_repository_without_syncing("tidewise-dummy-new-1.0-1-any.pkg.tar.zst");
+    let items = listed(&[("new", "1.0-1"), ("hello", "1.0-1")]);
+    let lists_before = fingerprint(REAL_SYNC);
+    let packages_before = package_list();
+    let ran = update_and_install("hello", &[], &items);
+    finished_with(&ran, "transaction_changed");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(package_list(), packages_before);
+}
