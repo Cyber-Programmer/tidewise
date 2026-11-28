@@ -129,8 +129,17 @@ The human's decisions, all in the app, no helper change:
 - "Nothing was installed." when the whole list is missing.
 - `database_locked` reads "Another update is still running…" for any holder; the app cannot tell a running Tidewise job
   from another pacman (that would need a new error kind from the helper).
-- Closing the window during a job asks first. The words say "update", for installs too.
+- Closing the window during a job asks first, naming the job: "The install keeps running…" or "The update keeps
+  running…" (the human, 28 Nov).
 - Only a counted install step shows a percentage. Elsewhere a moving bar and "Running for …": pacman prints nothing
-  while it downloads when stdout is not a terminal (measured). No reduced-motion setting is available to honour.
+  while it downloads when stdout is not a terminal (measured).
+- **Known limit (the human, 28 Nov):** the moving bar does not honour reduced motion; the app has no such setting to
+  read, and Slint offers none that we found.
 - The private refresh has a limit and a Cancel (0008).
+
+## v0.1 blocker: logout or reboot during a job (WBS 6.18)
+
+Logging out or rebooting sends SIGKILL to the root helper and its pacman (threat model 46). The human's decision of
+28 Nov: **WBS 6.18** builds both an inhibitor lock (`block`, `shutdown:sleep`) for the whole real transaction and the
+real run out of the app's unit. No code for it in 6.5. **v0.1 does not ship before 6.18.**
 

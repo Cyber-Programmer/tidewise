@@ -362,10 +362,12 @@ STRIDE letters: **S**poofing, **T**ampering, **R**epudiation, **I**nformation di
     sends SIGKILL to everything left in it. Seen in the journal: job 2065326 accepted 20:48:20, reboot requested
     20:51:16, `user@1000.service: Killing process 2065326 (tidewise-helper) with signal SIGKILL`, no outcome line. That
     time the real run had not started (nothing in `pacman.log`). During a real `-Su` this would stop a transaction
-    halfway and leave `/var/lib/pacman/db.lck`. No signal handler can help. Options, the human's decision, none built:
-    (a) the app holds a logind shutdown/logout inhibitor while a job runs (asks the desktop to wait; D-Bus, a new
-    dependency or program start; a forced shutdown still kills); (b) the helper moves its real run out of the caller's
-    unit into a system scope (survives logout; a new program start or D-Bus call in root code); (c) record as a limit.
+    halfway and leave `/var/lib/pacman/db.lck`. No signal handler can help.
+    **Decided by the human, 28 Nov 2026: both defences, as WBS 6.18, a v0.1 release blocker. Nothing is built yet.**
+    (a) An inhibitor lock (`block`, `shutdown:sleep`) held for the whole real transaction. (b) The real run moved out of
+    the app's systemd unit. (b) alone would not cover what happened here, which was a reboot. To measure in 6.18, not
+    checked yet: who can override a block inhibitor, what the desktop shows when it asks to restart, and that neither
+    defence helps against a forced power-off.
 47. **The app signals processes (6.5).** Only the private refresh, its own child: `own_child_group` allows the child's
     pid as group and refuses 0, 1 and the app's own group; signalled before the child is reaped, so the pid cannot be
     reused. Tests: `the_group_signalled_is_only_ever_the_childs_own`, `stopping_one_program_leaves_another_running`,

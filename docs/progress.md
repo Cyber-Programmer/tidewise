@@ -1633,7 +1633,7 @@ Only your `sudo` lines and the installed helper run pacman as root. Do it on the
 13. Install one small package: after the password the card says "Checking the list again" before it downloads, and
     never sits on "Waiting for your password" while it checks. Remove it again with `sudo pacman -Rns <it>`.
 14. While a job runs, close the window: the dialog "The update keeps running if you close Tidewise. Keep it open until
-    it's done." with "Keep open" focused; Escape keeps open; the sidebar is not reachable by Tab; "Close anyway" closes.
+    it's done." (during an install: "The install keeps running…") with "Keep open" focused; Escape keeps open; the sidebar is not reachable by Tab; "Close anyway" closes.
     When the job ends with the dialog up, it goes away by itself.
 15. While a job runs: a moving bar (no number) and "Running for …" counting each second during checking, downloading
     and hooks; a percentage only while packages are installed. Check CPU stays modest.
@@ -1642,7 +1642,7 @@ Only your `sudo` lines and the installed helper run pacman as root. Do it on the
 17. With the network off, press Update and type the password: "Tidewise couldn't download the packages…", pacman's words
     under Technical details.
 18. While one Tidewise update runs, start a second: "Another update is still running…".
-19. Do **not** log out or reboot during a real update (threat model 46).
+19. Do **not** log out, reboot or suspend during a real update (threat model 46, WBS 6.18 not built yet).
 20. Back to how it was: `sudo pacman -Rns tidewise` (the list must show only `tidewise`), `rm -r ~/tidewise-build
     ~/before.txt ~/after.txt`.
 
@@ -1762,3 +1762,17 @@ have no limit; the close dialog says "update" for installs; `fds.rs` flaky test.
 Rules bent: no automated test for the window glue, the dialog, the moving bar or the Cancel wiring; I added rustix only
 after asking; the first container run of the fix was made before committing it (the package is built from HEAD); no WBS
 sheet update.
+
+## 2026-11-28 — 6.5 close dialog names the job; 6.18 recorded
+Done:
+- Close dialog: "The install keeps running…" / "The update keeps running…" (red `7ba98ca`, then the fix).
+- **Logout/reboot** (threat model 46): your decision recorded as **WBS 6.18, v0.1 blocker** (inhibitor lock and the
+  real run out of the app's unit) in the threat model, 0009 and the PR text. No code.
+- **Reduced motion:** recorded as a known limit (0009, PR text).
+- Checks: `cargo test --all` 1340 passed, 0 failed, 166 ignored; fmt, clippy, `cargo deny`, release build: exit 0.
+  Container tests not rerun (app words only; last full run 1500 passed on `15bc080`).
+Next: your checklist run (items 1-19, then 20 to clean up) on a good network; push; PR.
+Blockers: for v0.1, 6.6 (threat model 40) and 6.18 (46).
+Rules bent: ENGINEERING asks reduced motion to be honoured and the moving bar does not; the 6.18 row is not in the WBS
+sheet (the sheet was not touched).
+
