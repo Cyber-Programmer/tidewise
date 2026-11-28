@@ -1249,3 +1249,40 @@ fn installing_a_shared_library_candidate_ends_the_choice_in_update_and_install()
         );
     }
 }
+
+/// Review 6.6 V-01: `jre25` needs `jre-other` by name, but something else already meets that name, so pacman does not
+/// pull `jre-other` for it: it is listed as pacman's own pick for `jvm=17`. `jre25` must not be offered.
+fn jvm_world(target_provides: &[&str]) -> World {
+    let mut world = stale();
+    world
+        .add("need17", target_provides, &["jvm=17"])
+        .add("jre25", &["jvm=25"], &["jre-other"])
+        .add("jre-other", &["jvm=17"], &[])
+        .add("jre-third", &["jvm=17"], &[]);
+    world
+}
+
+fn assert_jre25_is_not_accepted(world: &World) {
+    let mut input = want(&["need17"]);
+    input.provider_answers = vec![answer("jvm", "jre25")];
+    let found = resolve_with(&input, world);
+    match &found {
+        Ok(Resolution::NeedsAnswers(questions)) => {
+            let (_, candidates, _) = the_provider_question(questions);
+            assert!(!candidates.contains(&"jre25"), "{candidates:?}");
+        }
+        other => panic!("expected the question again, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_candidate_whose_by_name_dependency_is_met_by_something_installed_does_not_fit() {
+    let mut world = jvm_world(&[]);
+    world.install("shadow", "1.0-1", &["jre-other"]);
+    assert_jre25_is_not_accepted(&world);
+}
+
+#[test]
+fn a_candidate_whose_by_name_dependency_another_listed_package_provides_does_not_fit() {
+    assert_jre25_is_not_accepted(&jvm_world(&["jre-other"]));
+}

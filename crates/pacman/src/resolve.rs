@@ -711,8 +711,15 @@ impl<'a> Engine<'a> {
                 .filter(|p| p.name != candidate.name && !installed.contains_key(&p.name))
                 .filter(|p| self.provides(p, dependency))
                 .collect();
+            let facts = self.facts;
             return Ok(others.is_empty()
-                || brought_by_name(candidate, &others, &refs, |item| self.details_of(item)));
+                || brought_by_name(
+                    candidate,
+                    &others,
+                    &refs,
+                    |item| self.details_of(item),
+                    |dependency| installed_meets(facts, dependency),
+                )?);
         }
         let DryRun::Listed(alone) = self.dry_run(false, &[spec(candidate)])? else {
             return Ok(false);
@@ -754,9 +761,14 @@ impl<'a> Engine<'a> {
                 continue;
             }
             if update {
-                if !brought_by_name(&answer.chosen, &others, listed, |item| {
-                    self.details_of(item)
-                }) {
+                let facts = self.facts;
+                if !brought_by_name(
+                    &answer.chosen,
+                    &others,
+                    listed,
+                    |item| self.details_of(item),
+                    |dependency| installed_meets(facts, dependency),
+                )? {
                     return Ok(Some(answer.dependency.clone()));
                 }
                 continue;
@@ -917,6 +929,15 @@ impl<'a> Engine<'a> {
             installed_total: items.iter().map(|i| i.installed_size).sum(),
             items,
         }
+    }
+}
+
+/// `pacman -T` for `brought_by_name`. A dependency that cannot be written as an argument counts as met: the edge is
+/// then not followed, as in the helper.
+fn installed_meets(facts: &dyn Facts, dependency: &Dependency) -> Result<bool, PacmanError> {
+    match dependency_text(dependency) {
+        Some(_) => facts.satisfied(dependency),
+        None => Ok(true),
     }
 }
 

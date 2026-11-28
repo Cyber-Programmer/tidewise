@@ -191,19 +191,21 @@ pub fn real_choices<F: ChoiceFacts>(
 ///
 /// No dry run: on a stale system `pacman -S` of one package can fail with "breaks dependency", although the update
 /// with that package is fine. `-Si` of the listed packages says all this rule needs.
-pub fn brought_by_name<'a>(
+pub fn brought_by_name<'a, E>(
     chosen: &PackageRef,
     others: &[&PackageRef],
     listed: &[PackageRef],
     details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
-) -> bool {
+    // Not asked yet.
+    _installed_meets: impl FnMut(&Dependency) -> Result<bool, E>,
+) -> Result<bool, E> {
     // Every package is walked once, so a dependency cycle ends.
     let mut reached: Vec<&PackageRef> = vec![chosen];
     let mut next = 0;
     while let Some(&package) = reached.get(next) {
         next += 1;
         let Some(details) = details_of(package) else {
-            return false;
+            return Ok(false);
         };
         for dependency in &details.depends_on {
             let Some(named) = listed.iter().find(|p| p.name == dependency.name) else {
@@ -214,7 +216,7 @@ pub fn brought_by_name<'a>(
             }
             if let Some(rule) = &dependency.rule {
                 let Some(there) = details_of(named) else {
-                    return false;
+                    return Ok(false);
                 };
                 if rule.comparison != Comparison::Equal
                     || !is_that_version(&rule.version, &there.version)
@@ -225,7 +227,7 @@ pub fn brought_by_name<'a>(
             reached.push(named);
         }
     }
-    others.iter().all(|other| reached.contains(other))
+    Ok(others.iter().all(|other| reached.contains(other)))
 }
 
 /// `=` without a pkgrel (`=2.0`) is met by every pkgrel of that version.
@@ -927,10 +929,14 @@ mod tests {
 
     /// A `-Si` record with only what the rule reads filled in.
     fn si(name: &str, version: &str, depends: &str) -> PackageDetails {
+        providing(name, version, "None", depends)
+    }
+
+    fn providing(name: &str, version: &str, provides: &str, depends: &str) -> PackageDetails {
         let text = format!(
             "Repository      : extra\nName            : {name}\nVersion         : {version}\n\
              Description     : test\nArchitecture    : any\nURL             : https://example.invalid\n\
-             Licenses        : GPL\nGroups          : None\nProvides        : None\n\
+             Licenses        : GPL\nGroups          : None\nProvides        : {provides}\n\
              Depends On      : {depends}\nOptional Deps   : None\nConflicts With  : None\n\
              Replaces        : None\nDownload Size   : 1.00 KiB\nInstalled Size  : 1.00 KiB\n\
              Packager        : x\nBuild Date      : x\nValidated By    : None\n"
@@ -953,9 +959,19 @@ mod tests {
             .map(|d| extra(&d.name))
             .chain(unread.iter().map(|name| extra(name)))
             .collect();
-        brought_by_name(&extra(chosen), &[&extra(other)], &listed, |item| {
-            records.iter().find(|d| d.name == item.name)
-        })
+        brought_by_name(
+            &extra(chosen),
+            &[&extra(other)],
+            &listed,
+            |item| records.iter().find(|d| d.name == item.name),
+            nothing_installed,
+        )
+        .unwrap()
+    }
+
+    /// `pacman -T` finds nothing installed that meets the dependency.
+    fn nothing_installed(_: &Dependency) -> Result<bool, ()> {
+        Ok(false)
     }
 
     #[test]
@@ -975,8 +991,11 @@ mod tests {
         let all: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
         let find = |item: &PackageRef| records.iter().find(|d| d.name == item.name);
         let (jre, loner) = (extra("jre"), extra("loner"));
-        assert!(!brought_by_name(&extra("jdk"), &[&jre, &loner], &all, find));
-        assert!(brought_by_name(&extra("jdk"), &[&jre], &all, find));
+        let ask = |others: &[&PackageRef]| {
+            brought_by_name(&extra("jdk"), others, &all, find, nothing_installed).unwrap()
+        };
+        assert!(!ask(&[&jre, &loner]));
+        assert!(ask(&[&jre]));
     }
 
     #[test]
@@ -1037,5 +1056,123 @@ mod tests {
         assert!(!brings(&records, &["unread"], "jdk", "jre"));
         // The chosen package's own record is missing.
         assert!(!brings(&records[1..], &["jdk"], "jdk", "jre"));
+    }
+
+    // ---- a by-name dependency pacman would not follow (review 6.6 V-01) -----------------------------------------
+
+    #[test]
+    fn a_name_something_installed_already_meets_is_not_followed() {
+        // pacman does not pull `jre` for this dependency then: it is listed for some other reason.
+        let records = [si("jdk", "1-1", "jre=2-1"), si("jre", "2-1", "None")];
+        let listed: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
+        let find = |item: &PackageRef| records.iter().find(|d| d.name == item.name);
+        for (met, brought) in [(true, false), (false, true)] {
+            let mut asked = Vec::new();
+            let got = brought_by_name(
+                &extra("jdk"),
+                &[&extra("jre")],
+                &listed,
+                find,
+                |dependency| {
+                    asked.push(dependency.clone());
+                    Ok::<bool, ()>(met)
+                },
+            );
+            assert_eq!(got, Ok(brought), "installed meets it: {met}");
+            // The whole dependency is asked, version rule included.
+            assert_eq!(asked, records[0].depends_on);
+        }
+    }
+
+    #[test]
+    fn a_name_another_listed_package_provides_is_not_followed() {
+        let records = [
+            si("jdk", "1-1", "jre"),
+            providing("jre", "2-1", "None", "None"),
+            providing("shadow", "1-1", "jre=2", "None"),
+        ];
+        assert!(!brings(&records, &[], "jdk", "jre"));
+        // Its own `Provides` of its own name is not another package.
+        let records = [
+            si("jdk", "1-1", "jre"),
+            providing("jre", "2-1", "jre=2", "None"),
+        ];
+        assert!(brings(&records, &[], "jdk", "jre"));
+        // A listed package without a record might provide it: nothing is brought.
+        assert!(!brings(&records, &["unread"], "jdk", "jre"));
+    }
+
+    #[test]
+    fn a_deptest_that_fails_is_passed_on() {
+        let records = [si("jdk", "1-1", "jre"), si("jre", "2-1", "None")];
+        let listed: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
+        let got = brought_by_name(
+            &extra("jdk"),
+            &[&extra("jre")],
+            &listed,
+            |item| records.iter().find(|d| d.name == item.name),
+            |_| Err("pacman failed"),
+        );
+        assert_eq!(got, Err("pacman failed"));
+    }
+
+    // ---- size (review 6.6 V-03) ---------------------------------------------------------------------------------
+
+    /// `count` packages, each needing the next ten by name: the last one is brought only through the whole chain.
+    fn dense(count: usize) -> (Vec<PackageDetails>, Vec<PackageRef>) {
+        let records: Vec<PackageDetails> = (0..count)
+            .map(|index| {
+                let needs: Vec<String> = (index + 1..count.min(index + 11))
+                    .map(|next| format!("p{next}"))
+                    .collect();
+                let depends = if needs.is_empty() {
+                    "None".to_string()
+                } else {
+                    needs.join("  ")
+                };
+                si(&format!("p{index}"), "1-1", &depends)
+            })
+            .collect();
+        let listed = records.iter().map(|d| extra(&d.name)).collect();
+        (records, listed)
+    }
+
+    /// The walk over `dense(count)`: the answer, and how often `pacman -T` was asked.
+    fn walk(records: &[PackageDetails], listed: &[PackageRef]) -> (bool, usize) {
+        let by_name: std::collections::HashMap<&str, &PackageDetails> =
+            records.iter().map(|d| (d.name.as_str(), d)).collect();
+        let mut asked = 0;
+        let last = &listed[listed.len() - 1];
+        let got = brought_by_name(
+            &listed[0],
+            &[last],
+            listed,
+            |item| by_name.get(item.name.as_str()).copied(),
+            |_| {
+                asked += 1;
+                Ok::<bool, ()>(false)
+            },
+        )
+        .unwrap();
+        (got, asked)
+    }
+
+    #[test]
+    fn five_thousand_packages_ask_at_most_once_each() {
+        let (records, listed) = dense(5000);
+        let (got, asked) = walk(&records, &listed);
+        assert!(got);
+        assert!(asked < 5000, "{asked}");
+    }
+
+    /// Not a check: a timing for a person to read.
+    /// `cargo test --release -p tidewise-pacman -- --ignored --nocapture bench_brought_by_name`
+    #[test]
+    #[ignore = "a benchmark, for a person to read"]
+    fn bench_brought_by_name_at_5000() {
+        let (records, listed) = dense(5000);
+        let started = std::time::Instant::now();
+        let (got, _) = walk(&records, &listed);
+        println!("5000 packages: {got} in {:?}", started.elapsed());
     }
 }
