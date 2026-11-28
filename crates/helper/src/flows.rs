@@ -7,11 +7,11 @@
 //!            no provider pick the request does not name (`-Q`, `-Si`; golden rule 10) -> real `-S --noconfirm --ask 66`
 //!            -> `-D --asdeps` for the chosen providers -> post-check.
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
-//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> -> no
-//!            replacement (`-Q`, `-Si`) -> (plain update only) no provider pick, for a pick
-//!            `-Ss`/`-Si` there and `-T` (decision 0009) -> the
-//!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
-//!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
+//!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> no
+//!            replacement (`-Q`, `-Si`) -> no provider pick: for a plain update only a pick pacman has nothing to ask
+//!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install the install's rule, every pick
+//!            named, read from the private copy -> the refreshed lists are moved into the real `sync/` -> dry run on
+//!            the real lists must equal it again -> real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
 //!
 //! After every real run each confirmed item is checked with `pacman -Q`; the number that are not installed at the
@@ -83,16 +83,9 @@ pub fn run_job(
 ) -> JobResult {
     let (step, counts) = match &request.action {
         Action::Install(install) => install_job(install, runner, on_event),
-        Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
+        Action::UpdateSystem(update) => update_job(&update.transaction, None, runner, on_event),
         Action::UpdateSystemAndInstall(install) => {
-            let providers = providers_of(install);
-            update_job(
-                &install.transaction,
-                &names_of(install),
-                &providers,
-                runner,
-                on_event,
-            )
+            update_job(&install.transaction, Some(install), runner, on_event)
         }
     };
     JobResult {
@@ -161,14 +154,15 @@ fn install_job(
     )
 }
 
-/// `names` is empty for a plain system update.
+/// `install` is `None` for a plain system update.
 fn update_job(
     transaction: &[TransactionItem],
-    names: &[PackageRef],
-    providers: &[PackageRef],
+    install: Option<&Install>,
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
 ) -> (Step, Counts) {
+    let names = install.map(names_of).unwrap_or_default();
+    let providers = install.map(providers_of).unwrap_or_default();
     // Until a list is renamed into the real `sync/`, every way out leaves the real lists untouched.
     let untouched = || Counts::lists(ListsState::Untouched);
     if let Err(kind) = check_lock(runner) {
@@ -198,15 +192,14 @@ fn update_job(
 
     if let Err(kind) = dry_run(
         runner,
-        PacmanCommand::PrivateDryRunUpdate(names.to_vec()),
+        PacmanCommand::PrivateDryRunUpdate(names.clone()),
         transaction,
     ) {
         return (Err(kind), untouched());
     }
 
-    // No replacement in either update action; and a plain update, which names no providers, must not need any
-    // (6.6 will pass the targets and answers).
-    if let Err(kind) = check_update_list(runner, transaction, names.is_empty()) {
+    // No replacement and no provider pick nobody answered, in either update action.
+    if let Err(kind) = check_update_list(runner, transaction, install) {
         return (Err(kind), untouched());
     }
 
@@ -228,7 +221,7 @@ fn update_job(
     // The same check again, on the real lists: another root process may have changed them since (T-09).
     if let Err(kind) = dry_run(
         runner,
-        PacmanCommand::DryRunUpdate(names.to_vec()),
+        PacmanCommand::DryRunUpdate(names.clone()),
         transaction,
     ) {
         return (Err(kind), Counts::lists(after_the_move));
@@ -237,9 +230,9 @@ fn update_job(
         runner,
         on_event,
         &mut tracker,
-        PacmanCommand::RealUpdate(names.to_vec()),
+        PacmanCommand::RealUpdate(names),
         transaction,
-        providers,
+        &providers,
     );
     counts.lists = Some(after_the_move);
     (step, counts)
@@ -251,12 +244,15 @@ fn update_job(
 /// - No replacement (decision of 27 Nov, reviews 6.5 R-01 and T-01): a listed package, installed or not, that replaces
 ///   an installed one, its own name included. The real run declines it and may then upgrade the replaced package and what that needs, none of
 ///   it listed. Answered as a changed transaction: the app then looks again and shows why.
-/// - Golden rule 10, for a plain update (`judge_providers`; threat model 41): pacman must not pick a provider the
-///   request does not name. A pick needs a package that is not installed, so a list of upgrades only has none.
+/// - Golden rule 10: pacman must not pick a provider by itself.
+///   - Update and install (`install`; threat model 40, review 6.5 R-05): the request can name providers, so it must
+///     name every pick, the system update's too. The install's rule (`judge_named_providers`), on the private copy.
+///   - Plain update (threat model 41): it names none, so only a pick pacman has nothing to ask about passes. A pick
+///     needs a package that is not installed, so a list of upgrades only has none.
 fn check_update_list(
     runner: &mut dyn Runner,
     transaction: &[TransactionItem],
-    judge_providers: bool,
+    install: Option<&Install>,
 ) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
@@ -285,10 +281,12 @@ fn check_update_list(
     if !replacements.is_empty() {
         return Err(ErrorKind::TransactionChanged);
     }
-    if !judge_providers
-        || transaction
-            .iter()
-            .all(|item| installed.contains(&item.name))
+    if let Some(install) = install {
+        return judge_named_providers(runner, install, &installed, &details, Lists::Private);
+    }
+    if transaction
+        .iter()
+        .all(|item| installed.contains(&item.name))
     {
         return Ok(());
     }
@@ -320,7 +318,7 @@ fn check_update_list(
 /// The reads behind `real_choices`, all from the private copy except `-T`, which asks about installed packages.
 struct HelperFacts<'a> {
     runner: &'a mut dyn Runner,
-    /// An update asks the private copy of the lists; an install the real ones, which it installs from.
+    /// An update (with or without targets) asks the private copy of the lists; a plain install the real ones.
     private: bool,
 }
 
@@ -497,7 +495,15 @@ fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
     let details = read_details(runner, &install.transaction, PacmanCommand::PackageDetails)?;
-    judge_named_providers(runner, install, &installed, &details)
+    judge_named_providers(runner, install, &installed, &details, Lists::Real)
+}
+
+/// Which package lists a provider check reads: the real ones (a plain install installs from them) or the private copy
+/// (update and install, before the lists are moved in). `pacman -T` and `-Q` always ask about the real system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lists {
+    Real,
+    Private,
 }
 
 /// The rule of `check_providers`, on facts already read: the installed packages and `-Si` of the confirmed list.
@@ -506,6 +512,7 @@ fn judge_named_providers(
     install: &Install,
     installed: &HashSet<String>,
     details: &HashMap<ListedRef, PackageDetails>,
+    lists: Lists,
 ) -> Step {
     let listed: Vec<ListedRef> = install
         .transaction
@@ -534,10 +541,12 @@ fn judge_named_providers(
         if others.is_empty() {
             continue;
         }
-        let brought = print_of(
-            runner,
-            PacmanCommand::DryRunInstall(vec![answer.chosen.clone()]),
-        )?;
+        let chosen = vec![answer.chosen.clone()];
+        let own_dry_run = match lists {
+            Lists::Real => PacmanCommand::DryRunInstall(chosen),
+            Lists::Private => PacmanCommand::PrivateDryRunInstall(chosen),
+        };
+        let brought = print_of(runner, own_dry_run)?;
         if others
             .iter()
             .any(|other| !brought.iter().any(|item| item.name == other.name))
@@ -573,7 +582,7 @@ fn judge_named_providers(
         |name| installed.contains(name),
         &mut HelperFacts {
             runner,
-            private: false,
+            private: lists == Lists::Private,
         },
     )?;
     if choices.is_empty() {
