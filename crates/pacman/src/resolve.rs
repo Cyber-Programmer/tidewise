@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::picks::provides_for;
+use crate::picks::{brought_by_name, provides_for};
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
@@ -502,7 +502,7 @@ impl<'a> Engine<'a> {
                     }]));
                 }
                 if let Some(dependency) =
-                    self.second_provider(&providers, &asked, &listed, &installed)?
+                    self.second_provider(update, &providers, &asked, &listed, &installed)?
                 {
                     return Ok(Resolution::Blocked(vec![Blocker::TwoVersionsNeeded {
                         dependency,
@@ -701,21 +701,19 @@ impl<'a> Engine<'a> {
         let DryRun::Listed(with_all) = self.dry_run(update, &names)? else {
             return Ok(false);
         };
-        // Update and install: like the helper, look at the candidate alone only when the list holds another provider.
-        // On a stale system that dry run can fail by itself, which must not drop a candidate nothing competes with.
+        // Update and install: the helper's rule, from the dependencies of the listed packages. No dry run of the
+        // candidate alone: on a stale system that can fail by itself (review 6.6 U-01).
         if update {
             let refs: Vec<PackageRef> = with_all.iter().map(printed_ref).collect();
             self.load_details(&refs)?;
-            let another = with_all.iter().any(|p| {
-                p.name != candidate.name
-                    && !installed.contains_key(&p.name)
-                    && self.provides(&printed_ref(p), dependency)
-            });
-            if !another {
-                return Ok(true);
-            }
+            let others: Vec<&PackageRef> = refs
+                .iter()
+                .filter(|p| p.name != candidate.name && !installed.contains_key(&p.name))
+                .filter(|p| self.provides(p, dependency))
+                .collect();
+            return Ok(others.is_empty()
+                || brought_by_name(candidate, &others, &refs, |item| self.details_of(item)));
         }
-        // The candidate alone is a plain `-S` in both modes: what it brings by itself, not what an update brings.
         let DryRun::Listed(alone) = self.dry_run(false, &[spec(candidate)])? else {
             return Ok(false);
         };
@@ -740,6 +738,7 @@ impl<'a> Engine<'a> {
     /// request that will be refused. In practice two packages need two versions of one name.
     fn second_provider(
         &mut self,
+        update: bool,
         answers: &[ProviderAnswer],
         asked: &[PackageRef],
         listed: &[PackageRef],
@@ -752,6 +751,14 @@ impl<'a> Engine<'a> {
                 .filter(|p| self.provides(p, &answer.dependency))
                 .collect();
             if others.is_empty() {
+                continue;
+            }
+            if update {
+                if !brought_by_name(&answer.chosen, &others, listed, |item| {
+                    self.details_of(item)
+                }) {
+                    return Ok(Some(answer.dependency.clone()));
+                }
                 continue;
             }
             let DryRun::Listed(brought) = self.dry_run(false, &[spec(&answer.chosen)])? else {

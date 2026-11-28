@@ -181,15 +181,60 @@ pub fn real_choices<F: ChoiceFacts>(
     Ok(kept)
 }
 
-/// Does `chosen` bring every one of `others` by itself (update and install, review 6.6 U-01)?
+/// Does `chosen` bring every one of `others` by itself? The rule of "update system and install", for the app and the
+/// root helper (golden rule 10; review 6.6 U-01).
+///
+/// "By itself" means: reachable from `chosen` through dependencies that name a listed package exactly, with no version
+/// rule or an `=` that the listed version meets. pacman has nothing to choose for such a dependency. Everything else
+/// is not followed, and so refuses: a name no listed package has (virtual), any other version rule (comparing versions
+/// is pacman's work). A package in the chain without a `-Si` record refuses too.
+///
+/// No dry run: on a stale system `pacman -S` of one package can fail with "breaks dependency", although the update
+/// with that package is fine. `-Si` of the listed packages says all this rule needs.
 pub fn brought_by_name<'a>(
-    _chosen: &PackageRef,
-    _others: &[&PackageRef],
-    _listed: &[PackageRef],
-    _details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
+    chosen: &PackageRef,
+    others: &[&PackageRef],
+    listed: &[PackageRef],
+    details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
 ) -> bool {
-    // Stub.
-    false
+    // Every package is walked once, so a dependency cycle ends.
+    let mut reached: Vec<&PackageRef> = vec![chosen];
+    let mut next = 0;
+    while let Some(&package) = reached.get(next) {
+        next += 1;
+        let Some(details) = details_of(package) else {
+            return false;
+        };
+        for dependency in &details.depends_on {
+            let Some(named) = listed.iter().find(|p| p.name == dependency.name) else {
+                continue;
+            };
+            if reached.contains(&named) {
+                continue;
+            }
+            if let Some(rule) = &dependency.rule {
+                let Some(there) = details_of(named) else {
+                    return false;
+                };
+                if rule.comparison != Comparison::Equal
+                    || !is_that_version(&rule.version, &there.version)
+                {
+                    continue;
+                }
+            }
+            reached.push(named);
+        }
+    }
+    others.iter().all(|other| reached.contains(other))
+}
+
+/// `=` without a pkgrel (`=2.0`) is met by every pkgrel of that version.
+fn is_that_version(wanted: &str, listed: &str) -> bool {
+    wanted == listed
+        || (!wanted.contains('-')
+            && listed
+                .rsplit_once('-')
+                .is_some_and(|(version, _)| version == wanted))
 }
 
 /// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
