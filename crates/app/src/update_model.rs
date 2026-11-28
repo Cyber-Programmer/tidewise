@@ -262,16 +262,33 @@ impl UpdateModel {
 /// Where a plan leads: nothing to do, a reason it cannot go on, or the review.
 fn reviewed(plan: Box<UpdatePlan>) -> Phase {
     // A replacement comes first: pacman would not do what the list says (WBS 7.5 does replacements).
-    if !plan.replacements.is_empty() {
-        Phase::Blocked(UpdateBlock::Replacement(plan.replacements))
+    if let Some(block) = replaced(&plan) {
+        Phase::Blocked(block)
     } else if plan.items.is_empty() {
         Phase::UpToDate(plan)
-    } else if !plan.conflicts.is_empty() {
-        Phase::Blocked(UpdateBlock::Conflict(plan.conflicts))
+    } else if let Some(block) = conflicting(&plan) {
+        Phase::Blocked(block)
     } else if !plan.picks.is_empty() {
         Phase::Blocked(UpdateBlock::Pick(plan.picks))
     } else {
         Phase::Review(plan)
+    }
+}
+
+fn replaced(plan: &UpdatePlan) -> Option<UpdateBlock> {
+    (!plan.replacements.is_empty()).then(|| UpdateBlock::Replacement(plan.replacements.clone()))
+}
+
+fn conflicting(plan: &UpdatePlan) -> Option<UpdateBlock> {
+    (!plan.conflicts.is_empty()).then(|| UpdateBlock::Conflict(plan.conflicts.clone()))
+}
+
+/// Why the system part of "update system and install" cannot go ahead. The same blocks as a plain update, except a
+/// provider choice: the install can name it, so it is asked (decision 0009).
+pub fn system_block(lookup: &UpdateLookup) -> Option<UpdateBlock> {
+    match lookup {
+        UpdateLookup::HeldBlock(block) => Some(UpdateBlock::Held(block.clone())),
+        UpdateLookup::Plan(plan) => replaced(plan).or_else(|| conflicting(plan)),
     }
 }
 

@@ -5,8 +5,11 @@
 //! Only this question uses the private copy. A plain install is still worked out against the real lists, because
 //! those are what the helper installs from.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use crate::update_model::system_block;
 
 use tidewise_core::age::whole_days;
 use tidewise_pacman::{
@@ -49,18 +52,22 @@ pub fn check_for_updates(
             InstallDecision::MustUpdateSystem { .. }
         )
     };
-    let answer = |must_update| UpdateCheck {
-        must_update,
-        note: None,
-        waiting: 0,
-        lists_from: None,
+    let answer = |updates: &[PendingUpdate], from: Option<SystemTime>| {
+        let must_update = waiting(updates);
+        UpdateCheck {
+            must_update,
+            note: None,
+            waiting: updates.iter().filter(|update| !update.ignored).count(),
+            lists_from: from.filter(|_| must_update),
+        }
     };
-    if waiting(&pending(None)?) {
-        return Ok(answer(true));
+    let real = pending(None)?;
+    if waiting(&real) {
+        return Ok(answer(&real, real_newest()));
     }
     let why = match refresh() {
         Lists::Private(folder) => match pending(Some(&folder)) {
-            Ok(updates) => return Ok(answer(waiting(&updates))),
+            Ok(updates) => return Ok(answer(&updates, Some(now))),
             Err(_) => NotFresh::Failed,
         },
         Lists::Real(why) => why,
@@ -113,14 +120,33 @@ pub struct SystemCheck {
 
 /// Refreshes the private lists, reads the update review, then resolves the install against the same folder.
 pub fn prepare_system(
-    _refresh: impl FnOnce() -> Lists,
-    _lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
-    _resolve: impl FnOnce(Option<PathBuf>) -> Result<Resolution, PacmanError>,
-    _real_newest: impl FnOnce() -> Option<SystemTime>,
-    _now: SystemTime,
+    refresh: impl FnOnce() -> Lists,
+    lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
+    resolve: impl FnOnce(Option<PathBuf>) -> Result<Resolution, PacmanError>,
+    real_newest: impl FnOnce() -> Option<SystemTime>,
+    now: SystemTime,
 ) -> Result<SystemCheck, PacmanError> {
-    // Stub.
-    Err(PacmanError::TooManyRounds { limit: 0 })
+    // The folder of the read that worked: the review falls back to the real lists by itself.
+    let used = RefCell::new(None);
+    let read = |folder: Option<&Path>| {
+        let found = lookup(folder);
+        if found.is_ok() {
+            *used.borrow_mut() = folder.map(Path::to_path_buf);
+        }
+        found
+    };
+    let (found, note) = review_updates(refresh, read, real_newest, now)?;
+    let dbpath = used.into_inner();
+    let resolution = match system_block(&found) {
+        Some(_) => None,
+        None => Some(resolve(dbpath.clone())?),
+    };
+    Ok(SystemCheck {
+        lookup: found,
+        note,
+        dbpath,
+        resolution,
+    })
 }
 
 #[cfg(test)]

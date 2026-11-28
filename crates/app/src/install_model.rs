@@ -10,13 +10,14 @@ use crate::helper_request::install_request;
 use crate::helper_run::JobEnd;
 use crate::job::{Job, JobFailure, JobTicket};
 use crate::update_check::{ListsNote, SystemCheck};
-use crate::update_words::UpdateBlock;
+use crate::update_model::system_block;
+use crate::update_words::{UpdateBlock, needs_restart};
 use std::path::PathBuf;
 use std::time::SystemTime;
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
-    Question, RefreshWhy, Resolution, ResolveInput, UpdatePlan,
+    Question, RefreshWhy, Resolution, ResolveInput, UpdateLookup, UpdatePlan,
 };
 
 /// What the user asked to install (from Search). The answers are kept apart, in `Step`s.
@@ -147,6 +148,17 @@ pub struct InstallModel {
     prompt_closed: bool,
     /// The review a failure card can go back to: only after a refusal whose text says "Go back".
     way_back: Option<Box<InstallPlan>>,
+    /// "Update system and install" was chosen.
+    updating: bool,
+    /// Its system part, once the first step has answered.
+    system: Option<SystemPart>,
+    /// How the first step refreshes the private lists (`None`: as when opening).
+    refresh_why: Option<RefreshWhy>,
+    waiting: Option<Waiting>,
+    lists_changed: bool,
+    system_rows_open: bool,
+    restart_wanted: bool,
+    follow_up: Option<Ticket>,
 }
 
 impl Draft {
@@ -212,6 +224,8 @@ impl InstallModel {
         let mut input = ResolveInput {
             targets: self.request.targets.clone(),
             groups: self.request.groups.clone(),
+            // Update and install is resolved against the lists its system part was read from.
+            dbpath: self.system.as_ref().and_then(|part| part.dbpath.clone()),
             ..ResolveInput::default()
         };
         for step in &self.steps {
@@ -270,7 +284,8 @@ impl InstallModel {
             number: self.last_number,
             input: self.input(),
             check_lists,
-            refresh_system: None,
+            refresh_system: (self.updating && self.system.is_none())
+                .then(|| self.refresh_why.unwrap_or(RefreshWhy::Opening)),
         };
         self.wanted = Some(ticket.number);
         self.slow = false;
@@ -285,10 +300,12 @@ impl InstallModel {
         }
     }
 
-    fn begin(&mut self, request: Request, check_lists: bool) -> Option<Ticket> {
+    fn begin(&mut self, request: Request, check_lists: bool, updating: bool) -> Option<Ticket> {
         if self.is_installing() {
             return None;
         }
+        self.forget_the_update();
+        self.updating = updating;
         self.prompt_closed = false;
         self.way_back = None;
         self.request = request;
@@ -296,6 +313,18 @@ impl InstallModel {
         self.current = 0;
         self.lists_note = None;
         self.start(check_lists)
+    }
+
+    /// Drops everything "update system and install" holds.
+    fn forget_the_update(&mut self) {
+        self.updating = false;
+        self.system = None;
+        self.refresh_why = None;
+        self.waiting = None;
+        self.lists_changed = false;
+        self.system_rows_open = false;
+        self.restart_wanted = false;
+        self.follow_up = None;
     }
 
     /// Install this package. `Some(ticket)`: start the worker now; `None`: it waits for the running one.
@@ -306,6 +335,7 @@ impl InstallModel {
                 groups: Vec::new(),
             },
             true,
+            false,
         )
     }
 
@@ -317,6 +347,7 @@ impl InstallModel {
                 groups: vec![group.to_string()],
             },
             true,
+            false,
         )
     }
 
@@ -487,6 +518,7 @@ impl InstallModel {
         if self.is_installing() {
             return;
         }
+        self.forget_the_update();
         self.prompt_closed = false;
         self.way_back = None;
         self.drop_wanted();
@@ -514,7 +546,7 @@ impl InstallModel {
                 target.clone_from(replacement);
             }
         }
-        self.begin(request, false)
+        self.begin(request, false, self.updating)
     }
 
     /// A button of the shared-library card: a normal install of that candidate, from the start.
@@ -526,7 +558,16 @@ impl InstallModel {
             return None;
         };
         let candidate = candidates.get(index)?.clone();
-        self.open(candidate)
+        // Inside "update system and install" the candidate is installed the same way: one path, no stale card again.
+        if self.updating {
+            let request = Request {
+                targets: vec![candidate],
+                groups: Vec::new(),
+            };
+            self.begin(request, false, true)
+        } else {
+            self.open(candidate)
+        }
     }
 
     /// "Try again" after a failed resolve, and "Check again" after a failed install: that one starts the request
@@ -534,7 +575,12 @@ impl InstallModel {
     pub fn try_again(&mut self) -> Option<Ticket> {
         if matches!(self.phase, Phase::InstallFailed(_)) {
             let request = self.request.clone();
-            return self.begin(request, true);
+            return self.begin(request, true, false);
+        }
+        // The system part is read again: whatever blocks it may be gone.
+        if matches!(self.phase, Phase::SystemBlocked(_)) {
+            self.system = None;
+            return self.start(false);
         }
         if matches!(
             self.phase,
@@ -549,48 +595,69 @@ impl InstallModel {
         }
     }
 
-    // ---- "update system and install" (stubs) ----
+    // ---- "update system and install" ----
 
     /// The stale card's main button.
     pub fn update_and_install(&mut self) -> Option<Ticket> {
-        None
+        if self.phase != Phase::Stale {
+            return None;
+        }
+        let request = self.request.clone();
+        self.begin(request, false, true)
     }
 
     /// Whether this install updates the system too.
     pub fn is_updating(&self) -> bool {
-        false
+        self.updating
     }
 
     /// Updates are waiting, on the stale card.
     pub fn waiting(&self) -> Option<Waiting> {
-        None
+        self.waiting
     }
 
     pub fn system(&self) -> Option<&SystemPart> {
-        None
+        self.system.as_ref()
     }
 
     /// The review follows a list that changed under the user.
     pub fn lists_changed(&self) -> bool {
-        false
+        self.lists_changed
     }
 
     /// A ticket the end of a job asks for.
     pub fn take_follow_up(&mut self) -> Option<Ticket> {
-        None
+        self.follow_up.take()
     }
 
     /// After a successful update and install: a restart is a good idea.
     pub fn restart_wanted(&self) -> bool {
-        false
+        self.restart_wanted
     }
 
     pub fn system_rows_open(&self) -> bool {
-        false
+        self.system_rows_open
     }
 
     /// The "System update" row was pressed.
-    pub fn toggle_system_rows(&mut self) {}
+    pub fn toggle_system_rows(&mut self) {
+        if self.updating && matches!(self.phase, Phase::Ready(_)) {
+            self.system_rows_open = !self.system_rows_open;
+        }
+    }
+
+    /// The helper found other lists than the ones reviewed: look at them again, keeping every answer. The resolver
+    /// drops an answer that no longer fits and asks that question again.
+    fn look_again(&mut self) {
+        for step in &mut self.steps {
+            step.round = 0;
+        }
+        self.system = None;
+        self.system_rows_open = false;
+        self.lists_changed = true;
+        self.refresh_why = Some(RefreshWhy::AfterRefusal);
+        self.follow_up = self.start(false);
+    }
 
     /// The review's Install button: `Some` means "start the helper now".
     pub fn start_install(&mut self) -> Option<JobTicket> {
@@ -649,6 +716,18 @@ impl InstallModel {
         }
         // A result, or none at all, means pacman may have run. The other ends are all from before it.
         let may_have_changed = matches!(end, JobEnd::Finished(_) | JobEnd::NoResult { .. });
+        if self.updating
+            && matches!(
+                end,
+                JobEnd::Finished(Outcome::Error(ErrorKind::TransactionChanged))
+            )
+        {
+            self.look_again();
+            return may_have_changed;
+        }
+        self.restart_wanted = self.updating
+            && matches!(end, JobEnd::Finished(Outcome::Ok))
+            && needs_restart(running.plan.items.iter().map(|i| i.package.name.as_str()));
         self.way_back = matches!(
             end,
             JobEnd::Finished(Outcome::Error(ErrorKind::ProviderNotChosen))
@@ -715,31 +794,84 @@ impl InstallModel {
         if self.wanted == Some(number) {
             self.wanted = None;
             self.slow = false;
-            self.apply(ticket.input.round, result);
+            if self.apply(ticket.input.round, result) {
+                // Nothing is left to update: an ordinary install, from the start.
+                return self.begin(self.request.clone(), true, false);
+            }
         }
         let next = self.pending.take();
         self.running.clone_from(&next);
         next
     }
 
-    fn apply(&mut self, round: u32, result: Result<WorkAnswer, PacmanError>) {
-        self.phase = match result {
-            Ok(WorkAnswer::MustUpdate(_)) => Phase::Stale,
-            // Stub.
-            Ok(WorkAnswer::System(_)) => Phase::Closed,
-            Ok(WorkAnswer::Resolved(Resolution::Ready(plan))) => {
-                if matches!(plan.decision, InstallDecision::MustUpdateSystem { .. }) {
-                    Phase::Stale
-                } else {
-                    Phase::Ready(Box::new(plan))
+    /// `true`: "update system and install" found nothing to update.
+    fn apply(&mut self, round: u32, result: Result<WorkAnswer, PacmanError>) -> bool {
+        match result {
+            Ok(WorkAnswer::MustUpdate(waiting)) => {
+                self.waiting = Some(waiting);
+                self.phase = Phase::Stale;
+            }
+            Ok(WorkAnswer::System(check)) => {
+                let SystemCheck {
+                    lookup,
+                    note,
+                    dbpath,
+                    resolution,
+                } = *check;
+                self.lists_note = note;
+                if let Some(block) = system_block(&lookup) {
+                    self.phase = Phase::SystemBlocked(block);
+                } else if let UpdateLookup::Plan(plan) = lookup {
+                    if plan.items.is_empty() {
+                        return true;
+                    }
+                    self.system = Some(SystemPart {
+                        plan: *plan,
+                        dbpath,
+                    });
+                    match resolution {
+                        Some(resolution) => return self.resolved(round, resolution),
+                        None => {
+                            self.phase = failed(&PacmanError::Inconsistent {
+                                reason: "the install was not resolved",
+                            });
+                        }
+                    }
                 }
             }
-            Ok(WorkAnswer::Resolved(Resolution::NeedsAnswers(questions))) => {
+            Ok(WorkAnswer::Resolved(resolution)) => return self.resolved(round, resolution),
+            Err(error) => self.phase = failed(&error),
+        }
+        self.refocus();
+        false
+    }
+
+    /// Shows what the resolver says; `true` as for `apply`.
+    fn resolved(&mut self, round: u32, resolution: Resolution) -> bool {
+        self.phase = match resolution {
+            Resolution::Ready(plan) => match plan.decision {
+                InstallDecision::MustUpdateSystem { count, .. } if !self.updating => {
+                    self.waiting = Some(Waiting {
+                        count,
+                        lists_from: None,
+                    });
+                    Phase::Stale
+                }
+                InstallDecision::Allowed { .. } if self.updating => return true,
+                _ => {
+                    self.system_rows_open = false;
+                    Phase::Ready(Box::new(plan))
+                }
+            },
+            Resolution::NeedsAnswers(questions) => {
                 if questions.is_empty() {
                     failed(&PacmanError::Inconsistent {
                         reason: "pacman asked for answers but named no question",
                     })
                 } else {
+                    // A question asked a second time replaces the answer that no longer fits.
+                    self.steps
+                        .retain(|step| !questions.iter().any(|q| same_subject(q, &step.question)));
                     self.current = self.steps.len();
                     for question in questions {
                         self.steps.push(Step {
@@ -751,10 +883,29 @@ impl InstallModel {
                     Phase::Asking
                 }
             }
-            Ok(WorkAnswer::Resolved(Resolution::Blocked(blockers))) => Phase::Blocked(blockers),
-            Err(error) => failed(&error),
+            Resolution::Blocked(blockers) => Phase::Blocked(blockers),
         };
         self.refocus();
+        false
+    }
+}
+
+/// Do two questions ask about the same thing?
+fn same_subject(a: &Question, b: &Question) -> bool {
+    match (a, b) {
+        (
+            Question::ChooseProvider { dependency: a, .. },
+            Question::ChooseProvider { dependency: b, .. },
+        ) => a == b,
+        (
+            Question::ChooseGroupMembers { group: a, .. },
+            Question::ChooseGroupMembers { group: b, .. },
+        ) => a == b,
+        (
+            Question::AlreadyInstalled { target: a, .. },
+            Question::AlreadyInstalled { target: b, .. },
+        ) => a == b,
+        _ => false,
     }
 }
 
@@ -780,7 +931,6 @@ mod tests {
     use tidewise_helper_protocol::{Phase as Stage, Progress};
     use tidewise_pacman::{
         Candidate, GroupAnswer, GroupChoice, InstallDecision, PlanItem, ProviderAnswer, Role,
-        UpdateLookup,
     };
 
     fn pkg(name: &str) -> PackageRef {

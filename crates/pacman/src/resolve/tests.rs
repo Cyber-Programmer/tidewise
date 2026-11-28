@@ -1237,3 +1237,27 @@ fn a_provider_the_system_update_brings_is_asked() {
     assert_eq!(dependency, "virt");
     assert_eq!(candidates, ["prov-a", "prov-b"]);
 }
+
+#[test]
+fn installing_a_shared_library_candidate_ends_the_choice_in_update_and_install() {
+    // An upgraded package needs a library two packages provide. The card offers each; installing one must resolve,
+    // not show the same card again.
+    let mut world = stale();
+    world
+        .add("zlib-ng", &["libz.so=1"], &[])
+        .add("upg", &[], &["libz.so=1"])
+        .install("upg", "0.5-1", &[])
+        .pend("upg", false);
+    let found = blockers(resolve_with(&want(&["hello"]), &world));
+    assert!(
+        matches!(&found[..], [Blocker::SonameChoice { candidates, .. }] if candidates == &[pr("zlib"), pr("zlib-ng")]),
+        "{found:?}"
+    );
+    for candidate in ["zlib", "zlib-ng"] {
+        let plan = plan(resolve_with(&want(&[candidate]), &world));
+        assert!(
+            plan.items.iter().any(|item| item.package == pr(candidate)),
+            "{plan:?}"
+        );
+    }
+}
