@@ -1,0 +1,14 @@
+# Dummy package for the Tidewise container tests (WBS 6.6, review X-01). Contains one text file and nothing else.
+pkgname=tidewise-dummy-rt-s64
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test library, 64-bit, installed"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+provides=('libtides.so=0-64')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

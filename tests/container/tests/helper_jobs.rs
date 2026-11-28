@@ -1909,3 +1909,35 @@ fn update_and_install_lets_a_lone_unnamed_provider_through() {
     assert_ok(&ran);
     assert!(installed_version(&dummy("one-prov")).is_some());
 }
+
+// ---- a rival has to satisfy the need, judged by pacman's vercmp (review 6.6 X-01) --------------------------------
+
+/// `rt-lib32-lx` provides the same soname name with a version the need cannot take: pacman asks nothing, so neither
+/// does the rule.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_is_not_stopped_by_a_32_bit_twin() {
+    for target in ["rt-needx", "rt-needx2"] {
+        stale_system(&["upd"], &["upd"]);
+        let items = listed(&[("rt-lx", "1.0-1"), (target, "1.0-1"), ("upd", "2.0-1")]);
+        let ran = update_and_install(target, &[], &items);
+        assert_ok(&ran);
+        assert!(installed_version(&dummy("rt-lx")).is_some(), "{target}");
+    }
+}
+
+/// The 32-bit program: the installed 64-bit library is not a rival of the 32-bit one it brings.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_installs_a_32_bit_program_next_to_the_64_bit_library() {
+    stale_system(&["rt-s64", "upd"], &["upd"]);
+    let items = listed(&[
+        ("rt-lib32-s", "1.0-1"),
+        ("rt-lib32-a", "1.0-1"),
+        ("rt-steam", "1.0-1"),
+        ("upd", "2.0-1"),
+    ]);
+    let ran = update_and_install("rt-steam", &[], &items);
+    assert_ok(&ran);
+    assert!(installed_version(&dummy("rt-lib32-a")).is_some());
+}

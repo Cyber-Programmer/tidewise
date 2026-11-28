@@ -587,3 +587,38 @@ fn update_and_install_blocks_pacmans_own_pick_below_a_named_provider() {
     assert!(said.contains(&dummy("rt-jvm17")), "{said}");
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
+
+/// A real choice of a shared library is not the terminal card: the app offers each candidate as an install of its
+/// own, as it does for a plain install (`jack2` or `pipewire-jack`).
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_offers_the_candidates_of_a_real_shared_library_choice() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+    let said = resolved(&["needs-so"], &[], Some(folder));
+    assert!(said.starts_with("blocked SonameChoice "), "{said}");
+    assert!(
+        said.contains(&dummy("so-a")) && said.contains(&dummy("so-b")),
+        "{said}"
+    );
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}
+
+/// The 32-bit twin does not block the review either.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_is_ready_next_to_a_32_bit_twin() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-upd"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+    let said = resolved(&["rt-needx2"], &[], Some(folder));
+    assert!(said.starts_with("ready "), "{said}");
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}
