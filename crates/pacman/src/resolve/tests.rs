@@ -1294,12 +1294,12 @@ fn jvm_world(target_provides: &[&str]) -> World {
 }
 
 fn assert_jre25_is_not_accepted(world: &World) {
+    // `jre25` cannot meet `jvm=17`: its answer is dropped and the question comes again, without it (X-03).
     let mut input = want(&["need17"]);
     input.provider_answers = vec![answer("jvm", "jre25")];
-    assert_eq!(
-        unnamed(blockers(resolve_with(&input, world))),
-        [("jvm".to_string(), "jre-other".to_string())]
-    );
+    let asked = questions(resolve_with(&input, world));
+    let (_, candidates, _) = the_provider_question(&asked);
+    assert_eq!(candidates, ["jre-other", "jre-third"]);
 }
 
 #[test]
@@ -1344,7 +1344,7 @@ fn a_real_shared_library_choice_still_offers_each_candidate() {
 #[test]
 fn update_and_install_offers_only_providers_whose_version_fits() {
     // X-03: `vprov-1` provides `vvirt=1`, which cannot meet `vvirt>=2`.
-    let asked = questions(resolve_with(&want(&["needs-vvirtual"]), &stale()));
+    let asked = questions(resolve_with(&want(&["needs-vvirt"]), &stale()));
     let (_, candidates, _) = the_provider_question(&asked);
     assert_eq!(candidates, ["vprov-2", "vprov-3"]);
 }

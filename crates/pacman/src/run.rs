@@ -30,6 +30,22 @@ use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 /// Absolute path: never looked up through `PATH`.
 const PACMAN: &str = "/usr/bin/pacman";
 
+/// pacman's own version comparison, by absolute path.
+const VERCMP: &str = "/usr/bin/vercmp";
+
+/// What `vercmp` printed: `-1`, `0` or `1`, and nothing else.
+fn vercmp_from_output(output: &Output) -> Result<std::cmp::Ordering, PacmanError> {
+    check_exit(output)?;
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "-1" => Ok(std::cmp::Ordering::Less),
+        "0" => Ok(std::cmp::Ordering::Equal),
+        "1" => Ok(std::cmp::Ordering::Greater),
+        _ => Err(PacmanError::Inconsistent {
+            reason: "vercmp printed something else than -1, 0 or 1",
+        }),
+    }
+}
+
 /// pacman's own tool for reading pacman.conf (the same package). Also an absolute path.
 const PACMAN_CONF: &str = "/usr/bin/pacman-conf";
 
@@ -700,9 +716,8 @@ impl RealFacts<'_> {
 }
 
 impl Facts for RealFacts<'_> {
-    fn vercmp(&self, _left: &str, _right: &str) -> Result<std::cmp::Ordering, PacmanError> {
-        // Stub.
-        Ok(std::cmp::Ordering::Equal)
+    fn vercmp(&self, left: &str, right: &str) -> Result<std::cmp::Ordering, PacmanError> {
+        vercmp_from_output(&run(Path::new(VERCMP), &[left, right])?)
     }
 
     fn dry_run(&self, update: bool, targets: &[String]) -> Result<DryRun, PacmanError> {

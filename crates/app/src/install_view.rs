@@ -1087,7 +1087,17 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
             let words = block_words(&UpdateBlock::Pick(picks.clone()));
             view.title_before = words.title;
             view.body = words.body;
-            view.hint = words.advice;
+            let request = model.request();
+            let wanted: Vec<&str> = request
+                .targets
+                .iter()
+                .map(|target| target.name.as_str())
+                .chain(request.groups.iter().map(String::as_str))
+                .collect();
+            view.hint = format!(
+                "Run sudo pacman -Syu {} in a terminal; pacman will show you the options.",
+                wanted.join(" ")
+            );
             view.technical = picks
                 .iter()
                 .map(|pick| format!("{} provides {}", spec(&pick.provider), pick.dependency))

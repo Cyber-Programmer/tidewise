@@ -10,7 +10,7 @@
 //!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> no
 //!            replacement (`-Q`, `-Si`) -> no provider pick: for a plain update only a pick pacman has nothing to ask
 //!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install strict rule C: no new,
-//!            unnamed package where another repository package provides the needed name (`-Ss`/`-Si` there) ->
+//!            unnamed package whose dependency another repository package could meet too (`-Ss`/`-Si` there, `vercmp`) ->
 //!            the refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
 //!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
@@ -248,7 +248,7 @@ fn update_job(
 ///   it listed. Answered as a changed transaction: the app then looks again and shows why.
 /// - Golden rule 10: pacman must not pick a provider by itself.
 ///   - Update and install (`install`; threat model 40, review 6.5 R-05): strict rule C (`check_strictly`), on the
-///     private copy: no new, unnamed package where another repository package provides the needed name.
+///     private copy: no new, unnamed package whose dependency another repository package could meet too (`vercmp`).
 ///   - Plain update (threat model 41): it names none, so only a pick pacman has nothing to ask about passes. A pick
 ///     needs a package that is not installed, so a list of upgrades only has none.
 fn check_update_list(
@@ -326,9 +326,23 @@ struct HelperFacts<'a> {
 }
 
 impl RivalFacts for HelperFacts<'_> {
-    fn compare(&mut self, _left: &str, _right: &str) -> Result<std::cmp::Ordering, ErrorKind> {
-        // Stub.
-        Ok(std::cmp::Ordering::Equal)
+    fn compare(&mut self, left: &str, right: &str) -> Result<std::cmp::Ordering, ErrorKind> {
+        let output = self
+            .runner
+            .run(
+                &PacmanCommand::VerCmp(left.to_string(), right.to_string()),
+                &mut |_| {},
+            )
+            .map_err(runner_failure)?;
+        if output.timed_out || output.exit != Some(0) {
+            return Err(failure_of(&output));
+        }
+        match output.stdout.trim() {
+            "-1" if !output.truncated => Ok(std::cmp::Ordering::Less),
+            "0" if !output.truncated => Ok(std::cmp::Ordering::Equal),
+            "1" if !output.truncated => Ok(std::cmp::Ordering::Greater),
+            _ => Err(failed("pacman's version comparison could not be read.")),
+        }
     }
 }
 
@@ -369,6 +383,10 @@ impl ChoiceFacts for HelperFacts<'_> {
         if found.is_empty() {
             return Ok(Vec::new());
         }
+        let wanted: Vec<ListedRef> = found
+            .iter()
+            .map(|package| listed_ref(&package.repo, &package.name))
+            .collect();
         // `-Ss` also matches names and descriptions: only what `-Si` says provides the name counts.
         let output = self
             .runner
@@ -387,7 +405,18 @@ impl ChoiceFacts for HelperFacts<'_> {
         if output.timed_out || output.exit != Some(0) {
             return Err(failure_of(&output));
         }
-        parse_si(&output.stdout).map_err(|_| unreadable())
+        let records = parse_si(&output.stdout).map_err(|_| unreadable())?;
+        // A found package without a record might be the other provider: refuse rather than leave it out.
+        let complete = wanted.iter().all(|item| {
+            records
+                .iter()
+                .any(|d| d.repo == item.repo && d.name == item.name)
+        });
+        if complete {
+            Ok(records)
+        } else {
+            Err(unreadable())
+        }
     }
 
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, ErrorKind> {

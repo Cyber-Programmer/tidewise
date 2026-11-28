@@ -568,10 +568,10 @@ fn update_and_install_sends_an_unnamed_provider_to_the_terminal_card() {
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
 
-/// Review 6.6 V-01 in the resolver: what the helper would refuse ends in the terminal card.
+/// Review 6.6 V-01 in the resolver: the app must not offer what the helper would refuse.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn update_and_install_blocks_pacmans_own_pick_below_a_named_provider() {
+fn update_and_install_does_not_offer_a_provider_whose_version_cannot_fit() {
     assert_inside_the_test_container();
     reset_world();
     install_directly(&["tidewise-dummy-rt-shadow", "tidewise-dummy-upd"]);
@@ -583,8 +583,9 @@ fn update_and_install_blocks_pacmans_own_pick_below_a_named_provider() {
         &[("tidewise-jvm", "rt-jvm25")],
         Some(folder),
     );
-    assert!(said.starts_with("blocked UnnamedChoice("), "{said}");
-    assert!(said.contains(&dummy("rt-jvm17")), "{said}");
+    // `rt-jvm25` cannot meet `tidewise-jvm=17` (X-03): asked again, without it.
+    assert!(said.starts_with("ask tidewise-jvm "), "{said}");
+    assert!(!said.contains(&dummy("rt-jvm25")), "{said}");
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
 

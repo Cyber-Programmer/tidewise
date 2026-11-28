@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::picks::provides_for;
+use crate::picks::{meets_need, provides_for};
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
@@ -24,6 +24,11 @@ use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
 /// Most rounds of questions one install may take. A sixth round is an error, not a sixth dialog.
 pub const MAX_ROUNDS: u32 = 5;
+
+/// A package pacman names but has no `-Si` record of.
+const NO_RECORD: PacmanError = PacmanError::Inconsistent {
+    reason: "pacman has no record of a package it listed",
+};
 
 /// What to resolve. `Default` is "nothing", the real package lists and round 0.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -145,7 +150,7 @@ pub enum Blocker {
     /// helper's rule too). Tidewise does no replacements yet (WBS 7.5).
     Replacement(Vec<Replacement>),
     /// Update and install only (strict rule C): pacman would add a package nobody named although another package
-    /// provides the same name. The terminal card.
+    /// could meet the same dependency. The terminal card.
     UnnamedChoice(Vec<ProviderPick>),
     /// Several packages provide this shared library and pacman would choose one by itself. Tidewise asks no question
     /// about a soname (review 6.5 R-02).
@@ -212,7 +217,6 @@ pub(crate) trait Facts {
     /// `pacman -T`: is `dependency` satisfied by what is installed?
     fn satisfied(&self, dependency: &Dependency) -> Result<bool, PacmanError>;
     /// `vercmp left right`: how pacman orders two versions.
-    #[allow(dead_code)] // Not asked yet.
     fn vercmp(&self, left: &str, right: &str) -> Result<std::cmp::Ordering, PacmanError>;
     /// `None` when pacman does not know the group.
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError>;
@@ -702,6 +706,10 @@ impl<'a> Engine<'a> {
             .iter()
             .filter_map(|item| self.details_of(item).cloned())
             .collect();
+        // The helper refuses a package it has no record of, so the app does not show such a list (X-05).
+        if details.len() != listed.len() {
+            return Err(NO_RECORD);
+        }
         unnamed_choices(
             &details.iter().collect::<Vec<_>>(),
             asked,
@@ -735,10 +743,26 @@ impl<'a> Engine<'a> {
         let DryRun::Listed(with_all) = self.dry_run(update, &names)? else {
             return Ok(false);
         };
-        // Update and install: every provider is offered, as pacman would in a terminal. The whole list is judged at
-        // the end (strict rule C), and no package is ever dry-run without the update.
+        // Update and install: every provider whose version fits every listed need of the name is offered (X-03). The
+        // whole list is judged at the end (strict rule C), and no package is ever dry-run without the update.
         if update {
-            self.load_details(std::slice::from_ref(candidate))?;
+            let refs: Vec<PackageRef> = with_all.iter().map(printed_ref).collect();
+            self.load_details(&refs)?;
+            let Some(details) = self.details_of(candidate) else {
+                return Ok(false);
+            };
+            let facts = self.facts;
+            let mut compare = |left: &str, right: &str| facts.vercmp(left, right);
+            for needer in &refs {
+                let Some(needer) = self.details_of(needer) else {
+                    continue;
+                };
+                for need in needer.depends_on.iter().filter(|d| d.name == dependency) {
+                    if !meets_need(details, need, &mut compare)? {
+                        return Ok(false);
+                    }
+                }
+            }
             return Ok(self.provides(candidate, dependency));
         }
         let DryRun::Listed(alone) = self.dry_run(false, &[spec(candidate)])? else {
@@ -962,6 +986,10 @@ impl ChoiceFacts for EngineFacts<'_, '_> {
             .iter()
             .filter_map(|item| self.engine.details_of(item).cloned())
             .collect();
+        // A found package without a record might be the other provider: refuse, as the helper does (X-05).
+        if details.len() != refs.len() {
+            return Err(NO_RECORD);
+        }
         self.found.extend(details.clone());
         Ok(details)
     }

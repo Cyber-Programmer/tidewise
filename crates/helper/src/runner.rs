@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::env::pacman_environment;
 use crate::lists::{Lists, ListsError, MoveError};
-use crate::pacman_args::{ArgsRefused, PACMAN, PacmanCommand, args};
+use crate::pacman_args::{ArgsRefused, PACMAN, PacmanCommand, VERCMP, args};
 use crate::removal::remove_work_file;
 use crate::workdir::{WorkDir, WorkDirError};
 
@@ -139,10 +139,9 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::PrivateSearch(_)
         | PacmanCommand::Search(_)
         | PacmanCommand::DepTest(_)
+        | PacmanCommand::VerCmp(..)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
-        // Stub: given its limit in the green commit.
-        PacmanCommand::VerCmp(..)
-        | PacmanCommand::PrivateSync
+        PacmanCommand::PrivateSync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
         | PacmanCommand::MarkAsDeps(_) => None,
@@ -186,6 +185,7 @@ pub struct PacmanRunner {
     workdir: WorkDir,
     serial: u32,
     program: PathBuf,
+    vercmp: PathBuf,
     read_timeout: Duration,
     stdout_cap: usize,
     stderr_cap: usize,
@@ -200,6 +200,7 @@ impl PacmanRunner {
             workdir,
             serial: 0,
             program: PathBuf::from(PACMAN),
+            vercmp: PathBuf::from(VERCMP),
             read_timeout: READ_TIMEOUT,
             stdout_cap: STDOUT_CAP,
             stderr_cap: STDERR_CAP,
@@ -208,10 +209,12 @@ impl PacmanRunner {
         }
     }
 
-    /// Which program runs this command.
-    fn program_for(&self, _command: &PacmanCommand) -> &Path {
-        // Stub.
-        &self.program
+    /// Which program runs this command: pacman, or its `vercmp` for a version comparison. Both by absolute path.
+    fn program_for(&self, command: &PacmanCommand) -> &Path {
+        match command {
+            PacmanCommand::VerCmp(..) => &self.vercmp,
+            _ => &self.program,
+        }
     }
 
     /// The program and its arguments, with an optional time limit. `run` calls this with pacman.
@@ -337,7 +340,7 @@ impl Runner for PacmanRunner {
     ) -> Result<RunOutput, RunnerError> {
         let arguments = args(command).map_err(RunnerError::Args)?;
         let timeout = timeout_for(command).map(|_| self.read_timeout);
-        let program = self.program.clone();
+        let program = self.program_for(command).to_path_buf();
         self.run_program(&program, &arguments, timeout, on_stdout_line)
     }
 

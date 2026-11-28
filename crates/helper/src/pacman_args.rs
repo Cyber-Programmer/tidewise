@@ -1,4 +1,5 @@
-//! The only pacman command lines the helper can build (threats T-04, T-05, T-11; golden rules 3, 4, 10).
+//! The only command lines the helper can build (threats T-04, T-05, T-11; golden rules 3, 4, 10): pacman's, and one
+//! `vercmp` (pacman's own version comparison, two checked version strings and nothing else).
 //!
 //! One template per `PacmanCommand`. Everything before `--` is fixed text; the only caller-supplied values are
 //! package names, placed after `--`, after being checked once more against the same allow-lists the protocol used.
@@ -13,7 +14,7 @@
 //! `lists.rs`, only after its dry run equals the list the user confirmed.
 
 use tidewise_helper_protocol::PackageRef;
-use tidewise_pacman::{Dependency, dependency_text, exact_pattern_any};
+use tidewise_pacman::{Dependency, dependency_text, exact_pattern_any, is_plain_version};
 
 use crate::lists::LISTS_DBPATH;
 use tidewise_names::{is_helper_repo_name, is_valid_package_name};
@@ -138,8 +139,13 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::Search(names) => {
             build(&["-Ss"], &[], vec![search_pattern(names)?], Names::Required)
         }
-        // Stub.
-        PacmanCommand::VerCmp(_, _) => Ok(Vec::new()),
+        PacmanCommand::VerCmp(left, right) => {
+            if is_plain_version(left) && is_plain_version(right) {
+                Ok(vec![left.clone(), right.clone()])
+            } else {
+                Err(ArgsRefused::BadName)
+            }
+        }
         PacmanCommand::DepTest(dependency) => {
             let text = dependency_text(dependency).ok_or(ArgsRefused::BadName)?;
             build(&["-T"], &[], vec![text], Names::Required)

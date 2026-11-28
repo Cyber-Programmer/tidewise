@@ -189,36 +189,85 @@ pub fn real_choices<F: ChoiceFacts>(
     Ok(kept)
 }
 
+/// Does `package` meet `need`, as pacman judges it: by its own name and version, or by one of its `Provides`? A need
+/// without a version is met by any of them; a versioned one never by a provide without a version.
+///
+/// Versions are ordered by `compare` (pacman's `vercmp`); only the operator is applied here. A version that cannot be
+/// written as an argument counts as meeting the need: the caller then refuses rather than guesses.
+pub(crate) fn meets_need<E>(
+    package: &PackageDetails,
+    need: &Dependency,
+    compare: &mut impl FnMut(&str, &str) -> Result<Ordering, E>,
+) -> Result<bool, E> {
+    let by_name = (package.name == need.name).then_some(Some(package.version.as_str()));
+    let provided = package
+        .provides
+        .iter()
+        .filter(|provided| provided.name == need.name)
+        .map(|provided| {
+            provided
+                .rule
+                .as_ref()
+                .filter(|rule| rule.comparison == Comparison::Equal)
+                .map(|rule| rule.version.as_str())
+        });
+    for version in by_name.into_iter().chain(provided) {
+        let Some(rule) = &need.rule else {
+            return Ok(true);
+        };
+        let Some(version) = version else {
+            continue;
+        };
+        if !is_plain_version(version) || !is_plain_version(&rule.version) {
+            return Ok(true);
+        }
+        let order = compare(version, &rule.version)?;
+        let met = match rule.comparison {
+            Comparison::Equal => order.is_eq(),
+            Comparison::GreaterOrEqual => order.is_ge(),
+            Comparison::Greater => order.is_gt(),
+            Comparison::LessOrEqual => order.is_le(),
+            Comparison::Less => order.is_lt(),
+        };
+        if met {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Strict rule C of "update system and install", for the app and the root helper (golden rule 10; the human's
-/// decision after review 6.6 W-01).
+/// decisions after reviews 6.6 W-01 and X-01).
 ///
 /// A listed package is a choice nobody made when all of these hold:
 /// - it is new (not installed) and the request does not name it (neither a target nor a chosen provider);
-/// - it provides a name another listed package depends on (its own package name does not count);
-/// - another repository package also provides that name, or is called it.
+/// - it meets a dependency of another listed package through its `Provides` (its own package name does not count);
+/// - another repository package, a **rival**, meets that same dependency, by its `Provides` or by being called it.
 ///
-/// Names only: no version is compared, because pacman compares them in its own way (W-01). No dry run and no
-/// `pacman -T`. It asks only the repository search behind `ChoiceFacts::candidates`.
+/// "Meets" is name and version, versions ordered by pacman's `vercmp` (`meets_need`). So a library's 32-bit twin or
+/// an old version of it is no rival where pacman could not take it.
 ///
-/// Stricter than what pacman would ask: a package pulled in by its own name that also provides such a name is refused
-/// too. Not seen: a provider outside the configured repositories, or in one whose `Usage` lacks `Search`.
+/// No dry run and no `pacman -T`. Stricter than what pacman would ask: a package pulled in by its own name that also
+/// meets such a dependency is refused too. Not seen: a provider outside the configured repositories, or in one whose
+/// `Usage` lacks `Search`.
 pub fn unnamed_choices<F: RivalFacts>(
     listed: &[&PackageDetails],
     named: &[PackageRef],
     is_installed: impl Fn(&str) -> bool,
     facts: &mut F,
 ) -> Result<Vec<ProviderPick>, F::Error> {
-    let mut needers: HashMap<&str, HashSet<&str>> = HashMap::new();
+    // Every dependency on a name, with who has it.
+    let mut needs: HashMap<&str, Vec<(&str, &Dependency)>> = HashMap::new();
     for package in listed {
         for dependency in &package.depends_on {
-            needers
+            needs
                 .entry(&dependency.name)
                 .or_default()
-                .insert(&package.name);
+                .push((&package.name, dependency));
         }
     }
     // The new, unnamed packages that provide a name another listed package needs.
-    let mut suspects: Vec<(&str, PackageRef)> = Vec::new();
+    let mut suspects: Vec<(&str, &PackageDetails)> = Vec::new();
     let mut seen: HashSet<(&str, &str)> = HashSet::new();
     for package in listed {
         let this = PackageRef {
@@ -230,11 +279,11 @@ pub fn unnamed_choices<F: RivalFacts>(
         }
         for provided in &package.provides {
             let name = provided.name.as_str();
-            let needed = needers
+            let needed = needs
                 .get(name)
-                .is_some_and(|who| who.iter().any(|other| *other != package.name));
+                .is_some_and(|who| who.iter().any(|(other, _)| *other != package.name));
             if name != package.name && needed && seen.insert((name, &package.name)) {
-                suspects.push((name, this.clone()));
+                suspects.push((name, package));
             }
         }
     }
@@ -249,20 +298,60 @@ pub fn unnamed_choices<F: RivalFacts>(
     for batch in names.chunks(SEARCH_BATCH) {
         found.extend(facts.candidates(batch)?);
     }
-    Ok(suspects
-        .into_iter()
-        .filter(|(name, this)| {
-            found.iter().any(|other| {
-                (other.repo != this.repo || other.name != this.name)
-                    && (other.name == *name || other.provides.iter().any(|p| p.name == *name))
+
+    // One question to `vercmp` per pair of versions.
+    let mut orders: HashMap<(String, String), Ordering> = HashMap::new();
+    let mut compare = |left: &str, right: &str| -> Result<Ordering, F::Error> {
+        let pair = (left.to_string(), right.to_string());
+        if let Some(order) = orders.get(&pair) {
+            return Ok(*order);
+        }
+        let order = facts.compare(left, right)?;
+        orders.insert(pair, order);
+        Ok(order)
+    };
+    let mut choices = Vec::new();
+    for (name, package) in suspects {
+        let rivals: Vec<&PackageDetails> = found
+            .iter()
+            .filter(|other| {
+                (other.repo != package.repo || other.name != package.name)
+                    && (other.name == name || other.provides.iter().any(|p| p.name == name))
             })
-        })
-        .map(|(name, provider)| ProviderPick {
-            dependency: name.to_string(),
-            provider,
-            version: None,
-        })
-        .collect())
+            .collect();
+        if rivals.is_empty() {
+            continue;
+        }
+        'needs: for (needer, need) in needs.get(name).into_iter().flatten() {
+            // A dependency this package does not meet is not why it is in the list.
+            if *needer == package.name || !meets_need(package, need, &mut compare)? {
+                continue;
+            }
+            for rival in &rivals {
+                if meets_need(rival, need, &mut compare)? {
+                    choices.push(ProviderPick {
+                        dependency: name.to_string(),
+                        provider: PackageRef {
+                            repo: package.repo.clone(),
+                            name: package.name.clone(),
+                        },
+                        version: None,
+                    });
+                    break 'needs;
+                }
+            }
+        }
+    }
+    Ok(choices)
+}
+
+/// Whether `version` may be an argument of a program: epoch, version and release, nothing else, never an option.
+pub fn is_plain_version(version: &str) -> bool {
+    !version.is_empty()
+        && !version.starts_with('-')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '~' | ':' | '-'))
 }
 
 /// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
@@ -275,11 +364,6 @@ pub fn dependency_text(dependency: &Dependency) -> Option<String> {
         return Some(dependency.name.clone());
     };
     let version = &rule.version;
-    let plain = !version.is_empty()
-        && !version.starts_with('-')
-        && version
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '~' | ':' | '-'));
     let operator = match rule.comparison {
         Comparison::Equal => "=",
         Comparison::Less => "<",
@@ -287,7 +371,7 @@ pub fn dependency_text(dependency: &Dependency) -> Option<String> {
         Comparison::Greater => ">",
         Comparison::GreaterOrEqual => ">=",
     };
-    plain.then(|| format!("{}{operator}{version}", dependency.name))
+    is_plain_version(version).then(|| format!("{}{operator}{version}", dependency.name))
 }
 
 #[cfg(test)]
