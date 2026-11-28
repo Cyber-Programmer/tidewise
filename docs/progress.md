@@ -1857,3 +1857,19 @@ Next: your decision on U-01; build it; re-run the review on the helper code; ful
 (step 4's lists tile now reads as an age).
 Blockers: U-01; the package container tests.
 Rules bent: no WBS sheet update (as asked): 6.20 is not in the sheet.
+
+## 2026-11-28 — 6.6 U-01 fixed by the by-name rule; second review finds V-01
+Done:
+- **U-01 fixed** (your rule): `brought_by_name`, shared by app and helper, no dry run; `PrivateDryRunInstall` removed.
+  Red commits first, container M1 failing in helper and resolver. M3 and M4 are container tests too. 0009 records that
+  plain installs keep the old rule and 6.20 should consider one rule for both.
+- **Checks** on `b9c179a`: `cargo test --all` 1384 passed, 0 failed, 177 ignored; fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and build: exit 0. Fuzzing not repeated (no parser changed).
+- **Container: the full `tests/container/run.sh`: 171 passed, 0 failed**, the 18 package tests included.
+- **Second review** (6.6 review file): **V-01 (Medium, new with the by-name rule, verified):** the helper installs a
+  provider nobody named when something else already meets the name it was reached by. V-02 (older, plain installs,
+  verified), V-03 (the walk is quadratic), V-04. Nothing fixed.
+Next: your decision on V-01 (and V-02, V-03); then the manual checklist, push, PR.
+Blockers: V-01.
+Rules bent: (1) V-01 was not caught by my unit tests: the shape "something else already meets the name" was missing.
+(2) No WBS sheet update (as asked).

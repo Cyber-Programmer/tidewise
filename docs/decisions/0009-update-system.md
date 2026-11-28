@@ -95,14 +95,26 @@ so the resolver names every pick of the whole combined list, the update's too, a
 **plain** update the same choice still shows the terminal card until WBS 6.16. This difference is intended, not a bug.
 
 - **Helper:** the install's rule (`judge_named_providers`), not the plain update's: every pick named. All reads from the
-  private copy (`PrivatePackageDetails`, `PrivateSearch`, and the new `PrivateDryRunInstall`: `pacman -S --print
-  --dbpath /run/tidewise-helper-lists/ --logfile /dev/null -- repo/name`, approved by the human), before the lists move
-  in. Replacements block as for a plain update. Closes review 6.5 R-05 and threat model 40.
+  private copy (`PrivatePackageDetails`, `PrivateSearch`), before the lists move in. No new command. Replacements block
+  as for a plain update. Closes review 6.5 R-05 and threat model 40.
 - **App:** the system part is the 6.5 review, read from the app's private copy; a held package, a replacement or a
   conflict blocks with the update screen's words (a pick does not). The install is resolved with `--dbpath` on that
   same folder, in every round of questions. Without a usable private copy: the real lists, with the 6.11 note.
-- **The own-closure dry run is `-S`**, in app and helper, and runs only when the list holds another provider of the
-  name. On a stale system `-S` of one package can fail by itself (from reading; see the review for what was measured).
+- **What a chosen package brings is read by name, not by a dry run** (the human's decision, 28 Nov, after review 6.6
+  U-01; `brought_by_name`, one function for app and helper). It matters only when the list holds a second provider of
+  an answered name that nobody asked for: that package must be reachable from the chosen one through dependencies that
+  name a listed package **exactly**, with no version rule or an `=` that the listed version meets (`=2` meets `2-1`).
+  Virtual names, other version rules and a missing `-Si` record refuse. A package the chosen one needs by name is
+  accepted **also when the update would pull it too**: nobody is choosing anything.
+  - **Open (second review, V-01, blocks the merge):** an installed or another listed package can already meet that
+    name; pacman then never follows the dependency, and the literal package may be pacman's own pick for something
+    else. The helper accepts it today.
+  - Why no dry run: on a stale system `-S` of one package fails with "breaks dependency" (U-01, reproduced). The first
+    proposal, a difference of two `-Su` dry runs, did not hold (measured; table in the review).
+  - Read from this machine's lists: 27 pairs where a provider of a name depends by name on another provider of it, 25
+    without a version rule, 2 with `=`. A provider reached only through a virtual dependency is now refused.
+  - **Plain installs keep the old rule** (the chosen package's own `-S` dry run) for now. **WBS 6.20 should consider
+    one rule for both.**
 - **Changed lists after the password:** refreshed (`AfterRefusal`) and resolved again with the answers kept; an answer
   that no longer fits is asked again. Nothing left to update: it goes on as a plain install.
 - **Review:** one row "System update · N packages upgraded to today's versions", closed until pressed, holding the
