@@ -283,6 +283,17 @@ fn is_that_version(wanted: &str, listed: &str) -> bool {
                 .is_some_and(|(version, _)| version == wanted))
 }
 
+/// Strict rule C of "update system and install" (the human's decision; review 6.6 W-01).
+pub fn unnamed_choices<F: ChoiceFacts>(
+    _listed: &[&PackageDetails],
+    _named: &[PackageRef],
+    _is_installed: impl Fn(&str) -> bool,
+    _facts: &mut F,
+) -> Result<Vec<ProviderPick>, F::Error> {
+    // Stub.
+    Ok(Vec::new())
+}
+
 /// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
 /// It comes from pacman's own `-Si`, and is checked again before it is an argument.
 pub fn dependency_text(dependency: &Dependency) -> Option<String> {
@@ -1218,5 +1229,218 @@ mod tests {
         let started = std::time::Instant::now();
         let (got, _) = walk(&records, &listed);
         println!("5000 packages: {got} in {:?}", started.elapsed());
+    }
+
+    // ---- strict rule C: update and install (review 6.6 W-01) ----------------------------------------------------
+
+    /// The repositories, as one search and `-Si` would show them. `pacman -T` must never be asked.
+    struct Repository {
+        packages: Vec<PackageDetails>,
+        searched: Vec<Vec<String>>,
+        broken: bool,
+    }
+
+    impl ChoiceFacts for Repository {
+        type Error = &'static str;
+
+        fn candidates(&mut self, names: &[String]) -> Result<Vec<PackageDetails>, &'static str> {
+            self.searched.push(names.to_vec());
+            if self.broken {
+                return Err("the search failed");
+            }
+            Ok(self
+                .packages
+                .iter()
+                .filter(|d| {
+                    names.contains(&d.name) || d.provides.iter().any(|p| names.contains(&p.name))
+                })
+                .cloned()
+                .collect())
+        }
+
+        fn satisfied(&mut self, _: &Dependency) -> Result<bool, &'static str> {
+            panic!("rule C asks nothing about the installed system");
+        }
+    }
+
+    /// What rule C finds, as `(name, package)`, for a transaction of `listed` against the repository of `listed`
+    /// and `more`. `named` are the request's targets and chosen providers.
+    fn choices(
+        listed: &[PackageDetails],
+        more: &[PackageDetails],
+        named: &[&str],
+        installed: &[&str],
+    ) -> Vec<(String, String)> {
+        let mut repository = Repository {
+            packages: listed.iter().chain(more).cloned().collect(),
+            searched: Vec::new(),
+            broken: false,
+        };
+        let named: Vec<PackageRef> = named.iter().map(|name| extra(name)).collect();
+        unnamed_choices(
+            &listed.iter().collect::<Vec<_>>(),
+            &named,
+            |name| installed.contains(&name),
+            &mut repository,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|pick| (pick.dependency, pick.provider.name))
+        .collect()
+    }
+
+    fn one(name: &str, package: &str) -> Vec<(String, String)> {
+        vec![(name.to_string(), package.to_string())]
+    }
+
+    #[test]
+    fn an_unnamed_new_package_providing_a_needed_name_with_another_provider_is_a_choice() {
+        let listed = [
+            si("app", "1-1", "virt"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        let other = [providing("two", "1-1", "virt", "None")];
+        assert_eq!(choices(&listed, &other, &["app"], &[]), one("virt", "one"));
+        // Another listed package needs `one` by its name as well: still a choice (M4, V-01).
+        let listed = [
+            si("app", "1-1", "virt  one"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        assert_eq!(choices(&listed, &other, &["app"], &[]), one("virt", "one"));
+        // A package literally called by the name counts as another provider.
+        let listed = [
+            si("app", "1-1", "virt"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        let literal = [si("virt", "1-1", "None")];
+        assert_eq!(
+            choices(&listed, &literal, &["app"], &[]),
+            one("virt", "one")
+        );
+    }
+
+    #[test]
+    fn the_same_package_in_another_repository_counts_as_another_provider() {
+        let listed = [
+            si("app", "1-1", "virt"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        let mut twin = providing("one", "1-1", "virt", "None");
+        twin.repo = "testing".to_string();
+        assert_eq!(choices(&listed, &[twin], &["app"], &[]), one("virt", "one"));
+    }
+
+    #[test]
+    fn what_is_named_installed_lone_or_not_needed_is_no_choice() {
+        let listed = [
+            si("app", "1-1", "virt"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        let other = [providing("two", "1-1", "virt", "None")];
+        assert!(
+            choices(&listed, &other, &["app", "one"], &[]).is_empty(),
+            "named"
+        );
+        assert!(
+            choices(&listed, &other, &["app"], &["one"]).is_empty(),
+            "installed"
+        );
+        assert!(choices(&listed, &[], &["app"], &[]).is_empty(), "lone");
+        // Nobody needs the name; or only the package that provides it does.
+        let listed = [
+            si("app", "1-1", "None"),
+            providing("one", "1-1", "virt", "virt"),
+        ];
+        assert!(
+            choices(&listed, &other, &["app"], &[]).is_empty(),
+            "not needed"
+        );
+        // A need of the package's own name is not a choice, whoever else provides that name.
+        let listed = [si("app", "1-1", "one"), si("one", "1-1", "None")];
+        let rival = [providing("two", "1-1", "one", "None")];
+        assert!(
+            choices(&listed, &rival, &["app"], &[]).is_empty(),
+            "by its own name"
+        );
+    }
+
+    #[test]
+    fn versions_are_not_looked_at() {
+        // pacman compares versions where the texts differ (W-01): names only, and every one of these is a choice.
+        for (need, first, second) in [
+            ("libx.so>=1", "libx.so=1-64", "libx.so=1-64"),
+            ("libx.so=1", "libx.so=1-64", "libx.so=1-64"),
+            ("libx.so=1-64", "libx.so=1", "libx.so=1-64"),
+            ("libx.so=1-64", "libx.so=1-64", "libx.so=1"),
+            ("virt=1", "virt=1", "virt=99"),
+        ] {
+            let name = need.split(['>', '=']).next().unwrap();
+            let listed = [
+                si("app", "1-1", need),
+                providing("one", "1-1", first, "None"),
+            ];
+            let other = [providing("two", "1-1", second, "None")];
+            assert_eq!(
+                choices(&listed, &other, &["app"], &[]),
+                one(name, "one"),
+                "{need} {first} {second}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_to_judge_searches_nothing_and_a_failed_search_is_an_error() {
+        let listed = [si("app", "1-1", "None")];
+        let refs: Vec<&PackageDetails> = listed.iter().collect();
+        let mut repository = Repository {
+            packages: Vec::new(),
+            searched: Vec::new(),
+            broken: false,
+        };
+        unnamed_choices(&refs, &[], |_| false, &mut repository).unwrap();
+        assert!(repository.searched.is_empty());
+
+        let listed = [
+            si("app", "1-1", "virt"),
+            providing("one", "1-1", "virt", "None"),
+        ];
+        repository.broken = true;
+        assert_eq!(
+            unnamed_choices(
+                &listed.iter().collect::<Vec<_>>(),
+                &[extra("app")],
+                |_| false,
+                &mut repository
+            ),
+            Err("the search failed")
+        );
+    }
+
+    #[test]
+    fn many_names_are_searched_in_batches() {
+        // 250 unnamed providers, each of a name of its own that another package also provides.
+        let mut listed = Vec::new();
+        let mut other = Vec::new();
+        let needs: Vec<String> = (0..250).map(|n| format!("virt{n}")).collect();
+        listed.push(si("app", "1-1", &needs.join("  ")));
+        for (n, name) in needs.iter().enumerate() {
+            listed.push(providing(&format!("one{n}"), "1-1", name, "None"));
+            other.push(providing(&format!("two{n}"), "1-1", name, "None"));
+        }
+        let mut repository = Repository {
+            packages: listed.iter().chain(&other).cloned().collect(),
+            searched: Vec::new(),
+            broken: false,
+        };
+        let found = unnamed_choices(
+            &listed.iter().collect::<Vec<_>>(),
+            &[extra("app")],
+            |_| false,
+            &mut repository,
+        )
+        .unwrap();
+        assert_eq!(found.len(), 250);
+        let sizes: Vec<usize> = repository.searched.iter().map(Vec::len).collect();
+        assert_eq!(sizes, [100, 100, 50]);
     }
 }

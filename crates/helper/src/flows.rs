@@ -2513,10 +2513,43 @@ mod tests {
         );
     }
 
+    /// `-Si` of repository packages that each provide `provides`.
+    fn providing(names: &[&str], provides: &str) -> String {
+        names
+            .iter()
+            .map(|name| {
+                let item = TransactionItem {
+                    repo: "extra".to_string(),
+                    name: (*name).to_string(),
+                    version: "25-1".to_string(),
+                };
+                record(&item, provides, "None")
+            })
+            .collect()
+    }
+
+    /// The private search and `-Si` that find these packages.
+    fn repository_has(names: &[&str], provides: &str) -> Vec<Result<RunOutput, RunnerError>> {
+        vec![ok(&found(names)), ok(&providing(names, provides))]
+    }
+
+    /// No command asks about installed dependencies, dry-runs packages alone, or reads the real lists.
+    fn assert_only_the_strict_reads(fake: &Fake) {
+        assert!(
+            !fake.ran.iter().any(|c| matches!(
+                c,
+                PacmanCommand::DepTest(_) | PacmanCommand::DryRunInstall(_)
+            )),
+            "{:?}",
+            fake.ran
+        );
+        assert_no_real_list_reads(fake);
+    }
+
     #[test]
     fn update_and_install_refuses_a_provider_nobody_named() {
         for needer in ["vlc", "glibc"] {
-            // Needed by the target, or by a package of the system update: both are pacman's pick.
+            // Needed by the target, or by a package of the system update: another package could have been taken.
             let request = update_and_install(BOTH_LIST, &[]);
             let (result, fake) = run_both(
                 &request,
@@ -2524,10 +2557,66 @@ mod tests {
                     (needer, "None", "java-runtime"),
                     ("jre", "java-runtime", "None"),
                 ],
-                vec![],
+                repository_has(&["jre", "jre-other"], "java-runtime"),
             );
             assert_refused_with_the_lists_untouched(&result, &fake);
+            assert_only_the_strict_reads(&fake);
         }
+    }
+
+    #[test]
+    fn update_and_install_lets_a_lone_unnamed_provider_through() {
+        let request = update_and_install(BOTH_LIST, &[]);
+        let (result, fake) = run_both(
+            &request,
+            &[
+                ("vlc", "None", "java-runtime"),
+                ("jre", "java-runtime", "None"),
+            ],
+            repository_has(&["jre"], "java-runtime"),
+        );
+        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+        assert!(
+            fake.ran.contains(&PacmanCommand::PrivateSearch(vec![
+                "java-runtime".to_string()
+            ])),
+            "{:?}",
+            fake.ran
+        );
+        assert_only_the_strict_reads(&fake);
+    }
+
+    #[test]
+    fn update_and_install_refuses_an_unnamed_provider_even_when_the_chosen_one_needs_it() {
+        // M1 and M4: `jre` is named and needs `jre-other` by name; `jre-other` provides the name too, unnamed.
+        let request = update_and_install(TWO_JRES, &[("java-runtime", "jre")]);
+        let (result, fake) = run_both(
+            &request,
+            &[
+                ("vlc", "None", "java-runtime"),
+                ("jre", "java-runtime", "jre-other"),
+                ("jre-other", "java-runtime", "None"),
+            ],
+            repository_has(&["jre", "jre-other"], "java-runtime"),
+        );
+        assert_refused_with_the_lists_untouched(&result, &fake);
+        assert_only_the_strict_reads(&fake);
+    }
+
+    #[test]
+    fn update_and_install_does_not_look_at_shared_library_versions() {
+        // W-01: pacman compares versions where the texts differ.
+        let request = update_and_install(BOTH_LIST, &[]);
+        let (result, fake) = run_both(
+            &request,
+            &[
+                ("vlc", "None", "libeditor.so>=1"),
+                ("jre", "libeditor.so=1-64", "None"),
+            ],
+            repository_has(&["jre", "other-lib"], "libeditor.so=1"),
+        );
+        assert_refused_with_the_lists_untouched(&result, &fake);
+        assert_only_the_strict_reads(&fake);
     }
 
     #[test]
@@ -2559,89 +2648,6 @@ mod tests {
                 ("jre", "java-runtime", "None"),
             ],
             vec![],
-        );
-        assert_refused_with_the_lists_untouched(&result, &fake);
-    }
-
-    /// No command asks what installing something alone would do: on a stale system that can fail by itself.
-    fn assert_no_install_dry_run(fake: &Fake) {
-        assert!(
-            !fake.ran.iter().any(|command| {
-                crate::pacman_args::args(command)
-                    .is_ok_and(|args| args[0] == "-S" && args.iter().any(|a| a == "--print"))
-            }),
-            "{:?}",
-            fake.ran
-        );
-    }
-
-    /// `pacman -T` of the by-name dependency: nothing installed meets it.
-    fn not_met() -> Vec<Result<RunOutput, RunnerError>> {
-        vec![out(127, "jre-other=25-1\n", "")]
-    }
-
-    /// Two providers of `java-runtime` are listed and `jre` is chosen. `jre_needs` is what `jre` depends on,
-    /// `glibc_needs` what the upgrade does, `deptest` what `pacman -T` answers.
-    fn two_jres(
-        jre_needs: &str,
-        glibc_needs: &str,
-        deptest: Vec<Result<RunOutput, RunnerError>>,
-    ) -> (JobResult, Fake) {
-        let request = update_and_install(TWO_JRES, &[("java-runtime", "jre")]);
-        run_both(
-            &request,
-            &[
-                ("vlc", "None", "java-runtime"),
-                ("glibc", "None", glibc_needs),
-                ("jre", "java-runtime", jre_needs),
-                ("jre-other", "java-runtime", "None"),
-            ],
-            deptest,
-        )
-    }
-
-    #[test]
-    fn update_and_install_reads_what_a_chosen_package_brings_from_its_dependencies() {
-        // It does not need the other provider: pacman took that one by itself. Also when the upgrade needs it by name.
-        for glibc_needs in ["None", "jre-other"] {
-            let (result, fake) = two_jres("None", glibc_needs, vec![]);
-            assert_refused_with_the_lists_untouched(&result, &fake);
-            assert_no_install_dry_run(&fake);
-        }
-        // It needs it by name: no choice was left to pacman, whatever the update needs too.
-        for glibc_needs in ["None", "java-runtime"] {
-            let (result, fake) = two_jres("jre-other=25-1", glibc_needs, not_met());
-            assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
-            assert!(
-                fake.ran
-                    .iter()
-                    .any(|c| matches!(c, PacmanCommand::DepTest(d) if d.name == "jre-other")),
-                "{:?}",
-                fake.ran
-            );
-            assert_no_install_dry_run(&fake);
-            assert_no_real_list_reads(&fake);
-        }
-    }
-
-    #[test]
-    fn update_and_install_does_not_follow_a_name_something_installed_meets() {
-        // `pacman -T` says it is met: pacman did not list `jre-other` for this dependency (review 6.6 V-01).
-        let (result, fake) = two_jres("jre-other", "None", vec![ok("")]);
-        assert_refused_with_the_lists_untouched(&result, &fake);
-    }
-
-    #[test]
-    fn update_and_install_does_not_follow_a_name_another_listed_package_provides() {
-        let request = update_and_install(TWO_JRES, &[("java-runtime", "jre")]);
-        let (result, fake) = run_both(
-            &request,
-            &[
-                ("vlc", "jre-other", "java-runtime"),
-                ("jre", "java-runtime", "jre-other"),
-                ("jre-other", "java-runtime", "None"),
-            ],
-            not_met(),
         );
         assert_refused_with_the_lists_untouched(&result, &fake);
     }

@@ -144,6 +144,9 @@ pub enum Blocker {
     /// Update and install only: the list holds a package that replaces an installed one (`listed_replacements`, the
     /// helper's rule too). Tidewise does no replacements yet (WBS 7.5).
     Replacement(Vec<Replacement>),
+    /// Update and install only (strict rule C): pacman would add a package nobody named although another package
+    /// provides the same name. The terminal card.
+    UnnamedChoice(Vec<ProviderPick>),
     /// Several packages provide this shared library and pacman would choose one by itself. Tidewise asks no question
     /// about a soname (review 6.5 R-02).
     SonameChoice {

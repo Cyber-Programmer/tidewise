@@ -1197,19 +1197,38 @@ fn update_and_install_is_blocked_by_a_listed_replacement() {
 
 #[test]
 fn update_and_install_never_dry_runs_a_package_without_the_update() {
-    // On a stale system `-S` of one package can fail by itself (review 6.6 U-01): what a chosen package brings is
-    // read from the dependencies, as the helper does.
+    // On a stale system `-S` of one package can fail by itself (review 6.6 U-01).
     let world = stale();
-    for (target, dependency, chosen) in [
-        ("needs-chain", "chain", "chain-a"),
-        ("needs-virt", "virt", "prov-b"),
-    ] {
-        let mut input = want(&[target]);
-        input.provider_answers = vec![answer(dependency, chosen)];
-        plan(resolve_with(&input, &world));
-    }
+    let mut input = want(&["needs-virt"]);
+    input.provider_answers = vec![answer("virt", "prov-b")];
+    plan(resolve_with(&input, &world));
     let runs = world.runs.borrow();
     assert!(runs.iter().all(|(update, _)| *update), "{runs:?}");
+}
+
+/// The one blocker "pacman would add a package nobody named": `(name, package)`.
+fn unnamed(found: Vec<Blocker>) -> Vec<(String, String)> {
+    match found.as_slice() {
+        [Blocker::UnnamedChoice(picks)] => picks
+            .iter()
+            .map(|pick| (pick.dependency.clone(), pick.provider.name.clone()))
+            .collect(),
+        other => panic!("expected the unnamed choice, got {other:?}"),
+    }
+}
+
+#[test]
+fn update_and_install_sends_an_unnamed_second_provider_to_the_terminal() {
+    // M1 and M4: `chain-a` is chosen and needs `chain-b` by name; `chain-b` provides `chain` too, and so does
+    // `chain-c`.
+    let mut input = want(&["needs-chain"]);
+    input.provider_answers = vec![answer("chain", "chain-a")];
+    assert_eq!(
+        unnamed(blockers(resolve_with(&input, &stale()))),
+        [("chain".to_string(), "chain-b".to_string())]
+    );
+    // A plain install is judged as before.
+    plan(resolve_with(&input, &World::base()));
 }
 
 #[test]
@@ -1265,14 +1284,10 @@ fn jvm_world(target_provides: &[&str]) -> World {
 fn assert_jre25_is_not_accepted(world: &World) {
     let mut input = want(&["need17"]);
     input.provider_answers = vec![answer("jvm", "jre25")];
-    let found = resolve_with(&input, world);
-    match &found {
-        Ok(Resolution::NeedsAnswers(questions)) => {
-            let (_, candidates, _) = the_provider_question(questions);
-            assert!(!candidates.contains(&"jre25"), "{candidates:?}");
-        }
-        other => panic!("expected the question again, got {other:?}"),
-    }
+    assert_eq!(
+        unnamed(blockers(resolve_with(&input, world))),
+        [("jvm".to_string(), "jre-other".to_string())]
+    );
 }
 
 #[test]

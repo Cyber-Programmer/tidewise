@@ -1082,6 +1082,8 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
             view.hint = words.advice;
             view.technical = replacements.iter().map(replacement_line).collect();
         }
+        // Stub.
+        Some(Blocker::UnnamedChoice(_)) => {}
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -1117,6 +1119,8 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::SonameChoice { dependency, .. } => {
             format!("{dependency}: several packages provide it")
         }
+        // Stub: worded with the other update-and-install cards.
+        Blocker::UnnamedChoice(_) => String::new(),
         Blocker::Replacement(replacements) => replacements
             .iter()
             .map(replacement_line)
@@ -2845,5 +2849,34 @@ mod tests {
             view.body,
             format!("Your system is up to date and dbeaver is ready.\n{RESTART_LINE}")
         );
+    }
+
+    #[test]
+    fn a_package_pacman_would_add_unasked_is_the_terminal_card() {
+        let pick = tidewise_pacman::ProviderPick {
+            dependency: "java-runtime".to_string(),
+            provider: pkg("jre-openjdk"),
+            version: None,
+        };
+        let words = block_words(&UpdateBlock::Pick(vec![pick.clone()]));
+        let view = install_view(&accepted_with(
+            UpdateLookup::Plan(Box::new(system_plan(false))),
+            Some(Resolution::Blocked(vec![Blocker::UnnamedChoice(vec![
+                pick,
+            ])])),
+        ));
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(
+            view.title_before,
+            "This update needs a choice Tidewise can't make yet"
+        );
+        assert_eq!(view.body, words.body);
+        assert_eq!(
+            view.hint,
+            "Run sudo pacman -Syu in a terminal; pacman will ask you which one."
+        );
+        assert_eq!(view.technical, ["extra/jre-openjdk provides java-runtime"]);
+        assert_eq!(view.primary, None);
+        assert_eq!(view.unchanged, UNCHANGED);
     }
 }

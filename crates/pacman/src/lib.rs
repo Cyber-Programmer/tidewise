@@ -43,7 +43,7 @@ pub use error::{PacmanError, ParseError};
 pub use partial::{InstallDecision, install_decision};
 pub use picks::{
     ChoiceFacts, ProviderPick, SEARCH_BATCH, brought_by_name, dependency_text, is_soname,
-    provider_picks, real_choices,
+    provider_picks, real_choices, unnamed_choices,
 };
 pub use print::{
     PrintFailure, PrintedPackage, UnsatisfiedDependency, parse_print, parse_print_failure,
