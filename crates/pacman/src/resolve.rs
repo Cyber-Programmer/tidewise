@@ -13,12 +13,12 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::picks::{brought_by_name, provides_for};
+use crate::picks::provides_for;
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
     ProviderPick, Replacement, SearchResult, dependency_text, install_decision, is_soname,
-    listed_replacements, provider_picks, real_choices,
+    listed_replacements, provider_picks, real_choices, unnamed_choices,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -504,8 +504,14 @@ impl<'a> Engine<'a> {
                         candidates,
                     }]));
                 }
-                if let Some(dependency) =
-                    self.second_provider(update, &providers, &asked, &listed, &installed)?
+                // Update and install: the helper's strict rule C. A plain install: the helper's second-provider look.
+                if update {
+                    let choices = self.unnamed(&listed, &asked, &installed)?;
+                    if !choices.is_empty() {
+                        return Ok(Resolution::Blocked(vec![Blocker::UnnamedChoice(choices)]));
+                    }
+                } else if let Some(dependency) =
+                    self.second_provider(&providers, &asked, &listed, &installed)?
                 {
                     return Ok(Resolution::Blocked(vec![Blocker::TwoVersionsNeeded {
                         dependency,
@@ -682,6 +688,28 @@ impl<'a> Engine<'a> {
         )
     }
 
+    /// What strict rule C finds in the list of an update and install (`unnamed_choices`, the helper's rule too).
+    fn unnamed(
+        &mut self,
+        listed: &[PackageRef],
+        asked: &[PackageRef],
+        installed: &HashMap<String, InstalledPackage>,
+    ) -> Result<Vec<ProviderPick>, PacmanError> {
+        let details: Vec<PackageDetails> = listed
+            .iter()
+            .filter_map(|item| self.details_of(item).cloned())
+            .collect();
+        unnamed_choices(
+            &details.iter().collect::<Vec<_>>(),
+            asked,
+            |name| installed.contains_key(name),
+            &mut EngineFacts {
+                engine: self,
+                found: Vec::new(),
+            },
+        )
+    }
+
     /// Whether naming `candidate` for `dependency` works, with pacman as the judge: in a dry run of everything else
     /// asked plus the candidate, every package that provides `dependency` is the candidate or something the candidate
     /// brings along by itself (its own dry run). Installed packages never count, and are never a fit.
@@ -704,25 +732,11 @@ impl<'a> Engine<'a> {
         let DryRun::Listed(with_all) = self.dry_run(update, &names)? else {
             return Ok(false);
         };
-        // Update and install: the helper's rule, from the dependencies of the listed packages. No dry run of the
-        // candidate alone: on a stale system that can fail by itself (review 6.6 U-01).
+        // Update and install: every provider is offered, as pacman would in a terminal. The whole list is judged at
+        // the end (strict rule C), and no package is ever dry-run without the update.
         if update {
-            let refs: Vec<PackageRef> = with_all.iter().map(printed_ref).collect();
-            self.load_details(&refs)?;
-            let others: Vec<&PackageRef> = refs
-                .iter()
-                .filter(|p| p.name != candidate.name && !installed.contains_key(&p.name))
-                .filter(|p| self.provides(p, dependency))
-                .collect();
-            let facts = self.facts;
-            return Ok(others.is_empty()
-                || brought_by_name(
-                    candidate,
-                    &others,
-                    &refs,
-                    |item| self.details_of(item),
-                    |dependency| installed_meets(facts, dependency),
-                )?);
+            self.load_details(std::slice::from_ref(candidate))?;
+            return Ok(self.provides(candidate, dependency));
         }
         let DryRun::Listed(alone) = self.dry_run(false, &[spec(candidate)])? else {
             return Ok(false);
@@ -748,7 +762,6 @@ impl<'a> Engine<'a> {
     /// request that will be refused. In practice two packages need two versions of one name.
     fn second_provider(
         &mut self,
-        update: bool,
         answers: &[ProviderAnswer],
         asked: &[PackageRef],
         listed: &[PackageRef],
@@ -761,19 +774,6 @@ impl<'a> Engine<'a> {
                 .filter(|p| self.provides(p, &answer.dependency))
                 .collect();
             if others.is_empty() {
-                continue;
-            }
-            if update {
-                let facts = self.facts;
-                if !brought_by_name(
-                    &answer.chosen,
-                    &others,
-                    listed,
-                    |item| self.details_of(item),
-                    |dependency| installed_meets(facts, dependency),
-                )? {
-                    return Ok(Some(answer.dependency.clone()));
-                }
                 continue;
             }
             let DryRun::Listed(brought) = self.dry_run(false, &[spec(&answer.chosen)])? else {
@@ -932,15 +932,6 @@ impl<'a> Engine<'a> {
             installed_total: items.iter().map(|i| i.installed_size).sum(),
             items,
         }
-    }
-}
-
-/// `pacman -T` for `brought_by_name`. A dependency that cannot be written as an argument counts as met: the edge is
-/// then not followed, as in the helper.
-fn installed_meets(facts: &dyn Facts, dependency: &Dependency) -> Result<bool, PacmanError> {
-    match dependency_text(dependency) {
-        Some(_) => facts.satisfied(dependency),
-        None => Ok(true),
     }
 }
 

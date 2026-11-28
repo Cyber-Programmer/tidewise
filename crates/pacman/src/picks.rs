@@ -183,115 +183,80 @@ pub fn real_choices<F: ChoiceFacts>(
     Ok(kept)
 }
 
-/// Does `chosen` bring every one of `others` by itself? The rule of "update system and install", for the app and the
-/// root helper (golden rule 10; reviews 6.6 U-01 and V-01).
+/// Strict rule C of "update system and install", for the app and the root helper (golden rule 10; the human's
+/// decision after review 6.6 W-01).
 ///
-/// "By itself" means: reachable from `chosen` through dependencies that pacman has to meet with the one package they
-/// name. A dependency is followed only when
-/// - it names a listed package exactly, with no version rule or an `=` that the listed version meets (comparing other
-///   versions is pacman's work), and
-/// - no other listed package provides that name, and
-/// - nothing installed meets it (`installed_meets`, `pacman -T`).
+/// A listed package is a choice nobody made when all of these hold:
+/// - it is new (not installed) and the request does not name it (neither a target nor a chosen provider);
+/// - it provides a name another listed package depends on (its own package name does not count);
+/// - another repository package also provides that name, or is called it.
 ///
-/// With either of the last two, pacman does not pull the named package for this dependency: it is in the list for
-/// some other reason, which may be a provider pacman chose by itself (V-01).
+/// Names only: no version is compared, because pacman compares them in its own way (W-01). No dry run and no
+/// `pacman -T`. It asks only the repository search behind `ChoiceFacts::candidates`.
 ///
-/// A listed package without a `-Si` record refuses: nothing is known about what it provides.
-///
-/// No dry run: on a stale system `pacman -S` of one package can fail with "breaks dependency", although the update
-/// with that package is fine.
-pub fn brought_by_name<'a, E>(
-    chosen: &PackageRef,
-    others: &[&PackageRef],
-    listed: &[PackageRef],
-    details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
-    mut installed_meets: impl FnMut(&Dependency) -> Result<bool, E>,
-) -> Result<bool, E> {
-    // Looked up once for the whole list, so the walk below does not search it again for every dependency (V-03).
-    // A transaction holds one package of a name.
-    let mut by_name: HashMap<&str, (&PackageRef, &PackageDetails)> = HashMap::new();
-    let mut providers: HashMap<&str, Vec<&str>> = HashMap::new();
-    for package in listed {
-        let Some(details) = details_of(package) else {
-            return Ok(false);
-        };
-        by_name.insert(&package.name, (package, details));
-        for provided in &details.provides {
-            providers
-                .entry(&provided.name)
-                .or_default()
-                .push(&package.name);
-        }
-    }
-    let is_listed = |package: &PackageRef| {
-        by_name
-            .get(package.name.as_str())
-            .is_some_and(|(found, _)| *found == package)
-    };
-    if !is_listed(chosen) || !others.iter().all(|other| is_listed(other)) {
-        return Ok(false);
-    }
-
-    let mut missing: HashSet<&str> = others.iter().map(|other| other.name.as_str()).collect();
-    missing.remove(chosen.name.as_str());
-    // Every package is walked once, so a dependency cycle ends.
-    let mut reached: HashSet<&str> = HashSet::from([chosen.name.as_str()]);
-    let mut queue: Vec<&str> = vec![chosen.name.as_str()];
-    let mut next = 0;
-    while !missing.is_empty() {
-        let Some(&name) = queue.get(next) else {
-            break;
-        };
-        next += 1;
-        let Some((_, details)) = by_name.get(name) else {
-            continue;
-        };
-        for dependency in &details.depends_on {
-            let name = dependency.name.as_str();
-            let Some((named, there)) = by_name.get(name) else {
-                continue;
-            };
-            if reached.contains(name) {
-                continue;
-            }
-            if let Some(rule) = &dependency.rule
-                && (rule.comparison != Comparison::Equal
-                    || !is_that_version(&rule.version, &there.version))
-            {
-                continue;
-            }
-            let provided_elsewhere = providers
-                .get(name)
-                .is_some_and(|who| who.iter().any(|provider| *provider != named.name));
-            if provided_elsewhere || installed_meets(dependency)? {
-                continue;
-            }
-            reached.insert(&named.name);
-            queue.push(&named.name);
-            missing.remove(name);
-        }
-    }
-    Ok(missing.is_empty())
-}
-
-/// `=` without a pkgrel (`=2.0`) is met by every pkgrel of that version.
-fn is_that_version(wanted: &str, listed: &str) -> bool {
-    wanted == listed
-        || (!wanted.contains('-')
-            && listed
-                .rsplit_once('-')
-                .is_some_and(|(version, _)| version == wanted))
-}
-
-/// Strict rule C of "update system and install" (the human's decision; review 6.6 W-01).
+/// Stricter than what pacman would ask: a package pulled in by its own name that also provides such a name is refused
+/// too. Not seen: a provider outside the configured repositories, or in one whose `Usage` lacks `Search`.
 pub fn unnamed_choices<F: ChoiceFacts>(
-    _listed: &[&PackageDetails],
-    _named: &[PackageRef],
-    _is_installed: impl Fn(&str) -> bool,
-    _facts: &mut F,
+    listed: &[&PackageDetails],
+    named: &[PackageRef],
+    is_installed: impl Fn(&str) -> bool,
+    facts: &mut F,
 ) -> Result<Vec<ProviderPick>, F::Error> {
-    // Stub.
-    Ok(Vec::new())
+    let mut needers: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for package in listed {
+        for dependency in &package.depends_on {
+            needers
+                .entry(&dependency.name)
+                .or_default()
+                .insert(&package.name);
+        }
+    }
+    // The new, unnamed packages that provide a name another listed package needs.
+    let mut suspects: Vec<(&str, PackageRef)> = Vec::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+    for package in listed {
+        let this = PackageRef {
+            repo: package.repo.clone(),
+            name: package.name.clone(),
+        };
+        if is_installed(&package.name) || named.contains(&this) {
+            continue;
+        }
+        for provided in &package.provides {
+            let name = provided.name.as_str();
+            let needed = needers
+                .get(name)
+                .is_some_and(|who| who.iter().any(|other| *other != package.name));
+            if name != package.name && needed && seen.insert((name, &package.name)) {
+                suspects.push((name, this.clone()));
+            }
+        }
+    }
+    if suspects.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut names: Vec<String> = suspects.iter().map(|(name, _)| name.to_string()).collect();
+    names.sort();
+    names.dedup();
+    let mut found = Vec::new();
+    for batch in names.chunks(SEARCH_BATCH) {
+        found.extend(facts.candidates(batch)?);
+    }
+    Ok(suspects
+        .into_iter()
+        .filter(|(name, this)| {
+            found.iter().any(|other| {
+                (other.repo != this.repo || other.name != this.name)
+                    && (other.name == *name || other.provides.iter().any(|p| p.name == *name))
+            })
+        })
+        .map(|(name, provider)| ProviderPick {
+            dependency: name.to_string(),
+            provider,
+            version: None,
+        })
+        .collect())
 }
 
 /// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
@@ -980,8 +945,6 @@ mod tests {
         }
     }
 
-    // ---- what a chosen package brings by name (update and install, review 6.6 U-01) -----------------------------
-
     /// A `-Si` record with only what the rule reads filled in.
     fn si(name: &str, version: &str, depends: &str) -> PackageDetails {
         providing(name, version, "None", depends)
@@ -1004,231 +967,6 @@ mod tests {
             repo: "extra".to_string(),
             name: name.to_string(),
         }
-    }
-
-    /// Whether `chosen` brings `other`, with exactly these packages listed. A name in `unread` is listed but has no
-    /// `-Si` record.
-    fn brings(records: &[PackageDetails], unread: &[&str], chosen: &str, other: &str) -> bool {
-        let listed: Vec<PackageRef> = records
-            .iter()
-            .map(|d| extra(&d.name))
-            .chain(unread.iter().map(|name| extra(name)))
-            .collect();
-        brought_by_name(
-            &extra(chosen),
-            &[&extra(other)],
-            &listed,
-            |item| records.iter().find(|d| d.name == item.name),
-            nothing_installed,
-        )
-        .unwrap()
-    }
-
-    /// `pacman -T` finds nothing installed that meets the dependency.
-    fn nothing_installed(_: &Dependency) -> Result<bool, ()> {
-        Ok(false)
-    }
-
-    #[test]
-    fn a_dependency_by_exact_name_is_brought_also_through_a_chain() {
-        let records = [
-            si("jdk", "1-1", "headless"),
-            si("headless", "1-1", "core>=1  jre"),
-            si("jre", "2-1", "None"),
-            si("loner", "1-1", "None"),
-        ];
-        assert!(brings(&records, &[], "jdk", "headless"));
-        assert!(brings(&records, &[], "jdk", "jre"));
-        assert!(!brings(&records, &[], "jdk", "loner"));
-        // Not the other way round.
-        assert!(!brings(&records, &[], "jre", "jdk"));
-        // Every one of them, not just some.
-        let all: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
-        let find = |item: &PackageRef| records.iter().find(|d| d.name == item.name);
-        let (jre, loner) = (extra("jre"), extra("loner"));
-        let ask = |others: &[&PackageRef]| {
-            brought_by_name(&extra("jdk"), others, &all, find, nothing_installed).unwrap()
-        };
-        assert!(!ask(&[&jre, &loner]));
-        assert!(ask(&[&jre]));
-    }
-
-    #[test]
-    fn an_exact_version_must_be_the_listed_one() {
-        for (rule, brought) in [
-            ("jre=2-1", true),
-            // Without a pkgrel pacman takes any pkgrel of that version.
-            ("jre=2", true),
-            ("jre=2-2", false),
-            ("jre=3", false),
-            // Comparing versions is pacman's work: these are not followed.
-            ("jre>=1", false),
-            ("jre>1", false),
-            ("jre<3", false),
-            ("jre<=2-1", false),
-        ] {
-            let records = [si("jdk", "1-1", rule), si("jre", "2-1", "None")];
-            assert_eq!(brings(&records, &[], "jdk", "jre"), brought, "{rule}");
-        }
-    }
-
-    #[test]
-    fn a_name_no_listed_package_has_is_virtual_and_not_followed() {
-        // `virt` is no package of the list, whatever provides it: what it stands for is a choice.
-        let records = [
-            si("jdk", "1-1", "virt  direct"),
-            si("direct", "1-1", "None"),
-            si("through", "1-1", "jre"),
-            si("jre", "1-1", "None"),
-        ];
-        assert!(brings(&records, &[], "jdk", "direct"));
-        assert!(!brings(&records, &[], "jdk", "through"));
-        assert!(!brings(&records, &[], "jdk", "jre"));
-        // A by-name edge to a package that is not in the lists leads nowhere.
-        let records = [si("jdk", "1-1", "gone"), si("jre", "1-1", "None")];
-        assert!(!brings(&records, &[], "jdk", "jre"));
-    }
-
-    #[test]
-    fn a_dependency_cycle_ends() {
-        let records = [
-            si("a", "1-1", "b"),
-            si("b", "1-1", "a  c"),
-            si("c", "1-1", "a"),
-            si("other", "1-1", "None"),
-        ];
-        assert!(brings(&records, &[], "a", "c"));
-        assert!(!brings(&records, &[], "a", "other"));
-    }
-
-    #[test]
-    fn a_record_missing_in_the_chain_brings_nothing() {
-        let records = [si("jdk", "1-1", "jre  unread"), si("jre", "1-1", "None")];
-        // The same list with that record there would be a yes.
-        let mut complete = records.to_vec();
-        complete.push(si("unread", "1-1", "None"));
-        assert!(brings(&complete, &[], "jdk", "jre"));
-        assert!(!brings(&records, &["unread"], "jdk", "jre"));
-        // The chosen package's own record is missing.
-        assert!(!brings(&records[1..], &["jdk"], "jdk", "jre"));
-    }
-
-    // ---- a by-name dependency pacman would not follow (review 6.6 V-01) -----------------------------------------
-
-    #[test]
-    fn a_name_something_installed_already_meets_is_not_followed() {
-        // pacman does not pull `jre` for this dependency then: it is listed for some other reason.
-        let records = [si("jdk", "1-1", "jre=2-1"), si("jre", "2-1", "None")];
-        let listed: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
-        let find = |item: &PackageRef| records.iter().find(|d| d.name == item.name);
-        for (met, brought) in [(true, false), (false, true)] {
-            let mut asked = Vec::new();
-            let got = brought_by_name(
-                &extra("jdk"),
-                &[&extra("jre")],
-                &listed,
-                find,
-                |dependency| {
-                    asked.push(dependency.clone());
-                    Ok::<bool, ()>(met)
-                },
-            );
-            assert_eq!(got, Ok(brought), "installed meets it: {met}");
-            // The whole dependency is asked, version rule included.
-            assert_eq!(asked, records[0].depends_on);
-        }
-    }
-
-    #[test]
-    fn a_name_another_listed_package_provides_is_not_followed() {
-        let records = [
-            si("jdk", "1-1", "jre"),
-            providing("jre", "2-1", "None", "None"),
-            providing("shadow", "1-1", "jre=2", "None"),
-        ];
-        assert!(!brings(&records, &[], "jdk", "jre"));
-        // Its own `Provides` of its own name is not another package.
-        let records = [
-            si("jdk", "1-1", "jre"),
-            providing("jre", "2-1", "jre=2", "None"),
-        ];
-        assert!(brings(&records, &[], "jdk", "jre"));
-        // A listed package without a record might provide it: nothing is brought.
-        assert!(!brings(&records, &["unread"], "jdk", "jre"));
-    }
-
-    #[test]
-    fn a_deptest_that_fails_is_passed_on() {
-        let records = [si("jdk", "1-1", "jre"), si("jre", "2-1", "None")];
-        let listed: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
-        let got = brought_by_name(
-            &extra("jdk"),
-            &[&extra("jre")],
-            &listed,
-            |item| records.iter().find(|d| d.name == item.name),
-            |_| Err("pacman failed"),
-        );
-        assert_eq!(got, Err("pacman failed"));
-    }
-
-    // ---- size (review 6.6 V-03) ---------------------------------------------------------------------------------
-
-    /// `count` packages, each needing the next ten by name: the last one is brought only through the whole chain.
-    fn dense(count: usize) -> (Vec<PackageDetails>, Vec<PackageRef>) {
-        let records: Vec<PackageDetails> = (0..count)
-            .map(|index| {
-                let needs: Vec<String> = (index + 1..count.min(index + 11))
-                    .map(|next| format!("p{next}"))
-                    .collect();
-                let depends = if needs.is_empty() {
-                    "None".to_string()
-                } else {
-                    needs.join("  ")
-                };
-                si(&format!("p{index}"), "1-1", &depends)
-            })
-            .collect();
-        let listed = records.iter().map(|d| extra(&d.name)).collect();
-        (records, listed)
-    }
-
-    /// The walk over `dense(count)`: the answer, and how often `pacman -T` was asked.
-    fn walk(records: &[PackageDetails], listed: &[PackageRef]) -> (bool, usize) {
-        let by_name: std::collections::HashMap<&str, &PackageDetails> =
-            records.iter().map(|d| (d.name.as_str(), d)).collect();
-        let mut asked = 0;
-        let last = &listed[listed.len() - 1];
-        let got = brought_by_name(
-            &listed[0],
-            &[last],
-            listed,
-            |item| by_name.get(item.name.as_str()).copied(),
-            |_| {
-                asked += 1;
-                Ok::<bool, ()>(false)
-            },
-        )
-        .unwrap();
-        (got, asked)
-    }
-
-    #[test]
-    fn five_thousand_packages_ask_at_most_once_each() {
-        let (records, listed) = dense(5000);
-        let (got, asked) = walk(&records, &listed);
-        assert!(got);
-        assert!(asked < 5000, "{asked}");
-    }
-
-    /// Not a check: a timing for a person to read.
-    /// `cargo test --release -p tidewise-pacman -- --ignored --nocapture bench_brought_by_name`
-    #[test]
-    #[ignore = "a benchmark, for a person to read"]
-    fn bench_brought_by_name_at_5000() {
-        let (records, listed) = dense(5000);
-        let started = std::time::Instant::now();
-        let (got, _) = walk(&records, &listed);
-        println!("5000 packages: {got} in {:?}", started.elapsed());
     }
 
     // ---- strict rule C: update and install (review 6.6 W-01) ----------------------------------------------------

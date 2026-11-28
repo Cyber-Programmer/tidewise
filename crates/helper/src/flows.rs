@@ -9,9 +9,9 @@
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
 //!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> no
 //!            replacement (`-Q`, `-Si`) -> no provider pick: for a plain update only a pick pacman has nothing to ask
-//!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install every pick named, read from the
-//!            private copy, a second provider only if the chosen package needs it by name -> the refreshed
-//!            lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
+//!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install strict rule C: no new,
+//!            unnamed package where another repository package provides the needed name (`-Ss`/`-Si` there) ->
+//!            the refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
 //!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
 //!
@@ -28,8 +28,8 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{
     ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
-    PendingUpdate, ProviderPick, brought_by_name, dependency_text, install_decision, is_soname,
-    listed_replacements, parse_qu, parse_si, parse_ss, provider_picks, real_choices,
+    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, listed_replacements,
+    parse_qu, parse_si, parse_ss, provider_picks, real_choices, unnamed_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -246,8 +246,8 @@ fn update_job(
 ///   an installed one, its own name included. The real run declines it and may then upgrade the replaced package and what that needs, none of
 ///   it listed. Answered as a changed transaction: the app then looks again and shows why.
 /// - Golden rule 10: pacman must not pick a provider by itself.
-///   - Update and install (`install`; threat model 40, review 6.5 R-05): the request can name providers, so it must
-///     name every pick, the system update's too. The install's rule (`judge_named_providers`), on the private copy.
+///   - Update and install (`install`; threat model 40, review 6.5 R-05): strict rule C (`check_strictly`), on the
+///     private copy: no new, unnamed package where another repository package provides the needed name.
 ///   - Plain update (threat model 41): it names none, so only a pick pacman has nothing to ask about passes. A pick
 ///     needs a package that is not installed, so a list of upgrades only has none.
 fn check_update_list(
@@ -283,7 +283,7 @@ fn check_update_list(
         return Err(ErrorKind::TransactionChanged);
     }
     if let Some(install) = install {
-        return judge_named_providers(runner, install, &installed, &details, Lists::Private);
+        return check_strictly(runner, install, &installed, &details);
     }
     if transaction
         .iter()
@@ -319,7 +319,8 @@ fn check_update_list(
 /// The reads behind `real_choices`, all from the private copy except `-T`, which asks about installed packages.
 struct HelperFacts<'a> {
     runner: &'a mut dyn Runner,
-    /// An update (with or without targets) asks the private copy of the lists; a plain install the real ones.
+    /// An update (with or without targets) asks the private copy of the lists; a plain install the real ones, which
+    /// it installs from.
     private: bool,
 }
 
@@ -489,33 +490,14 @@ fn print_of(
 /// `provider_picks`, the resolver's own.
 ///
 /// An answer is not enough on its own. The package it names must provide the name, and if the list holds another
-/// provider of that name nobody asked for, the chosen package must bring it by itself: otherwise it is pacman's pick,
-/// for example when the chosen version does not fit the dependency. A plain install asks the chosen package's own dry
-/// run; update and install reads its dependencies by name (`brought_by_name`).
+/// provider of that name nobody asked for, the chosen package must bring it by itself (its own dry run): otherwise it
+/// is pacman's pick, for example when the chosen version does not fit the dependency.
 fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
     let details = read_details(runner, &install.transaction, PacmanCommand::PackageDetails)?;
-    judge_named_providers(runner, install, &installed, &details, Lists::Real)
-}
 
-/// Which package lists a provider check reads: the real ones (a plain install installs from them) or the private copy
-/// (update and install, before the lists are moved in). `pacman -T` and `-Q` always ask about the real system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lists {
-    Real,
-    Private,
-}
-
-/// The rule of `check_providers`, on facts already read: the installed packages and `-Si` of the confirmed list.
-fn judge_named_providers(
-    runner: &mut dyn Runner,
-    install: &Install,
-    installed: &HashSet<String>,
-    details: &HashMap<ListedRef, PackageDetails>,
-    lists: Lists,
-) -> Step {
     let listed: Vec<ListedRef> = install
         .transaction
         .iter()
@@ -543,34 +525,14 @@ fn judge_named_providers(
         if others.is_empty() {
             continue;
         }
-        let brought = match lists {
-            // A plain install: the chosen package's own dry run (the 6.4a rule, unchanged).
-            Lists::Real => {
-                let chosen = vec![answer.chosen.clone()];
-                let listed = print_of(runner, PacmanCommand::DryRunInstall(chosen))?;
-                others
-                    .iter()
-                    .all(|other| listed.iter().any(|item| item.name == other.name))
-            }
-            // Update and install: from the dependencies of the listed packages. A dry run without the update can
-            // fail on a stale system (review 6.6 U-01).
-            Lists::Private => brought_by_name(
-                &listed_ref(&answer.chosen.repo, &answer.chosen.name),
-                &others,
-                &listed,
-                |item| details.get(item),
-                // `-T` asks about the real system; what cannot be written as an argument counts as met.
-                |dependency| match dependency_text(dependency) {
-                    Some(_) => HelperFacts {
-                        runner: &mut *runner,
-                        private: true,
-                    }
-                    .satisfied(dependency),
-                    None => Ok(true),
-                },
-            )?,
-        };
-        if !brought {
+        let brought = print_of(
+            runner,
+            PacmanCommand::DryRunInstall(vec![answer.chosen.clone()]),
+        )?;
+        if others
+            .iter()
+            .any(|other| !brought.iter().any(|item| item.name == other.name))
+        {
             return Err(ErrorKind::ProviderNotChosen);
         }
     }
@@ -602,7 +564,50 @@ fn judge_named_providers(
         |name| installed.contains(name),
         &mut HelperFacts {
             runner,
-            private: lists == Lists::Private,
+            private: false,
+        },
+    )?;
+    if choices.is_empty() {
+        Ok(())
+    } else {
+        Err(ErrorKind::ProviderNotChosen)
+    }
+}
+
+/// Golden rule 10 for "update system and install": strict rule C (`unnamed_choices`), on the private copy. Every
+/// answer must provide its name, and no new package the request does not name may stand for a choice. Refused is
+/// refused: the user updates in a terminal, where pacman asks.
+fn check_strictly(
+    runner: &mut dyn Runner,
+    install: &Install,
+    installed: &HashSet<String>,
+    details: &HashMap<ListedRef, PackageDetails>,
+) -> Step {
+    for answer in &install.providers {
+        let chosen = listed_ref(&answer.chosen.repo, &answer.chosen.name);
+        let provides = details
+            .get(&chosen)
+            .is_some_and(|d| d.provides.iter().any(|p| p.name == answer.dependency));
+        if !provides {
+            return Err(ErrorKind::ProviderNotChosen);
+        }
+    }
+    let listed: Vec<&PackageDetails> = install
+        .transaction
+        .iter()
+        .filter_map(|item| details.get(&listed_ref(&item.repo, &item.name)))
+        .collect();
+    let named: Vec<ListedRef> = names_of(install)
+        .iter()
+        .map(|package| listed_ref(&package.repo, &package.name))
+        .collect();
+    let choices = unnamed_choices(
+        &listed,
+        &named,
+        |name| installed.contains(name),
+        &mut HelperFacts {
+            runner,
+            private: true,
         },
     )?;
     if choices.is_empty() {

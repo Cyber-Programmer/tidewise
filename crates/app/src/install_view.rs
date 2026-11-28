@@ -1082,8 +1082,17 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
             view.hint = words.advice;
             view.technical = replacements.iter().map(replacement_line).collect();
         }
-        // Stub.
-        Some(Blocker::UnnamedChoice(_)) => {}
+        // The terminal card, in the update screen's words for a choice it cannot ask.
+        Some(Blocker::UnnamedChoice(picks)) => {
+            let words = block_words(&UpdateBlock::Pick(picks.clone()));
+            view.title_before = words.title;
+            view.body = words.body;
+            view.hint = words.advice;
+            view.technical = picks
+                .iter()
+                .map(|pick| format!("{} provides {}", spec(&pick.provider), pick.dependency))
+                .collect();
+        }
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -1119,8 +1128,11 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::SonameChoice { dependency, .. } => {
             format!("{dependency}: several packages provide it")
         }
-        // Stub: worded with the other update-and-install cards.
-        Blocker::UnnamedChoice(_) => String::new(),
+        Blocker::UnnamedChoice(picks) => picks
+            .iter()
+            .map(|pick| format!("{} provides {}", spec(&pick.provider), pick.dependency))
+            .collect::<Vec<_>>()
+            .join(", "),
         Blocker::Replacement(replacements) => replacements
             .iter()
             .map(replacement_line)
