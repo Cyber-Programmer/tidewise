@@ -21,20 +21,20 @@ pub struct HelperRequest {
 /// Why no request was made. Nothing was started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestError {
-    /// The plan needs a system update first; "update and install" is WBS 6.6.
-    NeedsSystemUpdate,
     /// The helper's own rules refuse it: a bug in the app.
     Invalid(InvalidRequest),
     /// It could not be written, or is over the helper's size cap.
     Unwritable(ProtocolError),
 }
 
-/// The request for a plan the app may send today: a plain install on an up-to-date system.
+/// The request for a resolved plan: a plain install on an up-to-date system, or "update system and install" when the
+/// plan was resolved with updates waiting (its list then holds both).
 pub fn install_request(plan: &InstallPlan) -> Result<HelperRequest, RequestError> {
-    if !matches!(plan.decision, InstallDecision::Allowed { .. }) {
-        return Err(RequestError::NeedsSystemUpdate);
-    }
-    sealed(Action::Install(Install {
+    let action = match plan.decision {
+        InstallDecision::Allowed { .. } => Action::Install,
+        InstallDecision::MustUpdateSystem { .. } => Action::UpdateSystemAndInstall,
+    };
+    sealed(action(Install {
         targets: plan.targets.iter().map(wire_ref).collect(),
         providers: plan
             .providers
