@@ -31,8 +31,8 @@ pub struct UpdateCheck {
     pub note: Option<ListsNote>,
     /// Updates waiting in the lists that answered (`IgnorePkg` ones left out).
     pub waiting: usize,
-    /// How new those lists are: the real ones' newest file, or now for a fresh private copy.
-    pub lists_from: Option<SystemTime>,
+    /// How old those lists are, in whole days: the real ones' newest file, or 0 for a fresh private copy.
+    pub lists_age_days: Option<u64>,
 }
 
 /// `pending` is `pacman -Qu` against a database folder (`None`: the real one), `refresh` brings the private copy up to
@@ -58,7 +58,8 @@ pub fn check_for_updates(
             must_update,
             note: None,
             waiting: updates.iter().filter(|update| !update.ignored).count(),
-            lists_from: from.filter(|_| must_update),
+            // Stub.
+            lists_age_days: from.filter(|_| false).map(|_| 0),
         }
     };
     let real = pending(None)?;
@@ -75,7 +76,7 @@ pub fn check_for_updates(
     Ok(UpdateCheck {
         must_update: false,
         waiting: 0,
-        lists_from: None,
+        lists_age_days: None,
         note: Some(ListsNote {
             why,
             age_days: real_newest().map(|newest| whole_days(newest, now)),
@@ -201,8 +202,8 @@ mod tests {
         )
         .unwrap();
         let mut answer = answer;
-        // Compared on their own in `the_waiting_count_and_the_date_come_from_the_lists_that_answered`.
-        answer.lists_from = None;
+        // Compared on their own in `the_waiting_count_and_the_age_come_from_the_lists_that_answered`.
+        answer.lists_age_days = None;
         (answer, refreshed.get())
     }
 
@@ -210,8 +211,8 @@ mod tests {
         UpdateCheck {
             must_update,
             waiting: usize::from(must_update),
-            // `check` says the real lists are 3 days old; a private answer is from now.
-            lists_from: None,
+            // Compared on their own below.
+            lists_age_days: None,
             note: why.map(|why| ListsNote {
                 why,
                 age_days: Some(3),
@@ -343,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn the_waiting_count_and_the_date_come_from_the_lists_that_answered() {
+    fn the_waiting_count_and_the_age_come_from_the_lists_that_answered() {
         let ask = |real: Vec<PendingUpdate>, private_updates: Vec<PendingUpdate>| {
             check_for_updates(
                 |folder| {
@@ -359,12 +360,12 @@ mod tests {
             )
             .unwrap()
         };
-        // The real lists say so: their date. An ignored update is not counted.
+        // The real lists say so: their age. An ignored update is not counted.
         let got = ask(vec![update(false), update(true), update(false)], Vec::new());
-        assert_eq!((got.waiting, got.lists_from), (2, days_ago(45)));
-        // Only the fresh copy knows: it is from now.
+        assert_eq!((got.waiting, got.lists_age_days), (2, Some(45)));
+        // Only the fresh copy knows: it is from today.
         let got = ask(Vec::new(), vec![update(false)]);
-        assert_eq!((got.waiting, got.lists_from), (1, Some(now())));
+        assert_eq!((got.waiting, got.lists_age_days), (1, Some(0)));
     }
 
     // ---- "update system and install": the first step ------------------------------------------------------------

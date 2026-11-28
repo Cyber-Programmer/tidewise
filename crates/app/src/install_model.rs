@@ -13,7 +13,6 @@ use crate::update_check::{ListsNote, SystemCheck};
 use crate::update_model::system_block;
 use crate::update_words::{UpdateBlock, needs_restart};
 use std::path::PathBuf;
-use std::time::SystemTime;
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
@@ -43,8 +42,8 @@ pub struct Ticket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Waiting {
     pub count: usize,
-    /// How new the lists behind that count are, when known.
-    pub lists_from: Option<SystemTime>,
+    /// How old the lists behind that count are, in whole days, when known.
+    pub lists_age_days: Option<u64>,
 }
 
 /// The system part of "update system and install".
@@ -858,7 +857,7 @@ impl InstallModel {
                 InstallDecision::MustUpdateSystem { count, .. } if !self.updating => {
                     self.waiting = Some(Waiting {
                         count,
-                        lists_from: None,
+                        lists_age_days: None,
                     });
                     Phase::Stale
                 }
@@ -1795,7 +1794,7 @@ mod tests {
     fn waiting(count: usize) -> Waiting {
         Waiting {
             count,
-            lists_from: Some(SystemTime::UNIX_EPOCH),
+            lists_age_days: Some(2),
         }
     }
 
@@ -1888,7 +1887,7 @@ mod tests {
             model.waiting(),
             Some(Waiting {
                 count: 3,
-                lists_from: None
+                lists_age_days: None
             })
         );
         assert!(!model.is_updating());

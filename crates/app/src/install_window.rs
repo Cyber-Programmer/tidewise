@@ -493,7 +493,7 @@ fn work(
             Ok(check) if check.must_update => {
                 let waiting = Waiting {
                     count: check.waiting,
-                    lists_from: check.lists_from,
+                    lists_age_days: check.lists_age_days,
                 };
                 return (Some(check.note), Ok(WorkAnswer::MustUpdate(waiting)));
             }

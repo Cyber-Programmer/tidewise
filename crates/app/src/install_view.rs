@@ -15,7 +15,6 @@ use crate::update_words::{
     held_line,
 };
 use std::collections::HashSet;
-use tidewise_core::age::day_and_month;
 use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
 use tidewise_pacman::{
     Blocker, InstallPlan, NotFresh, PackageRef, PacmanError, PlanItem, Question, Replacement, Role,
@@ -367,10 +366,7 @@ fn stale(view: &mut InstallView, model: &InstallModel, label: &str) {
             ..TileView::default()
         };
         view.tiles = vec![tile("Updates waiting", waiting.count.to_string())];
-        if let Some(from) = waiting.lists_from {
-            view.tiles
-                .push(tile("Package lists from", day_and_month(from)));
-        }
+        // Stub: no age tile yet.
     }
     view.primary = button(&format!("Update system and install {label}"), true);
     view.secondary = button(back_label(model), true);
@@ -2388,7 +2384,7 @@ mod tests {
             ticket.number,
             Ok(WorkAnswer::MustUpdate(crate::install_model::Waiting {
                 count: 3,
-                lists_from: None,
+                lists_age_days: None,
             })),
         );
         assert_eq!(install_view(&model).focus, FocusTarget::Primary);
@@ -2527,10 +2523,10 @@ mod tests {
         model
     }
 
-    fn on_14_oct() -> Waiting {
+    fn two_days_old() -> Waiting {
         Waiting {
             count: 143,
-            lists_from: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_791_965_523)),
+            lists_age_days: Some(2),
         }
     }
 
@@ -2583,7 +2579,7 @@ mod tests {
     }
 
     fn accepted_with(lookup: UpdateLookup, resolution: Option<Resolution>) -> InstallModel {
-        let mut model = waiting_card(on_14_oct());
+        let mut model = waiting_card(two_days_old());
         let ticket = model.update_and_install().unwrap();
         let check = SystemCheck {
             lookup,
@@ -2604,7 +2600,7 @@ mod tests {
 
     #[test]
     fn the_stale_card_offers_to_update_and_install() {
-        let view = install_view(&waiting_card(on_14_oct()));
+        let view = install_view(&waiting_card(two_days_old()));
         assert_eq!(view.kind, CardKind::Stale);
         assert_eq!(view.title_before, "Your system needs updating first");
         assert_eq!(
@@ -2618,12 +2614,14 @@ mod tests {
             number: number.to_string(),
             ..TileView::default()
         };
+        // The age is a few words, drawn smaller than a figure (as the 6.11 note says it).
+        let age = |text: &str| TileView {
+            words: true,
+            ..tile("Package lists from", text)
+        };
         assert_eq!(
             view.tiles,
-            [
-                tile("Updates waiting", "143"),
-                tile("Package lists from", "14 Oct")
-            ]
+            [tile("Updates waiting", "143"), age("2 days ago")]
         );
         assert_eq!(
             view.primary,
@@ -2638,17 +2636,24 @@ mod tests {
             view.unchanged,
             "Nothing has changed yet. You'll see the full list before anything is installed."
         );
-        // Without a known date there is no date tile.
+        for (days, text) in [(0, "today"), (1, "1 day ago"), (45, "45 days ago")] {
+            let view = install_view(&waiting_card(Waiting {
+                count: 1,
+                lists_age_days: Some(days),
+            }));
+            assert_eq!(view.tiles[1], age(text));
+        }
+        // Without a known age there is no age tile.
         let view = install_view(&waiting_card(Waiting {
             count: 1,
-            lists_from: None,
+            lists_age_days: None,
         }));
         assert_eq!(view.tiles, [tile("Updates waiting", "1")]);
     }
 
     #[test]
     fn the_first_step_says_it_gets_todays_lists() {
-        let mut model = waiting_card(on_14_oct());
+        let mut model = waiting_card(two_days_old());
         model.update_and_install();
         let view = install_view(&model);
         assert_eq!(view.kind, CardKind::Working);
