@@ -1776,3 +1776,18 @@ Blockers: for v0.1, 6.6 (threat model 40) and 6.18 (46).
 Rules bent: ENGINEERING asks reduced motion to be honoured and the moving bar does not; the 6.18 row is not in the WBS
 sheet (the sheet was not touched).
 
+
+## 2026-11-28 — 6.6 Update system and install: deferred after v0.1
+Done:
+- **Decision 0010:** update-and-install is cut from v0.1. The work stays on `spike/6.6-update-and-install` (`4ccba31`).
+- The helper refuses `update_system_and_install` (`action_not_supported`) before anything runs; red commit first, unit
+  and container tests. A separate refactor removed the update job's now unused target parameters. App unchanged: the
+  stale card's words ("can't update and install in one go yet") still fit.
+- Threat model 40 closed by refusal; one line in PLAN.md.
+- Measured on `main`, nothing changed: the app asks `opengl-driver` where pacman does not (answering another provider
+  installs both); Y-01 does not occur; `-S/-Su --print` never print the provider question, `-Sw/-Suw --noconfirm` do,
+  and not when the provider is named (0010, for WBS 6.20).
+Next: your push of both branches and the PR for `fix/6.6-defer-update-and-install`; then 6.5 follow-ups, 6.18, 6.20.
+Blockers: none for this branch.
+Rules bent: (1) tests of the removed behaviour changed or removed in the fix commit. (2) No fuzzing (no parser
+changed). (3) The measurements are scratch scripts, not committed tests. (4) No WBS sheet update (you update it).
