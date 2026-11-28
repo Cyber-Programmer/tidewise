@@ -1,0 +1,14 @@
+# Dummy package for the Tidewise container tests (WBS 6.6, strict rule C). Contains one text file and nothing else.
+pkgname=tidewise-dummy-rt-need2
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test package that needs tidewise-two"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+depends=('tidewise-two')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

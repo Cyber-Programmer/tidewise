@@ -1785,12 +1785,12 @@ fn stale_system(installed: &[&str], later: &[&str]) {
 
 const RUNTIME: &str = "tidewise-runtime";
 
-/// M1, the U-01 reproduction: `rt-full` needs `rt-core` by name (also a `tidewise-runtime`) and the new soname of a
-/// library an installed package still needs in its old form. A dry run of `rt-full` alone fails ("breaks
-/// dependency"); the update and install itself is fine.
+/// M1, the U-01 reproduction: `rt-core` is a `tidewise-runtime` nobody named, pulled in by `rt-full`, and others
+/// provide that name too. Strict rule C refuses it (the terminal card). Before, a dry run of `rt-full` alone failed
+/// on this stale system ("breaks dependency"); no such dry run is made now.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn update_and_install_accepts_a_provider_across_a_soname_bump() {
+fn update_and_install_refuses_an_unnamed_provider_across_a_soname_bump() {
     stale_system(&["rt-lib", "rt-user"], &["rt-lib", "rt-user"]);
     let items = listed(&[
         ("rt-core", "1.0-1"),
@@ -1799,13 +1799,7 @@ fn update_and_install_accepts_a_provider_across_a_soname_bump() {
         ("needs-rt", "1.0-1"),
         ("rt-user", "2.0-1"),
     ]);
-    let ran = update_and_install("needs-rt", &[(RUNTIME, "rt-full")], &items);
-    assert_ok(&ran);
-    assert_eq!(
-        installed_version(&dummy("rt-user")).as_deref(),
-        Some("2.0-1")
-    );
-    assert!(installed_version(&dummy("rt-core")).is_some());
+    refused_for_the_provider("needs-rt", &[(RUNTIME, "rt-full")], &items);
 }
 
 /// M3: the update pulls another provider by its name; the chosen one has nothing to do with it.
@@ -1822,11 +1816,11 @@ fn update_and_install_refuses_a_second_provider_only_the_update_pulls_in() {
     refused_for_the_provider("needs-rt", &[(RUNTIME, "rt-core")], &items);
 }
 
-/// M4: the update needs the name too and pacman would take `rt-core` for it, but the chosen `rt-full` needs
-/// `rt-core` by its name anyway: nobody is choosing anything.
+/// M4: the chosen `rt-full` needs `rt-core` by its name, and the update needs the runtime too. `rt-core` is still a
+/// provider nobody named, with others in the repositories: refused under strict rule C.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn update_and_install_accepts_a_provider_the_chosen_one_needs_by_name() {
+fn update_and_install_refuses_an_unnamed_provider_the_chosen_one_needs_by_name() {
     stale_system(&["rt-need"], &["rt-need", "rt-lib"]);
     let items = listed(&[
         ("rt-core", "1.0-1"),
@@ -1835,12 +1829,7 @@ fn update_and_install_accepts_a_provider_the_chosen_one_needs_by_name() {
         ("needs-rt", "1.0-1"),
         ("rt-need", "2.0-1"),
     ]);
-    let ran = update_and_install("needs-rt", &[(RUNTIME, "rt-full")], &items);
-    assert_ok(&ran);
-    assert_eq!(
-        installed_version(&dummy("rt-need")).as_deref(),
-        Some("2.0-1")
-    );
+    refused_for_the_provider("needs-rt", &[(RUNTIME, "rt-full")], &items);
 }
 
 // ---- a by-name dependency something else already meets (review 6.6 V-01) ----------------------------------------
@@ -1871,4 +1860,52 @@ fn update_and_install_refuses_when_an_installed_package_meets_the_by_name_depend
 fn update_and_install_refuses_when_another_listed_package_provides_the_by_name_dependency() {
     stale_system(&["upd"], &["upd"]);
     jvm17_nobody_named("rt-need17s");
+}
+
+// ---- strict rule C: shared libraries by name only (W-01), a named provider that needs more (U-02), a lone one ----
+
+/// A pending update of `upd`, and "update system and install `target`" with `unnamed` pacman's own pick.
+fn refused_with_pacmans_pick(target: &str, unnamed: &str) {
+    stale_system(&["upd"], &["upd"]);
+    let items = listed(&[(unnamed, "1.0-1"), (target, "1.0-1"), ("upd", "2.0-1")]);
+    refused_for_the_provider(target, &[], &items);
+}
+
+/// W-01: a need without an exact version, or written without the architecture part, or a provider written so.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_shared_library_choice_however_the_version_is_written() {
+    // pacman takes the first match: the 32-bit provider, since a need without the architecture part matches it too.
+    refused_with_pacmans_pick("rt-soge", "so-32");
+    refused_with_pacmans_pick("rt-sonorel", "so-32");
+    refused_with_pacmans_pick("rt-needmix", "rt-mix-a");
+}
+
+/// U-02: the named `rt-two-old` needs `tidewise-two>=2`, and pacman picks `rt-two-a` for it by itself.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_what_pacman_picks_below_a_named_provider() {
+    stale_system(&["upd"], &["upd"]);
+    let items = listed(&[
+        ("rt-two-a", "1.0-1"),
+        ("rt-two-old", "1.0-1"),
+        ("rt-need2", "1.0-1"),
+        ("upd", "2.0-1"),
+    ]);
+    refused_for_the_provider("rt-need2", &[("tidewise-two", "rt-two-old")], &items);
+}
+
+/// One package in the repositories provides the name: pacman has nothing to choose, named or not.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_lets_a_lone_unnamed_provider_through() {
+    stale_system(&["upd"], &["upd"]);
+    let items = listed(&[
+        ("one-prov", "1.0-1"),
+        ("needs-one", "1.0-1"),
+        ("upd", "2.0-1"),
+    ]);
+    let ran = update_and_install("needs-one", &[], &items);
+    assert_ok(&ran);
+    assert!(installed_version(&dummy("one-prov")).is_some());
 }

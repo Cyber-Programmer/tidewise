@@ -543,11 +543,11 @@ fn update_and_install_with_a_replacement_is_blocked_by_the_resolver() {
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
 
-/// M1 in the resolver (review U-01): the choice is asked, and naming the provider that needs the new soname ends in a
-/// list the real helper accepts.
+/// M1 in the resolver: naming the provider that brings an unnamed one ends in the terminal card, before any
+/// password, on a stale system too.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn update_and_install_resolves_across_a_soname_bump() {
+fn update_and_install_sends_an_unnamed_provider_to_the_terminal_card() {
     assert_inside_the_test_container();
     reset_world();
     install_directly(&["tidewise-dummy-rt-lib", "tidewise-dummy-rt-user"]);
@@ -558,36 +558,20 @@ fn update_and_install_resolves_across_a_soname_bump() {
 
     let asked = resolved(&["needs-rt"], &[], Some(folder));
     assert!(asked.starts_with("ask tidewise-runtime "), "{asked}");
-    let ready = resolved(
+    let said = resolved(
         &["needs-rt"],
         &[("tidewise-runtime", "rt-full")],
         Some(folder),
     );
-    let items: Vec<Item> = plan_items(&ready)
-        .into_iter()
-        .map(|(name, version)| Item {
-            repo: REPO.to_string(),
-            name,
-            version,
-        })
-        .collect();
-    let target = dummy("needs-rt");
-    let chosen = dummy("rt-full");
-    let (request, summary) = update_and_install_request(
-        &[(REPO, &target)],
-        &[("tidewise-runtime", REPO, &chosen)],
-        &items,
-    );
-    let ran = run(&summary, request.as_bytes());
-    assert_eq!(ran.status.code(), Some(0), "{}\n{}", ran.stdout, ran.stderr);
-    assert!(installed_version(&dummy("rt-full")).is_some());
+    assert!(said.starts_with("blocked UnnamedChoice("), "{said}");
+    assert!(said.contains(&dummy("rt-core")), "{said}");
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
 
-/// Review 6.6 V-01 in the resolver: the app must not offer the candidate the helper would refuse.
+/// Review 6.6 V-01 in the resolver: what the helper would refuse ends in the terminal card.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn update_and_install_does_not_offer_a_candidate_whose_by_name_dependency_is_already_met() {
+fn update_and_install_blocks_pacmans_own_pick_below_a_named_provider() {
     assert_inside_the_test_container();
     reset_world();
     install_directly(&["tidewise-dummy-rt-shadow", "tidewise-dummy-upd"]);
@@ -599,7 +583,7 @@ fn update_and_install_does_not_offer_a_candidate_whose_by_name_dependency_is_alr
         &[("tidewise-jvm", "rt-jvm25")],
         Some(folder),
     );
-    assert!(said.starts_with("ask tidewise-jvm "), "{said}");
-    assert!(!said.contains(&dummy("rt-jvm25")), "{said}");
+    assert!(said.starts_with("blocked UnnamedChoice("), "{said}");
+    assert!(said.contains(&dummy("rt-jvm17")), "{said}");
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
