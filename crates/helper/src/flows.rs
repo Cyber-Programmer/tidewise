@@ -2543,28 +2543,49 @@ mod tests {
         assert_refused_with_the_lists_untouched(&result, &fake);
     }
 
-    #[test]
-    fn update_and_install_asks_the_private_copy_what_a_chosen_package_brings() {
-        let records = [
-            ("vlc", "None", "java-runtime"),
-            ("jre", "java-runtime", "None"),
-            ("jre-other", "java-runtime", "None"),
-        ];
+    /// No command asks what installing something alone would do: on a stale system that can fail by itself.
+    fn assert_no_install_dry_run(fake: &Fake) {
+        assert!(
+            !fake.ran.iter().any(|command| {
+                crate::pacman_args::args(command)
+                    .is_ok_and(|args| args[0] == "-S" && args.iter().any(|a| a == "--print"))
+            }),
+            "{:?}",
+            fake.ran
+        );
+    }
+
+    /// Two providers of `java-runtime` are listed and `jre` is chosen. `jre_needs` is what `jre` depends on,
+    /// `glibc_needs` what the upgrade does.
+    fn two_jres(jre_needs: &str, glibc_needs: &str) -> (JobResult, Fake) {
         let request = update_and_install(TWO_JRES, &[("java-runtime", "jre")]);
-        let brought = |lines: &str| vec![ok(lines)];
-        let own = PacmanCommand::PrivateDryRunInstall(vec![pkg("extra", "jre")]);
+        run_both(
+            &request,
+            &[
+                ("vlc", "None", "java-runtime"),
+                ("glibc", "None", glibc_needs),
+                ("jre", "java-runtime", jre_needs),
+                ("jre-other", "java-runtime", "None"),
+            ],
+            vec![],
+        )
+    }
 
-        // The chosen package does not bring the other provider: pacman took that one by itself.
-        let (result, fake) = run_both(&request, &records, brought("extra/jre 25-1\n"));
-        assert_refused_with_the_lists_untouched(&result, &fake);
-        assert!(fake.ran.contains(&own), "{:?}", fake.ran);
-
-        // It does: no choice was left to pacman.
-        let both = "extra/jre-other 25-1\nextra/jre 25-1\n";
-        let (result, fake) = run_both(&request, &records, brought(both));
-        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
-        assert!(fake.ran.contains(&own), "{:?}", fake.ran);
-        assert_no_real_list_reads(&fake);
+    #[test]
+    fn update_and_install_reads_what_a_chosen_package_brings_from_its_dependencies() {
+        // It does not need the other provider: pacman took that one by itself. Also when the upgrade needs it by name.
+        for glibc_needs in ["None", "jre-other"] {
+            let (result, fake) = two_jres("None", glibc_needs);
+            assert_refused_with_the_lists_untouched(&result, &fake);
+            assert_no_install_dry_run(&fake);
+        }
+        // It needs it by name: no choice was left to pacman, whatever the update needs too.
+        for glibc_needs in ["None", "java-runtime"] {
+            let (result, fake) = two_jres("jre-other=25-1", glibc_needs);
+            assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+            assert_no_install_dry_run(&fake);
+            assert_no_real_list_reads(&fake);
+        }
     }
 
     #[test]

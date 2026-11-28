@@ -750,6 +750,19 @@ mod tests {
     }
 
     #[test]
+    fn no_install_dry_run_reads_the_private_copy() {
+        // Review 6.6 U-01: a dry run of packages without the update can fail on a stale system. Removed with the
+        // human's OK; update and install reads the dependencies instead.
+        for command in all_commands() {
+            let built = args(&command).unwrap();
+            assert!(
+                !(built[0] == "-S" && built.iter().any(|arg| arg == "--dbpath")),
+                "{command:?}"
+            );
+        }
+    }
+
+    #[test]
     fn noconfirm_and_ask_belong_to_real_transactions_only() {
         for command in all_commands() {
             let built = args(&command).unwrap();
