@@ -109,7 +109,8 @@ so the resolver names every pick of the whole combined list, the update's too, a
   update's lines (6.5 words), then the install's rows. N counts the lines in the row, new packages of the update
   included, although the words say "upgraded".
 - **Stale card:** "Why Arch works this way" is the wiki address as text (`System_maintenance`, as for the Arch news
-  line: Tidewise opens no page). The "Package lists from" date is UTC. No download figure on that card.
+  line: Tidewise opens no page). "Package lists from" is an age, "today", "1 day ago", "2 days ago", as the 6.11 note says it
+  (the human, 28 Nov). No download figure on that card.
 
 ## Decisions
 

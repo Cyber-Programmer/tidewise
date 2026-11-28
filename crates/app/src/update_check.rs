@@ -58,8 +58,9 @@ pub fn check_for_updates(
             must_update,
             note: None,
             waiting: updates.iter().filter(|update| !update.ignored).count(),
-            // Stub.
-            lists_age_days: from.filter(|_| false).map(|_| 0),
+            lists_age_days: from
+                .filter(|_| must_update)
+                .map(|newest| whole_days(newest, now)),
         }
     };
     let real = pending(None)?;

@@ -366,7 +366,12 @@ fn stale(view: &mut InstallView, model: &InstallModel, label: &str) {
             ..TileView::default()
         };
         view.tiles = vec![tile("Updates waiting", waiting.count.to_string())];
-        // Stub: no age tile yet.
+        if let Some(days) = waiting.lists_age_days {
+            view.tiles.push(TileView {
+                words: true,
+                ..tile("Package lists from", age_words(days))
+            });
+        }
     }
     view.primary = button(&format!("Update system and install {label}"), true);
     view.secondary = button(back_label(model), true);
@@ -374,6 +379,15 @@ fn stale(view: &mut InstallView, model: &InstallModel, label: &str) {
     view.unchanged =
         "Nothing has changed yet. You'll see the full list before anything is installed."
             .to_string();
+}
+
+/// "today", "1 day ago", "3 days ago": how the 6.11 note says an age.
+fn age_words(days: u64) -> String {
+    match days {
+        0 => "today".to_string(),
+        1 => "1 day ago".to_string(),
+        days => format!("{days} days ago"),
+    }
 }
 
 /// The system update of "update and install" cannot go ahead: the update screen's words.
