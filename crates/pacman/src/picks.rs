@@ -181,6 +181,17 @@ pub fn real_choices<F: ChoiceFacts>(
     Ok(kept)
 }
 
+/// Does `chosen` bring every one of `others` by itself (update and install, review 6.6 U-01)?
+pub fn brought_by_name<'a>(
+    _chosen: &PackageRef,
+    _others: &[&PackageRef],
+    _listed: &[PackageRef],
+    _details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
+) -> bool {
+    // Stub.
+    false
+}
+
 /// A dependency as `pacman -T` takes it (`name`, `name>=1.0`), or `None` if the name or the version is not plain.
 /// It comes from pacman's own `-Si`, and is checked again before it is an argument.
 pub fn dependency_text(dependency: &Dependency) -> Option<String> {
@@ -865,5 +876,121 @@ mod tests {
                 "{version:?}"
             );
         }
+    }
+
+    // ---- what a chosen package brings by name (update and install, review 6.6 U-01) -----------------------------
+
+    /// A `-Si` record with only what the rule reads filled in.
+    fn si(name: &str, version: &str, depends: &str) -> PackageDetails {
+        let text = format!(
+            "Repository      : extra\nName            : {name}\nVersion         : {version}\n\
+             Description     : test\nArchitecture    : any\nURL             : https://example.invalid\n\
+             Licenses        : GPL\nGroups          : None\nProvides        : None\n\
+             Depends On      : {depends}\nOptional Deps   : None\nConflicts With  : None\n\
+             Replaces        : None\nDownload Size   : 1.00 KiB\nInstalled Size  : 1.00 KiB\n\
+             Packager        : x\nBuild Date      : x\nValidated By    : None\n"
+        );
+        parse_si(&text).unwrap().remove(0)
+    }
+
+    fn extra(name: &str) -> PackageRef {
+        PackageRef {
+            repo: "extra".to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    /// Whether `chosen` brings `other`, with exactly these packages listed. A name in `unread` is listed but has no
+    /// `-Si` record.
+    fn brings(records: &[PackageDetails], unread: &[&str], chosen: &str, other: &str) -> bool {
+        let listed: Vec<PackageRef> = records
+            .iter()
+            .map(|d| extra(&d.name))
+            .chain(unread.iter().map(|name| extra(name)))
+            .collect();
+        brought_by_name(&extra(chosen), &[&extra(other)], &listed, |item| {
+            records.iter().find(|d| d.name == item.name)
+        })
+    }
+
+    #[test]
+    fn a_dependency_by_exact_name_is_brought_also_through_a_chain() {
+        let records = [
+            si("jdk", "1-1", "headless"),
+            si("headless", "1-1", "core>=1  jre"),
+            si("jre", "2-1", "None"),
+            si("loner", "1-1", "None"),
+        ];
+        assert!(brings(&records, &[], "jdk", "headless"));
+        assert!(brings(&records, &[], "jdk", "jre"));
+        assert!(!brings(&records, &[], "jdk", "loner"));
+        // Not the other way round.
+        assert!(!brings(&records, &[], "jre", "jdk"));
+        // Every one of them, not just some.
+        let all: Vec<PackageRef> = records.iter().map(|d| extra(&d.name)).collect();
+        let find = |item: &PackageRef| records.iter().find(|d| d.name == item.name);
+        let (jre, loner) = (extra("jre"), extra("loner"));
+        assert!(!brought_by_name(&extra("jdk"), &[&jre, &loner], &all, find));
+        assert!(brought_by_name(&extra("jdk"), &[&jre], &all, find));
+    }
+
+    #[test]
+    fn an_exact_version_must_be_the_listed_one() {
+        for (rule, brought) in [
+            ("jre=2-1", true),
+            // Without a pkgrel pacman takes any pkgrel of that version.
+            ("jre=2", true),
+            ("jre=2-2", false),
+            ("jre=3", false),
+            // Comparing versions is pacman's work: these are not followed.
+            ("jre>=1", false),
+            ("jre>1", false),
+            ("jre<3", false),
+            ("jre<=2-1", false),
+        ] {
+            let records = [si("jdk", "1-1", rule), si("jre", "2-1", "None")];
+            assert_eq!(brings(&records, &[], "jdk", "jre"), brought, "{rule}");
+        }
+    }
+
+    #[test]
+    fn a_name_no_listed_package_has_is_virtual_and_not_followed() {
+        // `virt` is no package of the list, whatever provides it: what it stands for is a choice.
+        let records = [
+            si("jdk", "1-1", "virt  direct"),
+            si("direct", "1-1", "None"),
+            si("through", "1-1", "jre"),
+            si("jre", "1-1", "None"),
+        ];
+        assert!(brings(&records, &[], "jdk", "direct"));
+        assert!(!brings(&records, &[], "jdk", "through"));
+        assert!(!brings(&records, &[], "jdk", "jre"));
+        // A by-name edge to a package that is not in the lists leads nowhere.
+        let records = [si("jdk", "1-1", "gone"), si("jre", "1-1", "None")];
+        assert!(!brings(&records, &[], "jdk", "jre"));
+    }
+
+    #[test]
+    fn a_dependency_cycle_ends() {
+        let records = [
+            si("a", "1-1", "b"),
+            si("b", "1-1", "a  c"),
+            si("c", "1-1", "a"),
+            si("other", "1-1", "None"),
+        ];
+        assert!(brings(&records, &[], "a", "c"));
+        assert!(!brings(&records, &[], "a", "other"));
+    }
+
+    #[test]
+    fn a_record_missing_in_the_chain_brings_nothing() {
+        let records = [si("jdk", "1-1", "jre  unread"), si("jre", "1-1", "None")];
+        // The same list with that record there would be a yes.
+        let mut complete = records.to_vec();
+        complete.push(si("unread", "1-1", "None"));
+        assert!(brings(&complete, &[], "jdk", "jre"));
+        assert!(!brings(&records, &["unread"], "jdk", "jre"));
+        // The chosen package's own record is missing.
+        assert!(!brings(&records[1..], &["jdk"], "jdk", "jre"));
     }
 }

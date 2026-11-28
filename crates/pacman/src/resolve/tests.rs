@@ -1196,32 +1196,20 @@ fn update_and_install_is_blocked_by_a_listed_replacement() {
 }
 
 #[test]
-fn update_and_install_asks_what_a_chosen_package_brings_without_the_update() {
-    // `chain-a` needs `chain-b`, and both provide `chain`: the resolver asks what chain-a brings by itself. That is
-    // an `-S` of it alone, as the helper asks it (`PrivateDryRunInstall`), never an `-Su`.
+fn update_and_install_never_dry_runs_a_package_without_the_update() {
+    // On a stale system `-S` of one package can fail by itself (review 6.6 U-01): what a chosen package brings is
+    // read from the dependencies, as the helper does.
     let world = stale();
-    let mut input = want(&["needs-chain"]);
-    input.provider_answers = vec![answer("chain", "chain-a")];
-    plan(resolve_with(&input, &world));
-    let alone = vec!["test/chain-a".to_string()];
+    for (target, dependency, chosen) in [
+        ("needs-chain", "chain", "chain-a"),
+        ("needs-virt", "virt", "prov-b"),
+    ] {
+        let mut input = want(&[target]);
+        input.provider_answers = vec![answer(dependency, chosen)];
+        plan(resolve_with(&input, &world));
+    }
     let runs = world.runs.borrow();
-    assert!(runs.contains(&(false, alone.clone())), "{runs:?}");
-    assert!(!runs.contains(&(true, alone)), "{runs:?}");
-}
-
-#[test]
-fn update_and_install_does_not_ask_what_a_lone_candidate_brings() {
-    // With no other provider in the list there is nothing the answer has to account for, and the helper does not
-    // look either. On a stale system that extra `-S` could fail and wrongly drop the candidate.
-    let world = stale();
-    let mut input = want(&["needs-virt"]);
-    input.provider_answers = vec![answer("virt", "prov-b")];
-    plan(resolve_with(&input, &world));
-    let runs = world.runs.borrow();
-    assert!(
-        !runs.iter().any(|(_, targets)| targets == &["test/prov-b"]),
-        "{runs:?}"
-    );
+    assert!(runs.iter().all(|(update, _)| *update), "{runs:?}");
 }
 
 #[test]
