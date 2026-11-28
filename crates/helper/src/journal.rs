@@ -40,6 +40,8 @@ pub fn outcome_code(error: &ErrorKind) -> &'static str {
         ErrorKind::DatabaseLocked => "database_locked",
         ErrorKind::ProviderNotChosen => "provider_not_chosen",
         ErrorKind::PacmanFailed(_) => "pacman_failed",
+        // Stub.
+        ErrorKind::ActionNotSupported => "",
     }
 }
 
@@ -233,6 +235,7 @@ mod tests {
             ErrorKind::DatabaseLocked,
             ErrorKind::ProviderNotChosen,
             ErrorKind::PacmanFailed(Details::from_raw("error: x")),
+            ErrorKind::ActionNotSupported,
         ]
     }
 

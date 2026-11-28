@@ -1066,6 +1066,27 @@ mod tests {
         }
     }
 
+    /// Decision 0010: the protocol still knows "update system and install", the helper refuses it before anything:
+    /// no pacman command, no private folder, no list touched. Even a held lock is not looked at.
+    #[test]
+    fn update_and_install_is_refused_before_anything_runs() {
+        let request = request(BOTH);
+        for locked in [false, true] {
+            let mut fake = Fake::new(vec![]);
+            fake.lock = locked;
+            let (result, events) = go_full(&request, &mut fake);
+            assert_eq!(
+                result.outcome,
+                Outcome::Error(ErrorKind::ActionNotSupported)
+            );
+            assert!(fake.ran.is_empty(), "{:?}", fake.ran);
+            assert!(events.is_empty());
+            assert_eq!((fake.prepared, fake.moved_after), (0, None));
+            assert_eq!(result.lists, None);
+            assert_eq!(result.removal_check, RemovalCheck::NotRun);
+        }
+    }
+
     #[test]
     fn a_pending_update_blocks_a_plain_install_and_nothing_else_runs() {
         let request = request(INSTALL);

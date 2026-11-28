@@ -125,6 +125,9 @@ pub enum ErrorKind {
     ProviderNotChosen,
     /// pacman ran and failed; its words, cleaned and capped.
     PacmanFailed(Details),
+    /// The request is well formed and allowed by the protocol, but this helper does not do it: "update system and
+    /// install" (decision 0010). Nothing runs.
+    ActionNotSupported,
 }
 
 /// pacman's own words for a failure. Control characters (except a new line) and invisible direction marks
@@ -211,6 +214,8 @@ impl ErrorKind {
             Self::PacmanFailed(_) => {
                 "The package manager stopped with an error. The technical details show what it said."
             }
+            // Stub.
+            Self::ActionNotSupported => "",
         }
     }
 }
@@ -272,6 +277,7 @@ mod tests {
             ErrorKind::DatabaseLocked,
             ErrorKind::ProviderNotChosen,
             ErrorKind::PacmanFailed(Details::from_raw("error: failed to commit transaction")),
+            ErrorKind::ActionNotSupported,
         ]
     }
 
@@ -560,6 +566,21 @@ mod tests {
     fn a_locked_database_says_to_wait_and_try_again() {
         let text = ErrorKind::DatabaseLocked.plain_text();
         assert!(text.contains("try again"), "{text}");
+    }
+
+    #[test]
+    fn an_action_the_helper_does_not_do_has_its_own_code_and_says_what_to_do() {
+        assert_eq!(
+            event_line(&Event::Finished(Outcome::Error(
+                ErrorKind::ActionNotSupported
+            ))),
+            r#"{"finished":{"error":"action_not_supported"}}"#
+        );
+        assert_eq!(
+            ErrorKind::ActionNotSupported.plain_text(),
+            "Tidewise can't update and install in one go. Update your system first, then install. Nothing was \
+             changed."
+        );
     }
 
     #[test]
