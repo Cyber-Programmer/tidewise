@@ -140,13 +140,24 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_that_needs_a_system_update_makes_no_request() {
+    fn a_plan_that_needs_a_system_update_becomes_update_system_and_install() {
         let mut plan = plan();
         plan.decision = InstallDecision::MustUpdateSystem {
             count: 3,
             ignored: 0,
         };
-        assert_eq!(install_request(&plan), Err(RequestError::NeedsSystemUpdate));
+        let made = install_request(&plan).unwrap();
+        assert_eq!(
+            made.summary,
+            "update system and install extra/dbeaver with extra/jre-openjdk (2 packages)"
+        );
+        assert_eq!(
+            String::from_utf8(made.json.clone()).unwrap(),
+            r#"{"protocol_version":1,"action":{"update_system_and_install":{"targets":[{"repo":"extra","name":"dbeaver"}],"providers":[{"dependency":"java-runtime","chosen":{"repo":"extra","name":"jre-openjdk"}}],"transaction":[{"repo":"extra","name":"jre-openjdk","version":"25-1"},{"repo":"extra","name":"dbeaver","version":"25.2.1-1"}]}}}"#
+        );
+        // The helper accepts it, and works out the same summary.
+        let read = parse_request(&made.json).unwrap();
+        assert_eq!(tidewise_helper_protocol::summary(&read), made.summary);
     }
 
     #[test]
