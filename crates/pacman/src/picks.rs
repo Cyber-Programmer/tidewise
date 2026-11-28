@@ -6,6 +6,8 @@
 //! rule is pacman's call, and the callers ask it with a dry run. Shared libraries are the exception: a soname need
 //! (`libz.so=1-64`) is met only by a provider that carries the very same version.
 
+use std::collections::{HashMap, HashSet};
+
 use crate::{Comparison, Dependency, PackageDetails, PackageRef, VersionRule};
 use tidewise_names::is_valid_package_name;
 
@@ -182,52 +184,94 @@ pub fn real_choices<F: ChoiceFacts>(
 }
 
 /// Does `chosen` bring every one of `others` by itself? The rule of "update system and install", for the app and the
-/// root helper (golden rule 10; review 6.6 U-01).
+/// root helper (golden rule 10; reviews 6.6 U-01 and V-01).
 ///
-/// "By itself" means: reachable from `chosen` through dependencies that name a listed package exactly, with no version
-/// rule or an `=` that the listed version meets. pacman has nothing to choose for such a dependency. Everything else
-/// is not followed, and so refuses: a name no listed package has (virtual), any other version rule (comparing versions
-/// is pacman's work). A package in the chain without a `-Si` record refuses too.
+/// "By itself" means: reachable from `chosen` through dependencies that pacman has to meet with the one package they
+/// name. A dependency is followed only when
+/// - it names a listed package exactly, with no version rule or an `=` that the listed version meets (comparing other
+///   versions is pacman's work), and
+/// - no other listed package provides that name, and
+/// - nothing installed meets it (`installed_meets`, `pacman -T`).
+///
+/// With either of the last two, pacman does not pull the named package for this dependency: it is in the list for
+/// some other reason, which may be a provider pacman chose by itself (V-01).
+///
+/// A listed package without a `-Si` record refuses: nothing is known about what it provides.
 ///
 /// No dry run: on a stale system `pacman -S` of one package can fail with "breaks dependency", although the update
-/// with that package is fine. `-Si` of the listed packages says all this rule needs.
+/// with that package is fine.
 pub fn brought_by_name<'a, E>(
     chosen: &PackageRef,
     others: &[&PackageRef],
     listed: &[PackageRef],
     details_of: impl Fn(&PackageRef) -> Option<&'a PackageDetails>,
-    // Not asked yet.
-    _installed_meets: impl FnMut(&Dependency) -> Result<bool, E>,
+    mut installed_meets: impl FnMut(&Dependency) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    // Every package is walked once, so a dependency cycle ends.
-    let mut reached: Vec<&PackageRef> = vec![chosen];
-    let mut next = 0;
-    while let Some(&package) = reached.get(next) {
-        next += 1;
+    // Looked up once for the whole list, so the walk below does not search it again for every dependency (V-03).
+    // A transaction holds one package of a name.
+    let mut by_name: HashMap<&str, (&PackageRef, &PackageDetails)> = HashMap::new();
+    let mut providers: HashMap<&str, Vec<&str>> = HashMap::new();
+    for package in listed {
         let Some(details) = details_of(package) else {
             return Ok(false);
         };
-        for dependency in &details.depends_on {
-            let Some(named) = listed.iter().find(|p| p.name == dependency.name) else {
-                continue;
-            };
-            if reached.contains(&named) {
-                continue;
-            }
-            if let Some(rule) = &dependency.rule {
-                let Some(there) = details_of(named) else {
-                    return Ok(false);
-                };
-                if rule.comparison != Comparison::Equal
-                    || !is_that_version(&rule.version, &there.version)
-                {
-                    continue;
-                }
-            }
-            reached.push(named);
+        by_name.insert(&package.name, (package, details));
+        for provided in &details.provides {
+            providers
+                .entry(&provided.name)
+                .or_default()
+                .push(&package.name);
         }
     }
-    Ok(others.iter().all(|other| reached.contains(other)))
+    let is_listed = |package: &PackageRef| {
+        by_name
+            .get(package.name.as_str())
+            .is_some_and(|(found, _)| *found == package)
+    };
+    if !is_listed(chosen) || !others.iter().all(|other| is_listed(other)) {
+        return Ok(false);
+    }
+
+    let mut missing: HashSet<&str> = others.iter().map(|other| other.name.as_str()).collect();
+    missing.remove(chosen.name.as_str());
+    // Every package is walked once, so a dependency cycle ends.
+    let mut reached: HashSet<&str> = HashSet::from([chosen.name.as_str()]);
+    let mut queue: Vec<&str> = vec![chosen.name.as_str()];
+    let mut next = 0;
+    while !missing.is_empty() {
+        let Some(&name) = queue.get(next) else {
+            break;
+        };
+        next += 1;
+        let Some((_, details)) = by_name.get(name) else {
+            continue;
+        };
+        for dependency in &details.depends_on {
+            let name = dependency.name.as_str();
+            let Some((named, there)) = by_name.get(name) else {
+                continue;
+            };
+            if reached.contains(name) {
+                continue;
+            }
+            if let Some(rule) = &dependency.rule
+                && (rule.comparison != Comparison::Equal
+                    || !is_that_version(&rule.version, &there.version))
+            {
+                continue;
+            }
+            let provided_elsewhere = providers
+                .get(name)
+                .is_some_and(|who| who.iter().any(|provider| *provider != named.name));
+            if provided_elsewhere || installed_meets(dependency)? {
+                continue;
+            }
+            reached.insert(&named.name);
+            queue.push(&named.name);
+            missing.remove(name);
+        }
+    }
+    Ok(missing.is_empty())
 }
 
 /// `=` without a pkgrel (`=2.0`) is met by every pkgrel of that version.
