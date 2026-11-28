@@ -211,6 +211,7 @@ fn row(item: &PlanItem) -> ReviewRow {
             format_size(item.download_size)
         },
         bold: false,
+        expander: None,
     }
 }
 

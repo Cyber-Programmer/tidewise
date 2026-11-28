@@ -27,6 +27,12 @@ pub fn utc_timestamp(time: SystemTime) -> String {
     )
 }
 
+/// `14 Oct` (UTC): how a card names the day of the package lists.
+pub fn day_and_month(_time: SystemTime) -> String {
+    // Stub.
+    String::new()
+}
+
 /// The calendar date (year, month, day) that is `days` days after 1970-01-01.
 ///
 /// Integer maths only (Howard Hinnant's "civil from days"). Years are counted from 1 March, so the leap
@@ -61,6 +67,14 @@ mod tests {
     }
 
     const DAY: u64 = 86_400;
+
+    #[test]
+    fn a_day_is_its_number_and_short_month() {
+        // 2026-10-14 08:12:03 UTC, 2026-01-01, and a leap day.
+        assert_eq!(day_and_month(at(1_791_965_523)), "14 Oct");
+        assert_eq!(day_and_month(at(1_767_225_600)), "1 Jan");
+        assert_eq!(day_and_month(at(1_835_395_200)), "29 Feb");
+    }
 
     #[test]
     fn the_same_moment_is_zero_days_old() {

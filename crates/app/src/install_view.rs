@@ -106,6 +106,8 @@ pub struct ReviewRow {
     pub size: String,
     /// The user asked for it or picked it.
     pub bold: bool,
+    /// `Some` for the one row that is a button, "System update · N packages": whether its rows are shown below it.
+    pub expander: Option<bool>,
 }
 
 /// Which element takes the keyboard focus when a card appears.
@@ -165,6 +167,12 @@ pub struct InstallView {
     pub tiles: Vec<TileView>,
     /// The review's list, in pacman's order.
     pub rows: Vec<ReviewRow>,
+    /// Lines above the review's list: changed lists, Arch news.
+    pub notes: Vec<String>,
+    /// What `IgnorePkg` holds back from the system update (update and install only); empty when nothing is.
+    pub held_title: String,
+    pub held_lines: Vec<String>,
+    pub held_warning: String,
     /// A line under the buttons that says why the primary one is off, or empty.
     pub primary_note: String,
     /// Behind the "Technical details" toggle.
@@ -742,6 +750,7 @@ fn review_row(model: &InstallModel, item: &PlanItem) -> ReviewRow {
             format_size(item.download_size)
         },
         bold: asked || picked,
+        expander: None,
     }
 }
 
@@ -957,11 +966,13 @@ fn technical_line(blocker: &Blocker) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::install_model::WorkAnswer;
+    use crate::install_model::{Waiting, WorkAnswer};
+    use crate::update_check::SystemCheck;
+    use crate::update_words::{LISTS_CHANGED, NEWS_LINE, RESTART_LINE, UpdateBlock, block_words};
     use tidewise_helper_protocol::{Details, Event, Progress};
     use tidewise_pacman::{
         Blocker, Candidate, GroupChoice, InstallDecision, InstallPlan, PackageRef, PacmanError,
-        PlanItem, Question, Resolution, Role,
+        PendingUpdate, PlanItem, Question, Resolution, Role, UpdateLookup, UpdatePlan,
     };
 
     fn pkg(name: &str) -> PackageRef {
@@ -1136,34 +1147,6 @@ mod tests {
                 button("Install extra/jack2", true).unwrap(),
                 button("Install extra-testing/jack2", true).unwrap()
             ]
-        );
-    }
-
-    #[test]
-    fn the_stale_card_leads_to_the_update_screen() {
-        let mut model = InstallModel::new();
-        let ticket = model.open(pkg("dbeaver")).unwrap();
-        model.done(
-            ticket.number,
-            Ok(WorkAnswer::MustUpdate(crate::install_model::Waiting {
-                count: 3,
-                lists_from: None,
-            })),
-        );
-        let view = install_view(&model);
-        assert_eq!(view.kind, CardKind::Stale);
-        assert_eq!(view.title_before, "Your system needs updating first");
-        assert_eq!(
-            view.body,
-            "Arch only supports adding apps to an up-to-date system. \
-             Installing dbeaver alone could break other apps."
-        );
-        assert_eq!(view.primary, button("Update system", true));
-        assert_eq!(view.secondary, button("Back to details", true));
-        assert_eq!(
-            view.hint,
-            "Tidewise can't update and install in one go yet. Update your system first, then \
-             install dbeaver."
         );
     }
 
@@ -1643,6 +1626,7 @@ mod tests {
             why: why.to_string(),
             size: size.to_string(),
             bold,
+            expander: None,
         }
     }
 
@@ -2376,5 +2360,320 @@ mod tests {
         assert!(model.job_running());
         model.job_ended(number, JobEnd::PromptClosed);
         assert!(!model.job_running());
+    }
+
+    // ---- update system and install (WBS 6.6; words of the board M2InstallFlow) -----------------------------------
+
+    fn waiting_card(waiting: Waiting) -> InstallModel {
+        let mut model = InstallModel::new();
+        let ticket = model.open(pkg("dbeaver")).unwrap();
+        model.done(ticket.number, Ok(WorkAnswer::MustUpdate(waiting)));
+        model
+    }
+
+    fn on_14_oct() -> Waiting {
+        Waiting {
+            count: 143,
+            lists_from: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_791_965_523)),
+        }
+    }
+
+    fn part(name: &str, role: Role, old: Option<&str>, download: u64) -> PlanItem {
+        PlanItem {
+            package: pkg(name),
+            version: "2-1".to_string(),
+            role,
+            installed_version: old.map(str::to_string),
+            download_size: download,
+            installed_size: 2048,
+            installed_size_text: String::new(),
+            current_size: old.map(|_| 1024),
+        }
+    }
+
+    /// `linux` is upgraded and `libnew` comes with the update; `dbeaver` is installed.
+    fn both_plan() -> InstallPlan {
+        let mut plan = plan(0);
+        plan.decision = InstallDecision::MustUpdateSystem {
+            count: 1,
+            ignored: 0,
+        };
+        plan.items = vec![
+            part("linux", Role::Update, Some("1-1"), 3 * 1024 * 1024),
+            part("libnew", Role::Dependency, None, 1024 * 1024),
+            part("dbeaver", Role::Target, None, 2048),
+        ];
+        plan
+    }
+
+    fn system_plan(held: bool) -> UpdatePlan {
+        UpdatePlan {
+            items: vec![
+                part("linux", Role::Update, Some("1-1"), 3 * 1024 * 1024),
+                part("libnew", Role::Dependency, None, 1024 * 1024),
+            ],
+            held_back: if held {
+                vec![PendingUpdate {
+                    name: "linux-lts".to_string(),
+                    installed_version: "6.1-1".to_string(),
+                    new_version: "6.2-1".to_string(),
+                    ignored: true,
+                }]
+            } else {
+                Vec::new()
+            },
+            ..UpdatePlan::default()
+        }
+    }
+
+    fn accepted_with(lookup: UpdateLookup, resolution: Option<Resolution>) -> InstallModel {
+        let mut model = waiting_card(on_14_oct());
+        let ticket = model.update_and_install().unwrap();
+        let check = SystemCheck {
+            lookup,
+            note: None,
+            dbpath: None,
+            resolution,
+        };
+        model.done(ticket.number, Ok(WorkAnswer::System(Box::new(check))));
+        model
+    }
+
+    fn both_review(held: bool) -> InstallModel {
+        accepted_with(
+            UpdateLookup::Plan(Box::new(system_plan(held))),
+            Some(Resolution::Ready(both_plan())),
+        )
+    }
+
+    #[test]
+    fn the_stale_card_offers_to_update_and_install() {
+        let view = install_view(&waiting_card(on_14_oct()));
+        assert_eq!(view.kind, CardKind::Stale);
+        assert_eq!(view.title_before, "Your system needs updating first");
+        assert_eq!(
+            view.body,
+            "Arch only supports adding apps to an up-to-date system. dbeaver from today's repositories may need \
+             newer libraries than the ones you have, and installing it alone could break other apps. Tidewise \
+             updates everything and installs dbeaver in one go: one review, one password."
+        );
+        let tile = |label: &str, number: &str| TileView {
+            label: label.to_string(),
+            number: number.to_string(),
+            ..TileView::default()
+        };
+        assert_eq!(
+            view.tiles,
+            [
+                tile("Updates waiting", "143"),
+                tile("Package lists from", "14 Oct")
+            ]
+        );
+        assert_eq!(
+            view.primary,
+            button("Update system and install dbeaver", true)
+        );
+        assert_eq!(view.secondary, button("Back to details", true));
+        assert_eq!(
+            view.hint,
+            "Why Arch works this way: wiki.archlinux.org/title/System_maintenance"
+        );
+        assert_eq!(
+            view.unchanged,
+            "Nothing has changed yet. You'll see the full list before anything is installed."
+        );
+        // Without a known date there is no date tile.
+        let view = install_view(&waiting_card(Waiting {
+            count: 1,
+            lists_from: None,
+        }));
+        assert_eq!(view.tiles, [tile("Updates waiting", "1")]);
+    }
+
+    #[test]
+    fn the_first_step_says_it_gets_todays_lists() {
+        let mut model = waiting_card(on_14_oct());
+        model.update_and_install();
+        let view = install_view(&model);
+        assert_eq!(view.kind, CardKind::Working);
+        assert_eq!(view.title_before, "Getting today's package lists…");
+        assert_eq!(
+            view.body,
+            "Into a private copy, without your password: your system isn't touched until you confirm."
+        );
+        assert_eq!(view.secondary, button("Cancel", true));
+    }
+
+    #[test]
+    fn the_review_has_one_closed_system_update_row_above_the_install_rows() {
+        let view = install_view(&both_review(false));
+        assert_eq!(view.kind, CardKind::Review);
+        assert_eq!(
+            view.title_before,
+            "Review: update the system and install dbeaver"
+        );
+        assert_eq!(
+            view.body,
+            "Nothing will be removed. This is the exact list pacman would install."
+        );
+        assert_eq!(view.notes, [NEWS_LINE]);
+        assert_eq!(view.primary, button("Update and install", true));
+        assert_eq!(view.hint, "Your desktop asks for your password once.");
+        assert_eq!(view.held_title, "");
+        let header = &view.rows[0];
+        assert_eq!(
+            header.name,
+            "System update · 2 packages upgraded to today's versions"
+        );
+        assert_eq!(header.size, "4.00 MiB");
+        assert_eq!(header.expander, Some(false));
+        let rest: Vec<&str> = view.rows[1..].iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(rest, ["dbeaver"]);
+        // The figures and the technical details count the whole transaction.
+        assert_eq!(view.tiles[0].number, "3");
+        assert!(view.technical.iter().any(|l| l.starts_with("extra/linux ")));
+    }
+
+    #[test]
+    fn opening_the_system_update_row_shows_every_update_in_the_6_5_words() {
+        let mut model = both_review(false);
+        model.toggle_system_rows();
+        let view = install_view(&model);
+        assert_eq!(view.rows[0].expander, Some(true));
+        let shown: Vec<(&str, &str, &str, &str)> = view.rows[1..]
+            .iter()
+            .map(|r| {
+                (
+                    r.name.as_str(),
+                    r.version.as_str(),
+                    r.why.as_str(),
+                    r.size.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown[..2],
+            [
+                (
+                    "linux",
+                    "1-1 → 2-1",
+                    "Update, +1.00 KiB on disk",
+                    "3.00 MiB"
+                ),
+                ("libnew", "2-1", "New, +2.00 KiB on disk", "1.00 MiB"),
+            ]
+        );
+        assert_eq!(shown.len(), 3);
+        assert_eq!(shown[2].0, "dbeaver");
+    }
+
+    #[test]
+    fn what_is_held_back_is_shown_as_on_the_update_screen() {
+        let view = install_view(&both_review(true));
+        assert_eq!(view.held_title, "Held back by your pacman.conf");
+        assert_eq!(view.held_lines, ["linux-lts 6.1-1 → 6.2-1, not updated."]);
+        assert_eq!(
+            view.held_warning,
+            "A held package can stop other updates from working."
+        );
+    }
+
+    #[test]
+    fn one_update_is_counted_in_the_singular() {
+        let mut system = system_plan(false);
+        system.items.truncate(1);
+        let mut plan = both_plan();
+        plan.items.remove(1);
+        let model = accepted_with(
+            UpdateLookup::Plan(Box::new(system)),
+            Some(Resolution::Ready(plan)),
+        );
+        assert_eq!(
+            install_view(&model).rows[0].name,
+            "System update · 1 package upgraded to today's versions"
+        );
+    }
+
+    #[test]
+    fn changed_lists_are_said_above_the_review() {
+        let mut model = both_review(false);
+        let job = model.start_install().unwrap();
+        model.job_ended(
+            job.number,
+            JobEnd::Finished(Outcome::Error(ErrorKind::TransactionChanged)),
+        );
+        let ticket = model.take_follow_up().unwrap();
+        let check = SystemCheck {
+            lookup: UpdateLookup::Plan(Box::new(system_plan(false))),
+            note: None,
+            dbpath: None,
+            resolution: Some(Resolution::Ready(both_plan())),
+        };
+        model.done(ticket.number, Ok(WorkAnswer::System(Box::new(check))));
+        assert_eq!(install_view(&model).notes, [LISTS_CHANGED, NEWS_LINE]);
+    }
+
+    #[test]
+    fn a_blocked_system_update_says_why_in_the_update_screens_words() {
+        let held = tidewise_pacman::HeldBlock {
+            package: "a".to_string(),
+            held: "b".to_string(),
+        };
+        let words = block_words(&UpdateBlock::Held(held.clone()));
+        let view = install_view(&accepted_with(UpdateLookup::HeldBlock(held), None));
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(view.title_before, words.title);
+        assert_eq!(view.body, words.body);
+        assert_eq!(view.primary, button("Check again", true));
+        assert_eq!(view.secondary, button("Back to details", true));
+        assert_eq!(view.unchanged, UNCHANGED);
+    }
+
+    #[test]
+    fn a_replacement_the_install_brings_blocks_with_the_same_words() {
+        let replacement = tidewise_pacman::Replacement {
+            new: pkg("newfoo"),
+            old: "oldfoo".to_string(),
+        };
+        let words = block_words(&UpdateBlock::Replacement(vec![replacement.clone()]));
+        let view = install_view(&accepted_with(
+            UpdateLookup::Plan(Box::new(system_plan(false))),
+            Some(Resolution::Blocked(vec![Blocker::Replacement(vec![
+                replacement,
+            ])])),
+        ));
+        assert_eq!(view.kind, CardKind::Alert);
+        assert_eq!(view.title_before, words.title);
+        assert_eq!(view.hint, words.advice);
+        assert_eq!(view.technical, ["extra/newfoo replaces oldfoo"]);
+    }
+
+    #[test]
+    fn the_job_uses_the_update_words_and_the_done_card_says_both() {
+        let mut model = both_review(false);
+        let job = model.start_install().unwrap();
+        model.job_event(
+            job.number,
+            Event::Progress(Progress {
+                phase: Stage::Installing,
+                current: 2,
+                total: 3,
+            }),
+        );
+        let view = install_view(&model);
+        assert_eq!(view.heading, "Installing dbeaver");
+        assert_eq!(view.title_before, "Updating 2 of 3");
+        assert_eq!(view.stages[2].label, "Updating");
+        assert_eq!(
+            view.hint,
+            "Updating can't be stopped halfway. Keep Tidewise open until it's done."
+        );
+        model.job_ended(job.number, JobEnd::Finished(Outcome::Ok));
+        let view = install_view(&model);
+        assert_eq!(view.title_before, "dbeaver is installed");
+        assert_eq!(
+            view.body,
+            format!("Your system is up to date and dbeaver is ready.\n{RESTART_LINE}")
+        );
     }
 }
