@@ -46,12 +46,15 @@ impl Job {
     }
 }
 
-/// The dialog when the window is closed during a job.
-pub const CLOSE_WARNING: &str =
-    "The update keeps running if you close Tidewise. Keep it open until it's done.";
 /// What to ask before closing the window, naming the running job. `None`: nothing is running, close at once.
 pub fn close_warning(installing: bool, updating: bool) -> Option<&'static str> {
-    (installing || updating).then_some(CLOSE_WARNING)
+    if updating {
+        Some("The update keeps running if you close Tidewise. Keep it open until it's done.")
+    } else if installing {
+        Some("The install keeps running if you close Tidewise. Keep it open until it's done.")
+    } else {
+        None
+    }
 }
 
 pub const KEEP_OPEN: &str = "Keep open";
