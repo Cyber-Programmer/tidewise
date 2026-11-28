@@ -5,13 +5,20 @@
 use crate::error_words::{Doing, error_text, error_view};
 use crate::failure_words::{DOWNLOAD_FAILED, download_failure, notice_line, refusal_text};
 use crate::helper_run::JobEnd;
-use crate::install_model::{Draft, InstallModel, Phase, Step};
+use crate::install_model::{Draft, InstallModel, Phase, Step, SystemPart};
 use crate::job::{Job, JobFailure};
 use crate::size_text::{format_size, split_size};
 use crate::update_check::ListsNote;
+use crate::update_view::{self, UpdateView};
+use crate::update_words::{
+    HELD_TITLE, HELD_WARNING, LISTS_CHANGED, NEWS_LINE, RESTART_LINE, UpdateBlock, block_words,
+    held_line,
+};
+use std::collections::HashSet;
+use tidewise_core::age::day_and_month;
 use tidewise_helper_protocol::{ErrorKind, Notice, Outcome, Phase as Stage};
 use tidewise_pacman::{
-    Blocker, InstallPlan, NotFresh, PackageRef, PacmanError, PlanItem, Question, Role,
+    Blocker, InstallPlan, NotFresh, PackageRef, PacmanError, PlanItem, Question, Replacement, Role,
 };
 
 const UNCHANGED: &str = "Nothing was installed and nothing on your system changed.";
@@ -207,8 +214,16 @@ pub fn install_view(model: &InstallModel) -> InstallView {
         Phase::Closed => {}
         Phase::Working => {
             view.kind = CardKind::Working;
-            view.title_before = format!("Working out what {label} needs…");
-            view.body = "Asking pacman for a dry run. Nothing is installed yet.".to_string();
+            if model.is_updating() && model.system().is_none() {
+                view.title_before = "Getting today's package lists…".to_string();
+                view.body =
+                    "Into a private copy, without your password: your system isn't touched until \
+                             you confirm."
+                        .to_string();
+            } else {
+                view.title_before = format!("Working out what {label} needs…");
+                view.body = "Asking pacman for a dry run. Nothing is installed yet.".to_string();
+            }
             if model.is_slow() {
                 view.slow_note = "This is taking longer than usual.".to_string();
             }
@@ -219,23 +234,9 @@ pub fn install_view(model: &InstallModel) -> InstallView {
                 asking(&mut view, model, step, &label);
             }
         }
-        Phase::Stale => {
-            view.kind = CardKind::Stale;
-            view.title_before = "Your system needs updating first".to_string();
-            view.body = format!(
-                "Arch only supports adding apps to an up-to-date system. \
-                 Installing {label} alone could break other apps."
-            );
-            view.primary = button("Update system", true);
-            view.secondary = button(back_label(model), true);
-            view.hint = format!(
-                "Tidewise can't update and install in one go yet. Update your system first, then \
-                 install {label}."
-            );
-        }
+        Phase::Stale => stale(&mut view, model, &label),
+        Phase::SystemBlocked(block) => system_blocked(&mut view, model, block),
         Phase::Blocked(blockers) => blocked(&mut view, model, blockers),
-        // Stub: worded with the other update-and-install cards.
-        Phase::SystemBlocked(_) => {}
         Phase::Failed { text, can_retry } => {
             view.kind = CardKind::Alert;
             view.title_before.clone_from(&text.title);
@@ -248,8 +249,16 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             }
             view.secondary = button(back_label(model), true);
         }
-        Phase::Ready(plan) => review(&mut view, model, plan, &label),
-        Phase::Installing(running) => progress(&mut view, &running.job, &label),
+        Phase::Ready(plan) => match model.system() {
+            Some(part) => update_review(&mut view, model, plan, part, &label),
+            None => review(&mut view, model, plan, &label),
+        },
+        Phase::Installing(running) => {
+            progress(&mut view, &running.job, &label);
+            if model.is_updating() {
+                update_words_for_the_job(&mut view, &running.job);
+            }
+        }
         Phase::Installed { notices } => installed(&mut view, model, notices, &label),
         Phase::InstallFailed(failure) => {
             install_failed(&mut view, failure, &label, model.listed());
@@ -338,6 +347,135 @@ fn back_label(model: &InstallModel) -> &'static str {
     } else {
         "Back"
     }
+}
+
+const WHY_ARCH: &str = "Why Arch works this way: wiki.archlinux.org/title/System_maintenance";
+
+/// "Your system needs updating first" (board M2InstallFlow).
+fn stale(view: &mut InstallView, model: &InstallModel, label: &str) {
+    view.kind = CardKind::Stale;
+    view.title_before = "Your system needs updating first".to_string();
+    view.body = format!(
+        "Arch only supports adding apps to an up-to-date system. {label} from today's repositories may need \
+         newer libraries than the ones you have, and installing it alone could break other apps. Tidewise \
+         updates everything and installs {label} in one go: one review, one password."
+    );
+    if let Some(waiting) = model.waiting() {
+        let tile = |name: &str, number: String| TileView {
+            label: name.to_string(),
+            number,
+            ..TileView::default()
+        };
+        view.tiles = vec![tile("Updates waiting", waiting.count.to_string())];
+        if let Some(from) = waiting.lists_from {
+            view.tiles
+                .push(tile("Package lists from", day_and_month(from)));
+        }
+    }
+    view.primary = button(&format!("Update system and install {label}"), true);
+    view.secondary = button(back_label(model), true);
+    view.hint = WHY_ARCH.to_string();
+    view.unchanged =
+        "Nothing has changed yet. You'll see the full list before anything is installed."
+            .to_string();
+}
+
+/// The system update of "update and install" cannot go ahead: the update screen's words.
+fn system_blocked(view: &mut InstallView, model: &InstallModel, block: &UpdateBlock) {
+    let words = block_words(block);
+    view.kind = CardKind::Alert;
+    view.title_before = words.title;
+    view.body = words.body;
+    view.hint = words.advice;
+    if let UpdateBlock::Replacement(replacements) = block {
+        view.technical = replacements.iter().map(replacement_line).collect();
+    }
+    view.unchanged = UNCHANGED.to_string();
+    view.primary = button("Check again", true);
+    view.secondary = button(back_label(model), true);
+}
+
+fn replacement_line(replacement: &Replacement) -> String {
+    format!("{} replaces {}", spec(&replacement.new), replacement.old)
+}
+
+/// The review of "update system and install": one "System update" row, closed until pressed, then the install's
+/// own rows. Every line of the transaction is in exactly one of the two.
+fn update_review(
+    view: &mut InstallView,
+    model: &InstallModel,
+    plan: &InstallPlan,
+    part: &SystemPart,
+    label: &str,
+) {
+    review(view, model, plan, label);
+    view.title_before = format!("Review: update the system and install {label}");
+    view.primary = button("Update and install", true);
+
+    let brought: HashSet<&str> = part
+        .plan
+        .items
+        .iter()
+        .map(|item| item.package.name.as_str())
+        .collect();
+    let of_the_update = |item: &PlanItem| match item.role {
+        Role::Update => true,
+        Role::Dependency => brought.contains(item.package.name.as_str()),
+        Role::Target | Role::Provider => false,
+    };
+    let (system, install): (Vec<&PlanItem>, Vec<&PlanItem>) =
+        plan.items.iter().partition(|item| of_the_update(item));
+
+    view.rows.clear();
+    if !system.is_empty() {
+        let download: u64 = system.iter().map(|item| item.download_size).sum();
+        let noun = if system.len() == 1 {
+            "package"
+        } else {
+            "packages"
+        };
+        let open = model.system_rows_open();
+        view.rows.push(ReviewRow {
+            name: format!(
+                "System update · {} {noun} upgraded to today's versions",
+                system.len()
+            ),
+            size: if download == 0 {
+                "Already downloaded".to_string()
+            } else {
+                format_size(download)
+            },
+            bold: true,
+            expander: Some(open),
+            ..ReviewRow::default()
+        });
+        if open {
+            view.rows
+                .extend(system.iter().map(|item| update_view::row(item)));
+        }
+    }
+    view.rows
+        .extend(install.iter().map(|item| review_row(model, item)));
+
+    if model.lists_changed() {
+        view.notes.push(LISTS_CHANGED.to_string());
+    }
+    view.notes.push(NEWS_LINE.to_string());
+    if !part.plan.held_back.is_empty() {
+        view.held_title = HELD_TITLE.to_string();
+        view.held_lines = part.plan.held_back.iter().map(held_line).collect();
+        view.held_warning = HELD_WARNING.to_string();
+    }
+}
+
+/// While the job runs, the update screen's words for its stages (board M4UpdateSystem).
+fn update_words_for_the_job(view: &mut InstallView, job: &Job) {
+    let mut update = UpdateView::default();
+    update_view::progress(&mut update, job);
+    view.title_before = update.title;
+    view.body = update.body;
+    view.stages = update.stages;
+    view.hint = update.hint;
 }
 
 fn asking(view: &mut InstallView, model: &InstallModel, step: &Step, label: &str) {
@@ -626,7 +764,11 @@ fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], l
     .to_string();
     if notices.is_empty() {
         view.title_before = format!("{label} {is} installed");
-        view.body = format!("{label} {is} installed and ready to use.");
+        view.body = if model.is_updating() {
+            format!("Your system is up to date and {label} {is} ready.")
+        } else {
+            format!("{label} {is} installed and ready to use.")
+        };
     } else {
         view.title_before = "The install finished".to_string();
         view.body = notices
@@ -634,6 +776,10 @@ fn installed(view: &mut InstallView, model: &InstallModel, notices: &[Notice], l
             .map(|notice| notice_line(notice, model.listed()))
             .collect::<Vec<_>>()
             .join("\n");
+    }
+    if model.restart_wanted() {
+        view.body.push('\n');
+        view.body.push_str(RESTART_LINE);
     }
     if !request.targets.is_empty() {
         view.primary = button("Show in Apps", true);
@@ -919,8 +1065,13 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                 })
                 .collect();
         }
-        // Stub: worded with the other update-and-install cards.
-        Some(Blocker::Replacement(_)) => {}
+        Some(Blocker::Replacement(replacements)) => {
+            let words = block_words(&UpdateBlock::Replacement(replacements.clone()));
+            view.title_before = words.title;
+            view.body = words.body;
+            view.hint = words.advice;
+            view.technical = replacements.iter().map(replacement_line).collect();
+        }
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -956,7 +1107,11 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::SonameChoice { dependency, .. } => {
             format!("{dependency}: several packages provide it")
         }
-        Blocker::Replacement(_) => String::new(),
+        Blocker::Replacement(replacements) => replacements
+            .iter()
+            .map(replacement_line)
+            .collect::<Vec<_>>()
+            .join(", "),
         Blocker::TwoVersionsNeeded { dependency } => {
             format!("{dependency}: needed at two versions")
         }
@@ -2193,7 +2348,7 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_that_updates_the_system_never_reaches_the_review_yet() {
+    fn a_plain_resolve_that_finds_updates_shows_the_stale_card_not_a_review() {
         let mut plan = plan_of(vec![item("zsh", Role::Update, 10, 20, Some(20))]);
         plan.decision = InstallDecision::MustUpdateSystem {
             count: 1,
@@ -2201,7 +2356,8 @@ mod tests {
         };
         let view = install_view(&answered("dbeaver", Resolution::Ready(plan)));
         assert_eq!(view.kind, CardKind::Stale);
-        assert!(view.rows.is_empty() && view.tiles.is_empty());
+        assert!(view.rows.is_empty());
+        assert_eq!(view.tiles.len(), 1, "only the count of updates waiting");
     }
 
     #[test]
@@ -2525,7 +2681,7 @@ mod tests {
             header.name,
             "System update · 2 packages upgraded to today's versions"
         );
-        assert_eq!(header.size, "4.00 MiB");
+        assert_eq!(header.size, "4.2 MB");
         assert_eq!(header.expander, Some(false));
         let rest: Vec<&str> = view.rows[1..].iter().map(|r| r.name.as_str()).collect();
         assert_eq!(rest, ["dbeaver"]);
@@ -2554,13 +2710,8 @@ mod tests {
         assert_eq!(
             shown[..2],
             [
-                (
-                    "linux",
-                    "1-1 → 2-1",
-                    "Update, +1.00 KiB on disk",
-                    "3.00 MiB"
-                ),
-                ("libnew", "2-1", "New, +2.00 KiB on disk", "1.00 MiB"),
+                ("linux", "1-1 → 2-1", "Update, +1 kB on disk", "3.1 MB"),
+                ("libnew", "2-1", "New, +2 kB on disk", "1.0 MB"),
             ]
         );
         assert_eq!(shown.len(), 3);

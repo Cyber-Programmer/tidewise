@@ -184,7 +184,7 @@ fn review(view: &mut UpdateView, model: &UpdateModel, plan: &UpdatePlan) {
     }
 }
 
-fn row(item: &PlanItem) -> ReviewRow {
+pub(crate) fn row(item: &PlanItem) -> ReviewRow {
     let version = match &item.installed_version {
         Some(old) => format!("{old} → {}", item.version),
         None => item.version.clone(),
@@ -224,7 +224,7 @@ const STAGES: [(Stage, &str); 4] = [
 ];
 
 /// The running job. There is no button: nothing here can stop it.
-fn progress(view: &mut UpdateView, job: &Job) {
+pub(crate) fn progress(view: &mut UpdateView, job: &Job) {
     view.kind = UpdateKind::Progress;
     let now = job.progress.and_then(|progress| {
         STAGES

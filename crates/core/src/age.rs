@@ -28,9 +28,20 @@ pub fn utc_timestamp(time: SystemTime) -> String {
 }
 
 /// `14 Oct` (UTC): how a card names the day of the package lists.
-pub fn day_and_month(_time: SystemTime) -> String {
-    // Stub.
-    String::new()
+pub fn day_and_month(time: SystemTime) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let seconds = time
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since_epoch| since_epoch.as_secs());
+    let (_, month, day) = civil_date(seconds / SECONDS_PER_DAY);
+    let name = usize::try_from(month.saturating_sub(1))
+        .ok()
+        .and_then(|index| MONTHS.get(index))
+        .copied()
+        .unwrap_or("");
+    format!("{day} {name}")
 }
 
 /// The calendar date (year, month, day) that is `days` days after 1970-01-01.
