@@ -1843,3 +1843,17 @@ Do it on the final commit. **Do not log out, reboot or suspend during a job** (t
     "Couldn't get newer ones"; after the password, the download failure card, and `pacman -Q` unchanged.
 12. Back to how it was: `sudo pacman -Rns {name}` (the list must be only it and what came for it), then
     `sudo pacman -Rns tidewise` (only `tidewise`), `rm -r ~/tidewise-build ~/before.txt ~/before.log`.
+
+## 2026-11-28 — 6.6 decisions: U-01 measured, lists age, 6.20
+Done:
+- **U-01: the proposed rule does not hold** (measured; table in the 6.6 review). It refuses the U-01 reproduction
+  itself, because `-Su targets` already picks pacman's default. Nothing built; waiting for your decision.
+- "Package lists from today / 1 day ago / N days ago" (red `test(app): the stale card says how old...`, then
+  `3783220`). `day_and_month` removed again.
+- U-02 and U-03 recorded as WBS 6.20 (before v0.1) in the review file and threat model 40.
+- **Checks** on `3783220`: `cargo test --all` 1379 passed, 0 failed, 173 ignored; fmt, clippy, `cargo deny`, release
+  build: exit 0. Fuzzing and container tests not rerun (app words only).
+Next: your decision on U-01; build it; re-run the review on the helper code; full `run.sh`; the manual checklist
+(step 4's lists tile now reads as an age).
+Blockers: U-01; the package container tests.
+Rules bent: no WBS sheet update (as asked): 6.20 is not in the sheet.
