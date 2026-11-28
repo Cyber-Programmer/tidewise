@@ -28,8 +28,9 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{
     ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
-    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, listed_replacements,
-    parse_qu, parse_si, parse_ss, provider_picks, real_choices, unnamed_choices,
+    PendingUpdate, ProviderPick, RivalFacts, dependency_text, install_decision, is_soname,
+    listed_replacements, parse_qu, parse_si, parse_ss, provider_picks, real_choices,
+    unnamed_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -322,6 +323,13 @@ struct HelperFacts<'a> {
     /// An update (with or without targets) asks the private copy of the lists; a plain install the real ones, which
     /// it installs from.
     private: bool,
+}
+
+impl RivalFacts for HelperFacts<'_> {
+    fn compare(&mut self, _left: &str, _right: &str) -> Result<std::cmp::Ordering, ErrorKind> {
+        // Stub.
+        Ok(std::cmp::Ordering::Equal)
+    }
 }
 
 impl ChoiceFacts for HelperFacts<'_> {
@@ -2608,53 +2616,104 @@ mod tests {
         assert_only_the_strict_reads(&fake);
     }
 
+    /// `jre` provides the soname the target needs; the repository also has `rival` with its own provide.
+    /// `compared` are vercmp's answers, in the order asked.
+    fn soname_rival(need: &str, ours: &str, rival: &str, compared: &[&str]) -> (JobResult, Fake) {
+        let request = update_and_install(BOTH_LIST, &[]);
+        let mut more = vec![
+            ok(&found(&["jre", "rival"])),
+            ok(&format!(
+                "{}{}",
+                providing(&["jre"], ours),
+                providing(&["rival"], rival)
+            )),
+        ];
+        more.extend(compared.iter().map(|answer| ok(answer)));
+        run_both(
+            &request,
+            &[("vlc", "None", need), ("jre", ours, "None")],
+            more,
+        )
+    }
+
+    fn compare(left: &str, right: &str) -> PacmanCommand {
+        PacmanCommand::VerCmp(left.to_string(), right.to_string())
+    }
+
     #[test]
-    fn update_and_install_does_not_look_at_shared_library_versions() {
-        // W-01: pacman compares versions where the texts differ.
+    fn update_and_install_asks_vercmp_whether_a_rival_could_meet_the_need() {
+        // X-01: the 32-bit twin cannot (`vercmp 1-32 1-64` is -1), so nothing is a choice.
+        let (result, fake) = soname_rival(
+            "libeditor.so=1-64",
+            "libeditor.so=1-64",
+            "libeditor.so=1-32",
+            &["0\n", "-1\n"],
+        );
+        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+        assert!(
+            fake.ran.contains(&compare("1-32", "1-64")),
+            "{:?}",
+            fake.ran
+        );
+        assert_only_the_strict_reads(&fake);
+
+        // W-01: `>=1` is met by both.
+        let (result, fake) = soname_rival(
+            "libeditor.so>=1",
+            "libeditor.so=1-64",
+            "libeditor.so=1",
+            &["0\n", "0\n"],
+        );
+        assert_refused_with_the_lists_untouched(&result, &fake);
+    }
+
+    #[test]
+    fn update_and_install_refuses_when_vercmp_cannot_be_read() {
+        for answer in [out(1, "", "boom"), ok("yes\n"), ok(""), ok("0 0\n")] {
+            let request = update_and_install(BOTH_LIST, &[]);
+            let (result, fake) = run_both(
+                &request,
+                &[
+                    ("vlc", "None", "libeditor.so=1-64"),
+                    ("jre", "libeditor.so=1-64", "None"),
+                ],
+                vec![
+                    ok(&found(&["jre", "rival"])),
+                    ok(&providing(&["jre", "rival"], "libeditor.so=1-64")),
+                    answer,
+                ],
+            );
+            assert!(
+                matches!(result.outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+                "{:?}",
+                result.outcome
+            );
+            assert_eq!(fake.moved_after, None);
+        }
+    }
+
+    #[test]
+    fn update_and_install_refuses_when_a_found_package_has_no_record() {
+        // X-05: the search names `rival`, `-Si` says nothing about it.
         let request = update_and_install(BOTH_LIST, &[]);
         let (result, fake) = run_both(
             &request,
             &[
-                ("vlc", "None", "libeditor.so>=1"),
-                ("jre", "libeditor.so=1-64", "None"),
-            ],
-            repository_has(&["jre", "other-lib"], "libeditor.so=1"),
-        );
-        assert_refused_with_the_lists_untouched(&result, &fake);
-        assert_only_the_strict_reads(&fake);
-    }
-
-    #[test]
-    fn update_and_install_with_the_provider_named_runs_and_marks_it() {
-        let request = update_and_install(BOTH_LIST, &[("java-runtime", "jre")]);
-        let (result, fake) = run_both(
-            &request,
-            &[
                 ("vlc", "None", "java-runtime"),
                 ("jre", "java-runtime", "None"),
             ],
-            vec![],
+            vec![
+                ok(&found(&["jre", "rival"])),
+                ok(&providing(&["jre"], "java-runtime")),
+            ],
         );
-        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
         assert!(
+            matches!(result.outcome, Outcome::Error(ErrorKind::PacmanFailed(_))),
+            "{:?} {:?}",
+            result.outcome,
             fake.ran
-                .contains(&PacmanCommand::MarkAsDeps(vec![pkg("extra", "jre")]))
         );
-        assert_no_real_list_reads(&fake);
-    }
-
-    #[test]
-    fn update_and_install_refuses_an_answer_that_does_not_provide_its_name() {
-        let request = update_and_install(BOTH_LIST, &[("java-runtime", "glibc")]);
-        let (result, fake) = run_both(
-            &request,
-            &[
-                ("vlc", "None", "java-runtime"),
-                ("jre", "java-runtime", "None"),
-            ],
-            vec![],
-        );
-        assert_refused_with_the_lists_untouched(&result, &fake);
+        assert_eq!(fake.moved_after, None);
     }
 
     #[test]
@@ -2672,6 +2731,7 @@ mod tests {
             vec![
                 ok(&found(&["jre", "other-lib"])),
                 ok(&soname_providers(&["jre", "other-lib"])),
+                ok("0\n"),
             ],
         );
         assert_refused_with_the_lists_untouched(&result, &fake);

@@ -700,6 +700,11 @@ impl RealFacts<'_> {
 }
 
 impl Facts for RealFacts<'_> {
+    fn vercmp(&self, _left: &str, _right: &str) -> Result<std::cmp::Ordering, PacmanError> {
+        // Stub.
+        Ok(std::cmp::Ordering::Equal)
+    }
+
     fn dry_run(&self, update: bool, targets: &[String]) -> Result<DryRun, PacmanError> {
         dry_run_from_output(&self.go(dry_run_args(update, targets))?)
     }

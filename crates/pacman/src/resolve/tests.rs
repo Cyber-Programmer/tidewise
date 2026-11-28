@@ -25,6 +25,8 @@ struct Pkg {
 
 #[derive(Default)]
 struct World {
+    /// Names a search finds but `-Si` has no record of.
+    unrecorded: Vec<String>,
     pkgs: Vec<Pkg>,
     /// (name, version, provides)
     installed: Vec<(String, String, Vec<String>)>,
@@ -230,7 +232,16 @@ fn to_dependency(text: &str) -> Dependency {
     }
 }
 
+/// The versions of this world are plain numbers, with or without a release.
+fn number(version: &str) -> u32 {
+    version.split(['-', '.']).next().unwrap().parse().unwrap()
+}
+
 impl Facts for World {
+    fn vercmp(&self, left: &str, right: &str) -> Result<std::cmp::Ordering, PacmanError> {
+        Ok(number(left).cmp(&number(right)))
+    }
+
     fn dry_run(&self, update: bool, targets: &[String]) -> Result<DryRun, PacmanError> {
         self.runs.borrow_mut().push((update, targets.to_vec()));
         let mut list = Vec::new();
@@ -290,11 +301,9 @@ impl Facts for World {
         let mut found = Vec::new();
         let mut not_found = Vec::new();
         for item in refs {
-            match self
-                .pkgs
-                .iter()
-                .find(|p| p.repo == item.repo && p.name == item.name)
-            {
+            match self.pkgs.iter().find(|p| {
+                p.repo == item.repo && p.name == item.name && !self.unrecorded.contains(&p.name)
+            }) {
                 Some(p) => found.push(PackageDetails {
                     repo: p.repo.to_string(),
                     name: p.name.clone(),
@@ -1012,6 +1021,9 @@ struct Scripted {
 }
 
 impl Facts for Scripted {
+    fn vercmp(&self, _left: &str, _right: &str) -> Result<std::cmp::Ordering, PacmanError> {
+        Ok(std::cmp::Ordering::Equal)
+    }
     fn dry_run(&self, _update: bool, _targets: &[String]) -> Result<DryRun, PacmanError> {
         Ok(DryRun::Listed(parse_print(self.print).unwrap()))
     }
@@ -1300,4 +1312,55 @@ fn a_candidate_whose_by_name_dependency_is_met_by_something_installed_does_not_f
 #[test]
 fn a_candidate_whose_by_name_dependency_another_listed_package_provides_does_not_fit() {
     assert_jre25_is_not_accepted(&jvm_world(&["jre-other"]));
+}
+
+// ---- update and install: rivals by version (reviews 6.6 X-01, X-03, X-05) ----------------------------------------
+
+#[test]
+fn a_provider_that_cannot_meet_the_need_does_not_block() {
+    // A library and its 32-bit twin.
+    let mut world = stale();
+    world
+        .add("lx", &["libx.so=64"], &[])
+        .add("lib32-lx", &["libx.so=32"], &[])
+        .add("needx", &[], &["libx.so=64"]);
+    plan(resolve_with(&want(&["needx"]), &world));
+}
+
+#[test]
+fn a_real_shared_library_choice_still_offers_each_candidate() {
+    let mut world = stale();
+    world
+        .add("jack2", &["libjack.so=0"], &[])
+        .add("pipewire-jack", &["libjack.so=0"], &[])
+        .add("needs-jack", &[], &["libjack.so=0"]);
+    let found = blockers(resolve_with(&want(&["needs-jack"]), &world));
+    assert!(
+        matches!(&found[..], [Blocker::SonameChoice { candidates, .. }] if candidates == &[pr("jack2"), pr("pipewire-jack")]),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn update_and_install_offers_only_providers_whose_version_fits() {
+    // X-03: `vprov-1` provides `vvirt=1`, which cannot meet `vvirt>=2`.
+    let asked = questions(resolve_with(&want(&["needs-vvirtual"]), &stale()));
+    let (_, candidates, _) = the_provider_question(&asked);
+    assert_eq!(candidates, ["vprov-2", "vprov-3"]);
+}
+
+#[test]
+fn update_and_install_refuses_when_a_package_has_no_record() {
+    // X-05: the helper refuses then, so the app must not show the list as ready.
+    let mut world = stale();
+    world
+        .add("lx", &["libx.so=64"], &[])
+        .add("ghost", &["libx.so=64"], &[])
+        .add("needx", &[], &["libx.so=64"]);
+    world.unrecorded.push("ghost".to_string());
+    let found = resolve_with(&want(&["needx"]), &world);
+    assert!(
+        matches!(found, Err(PacmanError::Inconsistent { .. })),
+        "{found:?}"
+    );
 }

@@ -140,7 +140,9 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::Search(_)
         | PacmanCommand::DepTest(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
-        PacmanCommand::PrivateSync
+        // Stub: given its limit in the green commit.
+        PacmanCommand::VerCmp(..)
+        | PacmanCommand::PrivateSync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
         | PacmanCommand::MarkAsDeps(_) => None,
@@ -204,6 +206,12 @@ impl PacmanRunner {
             lock_path: PathBuf::from(DATABASE_LOCK),
             lists: Lists::standard(),
         }
+    }
+
+    /// Which program runs this command.
+    fn program_for(&self, _command: &PacmanCommand) -> &Path {
+        // Stub.
+        &self.program
     }
 
     /// The program and its arguments, with an optional time limit. `run` calls this with pacman.
@@ -410,6 +418,12 @@ mod tests {
         let temp = TempDir::new("defaults");
         let runner = runner_in(&temp);
         assert_eq!(runner.program, Path::new("/usr/bin/pacman"));
+        let version = PacmanCommand::VerCmp("1".to_string(), "2".to_string());
+        assert_eq!(runner.program_for(&version), Path::new("/usr/bin/vercmp"));
+        assert_eq!(
+            runner.program_for(&PacmanCommand::ListInstalled),
+            Path::new("/usr/bin/pacman")
+        );
         assert_eq!(runner.read_timeout, READ_TIMEOUT);
         assert_eq!(runner.stdout_cap, STDOUT_CAP);
         assert_eq!(runner.stderr_cap, STDERR_CAP);
@@ -433,6 +447,7 @@ mod tests {
                 rule: None,
             }),
             PacmanCommand::ListInstalled,
+            PacmanCommand::VerCmp("1".to_string(), "2".to_string()),
         ] {
             assert_eq!(timeout_for(&command), Some(READ_TIMEOUT), "{command:?}");
         }

@@ -17,8 +17,8 @@ use crate::picks::provides_for;
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
-    ProviderPick, Replacement, SearchResult, dependency_text, install_decision, is_soname,
-    listed_replacements, provider_picks, real_choices, unnamed_choices,
+    ProviderPick, Replacement, RivalFacts, SearchResult, dependency_text, install_decision,
+    is_soname, listed_replacements, provider_picks, real_choices, unnamed_choices,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -211,6 +211,9 @@ pub(crate) trait Facts {
     fn search_any(&self, names: &[String]) -> Result<Vec<SearchResult>, PacmanError>;
     /// `pacman -T`: is `dependency` satisfied by what is installed?
     fn satisfied(&self, dependency: &Dependency) -> Result<bool, PacmanError>;
+    /// `vercmp left right`: how pacman orders two versions.
+    #[allow(dead_code)] // Not asked yet.
+    fn vercmp(&self, left: &str, right: &str) -> Result<std::cmp::Ordering, PacmanError>;
     /// `None` when pacman does not know the group.
     fn group_members(&self, group: &str) -> Result<Option<Vec<GroupMember>>, PacmanError>;
     fn installed(&self) -> Result<Vec<InstalledPackage>, PacmanError>;
@@ -940,6 +943,12 @@ struct EngineFacts<'e, 'a> {
     engine: &'e mut Engine<'a>,
     /// Everything the searches turned up, to name the candidates of a choice.
     found: Vec<PackageDetails>,
+}
+
+impl RivalFacts for EngineFacts<'_, '_> {
+    fn compare(&mut self, left: &str, right: &str) -> Result<std::cmp::Ordering, PacmanError> {
+        self.engine.facts.vercmp(left, right)
+    }
 }
 
 impl ChoiceFacts for EngineFacts<'_, '_> {

@@ -21,6 +21,9 @@ use tidewise_names::{is_helper_repo_name, is_valid_package_name};
 /// pacman, by absolute path (no `PATH` lookup, no shell).
 pub const PACMAN: &str = "/usr/bin/pacman";
 
+/// pacman's version comparison, also by absolute path (owned by the pacman package).
+pub const VERCMP: &str = "/usr/bin/vercmp";
+
 /// What the helper may ask pacman to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PacmanCommand {
@@ -54,6 +57,9 @@ pub enum PacmanCommand {
     PrivateSearch(Vec<String>),
     /// `pacman -Ss -- ^(name|name)$`: the same against the real lists, for the provider check of an install.
     Search(Vec<String>),
+    /// `/usr/bin/vercmp a b` (pacman's own tool): how pacman orders two versions (a read). Strict rule C asks it which
+    /// repository packages could meet a need.
+    VerCmp(String, String),
     /// `pacman -T -- name[<op>version]`: is this satisfied by what is installed? (a read; exit 127 means no).
     DepTest(Dependency),
     /// `pacman -Q`: every installed package and version (a read, fixed argv, no names). Taken before and after a real
@@ -132,6 +138,8 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
         PacmanCommand::Search(names) => {
             build(&["-Ss"], &[], vec![search_pattern(names)?], Names::Required)
         }
+        // Stub.
+        PacmanCommand::VerCmp(_, _) => Ok(Vec::new()),
         PacmanCommand::DepTest(dependency) => {
             let text = dependency_text(dependency).ok_or(ArgsRefused::BadName)?;
             build(&["-T"], &[], vec![text], Names::Required)
@@ -256,6 +264,7 @@ mod tests {
             PacmanCommand::PrivateSearch(strings(&["tidewise-virtual"])),
             PacmanCommand::Search(strings(&["libstdc++.so", "a.b"])),
             PacmanCommand::DepTest(need("java-runtime", Some("17"))),
+            PacmanCommand::VerCmp("1-64".to_string(), "2:1.0+r3~g1_2-1".to_string()),
             PacmanCommand::ListInstalled,
         ]
     }
@@ -281,10 +290,11 @@ mod tests {
             PacmanCommand::PrivateSearch(_) => 11,
             PacmanCommand::DepTest(_) => 12,
             PacmanCommand::Search(_) => 13,
+            PacmanCommand::VerCmp(_, _) => 14,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 13;
+    const LAST: usize = 14;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -445,6 +455,11 @@ mod tests {
                 PacmanCommand::DepTest(need("java-runtime", Some("1:17"))),
                 strings(&["-T", "--", "java-runtime>=1:17"]),
             ),
+            // Two versions and nothing else: vercmp takes no options here and no `--`.
+            (
+                PacmanCommand::VerCmp("1-64".to_string(), "1:2.0-3".to_string()),
+                strings(&["1-64", "1:2.0-3"]),
+            ),
             (
                 PacmanCommand::DepTest(need("sh", None)),
                 strings(&["-T", "--", "sh"]),
@@ -491,6 +506,10 @@ mod tests {
             "/dev/null",
         ];
         for command in all_commands() {
+            // vercmp has its own test: its two arguments are the versions.
+            if matches!(command, PacmanCommand::VerCmp(..)) {
+                continue;
+            }
             let built = args(&command).unwrap();
             for arg in before_the_double_dash(&built) {
                 assert!(
@@ -518,6 +537,7 @@ mod tests {
                     | PacmanCommand::DryRunUpdate(_)
                     | PacmanCommand::PrivateDryRunUpdate(_)
                     | PacmanCommand::RealUpdate(_)
+                    | PacmanCommand::VerCmp(..)
             ) || built.contains(&"--".to_string());
             if names_given {
                 assert!(built.contains(&"--".to_string()), "{command:?}");
@@ -539,6 +559,26 @@ mod tests {
                 version: version.to_string(),
             }),
         }
+    }
+
+    #[test]
+    fn vercmp_takes_two_plain_versions_and_nothing_else() {
+        // Neither can be an option (`-h`) or carry anything but version characters.
+        for bad in [
+            "", "-h", "-1", "1 2", "1;2", "1$", "1\n", "../1", "1/2", "a b",
+        ] {
+            for command in [
+                PacmanCommand::VerCmp(bad.to_string(), "1".to_string()),
+                PacmanCommand::VerCmp("1".to_string(), bad.to_string()),
+            ] {
+                assert_eq!(args(&command), Err(ArgsRefused::BadName), "{command:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn vercmp_is_started_by_its_own_absolute_path() {
+        assert_eq!(VERCMP, "/usr/bin/vercmp");
     }
 
     #[test]

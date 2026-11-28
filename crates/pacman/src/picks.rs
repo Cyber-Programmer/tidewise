@@ -6,6 +6,7 @@
 //! rule is pacman's call, and the callers ask it with a dry run. Shared libraries are the exception: a soname need
 //! (`libz.so=1-64`) is met only by a provider that carries the very same version.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::{Comparison, Dependency, PackageDetails, PackageRef, VersionRule};
@@ -104,6 +105,11 @@ pub trait ChoiceFacts {
     fn satisfied(&mut self, dependency: &Dependency) -> Result<bool, Self::Error>;
 }
 
+/// What strict rule C asks on top: how pacman itself orders two versions (`/usr/bin/vercmp`).
+pub trait RivalFacts: ChoiceFacts {
+    fn compare(&mut self, left: &str, right: &str) -> Result<Ordering, Self::Error>;
+}
+
 /// The picks of `provider_picks` that are a choice in a system UPDATE (decision 0009). Installs keep naming every
 /// pick; an update has no way to name one, so two cases where pacman has nothing to ask are let through:
 ///
@@ -196,7 +202,7 @@ pub fn real_choices<F: ChoiceFacts>(
 ///
 /// Stricter than what pacman would ask: a package pulled in by its own name that also provides such a name is refused
 /// too. Not seen: a provider outside the configured repositories, or in one whose `Usage` lacks `Search`.
-pub fn unnamed_choices<F: ChoiceFacts>(
+pub fn unnamed_choices<F: RivalFacts>(
     listed: &[&PackageDetails],
     named: &[PackageRef],
     is_installed: impl Fn(&str) -> bool,
@@ -976,6 +982,34 @@ mod tests {
         packages: Vec<PackageDetails>,
         searched: Vec<Vec<String>>,
         broken: bool,
+        compared: Vec<(String, String)>,
+    }
+
+    /// What `/usr/bin/vercmp` of pacman 7.1.0 printed for these pairs (the container tests ask the real one).
+    impl RivalFacts for Repository {
+        fn compare(&mut self, left: &str, right: &str) -> Result<Ordering, &'static str> {
+            if self.broken {
+                return Err("vercmp failed");
+            }
+            self.compared.push((left.to_string(), right.to_string()));
+            Ok(match (left, right) {
+                ("1-64", "1-64") | ("0-32", "0-32") | ("0-64", "0-64") | ("3-64", "3-64") => {
+                    Ordering::Equal
+                }
+                ("1-32", "1") | ("1-64", "1") | ("1", "1") | ("1", "1-64") => Ordering::Equal,
+                ("1.0", "1.0") | ("1.00", "1.0") | ("17-1", "17") => Ordering::Equal,
+                ("1-32", "1-64") | ("0-32", "0-64") | ("2-64", "3-64") => Ordering::Less,
+                ("17-1", "25") | ("1", "25") => Ordering::Less,
+                ("1-64", "1-32") | ("0-64", "0-32") | ("25", "17") | ("25", "25") => {
+                    if left == right {
+                        Ordering::Equal
+                    } else {
+                        Ordering::Greater
+                    }
+                }
+                other => panic!("not measured: {other:?}"),
+            })
+        }
     }
 
     impl ChoiceFacts for Repository {
@@ -1013,6 +1047,7 @@ mod tests {
             packages: listed.iter().chain(more).cloned().collect(),
             searched: Vec::new(),
             broken: false,
+            compared: Vec::new(),
         };
         let named: Vec<PackageRef> = named.iter().map(|name| extra(name)).collect();
         unnamed_choices(
@@ -1102,28 +1137,112 @@ mod tests {
         );
     }
 
+    // ---- a rival has to satisfy the need (review 6.6 X-01) -------------------------------------------------------
+
+    /// A need of `app`, the new unnamed `one` and the repository's `two`: is `one` a choice?
+    fn is_a_choice(need: &str, one_provides: &str, two_provides: &str) -> bool {
+        let listed = [
+            si("app", "1-1", need),
+            providing("one", "1-1", one_provides, "None"),
+        ];
+        let other = [providing("two", "1-1", two_provides, "None")];
+        !choices(&listed, &other, &["app"], &[]).is_empty()
+    }
+
     #[test]
-    fn versions_are_not_looked_at() {
-        // pacman compares versions where the texts differ (W-01): names only, and every one of these is a choice.
-        for (need, first, second) in [
-            ("libx.so>=1", "libx.so=1-64", "libx.so=1-64"),
-            ("libx.so=1", "libx.so=1-64", "libx.so=1-64"),
-            ("libx.so=1-64", "libx.so=1", "libx.so=1-64"),
-            ("libx.so=1-64", "libx.so=1-64", "libx.so=1"),
-            ("virt=1", "virt=1", "virt=99"),
+    fn a_provider_that_cannot_meet_the_need_is_no_rival() {
+        for (need, one, two) in [
+            // A library and its 32-bit twin, either way round.
+            ("libx.so=1-64", "libx.so=1-64", "libx.so=1-32"),
+            ("libx.so=0-32", "libx.so=0-32", "libx.so=0-64"),
+            // An old and a new version of one library.
+            ("libx.so=3-64", "libx.so=3-64", "libx.so=2-64"),
+            // A provide without a version never meets a versioned need.
+            ("virt=1-64", "virt=1-64", "virt"),
         ] {
-            let name = need.split(['>', '=']).next().unwrap();
+            assert!(!is_a_choice(need, one, two), "{need} {one} {two}");
+        }
+    }
+
+    #[test]
+    fn a_provider_pacman_could_take_is_a_rival_however_it_is_written() {
+        for (need, one, two) in [
+            ("libx.so>=1", "libx.so=1-32", "libx.so=1-64"),
+            ("libx.so=1", "libx.so=1-32", "libx.so=1-64"),
+            ("libx.so=1-64", "libx.so=1-64", "libx.so=1"),
+            ("libx.so=1-64", "libx.so=1-64", "libx.so=1-64"),
+            ("virt=1.0", "virt=1.0", "virt=1.00"),
+            // A need without a version takes any provide.
+            ("virt", "virt=1", "virt"),
+        ] {
+            assert!(is_a_choice(need, one, two), "{need} {one} {two}");
+        }
+    }
+
+    #[test]
+    fn a_rival_called_by_the_name_is_judged_by_its_own_version() {
+        let choice = |need: &str| {
             let listed = [
                 si("app", "1-1", need),
-                providing("one", "1-1", first, "None"),
+                providing("one", "1-1", "virt=25", "None"),
             ];
-            let other = [providing("two", "1-1", second, "None")];
-            assert_eq!(
-                choices(&listed, &other, &["app"], &[]),
-                one(name, "one"),
-                "{need} {first} {second}"
-            );
-        }
+            let literal = [si("virt", "17-1", "None")];
+            !choices(&listed, &literal, &["app"], &[]).is_empty()
+        };
+        assert!(choice("virt>=17"));
+        assert!(!choice("virt>=25"));
+    }
+
+    #[test]
+    fn only_a_need_the_suspect_itself_meets_counts() {
+        // `one` cannot be there for `virt>=25`, whatever can meet it.
+        let listed = [
+            si("app", "1-1", "virt>=25"),
+            providing("one", "1-1", "virt=1", "None"),
+        ];
+        let other = [providing("two", "1-1", "virt=25", "None")];
+        assert!(choices(&listed, &other, &["app"], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_version_that_cannot_be_an_argument_counts_as_met() {
+        // Refuse rather than guess, and never hand such text to a program.
+        let listed = [
+            si("app", "1-1", "virt>=-1"),
+            providing("one", "1-1", "virt=1", "None"),
+        ];
+        let other = [providing("two", "1-1", "virt=1", "None")];
+        assert_eq!(choices(&listed, &other, &["app"], &[]), one("virt", "one"));
+    }
+
+    #[test]
+    fn each_pair_of_versions_is_compared_once() {
+        let listed = [
+            si("app", "1-1", "libx.so=1-64"),
+            si("more", "1-1", "libx.so=1-64"),
+            providing("one", "1-1", "libx.so=1-64", "None"),
+        ];
+        let others = [
+            providing("two", "1-1", "libx.so=1-32", "None"),
+            providing("three", "1-1", "libx.so=1-32", "None"),
+        ];
+        let mut repository = Repository {
+            packages: listed.iter().chain(&others).cloned().collect(),
+            searched: Vec::new(),
+            broken: false,
+            compared: Vec::new(),
+        };
+        let found = unnamed_choices(
+            &listed.iter().collect::<Vec<_>>(),
+            &[extra("app"), extra("more")],
+            |_| false,
+            &mut repository,
+        )
+        .unwrap();
+        assert!(found.is_empty());
+        let pairs =
+            [("1-64", "1-64"), ("1-32", "1-64")].map(|(a, b)| (a.to_string(), b.to_string()));
+        assert_eq!(repository.compared, pairs);
     }
 
     #[test]
@@ -1134,6 +1253,7 @@ mod tests {
             packages: Vec::new(),
             searched: Vec::new(),
             broken: false,
+            compared: Vec::new(),
         };
         unnamed_choices(&refs, &[], |_| false, &mut repository).unwrap();
         assert!(repository.searched.is_empty());
@@ -1169,6 +1289,7 @@ mod tests {
             packages: listed.iter().chain(&other).cloned().collect(),
             searched: Vec::new(),
             broken: false,
+            compared: Vec::new(),
         };
         let found = unnamed_choices(
             &listed.iter().collect::<Vec<_>>(),

@@ -2885,7 +2885,7 @@ mod tests {
         assert_eq!(view.body, words.body);
         assert_eq!(
             view.hint,
-            "Run sudo pacman -Syu in a terminal; pacman will ask you which one."
+            "Run sudo pacman -Syu dbeaver in a terminal; pacman will show you the options."
         );
         assert_eq!(view.technical, ["extra/jre-openjdk provides java-runtime"]);
         assert_eq!(view.primary, None);
