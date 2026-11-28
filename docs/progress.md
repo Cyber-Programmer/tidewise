@@ -1873,3 +1873,20 @@ Next: your decision on V-01 (and V-02, V-03); then the manual checklist, push, P
 Blockers: V-01.
 Rules bent: (1) V-01 was not caught by my unit tests: the shape "something else already meets the name" was missing.
 (2) No WBS sheet update (as asked).
+
+## 2026-11-28 — 6.6 V-01 and V-03 fixed; third review: W-01, stopping rule reached
+Done:
+- **V-01 fixed** (red unit tests, then red container tests for both shapes): a by-name edge is followed only when no
+  other listed package provides the name and `pacman -T` finds nothing installed that meets it. **V-03 fixed:** 5000
+  packages 2.15 s -> 7.6 ms (release, without the `-T` calls; one `-T` is about 30-100 ms here). V-02 is WBS 6.20.
+- **Checks** on `e27f2a7`: `cargo test --all` 1392 passed, 0 failed, 181 ignored (on `afd178a`; only a container test
+  changed after); fmt, clippy, `cargo deny`, release build, fuzz fmt and build: exit 0. Fuzzing not repeated.
+- **Container: the full `run.sh`: 174 passed, 0 failed**, package tests included.
+- **Third review: W-01 (Medium, verified), older than 6.6:** soname needs are matched by exact version text, so pacman
+  can pick a provider unasked and the helper answers ok. Needs third-party repository data. **Not patched** (your
+  stopping rule). Strict mode proposed, with an estimate of what it costs (review file).
+Next: your decision on strict mode and on W-01 for plain installs and updates; then build, review, `run.sh`, the
+manual checklist, push, PR.
+Blockers: W-01.
+Rules bent: (1) one wrong extra assertion in a V-01 container test, corrected in a test-only commit after the fix
+(`pacman -Q <name>` also answers with a provider). (2) No WBS sheet update (as asked).

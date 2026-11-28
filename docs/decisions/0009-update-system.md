@@ -103,18 +103,22 @@ so the resolver names every pick of the whole combined list, the update's too, a
 - **What a chosen package brings is read by name, not by a dry run** (the human's decision, 28 Nov, after review 6.6
   U-01; `brought_by_name`, one function for app and helper). It matters only when the list holds a second provider of
   an answered name that nobody asked for: that package must be reachable from the chosen one through dependencies that
-  name a listed package **exactly**, with no version rule or an `=` that the listed version meets (`=2` meets `2-1`).
+  name a listed package **exactly**, with no version rule or an `=` that the listed version meets (`=2` meets `2-1`),
+  and only where **no other listed package provides that name and `pacman -T` finds nothing installed that meets it**
+  (the human, 28 Nov, review V-01: otherwise pacman never follows the dependency).
   Virtual names, other version rules and a missing `-Si` record refuse. A package the chosen one needs by name is
   accepted **also when the update would pull it too**: nobody is choosing anything.
-  - **Open (second review, V-01, blocks the merge):** an installed or another listed package can already meet that
-    name; pacman then never follows the dependency, and the literal package may be pacman's own pick for something
-    else. The helper accepts it today.
+  - `-T` is an existing helper read, newly used here: once for each dependency followed (about 30-100 ms each on the
+    development machine). The walk itself takes 7.6 ms for 5000 packages (V-03; 2.15 s before).
+  - **Open (third review, W-01, blocks the merge):** shared-library needs are matched to providers by exact version
+    text, so pacman can choose one unasked (older than 6.6; plain installs too). By the human's stopping rule the rule
+    is not patched again; a strict mode for update and install is proposed instead (review file).
   - Why no dry run: on a stale system `-S` of one package fails with "breaks dependency" (U-01, reproduced). The first
     proposal, a difference of two `-Su` dry runs, did not hold (measured; table in the review).
   - Read from this machine's lists: 27 pairs where a provider of a name depends by name on another provider of it, 25
     without a version rule, 2 with `=`. A provider reached only through a virtual dependency is now refused.
   - **Plain installs keep the old rule** (the chosen package's own `-S` dry run) for now. **WBS 6.20 should consider
-    one rule for both.**
+    one rule for both.** The plain-install rule has the V-01 blind spot (review V-02, WBS 6.20).
 - **Changed lists after the password:** refreshed (`AfterRefusal`) and resolved again with the answers kept; an answer
   that no longer fits is asked again. Nothing left to update: it goes on as a plain install.
 - **Review:** one row "System update · N packages upgraded to today's versions", closed until pressed, holding the
