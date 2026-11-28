@@ -1,4 +1,5 @@
-//! The jobs: install, update the system, update and install (threats T-09, T-10, T-11, T-12, T-17, T-18).
+//! The jobs: install and update the system (threats T-09, T-10, T-11, T-12, T-17, T-18). "Update system and install"
+//! is refused (decision 0010).
 //!
 //! Every flow is a function of the (already validated) request and a `Runner`, so each path is a unit test with a
 //! scripted fake. The order is the point:
@@ -11,7 +12,7 @@
 //!            replacement (`-Q`, `-Si`) -> (plain update only) no provider pick, for a pick
 //!            `-Ss`/`-Si` there and `-T` (decision 0009) -> the
 //!            refreshed lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
-//!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check. (Update and install is the same with targets.)
+//!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
 //!
 //! After every real run each confirmed item is checked with `pacman -Q`; the number that are not installed at the
@@ -84,15 +85,10 @@ pub fn run_job(
     let (step, counts) = match &request.action {
         Action::Install(install) => install_job(install, runner, on_event),
         Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
-        Action::UpdateSystemAndInstall(install) => {
-            let providers = providers_of(install);
-            update_job(
-                &install.transaction,
-                &names_of(install),
-                &providers,
-                runner,
-                on_event,
-            )
+        // Deferred until after v0.1 (decision 0010): refused here, before anything runs, whoever sends it. The app
+        // never does; the protocol still knows the action.
+        Action::UpdateSystemAndInstall(_) => {
+            (Err(ErrorKind::ActionNotSupported), Counts::default())
         }
     };
     JobResult {
@@ -1055,7 +1051,7 @@ mod tests {
 
     #[test]
     fn a_held_lock_ends_the_job_before_any_command_runs() {
-        for text in [INSTALL, UPDATE, BOTH] {
+        for text in [INSTALL, UPDATE] {
             let request = request(text);
             let mut fake = Fake::new(vec![]);
             fake.lock = true;
@@ -2324,9 +2320,9 @@ mod tests {
 
     #[test]
     fn a_refused_update_does_not_leave_the_real_lists_refreshed() {
-        // Both flows that sync (review 5.8 R-02, golden rule 4): the dry run differs from the confirmed list, so the
+        // The flow that syncs (review 5.8 R-02, golden rule 4): the dry run differs from the confirmed list, so the
         // helper refuses, and no command it ran may have refreshed the real package lists.
-        for text in [UPDATE, BOTH] {
+        for text in [UPDATE] {
             let request = request(text);
             let mut items = transaction_of(&request);
             items.pop();
@@ -2342,47 +2338,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn update_and_install_passes_the_targets_and_marks_the_providers() {
-        let mut request = request(BOTH);
-        if let Action::UpdateSystemAndInstall(install) = &mut request.action {
-            install.providers.push(ProviderChoice {
-                dependency: "a-virtual".to_string(),
-                chosen: pkg("extra", "vlc"),
-            });
-        }
-        let install = the_install(&request);
-        let items = transaction_of(&request);
-        let mut fake = Fake::new(vec![
-            ok(SYNC_OUT),
-            ok(&print_text(&items)),
-            ok(&installed_text(&items)),
-            ok(&plain_si(&items)),
-            ok(&print_text(&items)),
-            ok("pacman 7.1.0-1\n"),
-            ok(REAL_INSTALL_OUT),
-            ok(""),
-            ok(&installed_text(&items)),
-        ]);
-        assert_eq!(go(&request, &mut fake).0, Outcome::Ok);
-        // The targets are in BOTH dry runs, and the move sits between them.
-        assert_eq!(fake.moved_after, Some(4));
-        assert_eq!(
-            fake.ran,
-            vec![
-                PacmanCommand::PrivateSync,
-                PacmanCommand::PrivateDryRunUpdate(names_of(&install)),
-                PacmanCommand::ListInstalled,
-                private_details(&request),
-                PacmanCommand::DryRunUpdate(names_of(&install)),
-                PacmanCommand::ListInstalled,
-                PacmanCommand::RealUpdate(names_of(&install)),
-                PacmanCommand::MarkAsDeps(vec![pkg("extra", "vlc")]),
-                PacmanCommand::ListInstalled,
-            ]
-        );
     }
 
     #[test]
@@ -2899,22 +2854,18 @@ mod tests {
 
     #[test]
     fn a_listed_package_that_replaces_an_installed_one_refuses_the_update() {
-        // Both update flows, and a replacer that is itself installed already (every package of the list is).
-        for text in [UPDATE, BOTH] {
-            let (result, fake) = update_replacing(text, "old-pkg", "old-pkg 1-1\n", vec![]);
-            assert_refused_as_replacement(&result, &fake);
-        }
+        // A replacer that is itself installed already (every package of the list is).
+        let (result, fake) = update_replacing(UPDATE, "old-pkg", "old-pkg 1-1\n", vec![]);
+        assert_refused_as_replacement(&result, &fake);
     }
 
     /// Review T-01. The last package of the fixture (vim) is installed and names itself.
     #[test]
     fn a_listed_package_that_replaces_its_own_name_refuses_the_update() {
-        for text in [UPDATE, BOTH] {
-            let items = transaction_of(&request(text));
-            let own = items[items.len() - 1].name.clone();
-            let (result, fake) = update_replacing(text, &own, "", vec![]);
-            assert_refused_as_replacement(&result, &fake);
-        }
+        let items = transaction_of(&request(UPDATE));
+        let own = items[items.len() - 1].name.clone();
+        let (result, fake) = update_replacing(UPDATE, &own, "", vec![]);
+        assert_refused_as_replacement(&result, &fake);
     }
 
     #[test]

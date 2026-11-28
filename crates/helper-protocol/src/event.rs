@@ -214,8 +214,9 @@ impl ErrorKind {
             Self::PacmanFailed(_) => {
                 "The package manager stopped with an error. The technical details show what it said."
             }
-            // Stub.
-            Self::ActionNotSupported => "",
+            Self::ActionNotSupported => {
+                "Tidewise can't update and install in one go. Update your system first, then install. Nothing was changed."
+            }
         }
     }
 }
