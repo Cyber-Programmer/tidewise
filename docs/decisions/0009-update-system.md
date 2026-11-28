@@ -93,32 +93,32 @@ Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper
 **A provider choice the system update brings is ASKED here** (human's decision, 28 Nov): the install can name providers,
 so the resolver names every pick of the whole combined list, the update's too, and asks when more than one fits. In a
 **plain** update the same choice still shows the terminal card until WBS 6.16. This difference is intended, not a bug.
+The answers are then judged by strict rule C, which can still send the user to a terminal.
 
-- **Helper:** the install's rule (`judge_named_providers`), not the plain update's: every pick named. All reads from the
-  private copy (`PrivatePackageDetails`, `PrivateSearch`), before the lists move in. No new command. Replacements block
-  as for a plain update. Closes review 6.5 R-05 and threat model 40.
+- **Helper: strict rule C** (the human's decision, 28 Nov, after reviews U-01, V-01, W-01; `unnamed_choices`, one
+  function for app and helper). Refused when a **new** package the request does **not name** (neither target nor chosen
+  provider) provides a name another listed package depends on **and another repository package also provides that name**
+  (or is called it). A package's own name does not count. **Names only, no versions.** Every answer must also provide
+  its name. All reads from the private copy (`PrivatePackageDetails`, `PrivateSearch`), before the lists move in. No
+  new command. Replacements block as for a plain update. Closes review 6.5 R-05 and threat model 40.
+  - **Stricter than pacman on purpose:** a package pulled in by its own name that provides such a name is refused too
+    (review cases M1 and M4 go to the terminal card).
+  - **Cost, estimated** (installs that bring other new packages, from this machine's sync lists; the install's closure
+    only). Names only, on a system with only `base` installed and multilib on: **about 37 %** end at the terminal card,
+    `firefox`, `gimp`, `vlc` among them (review X-01). The first figure given, 0.4 %, was measured on a developed
+    machine and was badly misleading. Skipping a rival whose full-form soname text differs: about **11.6 %**.
+  - **Not seen:** providers outside the configured repositories, or in one whose `Usage` lacks `Search` (R-06).
+  - **What was tried first, and why not:** the chosen package's own `-S` dry run fails on a stale system (U-01); a
+    difference of two `-Su` dry runs did not hold (measured); reading by-name dependencies missed names something else
+    already met (V-01) and left soname versions matched by text (W-01). The review file has the details.
+  - **Plain installs and plain updates keep their old rules. WBS 6.20 applies rule C to them too**, so one rule covers
+    every path; they have the W-01 gap until then (and plain installs V-02).
 - **App:** the system part is the 6.5 review, read from the app's private copy; a held package, a replacement or a
   conflict blocks with the update screen's words (a pick does not). The install is resolved with `--dbpath` on that
   same folder, in every round of questions. Without a usable private copy: the real lists, with the 6.11 note.
-- **What a chosen package brings is read by name, not by a dry run** (the human's decision, 28 Nov, after review 6.6
-  U-01; `brought_by_name`, one function for app and helper). It matters only when the list holds a second provider of
-  an answered name that nobody asked for: that package must be reachable from the chosen one through dependencies that
-  name a listed package **exactly**, with no version rule or an `=` that the listed version meets (`=2` meets `2-1`),
-  and only where **no other listed package provides that name and `pacman -T` finds nothing installed that meets it**
-  (the human, 28 Nov, review V-01: otherwise pacman never follows the dependency).
-  Virtual names, other version rules and a missing `-Si` record refuse. A package the chosen one needs by name is
-  accepted **also when the update would pull it too**: nobody is choosing anything.
-  - `-T` is an existing helper read, newly used here: once for each dependency followed (about 30-100 ms each on the
-    development machine). The walk itself takes 7.6 ms for 5000 packages (V-03; 2.15 s before).
-  - **Open (third review, W-01, blocks the merge):** shared-library needs are matched to providers by exact version
-    text, so pacman can choose one unasked (older than 6.6; plain installs too). By the human's stopping rule the rule
-    is not patched again; a strict mode for update and install is proposed instead (review file).
-  - Why no dry run: on a stale system `-S` of one package fails with "breaks dependency" (U-01, reproduced). The first
-    proposal, a difference of two `-Su` dry runs, did not hold (measured; table in the review).
-  - Read from this machine's lists: 27 pairs where a provider of a name depends by name on another provider of it, 25
-    without a version rule, 2 with `=`. A provider reached only through a virtual dependency is now refused.
-  - **Plain installs keep the old rule** (the chosen package's own `-S` dry run) for now. **WBS 6.20 should consider
-    one rule for both.** The plain-install rule has the V-01 blind spot (review V-02, WBS 6.20).
+- **In the app:** every provider is offered (no dry run of one package), and the whole list is judged at the end: the
+  card "This update needs a choice Tidewise can't make yet". A shared-library choice still shows its own card first,
+  with one "Install {candidate}" button each.
 - **Changed lists after the password:** refreshed (`AfterRefusal`) and resolved again with the answers kept; an answer
   that no longer fits is asked again. Nothing left to update: it goes on as a plain install.
 - **Review:** one row "System update · N packages upgraded to today's versions", closed until pressed, holding the
