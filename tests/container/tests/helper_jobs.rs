@@ -327,9 +327,11 @@ fn a_system_update_updates_the_package_through_a_private_copy_and_never_syncs_th
     );
 }
 
+/// Decision 0010: "update system and install" is refused by the helper itself, whoever sends it. The request is one
+/// that is otherwise right: it is the list a dry run prints.
 #[test]
 #[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
-fn an_update_and_an_install_in_one_request_do_both() {
+fn an_update_and_an_install_in_one_request_are_refused_and_nothing_changes() {
     assert_inside_the_test_container();
     reset_world();
     install_directly(&["tidewise-dummy-upd"]);
@@ -338,17 +340,14 @@ fn an_update_and_an_install_in_one_request_do_both() {
     assert_eq!(items.len(), 2);
     let (request, summary) =
         update_and_install_request(&[(REPO, "tidewise-dummy-hello")], &[], &items);
+    let lists_before = fingerprint(REAL_SYNC);
+    let packages_before = package_list();
 
     let ran = run(&summary, request.as_bytes());
-    assert_ok(&ran);
-    assert_eq!(
-        installed_version("tidewise-dummy-upd").as_deref(),
-        Some("2.0-1")
-    );
-    assert_eq!(
-        installed_version("tidewise-dummy-hello").as_deref(),
-        Some("1.0-1")
-    );
+    finished_with(&ran, "action_not_supported");
+    assert_eq!(fingerprint(REAL_SYNC), lists_before);
+    assert_eq!(package_list(), packages_before);
+    assert!(!Path::new(LOCK).exists());
 }
 
 #[test]
