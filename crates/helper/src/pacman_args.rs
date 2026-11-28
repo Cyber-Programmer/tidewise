@@ -33,10 +33,6 @@ pub enum PacmanCommand {
     /// (plus these, if any) would do against the private copy (a read). Must equal the confirmed list before the
     /// private lists are moved into place.
     PrivateDryRunUpdate(Vec<PackageRef>),
-    /// `pacman -S --print ... --dbpath /run/tidewise-helper-lists/ --logfile /dev/null -- ...`: what installing these
-    /// alone would do against the private copy (a read). The provider check of "update and install" asks what a chosen
-    /// package brings by itself (golden rule 10).
-    PrivateDryRunInstall(Vec<PackageRef>),
     /// `pacman -S --print ...`: what installing these would do (a read).
     DryRunInstall(Vec<PackageRef>),
     /// `pacman -Su --print ...`: what a full update (plus these, if any) would do (a read).
@@ -96,16 +92,6 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             .concat(),
             repo_and_name(packages)?,
             Names::Optional,
-        ),
-        PacmanCommand::PrivateDryRunInstall(packages) => build(
-            &["-S"],
-            &[
-                &dry_run[..],
-                &["--dbpath", LISTS_DBPATH, "--logfile", "/dev/null"],
-            ]
-            .concat(),
-            repo_and_name(packages)?,
-            Names::Required,
         ),
         PacmanCommand::DryRunInstall(packages) => {
             build(&["-S"], &dry_run, repo_and_name(packages)?, Names::Required)
@@ -259,7 +245,6 @@ mod tests {
             PacmanCommand::PrivateDryRunUpdate(two()),
             PacmanCommand::PrivateDryRunUpdate(vec![]),
             PacmanCommand::DryRunInstall(two()),
-            PacmanCommand::PrivateDryRunInstall(two()),
             PacmanCommand::DryRunUpdate(two()),
             PacmanCommand::DryRunUpdate(vec![]),
             PacmanCommand::RealInstall(two()),
@@ -296,11 +281,10 @@ mod tests {
             PacmanCommand::PrivateSearch(_) => 11,
             PacmanCommand::DepTest(_) => 12,
             PacmanCommand::Search(_) => 13,
-            PacmanCommand::PrivateDryRunInstall(_) => 14,
         }
     }
     /// The highest number `kind` hands out. Raise it together with a new arm.
-    const LAST: usize = 14;
+    const LAST: usize = 13;
 
     #[test]
     fn every_command_kind_is_in_the_table() {
@@ -372,23 +356,6 @@ mod tests {
                     "--print",
                     "--print-format",
                     "%r/%n %v",
-                    "--",
-                    "extra/dbeaver",
-                    "extra/jre-openjdk",
-                ]),
-            ),
-            // What a chosen package brings by itself, from the private copy.
-            (
-                PacmanCommand::PrivateDryRunInstall(two()),
-                strings(&[
-                    "-S",
-                    "--print",
-                    "--print-format",
-                    "%r/%n %v",
-                    "--dbpath",
-                    "/run/tidewise-helper-lists/",
-                    "--logfile",
-                    "/dev/null",
                     "--",
                     "extra/dbeaver",
                     "extra/jre-openjdk",
@@ -625,9 +592,7 @@ mod tests {
     fn may_name_a_logfile(command: &PacmanCommand) -> bool {
         matches!(
             command,
-            PacmanCommand::PrivateSync
-                | PacmanCommand::PrivateDryRunUpdate(_)
-                | PacmanCommand::PrivateDryRunInstall(_)
+            PacmanCommand::PrivateSync | PacmanCommand::PrivateDryRunUpdate(_)
         )
     }
 
@@ -792,7 +757,6 @@ mod tests {
                 PacmanCommand::DryRunInstall(_)
                     | PacmanCommand::DryRunUpdate(_)
                     | PacmanCommand::PrivateDryRunUpdate(_)
-                    | PacmanCommand::PrivateDryRunInstall(_)
             );
             assert_eq!(built.contains(&"--print".to_string()), dry, "{command:?}");
         }
@@ -805,7 +769,6 @@ mod tests {
             PacmanCommand::DryRunInstall(vec![package.clone()]),
             PacmanCommand::DryRunUpdate(vec![package.clone()]),
             PacmanCommand::PrivateDryRunUpdate(vec![package.clone()]),
-            PacmanCommand::PrivateDryRunInstall(vec![package.clone()]),
             PacmanCommand::RealInstall(vec![package.clone()]),
             PacmanCommand::RealUpdate(vec![package.clone()]),
             PacmanCommand::MarkAsDeps(vec![package.clone()]),
@@ -886,7 +849,6 @@ mod tests {
             PacmanCommand::MarkAsDeps(vec![]),
             PacmanCommand::PackageDetails(vec![]),
             PacmanCommand::PrivatePackageDetails(vec![]),
-            PacmanCommand::PrivateDryRunInstall(vec![]),
         ] {
             assert_eq!(args(&command), Err(ArgsRefused::NoTargets), "{command:?}");
         }

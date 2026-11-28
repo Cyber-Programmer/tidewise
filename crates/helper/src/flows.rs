@@ -9,9 +9,10 @@
 //! Update:    lock look -> private folder made and checked -> private lock look -> `-Sy` on the PRIVATE copy of the
 //!            lists -> dry run `-Su` (plus any targets) on the private copy must equal the confirmed list -> no
 //!            replacement (`-Q`, `-Si`) -> no provider pick: for a plain update only a pick pacman has nothing to ask
-//!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install the install's rule, every pick
-//!            named, read from the private copy -> the refreshed lists are moved into the real `sync/` -> dry run on
-//!            the real lists must equal it again -> real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
+//!            about (`-Ss`/`-Si` there and `-T`, decision 0009); for update and install every pick named, read from the
+//!            private copy, a second provider only if the chosen package needs it by name -> the refreshed
+//!            lists are moved into the real `sync/` -> dry run on the real lists must equal it again ->
+//!            real `-Su` (no `-y`) -> `-D --asdeps` -> post-check.
 //!            No command refreshes the real lists, so a refusal leaves them as they were (decision 0007, R-02).
 //!
 //! After every real run each confirmed item is checked with `pacman -Q`; the number that are not installed at the
@@ -27,8 +28,8 @@ use tidewise_helper_protocol::{
 };
 use tidewise_pacman::{
     ChoiceFacts, Dependency, InstallDecision, PackageDetails, PackageRef as ListedRef,
-    PendingUpdate, ProviderPick, dependency_text, install_decision, is_soname, listed_replacements,
-    parse_qu, parse_si, parse_ss, provider_picks, real_choices,
+    PendingUpdate, ProviderPick, brought_by_name, dependency_text, install_decision, is_soname,
+    listed_replacements, parse_qu, parse_si, parse_ss, provider_picks, real_choices,
 };
 
 use crate::lists::{ListsError, MoveError};
@@ -488,8 +489,9 @@ fn print_of(
 /// `provider_picks`, the resolver's own.
 ///
 /// An answer is not enough on its own. The package it names must provide the name, and if the list holds another
-/// provider of that name nobody asked for, the chosen package must bring it by itself (its own dry run): otherwise it
-/// is pacman's pick, for example when the chosen version does not fit the dependency.
+/// provider of that name nobody asked for, the chosen package must bring it by itself: otherwise it is pacman's pick,
+/// for example when the chosen version does not fit the dependency. A plain install asks the chosen package's own dry
+/// run; update and install reads its dependencies by name (`brought_by_name`).
 fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
@@ -541,16 +543,25 @@ fn judge_named_providers(
         if others.is_empty() {
             continue;
         }
-        let chosen = vec![answer.chosen.clone()];
-        let own_dry_run = match lists {
-            Lists::Real => PacmanCommand::DryRunInstall(chosen),
-            Lists::Private => PacmanCommand::PrivateDryRunInstall(chosen),
+        let brought = match lists {
+            // A plain install: the chosen package's own dry run (the 6.4a rule, unchanged).
+            Lists::Real => {
+                let chosen = vec![answer.chosen.clone()];
+                let listed = print_of(runner, PacmanCommand::DryRunInstall(chosen))?;
+                others
+                    .iter()
+                    .all(|other| listed.iter().any(|item| item.name == other.name))
+            }
+            // Update and install: from the dependencies of the listed packages. A dry run without the update can
+            // fail on a stale system (review 6.6 U-01).
+            Lists::Private => brought_by_name(
+                &listed_ref(&answer.chosen.repo, &answer.chosen.name),
+                &others,
+                &listed,
+                |item| details.get(item),
+            ),
         };
-        let brought = print_of(runner, own_dry_run)?;
-        if others
-            .iter()
-            .any(|other| !brought.iter().any(|item| item.name == other.name))
-        {
+        if !brought {
             return Err(ErrorKind::ProviderNotChosen);
         }
     }
