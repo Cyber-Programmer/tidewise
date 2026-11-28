@@ -76,7 +76,7 @@ Search box → Results (name, repo, version, size, "Installed" badge)
    → Dry-run: resolve dependencies
         ├─ several providers?  → "Choose provider" dialog   (e.g. java-runtime)
         ├─ a group?            → "Choose members" dialog    (e.g. plasma)
-        └─ database stale / package file missing → offer "Update system and install" (-Syu <pkgs>)
+        └─ database stale / package file missing → offer "Update system and install" (-Syu <pkgs>); deferred after v0.1: update first, then install (decision 0010)
    → Confirm screen: exact packages, download size, installed size
    → ONE password prompt (polkit)
    → Helper re-checks the list → pacman runs → live progress
