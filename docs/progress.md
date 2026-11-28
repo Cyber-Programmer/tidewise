@@ -1890,3 +1890,18 @@ manual checklist, push, PR.
 Blockers: W-01.
 Rules bent: (1) one wrong extra assertion in a V-01 container test, corrected in a test-only commit after the fix
 (`pacman -Q <name>` also answers with a provider). (2) No WBS sheet update (as asked).
+
+## 2026-11-28 — 6.6 rivals judged by vercmp (rule B); fifth review: Y-01, Y-02
+Done:
+- Strict rule C (names only) was built, then replaced after review X-01 by **rule B**: a rival must meet the need,
+  versions ordered by `/usr/bin/vercmp` (`pacman -Qo`: pacman 7.1.0). New read-only helper command `VerCmp`. X-03, X-04,
+  X-05 done; X-02 is WBS 6.20. Red commits first, container tests included.
+- **Checks** on `84515e2`: `cargo test --all` 1402 passed, 0 failed, 187 ignored; fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and build: exit 0. Fuzzing not repeated.
+- **Container: the full `run.sh`: 181 passed, 0 failed**, package tests included.
+- **Fifth review:** rival matching held. **Y-01 (Medium, new with X-03):** the app names a provider unasked.
+  **Y-02 (Medium):** the `opengl-driver` question always ends at the terminal card for `nvidia-utils`. Not patched.
+Next: your decision: cut update-and-install from v0.1, or fix Y-01 and Y-02. Then the manual check, push, PR.
+Blockers: Y-01, Y-02.
+Rules bent: (1) my cost estimates were wrong three times (0.4 %, then 9.6 % without non-default answers). (2) No WBS
+sheet update (as asked).

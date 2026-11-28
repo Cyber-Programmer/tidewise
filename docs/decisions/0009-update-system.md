@@ -95,30 +95,40 @@ so the resolver names every pick of the whole combined list, the update's too, a
 **plain** update the same choice still shows the terminal card until WBS 6.16. This difference is intended, not a bug.
 The answers are then judged by strict rule C, which can still send the user to a terminal.
 
-- **Helper: strict rule C** (the human's decision, 28 Nov, after reviews U-01, V-01, W-01; `unnamed_choices`, one
-  function for app and helper). Refused when a **new** package the request does **not name** (neither target nor chosen
-  provider) provides a name another listed package depends on **and another repository package also provides that name**
-  (or is called it). A package's own name does not count. **Names only, no versions.** Every answer must also provide
-  its name. All reads from the private copy (`PrivatePackageDetails`, `PrivateSearch`), before the lists move in. No
-  new command. Replacements block as for a plain update. Closes review 6.5 R-05 and threat model 40.
-  - **Stricter than pacman on purpose:** a package pulled in by its own name that provides such a name is refused too
-    (review cases M1 and M4 go to the terminal card).
-  - **Cost, estimated** (installs that bring other new packages, from this machine's sync lists; the install's closure
-    only). Names only, on a system with only `base` installed and multilib on: **about 37 %** end at the terminal card,
-    `firefox`, `gimp`, `vlc` among them (review X-01). The first figure given, 0.4 %, was measured on a developed
-    machine and was badly misleading. Skipping a rival whose full-form soname text differs: about **11.6 %**.
+- **Helper: strict rule C, rivals by version** (the human's decisions, 28 Nov, after reviews U-01, V-01, W-01, X-01;
+  `unnamed_choices`, one function for app and helper). Refused when a **new** package the request does **not name**
+  meets, through its `Provides`, a dependency of another listed package **and another repository package (a rival)
+  meets that same dependency**, by its `Provides` or by being called it. A package's own name does not count. Every
+  answer must also provide its name. All reads from the private copy, before the lists move in. Replacements block as
+  for a plain update. Closes review 6.5 R-05 and threat model 40.
+  - **"Meets" is pacman's judgement:** `/usr/bin/vercmp` (owned by `pacman`) orders the versions; only the operator
+    (`=`, `>=`, `>`, `<=`, `<`) is applied by Tidewise. A versioned need is never met by a provide without a version. A
+    version that cannot be written as an argument counts as meeting it (refuse rather than guess).
+  - **New read-only helper command** (approved): `/usr/bin/vercmp <version> <version>`, both checked
+    (`is_plain_version`: never an option), no shell, cleared environment, the reads' time limit. One call per pair of
+    versions in a job.
+  - **Stricter than pacman on purpose:** a package pulled in by its own name that also meets such a dependency is
+    refused too (review cases M1 and M4 go to the terminal card).
+  - **Cost, estimated** (installs that bring other new packages, from this machine's sync lists, the install's closure
+    only), on a system with only `base` installed and multilib on: names only about 37 % ended at the terminal card
+    (X-01); a full-form text exception about 11.6 % (not built); **rivals by `vercmp`, as built, about 9.6 %**
+    (`firefox` among them). 0.1 % on a developed machine. Part of every figure is a real choice (`jack2` or
+    `pipewire-jack`), which the app answers with its own "Install ..." card first. **These figures are too low for a
+    user who picks a non-default provider:** the method counted only shared libraries (review Y-02).
+  - **Open (fifth review):** Y-01 (the app names a provider unasked when listed needs conflict) and Y-02 (answering
+    `opengl-driver` with `nvidia-utils` always ends at the terminal card).
   - **Not seen:** providers outside the configured repositories, or in one whose `Usage` lacks `Search` (R-06).
   - **What was tried first, and why not:** the chosen package's own `-S` dry run fails on a stale system (U-01); a
     difference of two `-Su` dry runs did not hold (measured); reading by-name dependencies missed names something else
-    already met (V-01) and left soname versions matched by text (W-01). The review file has the details.
-  - **Plain installs and plain updates keep their old rules. WBS 6.20 applies rule C to them too**, so one rule covers
-    every path; they have the W-01 gap until then (and plain installs V-02).
-- **App:** the system part is the 6.5 review, read from the app's private copy; a held package, a replacement or a
-  conflict blocks with the update screen's words (a pick does not). The install is resolved with `--dbpath` on that
-  same folder, in every round of questions. Without a usable private copy: the real lists, with the 6.11 note.
-- **In the app:** every provider is offered (no dry run of one package), and the whole list is judged at the end: the
-  card "This update needs a choice Tidewise can't make yet". A shared-library choice still shows its own card first,
-  with one "Install {candidate}" button each.
+    already met (V-01) and left soname versions matched by text (W-01); names only refused too much (X-01).
+  - **Plain installs and plain updates keep their old rules. WBS 6.20 applies this rule to them too**, so one rule
+    covers every path; they have the W-01 gap until then (and plain installs V-02). X-02 (an installed package pacman
+    would downgrade) is WBS 6.20 too.
+- **In the app:** every provider whose version fits every listed need of the name is offered (no dry run of one
+  package), and the whole list is judged at the end: the card "This update needs a choice Tidewise can't make yet",
+  with "Run sudo pacman -Syu {name} in a terminal; pacman will show you the options." A shared-library choice still
+  shows its own card first, with one "Install {candidate}" button each. A package without a record is an error (the
+  helper refuses it).
 - **Changed lists after the password:** refreshed (`AfterRefusal`) and resolved again with the answers kept; an answer
   that no longer fits is asked again. Nothing left to update: it goes on as a plain install.
 - **Review:** one row "System update · N packages upgraded to today's versions", closed until pressed, holding the
