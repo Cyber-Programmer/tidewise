@@ -226,6 +226,8 @@ pub fn install_view(model: &InstallModel) -> InstallView {
             );
         }
         Phase::Blocked(blockers) => blocked(&mut view, model, blockers),
+        // Stub: worded with the other update-and-install cards.
+        Phase::SystemBlocked(_) => {}
         Phase::Failed { text, can_retry } => {
             view.kind = CardKind::Alert;
             view.title_before.clone_from(&text.title);
@@ -1141,7 +1143,13 @@ mod tests {
     fn the_stale_card_leads_to_the_update_screen() {
         let mut model = InstallModel::new();
         let ticket = model.open(pkg("dbeaver")).unwrap();
-        model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::MustUpdate(crate::install_model::Waiting {
+                count: 3,
+                lists_from: None,
+            })),
+        );
         let view = install_view(&model);
         assert_eq!(view.kind, CardKind::Stale);
         assert_eq!(view.title_before, "Your system needs updating first");
@@ -2236,7 +2244,13 @@ mod tests {
         // the stale card's button takes it
         let mut model = InstallModel::new();
         let ticket = model.open(pkg("dbeaver")).unwrap();
-        model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
+        model.done(
+            ticket.number,
+            Ok(WorkAnswer::MustUpdate(crate::install_model::Waiting {
+                count: 3,
+                lists_from: None,
+            })),
+        );
         assert_eq!(install_view(&model).focus, FocusTarget::Primary);
         assert_eq!(
             install_view(&asking("vlc", vec![installed("vlc", true)])).focus,

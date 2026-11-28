@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tidewise_app::helper_run::{JobEnd, run_helper};
-use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, WorkAnswer};
+use tidewise_app::install_model::{Back, InstallModel, Phase, Ticket, Waiting, WorkAnswer};
 use tidewise_app::install_view::{
     CardKind, FocusTarget, InstallView, InstalledRow, OptionView, ReviewRow, StageState, StageView,
     TileView, install_view,
@@ -480,7 +480,11 @@ fn work(
         );
         match check {
             Ok(check) if check.must_update => {
-                return (Some(check.note), Ok(WorkAnswer::MustUpdate));
+                let waiting = Waiting {
+                    count: check.waiting,
+                    lists_from: check.lists_from,
+                };
+                return (Some(check.note), Ok(WorkAnswer::MustUpdate(waiting)));
             }
             Ok(check) => checked = Some(check.note),
             Err(error) => return (checked, Err(error)),

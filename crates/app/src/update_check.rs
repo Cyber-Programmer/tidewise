@@ -5,12 +5,13 @@
 //! Only this question uses the private copy. A plain install is still worked out against the real lists, because
 //! those are what the helper installs from.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use tidewise_core::age::whole_days;
 use tidewise_pacman::{
-    InstallDecision, Lists, NotFresh, PacmanError, PendingUpdate, UpdateLookup, install_decision,
+    InstallDecision, Lists, NotFresh, PacmanError, PendingUpdate, Resolution, UpdateLookup,
+    install_decision,
 };
 
 /// Why the answer comes from the real lists only, and how old those are.
@@ -25,6 +26,10 @@ pub struct ListsNote {
 pub struct UpdateCheck {
     pub must_update: bool,
     pub note: Option<ListsNote>,
+    /// Updates waiting in the lists that answered (`IgnorePkg` ones left out).
+    pub waiting: usize,
+    /// How new those lists are: the real ones' newest file, or now for a fresh private copy.
+    pub lists_from: Option<SystemTime>,
 }
 
 /// `pending` is `pacman -Qu` against a database folder (`None`: the real one), `refresh` brings the private copy up to
@@ -47,6 +52,8 @@ pub fn check_for_updates(
     let answer = |must_update| UpdateCheck {
         must_update,
         note: None,
+        waiting: 0,
+        lists_from: None,
     };
     if waiting(&pending(None)?) {
         return Ok(answer(true));
@@ -60,6 +67,8 @@ pub fn check_for_updates(
     };
     Ok(UpdateCheck {
         must_update: false,
+        waiting: 0,
+        lists_from: None,
         note: Some(ListsNote {
             why,
             age_days: real_newest().map(|newest| whole_days(newest, now)),
@@ -90,11 +99,34 @@ pub fn review_updates(
     Ok((found, Some(note)))
 }
 
+/// What "Update system and install" finds out first: the system part (the update review) and the resolve of the
+/// install, both against the same lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemCheck {
+    pub lookup: UpdateLookup,
+    pub note: Option<ListsNote>,
+    /// The private copy both were read from; `None`: the real lists.
+    pub dbpath: Option<PathBuf>,
+    /// `None` when the system part is blocked: there is nothing to resolve.
+    pub resolution: Option<Resolution>,
+}
+
+/// Refreshes the private lists, reads the update review, then resolves the install against the same folder.
+pub fn prepare_system(
+    _refresh: impl FnOnce() -> Lists,
+    _lookup: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
+    _resolve: impl FnOnce(Option<PathBuf>) -> Result<Resolution, PacmanError>,
+    _real_newest: impl FnOnce() -> Option<SystemTime>,
+    _now: SystemTime,
+) -> Result<SystemCheck, PacmanError> {
+    // Stub.
+    Err(PacmanError::TooManyRounds { limit: 0 })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
-    use std::path::PathBuf;
+    use std::cell::{Cell, RefCell};
     use std::time::Duration;
 
     const FOLDER: &str = "/run/user/1000/tidewise/lists/";
@@ -142,12 +174,18 @@ mod tests {
             now(),
         )
         .unwrap();
+        let mut answer = answer;
+        // Compared on their own in `the_waiting_count_and_the_date_come_from_the_lists_that_answered`.
+        answer.lists_from = None;
         (answer, refreshed.get())
     }
 
     fn answer(must_update: bool, why: Option<NotFresh>) -> UpdateCheck {
         UpdateCheck {
             must_update,
+            waiting: usize::from(must_update),
+            // `check` says the real lists are 3 days old; a private answer is from now.
+            lists_from: None,
             note: why.map(|why| ListsNote {
                 why,
                 age_days: Some(3),
@@ -276,5 +314,110 @@ mod tests {
             review(Lists::Private(PathBuf::from(FOLDER)), true).unwrap(),
             (held_lookup("real"), note(NotFresh::Failed))
         );
+    }
+
+    #[test]
+    fn the_waiting_count_and_the_date_come_from_the_lists_that_answered() {
+        let ask = |real: Vec<PendingUpdate>, private_updates: Vec<PendingUpdate>| {
+            check_for_updates(
+                |folder| {
+                    Ok(if folder.is_none() {
+                        real.clone()
+                    } else {
+                        private_updates.clone()
+                    })
+                },
+                private,
+                || days_ago(45),
+                now(),
+            )
+            .unwrap()
+        };
+        // The real lists say so: their date. An ignored update is not counted.
+        let got = ask(vec![update(false), update(true), update(false)], Vec::new());
+        assert_eq!((got.waiting, got.lists_from), (2, days_ago(45)));
+        // Only the fresh copy knows: it is from now.
+        let got = ask(Vec::new(), vec![update(false)]);
+        assert_eq!((got.waiting, got.lists_from), (1, Some(now())));
+    }
+
+    // ---- "update system and install": the first step ------------------------------------------------------------
+
+    fn ready_resolution() -> Resolution {
+        Resolution::Blocked(vec![tidewise_pacman::Blocker::NothingToInstall])
+    }
+
+    fn plan_lookup() -> UpdateLookup {
+        UpdateLookup::Plan(Box::default())
+    }
+
+    /// Runs the step; returns it with the folder the resolve was given (`None`: not resolved).
+    fn prepare(
+        lists: Lists,
+        found: impl Fn(Option<&Path>) -> Result<UpdateLookup, PacmanError>,
+    ) -> (SystemCheck, Option<Option<PathBuf>>) {
+        let resolved = RefCell::new(None);
+        let got = prepare_system(
+            || lists,
+            found,
+            |folder| {
+                *resolved.borrow_mut() = Some(folder);
+                Ok(ready_resolution())
+            },
+            || days_ago(3),
+            now(),
+        )
+        .unwrap();
+        (got, resolved.into_inner())
+    }
+
+    #[test]
+    fn the_install_is_resolved_against_the_fresh_private_copy_the_review_read() {
+        let (got, resolved) = prepare(private(), |_| Ok(plan_lookup()));
+        assert_eq!(got.dbpath, Some(PathBuf::from(FOLDER)));
+        assert_eq!(resolved, Some(Some(PathBuf::from(FOLDER))));
+        assert_eq!(got.note, None);
+        assert_eq!(got.resolution, Some(ready_resolution()));
+    }
+
+    #[test]
+    fn without_a_private_copy_the_real_lists_are_resolved_with_the_note() {
+        for (lists, lookup_fails, why) in [
+            (Lists::Real(NotFresh::Busy), false, NotFresh::Busy),
+            (private(), true, NotFresh::Failed),
+        ] {
+            let (got, resolved) = prepare(lists, |folder| match folder {
+                Some(_) if lookup_fails => Err(PacmanError::TooManyRounds { limit: 1 }),
+                _ => Ok(plan_lookup()),
+            });
+            assert_eq!((got.dbpath, resolved), (None, Some(None)));
+            assert_eq!(
+                got.note,
+                Some(ListsNote {
+                    why,
+                    age_days: Some(3)
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_blocked_system_part_is_not_resolved() {
+        let held = |_: Option<&Path>| Ok(held_lookup("x"));
+        let replaced = |_: Option<&Path>| {
+            Ok(UpdateLookup::Plan(Box::new(tidewise_pacman::UpdatePlan {
+                replacements: vec![tidewise_pacman::Replacement {
+                    new: tidewise_pacman::PackageRef {
+                        repo: "extra".to_string(),
+                        name: "new".to_string(),
+                    },
+                    old: "old".to_string(),
+                }],
+                ..Default::default()
+            })))
+        };
+        for (got, resolved) in [prepare(private(), held), prepare(private(), replaced)] {
+            assert_eq!((got.resolution, resolved), (None, None));
+        }
     }
 }

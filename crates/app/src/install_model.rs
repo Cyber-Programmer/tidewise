@@ -9,11 +9,14 @@ use crate::error_words::{Doing, ErrorText, error_text};
 use crate::helper_request::install_request;
 use crate::helper_run::JobEnd;
 use crate::job::{Job, JobFailure, JobTicket};
-use crate::update_check::ListsNote;
+use crate::update_check::{ListsNote, SystemCheck};
+use crate::update_words::UpdateBlock;
+use std::path::PathBuf;
+use std::time::SystemTime;
 use tidewise_helper_protocol::{ErrorKind, Event, Notice, Outcome};
 use tidewise_pacman::{
     Blocker, GroupAnswer, InstallDecision, InstallPlan, PackageRef, PacmanError, ProviderAnswer,
-    Question, Resolution, ResolveInput,
+    Question, RefreshWhy, Resolution, ResolveInput, UpdatePlan,
 };
 
 /// What the user asked to install (from Search). The answers are kept apart, in `Step`s.
@@ -30,13 +33,34 @@ pub struct Ticket {
     pub input: ResolveInput,
     /// The first resolve of an install first asks whether the system needs updating (`pacman -Qu`).
     pub check_lists: bool,
+    /// "Update system and install", first step: refresh the private lists (this way), read the system update and
+    /// resolve against it. `None` for every other ticket.
+    pub refresh_system: Option<RefreshWhy>,
+}
+
+/// What the stale card says is waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Waiting {
+    pub count: usize,
+    /// How new the lists behind that count are, when known.
+    pub lists_from: Option<SystemTime>,
+}
+
+/// The system part of "update system and install".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemPart {
+    pub plan: UpdatePlan,
+    /// The private copy everything was read from; `None`: the real lists.
+    pub dbpath: Option<PathBuf>,
 }
 
 /// What a worker found out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkAnswer {
     /// `pacman -Qu` says updates are waiting: the resolver was not run.
-    MustUpdate,
+    MustUpdate(Waiting),
+    /// The first step of "update system and install".
+    System(Box<SystemCheck>),
     Resolved(Resolution),
 }
 
@@ -50,6 +74,8 @@ pub enum Phase {
     Asking,
     /// The system must be updated first.
     Stale,
+    /// "Update system and install": the system update cannot go ahead.
+    SystemBlocked(UpdateBlock),
     Blocked(Vec<Blocker>),
     Failed {
         text: ErrorText,
@@ -244,6 +270,7 @@ impl InstallModel {
             number: self.last_number,
             input: self.input(),
             check_lists,
+            refresh_system: None,
         };
         self.wanted = Some(ticket.number);
         self.slow = false;
@@ -522,6 +549,49 @@ impl InstallModel {
         }
     }
 
+    // ---- "update system and install" (stubs) ----
+
+    /// The stale card's main button.
+    pub fn update_and_install(&mut self) -> Option<Ticket> {
+        None
+    }
+
+    /// Whether this install updates the system too.
+    pub fn is_updating(&self) -> bool {
+        false
+    }
+
+    /// Updates are waiting, on the stale card.
+    pub fn waiting(&self) -> Option<Waiting> {
+        None
+    }
+
+    pub fn system(&self) -> Option<&SystemPart> {
+        None
+    }
+
+    /// The review follows a list that changed under the user.
+    pub fn lists_changed(&self) -> bool {
+        false
+    }
+
+    /// A ticket the end of a job asks for.
+    pub fn take_follow_up(&mut self) -> Option<Ticket> {
+        None
+    }
+
+    /// After a successful update and install: a restart is a good idea.
+    pub fn restart_wanted(&self) -> bool {
+        false
+    }
+
+    pub fn system_rows_open(&self) -> bool {
+        false
+    }
+
+    /// The "System update" row was pressed.
+    pub fn toggle_system_rows(&mut self) {}
+
     /// The review's Install button: `Some` means "start the helper now".
     pub fn start_install(&mut self) -> Option<JobTicket> {
         let Phase::Ready(plan) = &self.phase else {
@@ -654,7 +724,9 @@ impl InstallModel {
 
     fn apply(&mut self, round: u32, result: Result<WorkAnswer, PacmanError>) {
         self.phase = match result {
-            Ok(WorkAnswer::MustUpdate) => Phase::Stale,
+            Ok(WorkAnswer::MustUpdate(_)) => Phase::Stale,
+            // Stub.
+            Ok(WorkAnswer::System(_)) => Phase::Closed,
             Ok(WorkAnswer::Resolved(Resolution::Ready(plan))) => {
                 if matches!(plan.decision, InstallDecision::MustUpdateSystem { .. }) {
                     Phase::Stale
@@ -708,6 +780,7 @@ mod tests {
     use tidewise_helper_protocol::{Phase as Stage, Progress};
     use tidewise_pacman::{
         Candidate, GroupAnswer, GroupChoice, InstallDecision, PlanItem, ProviderAnswer, Role,
+        UpdateLookup,
     };
 
     fn pkg(name: &str) -> PackageRef {
@@ -1117,7 +1190,7 @@ mod tests {
     fn waiting_updates_means_the_system_must_be_updated_first() {
         let mut model = InstallModel::new();
         let ticket = model.open(pkg("dbeaver")).unwrap();
-        model.done(ticket.number, Ok(WorkAnswer::MustUpdate));
+        model.done(ticket.number, Ok(WorkAnswer::MustUpdate(waiting(3))));
         assert_eq!(*model.phase(), Phase::Stale);
     }
 
@@ -1420,7 +1493,7 @@ mod tests {
         model.done(first.number, ready());
         assert!(matches!(model.phase(), Phase::Ready(_)));
         // a second answer for the same ticket is ignored
-        model.done(first.number, Ok(WorkAnswer::MustUpdate));
+        model.done(first.number, Ok(WorkAnswer::MustUpdate(waiting(3))));
         assert!(matches!(model.phase(), Phase::Ready(_)));
     }
 
@@ -1545,7 +1618,7 @@ mod tests {
         assert_eq!(model.lists_note(), None);
         let busy = note(tidewise_pacman::NotFresh::Busy);
         model.lists_checked(first.number, Some(busy));
-        model.done(first.number, Ok(WorkAnswer::MustUpdate));
+        model.done(first.number, Ok(WorkAnswer::MustUpdate(waiting(3))));
         assert_eq!(model.lists_note(), Some(busy));
         model.open(pkg("cronie"));
         assert_eq!(model.lists_note(), None);
@@ -1558,5 +1631,356 @@ mod tests {
         model.open(pkg("cronie"));
         model.lists_checked(first.number, Some(note(tidewise_pacman::NotFresh::Failed)));
         assert_eq!(model.lists_note(), None);
+    }
+
+    // ---- "update system and install" (WBS 6.6) ------------------------------------------------------------------
+
+    const FOLDER: &str = "/run/user/1000/tidewise/lists/";
+
+    fn waiting(count: usize) -> Waiting {
+        Waiting {
+            count,
+            lists_from: Some(SystemTime::UNIX_EPOCH),
+        }
+    }
+
+    fn must_update() -> InstallDecision {
+        InstallDecision::MustUpdateSystem {
+            count: 3,
+            ignored: 0,
+        }
+    }
+
+    fn item(name: &str, role: Role) -> PlanItem {
+        PlanItem {
+            package: pkg(name),
+            version: "2-1".to_string(),
+            role,
+            installed_version: (role == Role::Update).then(|| "1-1".to_string()),
+            download_size: 100,
+            installed_size: 200,
+            installed_size_text: String::new(),
+            current_size: None,
+        }
+    }
+
+    /// The system update brings `linux`; the install adds `dbeaver` and its Java.
+    fn combined() -> InstallPlan {
+        let mut plan = plan(must_update());
+        plan.items = vec![
+            item("linux", Role::Update),
+            item("jre-openjdk", Role::Provider),
+            item("dbeaver", Role::Target),
+        ];
+        plan
+    }
+
+    fn system_plan(names: &[&str]) -> UpdatePlan {
+        UpdatePlan {
+            items: names.iter().map(|name| item(name, Role::Update)).collect(),
+            ..UpdatePlan::default()
+        }
+    }
+
+    fn checked_with(
+        lookup: UpdateLookup,
+        resolution: Option<Resolution>,
+    ) -> Result<WorkAnswer, PacmanError> {
+        Ok(WorkAnswer::System(Box::new(SystemCheck {
+            lookup,
+            note: None,
+            dbpath: Some(PathBuf::from(FOLDER)),
+            resolution,
+        })))
+    }
+
+    fn checked(resolution: Resolution) -> Result<WorkAnswer, PacmanError> {
+        checked_with(
+            UpdateLookup::Plan(Box::new(system_plan(&["linux"]))),
+            Some(resolution),
+        )
+    }
+
+    /// The stale card, accepted: the model and the ticket of the first step.
+    fn accepted() -> (InstallModel, Ticket) {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).unwrap();
+        model.done(first.number, Ok(WorkAnswer::MustUpdate(waiting(3))));
+        let ticket = model.update_and_install().expect("a ticket");
+        (model, ticket)
+    }
+
+    /// The combined review.
+    fn combined_review() -> InstallModel {
+        let (mut model, ticket) = accepted();
+        model.done(ticket.number, checked(Resolution::Ready(combined())));
+        model
+    }
+
+    #[test]
+    fn the_stale_card_remembers_what_is_waiting() {
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).unwrap();
+        model.done(first.number, Ok(WorkAnswer::MustUpdate(waiting(143))));
+        assert_eq!(model.waiting(), Some(waiting(143)));
+        // A resolve that finds updates waiting says how many, without a date.
+        let mut model = InstallModel::new();
+        let first = model.open(pkg("dbeaver")).unwrap();
+        let resolved = Resolution::Ready(plan(must_update()));
+        model.done(first.number, Ok(WorkAnswer::Resolved(resolved)));
+        assert_eq!(*model.phase(), Phase::Stale);
+        assert_eq!(
+            model.waiting(),
+            Some(Waiting {
+                count: 3,
+                lists_from: None
+            })
+        );
+        assert!(!model.is_updating());
+    }
+
+    #[test]
+    fn accepting_the_stale_card_asks_for_the_system_step() {
+        let (model, ticket) = accepted();
+        assert_eq!(ticket.refresh_system, Some(RefreshWhy::Opening));
+        assert!(!ticket.check_lists);
+        assert_eq!(ticket.input.targets, [pkg("dbeaver")]);
+        assert_eq!(ticket.input.dbpath, None);
+        assert_eq!(*model.phase(), Phase::Working);
+        assert!(model.is_updating());
+    }
+
+    #[test]
+    fn a_plan_that_updates_the_system_is_the_review_once_accepted() {
+        let model = combined_review();
+        assert_eq!(*model.phase(), Phase::Ready(Box::new(combined())));
+        assert_eq!(
+            model.system().map(|s| (&s.plan, s.dbpath.as_deref())),
+            Some((&system_plan(&["linux"]), Some(std::path::Path::new(FOLDER))))
+        );
+    }
+
+    #[test]
+    fn questions_are_asked_against_the_same_private_copy() {
+        let (mut model, ticket) = accepted();
+        let questions = vec![provider("java-runtime", &["jre-openjdk", "jre17"], 0)];
+        model.done(ticket.number, checked(Resolution::NeedsAnswers(questions)));
+        assert_eq!(*model.phase(), Phase::Asking);
+        let next = model.go_on().expect("a resolve");
+        assert_eq!(
+            next.refresh_system, None,
+            "no second refresh between rounds"
+        );
+        assert!(!next.check_lists);
+        assert_eq!(next.input.dbpath, Some(PathBuf::from(FOLDER)));
+        assert_eq!(next.input.provider_answers.len(), 1);
+        let resolved = Resolution::Ready(combined());
+        model.done(next.number, Ok(WorkAnswer::Resolved(resolved)));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+    }
+
+    #[test]
+    fn a_system_part_that_cannot_go_ahead_blocks_and_can_be_checked_again() {
+        let held = tidewise_pacman::HeldBlock {
+            package: "a".to_string(),
+            held: "b".to_string(),
+        };
+        let replacement = tidewise_pacman::Replacement {
+            new: pkg("new"),
+            old: "old".to_string(),
+        };
+        let conflict = tidewise_pacman::Conflict {
+            package: "a".to_string(),
+            installed: "b".to_string(),
+        };
+        let replaced = UpdatePlan {
+            replacements: vec![replacement.clone()],
+            ..system_plan(&["linux"])
+        };
+        let conflicting = UpdatePlan {
+            conflicts: vec![conflict.clone()],
+            ..system_plan(&["linux"])
+        };
+        for (lookup, block) in [
+            (
+                UpdateLookup::HeldBlock(held.clone()),
+                UpdateBlock::Held(held),
+            ),
+            (
+                UpdateLookup::Plan(Box::new(replaced)),
+                UpdateBlock::Replacement(vec![replacement]),
+            ),
+            (
+                UpdateLookup::Plan(Box::new(conflicting)),
+                UpdateBlock::Conflict(vec![conflict]),
+            ),
+        ] {
+            let (mut model, ticket) = accepted();
+            model.done(ticket.number, checked_with(lookup, None));
+            assert_eq!(*model.phase(), Phase::SystemBlocked(block));
+            let again = model.try_again().expect("check again");
+            assert_eq!(again.refresh_system, Some(RefreshWhy::Opening));
+        }
+    }
+
+    #[test]
+    fn a_choice_the_system_update_brings_does_not_block_update_and_install() {
+        // A plain update sends this to a terminal; here the resolver names every pick (decision 0009).
+        let picking = UpdatePlan {
+            picks: vec![tidewise_pacman::ProviderPick {
+                dependency: "java-runtime".to_string(),
+                provider: pkg("jre-openjdk"),
+                version: None,
+            }],
+            ..system_plan(&["linux"])
+        };
+        let (mut model, ticket) = accepted();
+        let lookup = UpdateLookup::Plan(Box::new(picking));
+        let resolved = Some(Resolution::Ready(combined()));
+        model.done(ticket.number, checked_with(lookup, resolved));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+    }
+
+    #[test]
+    fn nothing_left_to_update_goes_on_as_a_plain_install() {
+        let (mut model, ticket) = accepted();
+        let lookup = UpdateLookup::Plan(Box::default());
+        let resolved = Resolution::Ready(plan(InstallDecision::Allowed { ignored: 0 }));
+        let next = model
+            .done(ticket.number, checked_with(lookup, Some(resolved)))
+            .expect("start again as a plain install");
+        assert!(next.check_lists);
+        assert_eq!(next.refresh_system, None);
+        assert_eq!(next.input.dbpath, None);
+        assert!(!model.is_updating());
+        assert_eq!(*model.phase(), Phase::Working);
+    }
+
+    #[test]
+    fn a_private_copy_that_could_not_be_used_says_so_on_the_review() {
+        let note = ListsNote {
+            why: tidewise_pacman::NotFresh::Failed,
+            age_days: Some(4),
+        };
+        let (mut model, ticket) = accepted();
+        let check = SystemCheck {
+            lookup: UpdateLookup::Plan(Box::new(system_plan(&["linux"]))),
+            note: Some(note),
+            dbpath: None,
+            resolution: Some(Resolution::Ready(combined())),
+        };
+        model.done(ticket.number, Ok(WorkAnswer::System(Box::new(check))));
+        assert_eq!(model.lists_note(), Some(note));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+    }
+
+    #[test]
+    fn a_failed_first_step_is_tried_again_from_the_refresh() {
+        let (mut model, ticket) = accepted();
+        let error = PacmanError::Failed {
+            code: Some(1),
+            stderr: "x".to_string(),
+        };
+        model.done(ticket.number, Err(error));
+        let again = model.try_again().expect("try again");
+        assert_eq!(again.refresh_system, Some(RefreshWhy::Opening));
+    }
+
+    #[test]
+    fn lists_that_changed_after_the_password_are_checked_again_with_the_answers_kept() {
+        let (mut model, ticket) = accepted();
+        let questions = vec![provider("java-runtime", &["jre-openjdk", "jre17"], 0)];
+        model.done(ticket.number, checked(Resolution::NeedsAnswers(questions)));
+        let next = model.go_on().unwrap();
+        model.done(
+            next.number,
+            Ok(WorkAnswer::Resolved(Resolution::Ready(combined()))),
+        );
+        let job = model.start_install().expect("a job");
+        assert!(
+            job.request
+                .summary
+                .starts_with("update system and install ")
+        );
+        let end = JobEnd::Finished(Outcome::Error(ErrorKind::TransactionChanged));
+        assert!(model.job_ended(job.number, end));
+        let again = model.take_follow_up().expect("look again");
+        assert_eq!(again.refresh_system, Some(RefreshWhy::AfterRefusal));
+        assert_eq!(again.input.provider_answers.len(), 1);
+        assert_eq!(model.take_follow_up(), None);
+        model.done(again.number, checked(Resolution::Ready(combined())));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+        assert!(model.lists_changed());
+    }
+
+    #[test]
+    fn a_question_asked_again_replaces_the_old_answer() {
+        let (mut model, ticket) = accepted();
+        let first = vec![provider("java-runtime", &["jre-openjdk", "jre17"], 0)];
+        model.done(ticket.number, checked(Resolution::NeedsAnswers(first)));
+        let next = model.go_on().unwrap();
+        // The resolver drops an answer that no longer fits and asks the same thing again.
+        let second = vec![provider("java-runtime", &["jre21", "jre25"], 0)];
+        model.done(next.number, asks(second));
+        assert_eq!(model.steps().len(), 1);
+        let last = model.go_on().unwrap();
+        assert_eq!(last.input.provider_answers.len(), 1);
+        assert_eq!(last.input.provider_answers[0].chosen, pkg("jre21"));
+    }
+
+    #[test]
+    fn installing_a_shared_library_choice_goes_on_as_update_and_install_of_it() {
+        let (mut model, ticket) = accepted();
+        let choice = Resolution::Blocked(vec![Blocker::SonameChoice {
+            dependency: "libjack.so".to_string(),
+            candidates: vec![pkg("jack2"), pkg("pipewire-jack")],
+        }]);
+        model.done(ticket.number, checked(choice));
+        let next = model.install_choice(1).expect("the candidate");
+        // One path: no stale card in between, straight to the system step of the candidate.
+        assert!(model.is_updating());
+        assert_eq!(next.input.targets, [pkg("pipewire-jack")]);
+        assert_eq!(next.refresh_system, Some(RefreshWhy::Opening));
+        assert!(!next.check_lists);
+        model.done(next.number, checked(Resolution::Ready(combined())));
+        assert!(matches!(model.phase(), Phase::Ready(_)));
+    }
+
+    #[test]
+    fn leaving_forgets_that_the_system_was_to_be_updated() {
+        let mut model = combined_review();
+        model.cancel();
+        assert!(!model.is_updating());
+        assert_eq!(model.system(), None);
+        let ticket = model.open(pkg("zsh")).unwrap();
+        assert!(ticket.check_lists);
+        assert_eq!(ticket.input.dbpath, None);
+    }
+
+    #[test]
+    fn a_finished_update_and_install_asks_for_a_restart_after_a_core_part() {
+        for (name, restart) in [("linux", true), ("zsh", false)] {
+            let mut plan = combined();
+            plan.items[0] = item(name, Role::Update);
+            let (mut model, ticket) = accepted();
+            model.done(ticket.number, checked(Resolution::Ready(plan)));
+            let job = model.start_install().unwrap();
+            model.job_ended(job.number, JobEnd::Finished(Outcome::Ok));
+            assert_eq!(model.restart_wanted(), restart, "{name}");
+        }
+        // A plain install never says it.
+        let (mut model, number) = installing();
+        model.job_ended(number, JobEnd::Finished(Outcome::Ok));
+        assert!(!model.restart_wanted());
+    }
+
+    #[test]
+    fn the_system_row_is_closed_until_pressed() {
+        let mut model = combined_review();
+        assert!(!model.system_rows_open());
+        model.toggle_system_rows();
+        assert!(model.system_rows_open());
+        model.toggle_system_rows();
+        assert!(!model.system_rows_open());
     }
 }
