@@ -49,6 +49,11 @@ impl Job {
 /// The dialog when the window is closed during a job.
 pub const CLOSE_WARNING: &str =
     "The update keeps running if you close Tidewise. Keep it open until it's done.";
+/// What to ask before closing the window, naming the running job. `None`: nothing is running, close at once.
+pub fn close_warning(installing: bool, updating: bool) -> Option<&'static str> {
+    (installing || updating).then_some(CLOSE_WARNING)
+}
+
 pub const KEEP_OPEN: &str = "Keep open";
 pub const CLOSE_ANYWAY: &str = "Close anyway";
 
@@ -106,11 +111,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_close_dialog_says_exactly_this() {
+    fn the_close_dialog_names_the_running_job() {
+        let update =
+            "The update keeps running if you close Tidewise. Keep it open until it's done.";
         assert_eq!(
-            CLOSE_WARNING,
-            "The update keeps running if you close Tidewise. Keep it open until it's done."
+            close_warning(true, false),
+            Some("The install keeps running if you close Tidewise. Keep it open until it's done.")
         );
+        assert_eq!(close_warning(false, true), Some(update));
+        // Both at once (a second job only waits for the first's lock): the update is the larger one.
+        assert_eq!(close_warning(true, true), Some(update));
+        assert_eq!(close_warning(false, false), None);
         assert_eq!((KEEP_OPEN, CLOSE_ANYWAY), ("Keep open", "Close anyway"));
     }
 
