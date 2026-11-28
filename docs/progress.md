@@ -1776,3 +1776,70 @@ Blockers: for v0.1, 6.6 (threat model 40) and 6.18 (46).
 Rules bent: ENGINEERING asks reduced motion to be honoured and the moving bar does not; the 6.18 row is not in the WBS
 sheet (the sheet was not touched).
 
+## 2026-11-28 — 6.6 Update system and install
+Done (branch `feat/6.6-update-and-install`):
+- The stale card offers "Update system and install {name}": private lists refreshed, 6.5 review of the system part,
+  questions against that same folder, one review (a closed "System update · N packages" row plus the install rows), one
+  password, `pacman -Su {targets}`.
+- **R-05 / threat model 40 closed:** the helper runs the install's provider rule on the private copy before the lists
+  move in. New read-only command `PrivateDryRunInstall` (your OK). Protocol unchanged. Decision 0009 amended: a choice
+  the system update brings is asked here, and stays the terminal card in a plain update until 6.16 (intended).
+- **Checks** on `dac64f1`: `cargo test --all` 1380 passed, 0 failed, 173 ignored; fmt, clippy, `cargo deny`, release
+  build, fuzz fmt and build: exit 0.
+- **Fuzz** (600 s each, exit 0, no artifacts): `request` 2,733,577 runs, `print` 3,708,441.
+- **Container:** every test file but `package*`: 149 passed, 0 failed. The three R-05 refusals failed against the
+  helper from before the fix. **The package tests did not run:** three tries of the full `run.sh` failed building the
+  package image on Arch Archive download errors.
+- **Adversarial review** (`docs/security/reviews/6.6-update-and-install.md`), nothing fixed: **U-01 (Medium, new in
+  6.6)** a valid update-and-install fails when `-S` of the chosen provider breaks an installed soname need on a stale
+  system; **U-02, U-03 (Low, older, also plain installs)** two ways pacman or the app takes a provider nobody chose;
+  U-04 to U-06 notes. U-01, U-02, U-03 re-run and confirmed.
+Rulings made while building (the plan did not say, or was wrong):
+- A provider pick does not block the system part (the plan's "or a real pick" contradicted your point 4).
+- The `-S` own-closure read runs only when the list holds another provider, in update mode, as the helper does.
+- "Why Arch works this way" is the wiki address as text; the lists date is UTC.
+- Nothing left to update by the time you accept: it goes on as a plain install.
+- `Updates::open` removed (the old stale button was its only caller).
+Next: your decision on U-01 to U-03; the full `run.sh` when the archive answers; the checklist below; push; PR.
+Blockers: U-01 (my recommendation: fix before merge); the package tests. For v0.1 also 6.18.
+Rules bent: (1) the window glue, the expandable row and its keyboard behaviour have no automated test, and the window
+has not been run. (2) Two size expectations in a red test were wrong and one older stale-card test changed, in green
+commits. (3) Some tests pin behaviour and had no red step (pick asked, `--dbpath` on `-T`, soname no-loop, container
+success cases). (4) Reduced fuzzing: only `request` and `print`. (5) No WBS sheet update (as asked): 6.6 would go to
+Needs Verification with these SHAs.
+
+### 6.6 manual checklist (the first real "update and install")
+Only your `sudo` lines and the installed helper run pacman as root: the job needs **this branch's installed helper**.
+Do it on the final commit. **Do not log out, reboot or suspend during a job** (threat model 46, WBS 6.18 not built).
+1. Build: `mkdir -p ~/tidewise-build && git archive --format=tar --prefix=tidewise-0.1.0/ HEAD | gzip -n >
+   ~/tidewise-build/tidewise-0.1.0.tar.gz && cp packaging/aur/PKGBUILD ~/tidewise-build/ && cd ~/tidewise-build &&
+   makepkg`
+2. `sudo pacman -U ~/tidewise-build/tidewise-0.1.0-1-x86_64.pkg.tar.zst`: the list must show only `tidewise` (if it
+   wants more, stop). `ls -l /usr/lib/tidewise/tidewise-helper` is root, `-rwxr-xr-x`. Read https://archlinux.org/news/.
+3. You need pending updates (`pacman -Qu` lists some, or wait until the mirror has some).
+   `pacman -Q > ~/before.txt; cp /var/log/pacman.log ~/before.log`.
+4. Start Tidewise from the menu, search a small app you do not have, press Install. The card "Your system needs updating
+   first": the body names the app, tiles "Updates waiting" and "Package lists from", the button "Update system and
+   install {name}", "Back to details", the wiki line, "Nothing has changed yet. …".
+5. Press the button: "Getting today's package lists…". Press Cancel once; `pgrep -a pacman; pgrep -a faked` shows
+   nothing of yours within a few seconds. Start again.
+6. If a question appears, its versions match
+   `pacman -Si --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/" -- <candidate>`.
+7. The review: title "Review: update the system and install {name}", the news line. The "System update" row is closed.
+   Tab to it, press Enter, then Space: it opens and closes, **keeps the focus**, Orca says expanded or collapsed, the
+   rows scroll inside the box. Packages tile = the number of lines of
+   `pacman -Su --print --print-format '%n %v' --dbpath "$XDG_RUNTIME_DIR/tidewise/lists/" -- extra/{name}` (use the
+   app's repository, and add any provider you picked), and every line is in the opened row or below it. Smallest window:
+   rows still reachable.
+8. Press "Update and install", close the password window: back on the review, "The password prompt was closed. Nothing
+   was changed." `pacman -Q | diff - ~/before.txt` is empty.
+9. Press it again and type the password once. Update words while it runs ("Updating 3 of 8"); closing the window asks
+   with "The update keeps running…". Done: "Your system is up to date and {name} is ready.", plus the restart line only
+   if a kernel, `systemd`, `mesa` or `nvidia*` was in the list.
+10. `diff ~/before.log /var/log/pacman.log`: one `Running 'pacman -Su --noconfirm --ask 66 -- …'` with your target, and
+    no `-Sy` on the real database. `pacman -Q | diff ~/before.txt -`: every change was on the review, nothing gone.
+    `pacman -Qu` shows only held packages. `pacman -Qi {name}`: explicitly installed.
+11. Optional, only while `pacman -Qu` is not empty: with the network off, steps 4-5 end on a review or card that says
+    "Couldn't get newer ones"; after the password, the download failure card, and `pacman -Q` unchanged.
+12. Back to how it was: `sudo pacman -Rns {name}` (the list must be only it and what came for it), then
+    `sudo pacman -Rns tidewise` (only `tidewise`), `rm -r ~/tidewise-build ~/before.txt ~/before.log`.

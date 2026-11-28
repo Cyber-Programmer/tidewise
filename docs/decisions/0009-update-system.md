@@ -84,7 +84,32 @@ one search per name took 73 s (plasma, 85 names), 88 s (gnome, 108) and 104 s (a
 search took under 1 s and found the identical set of packages.
 
 Two new fixed reads in the helper (approved): `-Ss --dbpath /run/tidewise-helper-lists/ -- ^name$` and `-T -- <dep>`
-(against the real local database). The rule is `update_picks` in `tidewise-pacman`, used by the app and the helper.
+(against the real local database). The rule is `real_choices` in `tidewise-pacman`, used by the app and the helper.
+
+## Update and install (WBS 6.6, 28 Nov 2026)
+
+"Update system and install {name}" is one `pacman -Su {targets}`, one review, one password (`update_system_and_install`).
+
+**A provider choice the system update brings is ASKED here** (human's decision, 28 Nov): the install can name providers,
+so the resolver names every pick of the whole combined list, the update's too, and asks when more than one fits. In a
+**plain** update the same choice still shows the terminal card until WBS 6.16. This difference is intended, not a bug.
+
+- **Helper:** the install's rule (`judge_named_providers`), not the plain update's: every pick named. All reads from the
+  private copy (`PrivatePackageDetails`, `PrivateSearch`, and the new `PrivateDryRunInstall`: `pacman -S --print
+  --dbpath /run/tidewise-helper-lists/ --logfile /dev/null -- repo/name`, approved by the human), before the lists move
+  in. Replacements block as for a plain update. Closes review 6.5 R-05 and threat model 40.
+- **App:** the system part is the 6.5 review, read from the app's private copy; a held package, a replacement or a
+  conflict blocks with the update screen's words (a pick does not). The install is resolved with `--dbpath` on that
+  same folder, in every round of questions. Without a usable private copy: the real lists, with the 6.11 note.
+- **The own-closure dry run is `-S`**, in app and helper, and runs only when the list holds another provider of the
+  name. On a stale system `-S` of one package can fail by itself (from reading; see the review for what was measured).
+- **Changed lists after the password:** refreshed (`AfterRefusal`) and resolved again with the answers kept; an answer
+  that no longer fits is asked again. Nothing left to update: it goes on as a plain install.
+- **Review:** one row "System update · N packages upgraded to today's versions", closed until pressed, holding the
+  update's lines (6.5 words), then the install's rows. N counts the lines in the row, new packages of the update
+  included, although the words say "upgraded".
+- **Stale card:** "Why Arch works this way" is the wiki address as text (`System_maintenance`, as for the Arch news
+  line: Tidewise opens no page). The "Package lists from" date is UTC. No download figure on that card.
 
 ## Decisions
 
