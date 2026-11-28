@@ -97,7 +97,16 @@ pub fn args(command: &PacmanCommand) -> Result<Vec<String>, ArgsRefused> {
             repo_and_name(packages)?,
             Names::Optional,
         ),
-        PacmanCommand::PrivateDryRunInstall(_) => Ok(Vec::new()),
+        PacmanCommand::PrivateDryRunInstall(packages) => build(
+            &["-S"],
+            &[
+                &dry_run[..],
+                &["--dbpath", LISTS_DBPATH, "--logfile", "/dev/null"],
+            ]
+            .concat(),
+            repo_and_name(packages)?,
+            Names::Required,
+        ),
         PacmanCommand::DryRunInstall(packages) => {
             build(&["-S"], &dry_run, repo_and_name(packages)?, Names::Required)
         }

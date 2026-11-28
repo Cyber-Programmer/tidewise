@@ -139,10 +139,9 @@ pub fn timeout_for(command: &PacmanCommand) -> Option<Duration> {
         | PacmanCommand::PrivateSearch(_)
         | PacmanCommand::Search(_)
         | PacmanCommand::DepTest(_)
+        | PacmanCommand::PrivateDryRunInstall(_)
         | PacmanCommand::ListInstalled => Some(READ_TIMEOUT),
-        // Stub: given its limit in the green commit.
-        PacmanCommand::PrivateDryRunInstall(_)
-        | PacmanCommand::PrivateSync
+        PacmanCommand::PrivateSync
         | PacmanCommand::RealInstall(_)
         | PacmanCommand::RealUpdate(_)
         | PacmanCommand::MarkAsDeps(_) => None,
