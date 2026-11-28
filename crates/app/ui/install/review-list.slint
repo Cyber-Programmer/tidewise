@@ -52,6 +52,86 @@ export component ReviewTile inherits Rectangle {
     }
 }
 
+// "System update · N packages": a real button that shows or hides its rows. Tab reaches it, Enter or Space presses
+// it, and a screen reader hears whether it is open.
+component SystemRow inherits Rectangle {
+    height: Theme.review-row;
+    background: touch.has-hover ? Theme.surface-2 : transparent;
+
+    accessible-role: button;
+    accessible-label: InstallBridge.system-text + ", " + InstallBridge.system-size;
+    accessible-expandable: true;
+    accessible-expanded: InstallBridge.system-open;
+    accessible-action-default => {
+        InstallBridge.toggle-system();
+    }
+    accessible-action-expand => {
+        InstallBridge.toggle-system();
+    }
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                InstallBridge.toggle-system();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            InstallBridge.toggle-system();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        spacing: Theme.space-m;
+
+        // Drawn, not typed: right when closed, down when open.
+        VerticalLayout {
+            alignment: center;
+            Path {
+                width: 12px;
+                height: 12px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: InstallBridge.system-open ? "M6 9l6 6 6-6" : "M9 6l6 6-6 6";
+                stroke: Theme.text-2;
+                stroke-width: 2px;
+                stroke-line-cap: round;
+                fill: transparent;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: InstallBridge.system-text;
+            color: Theme.text;
+            font-size: Theme.size-body;
+            font-weight: Theme.weight-semibold;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text {
+            text: InstallBridge.system-size;
+            color: Theme.text-2;
+            font-family: Theme.font-mono;
+            font-size: Theme.size-label;
+            vertical-alignment: center;
+        }
+    }
+
+    // Focus ring, drawn over the row.
+    Rectangle {
+        border-width: focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent;
+    }
+}
+
 // The review's one bounded box: the packages, or pacman's own figures while "Technical details" is open. It is one
 // Tab stop; Up, Down, Page Up, Page Down, Home and End scroll it (the maths is in list_scroll.rs).
 export component ReviewList inherits Rectangle {
@@ -111,8 +191,10 @@ export component ReviewList inherits Rectangle {
             alignment: start;
 
             if !root.technical: VerticalLayout {
+                if InstallBridge.system-text != "": SystemRow { }
+
                 for row[index] in InstallBridge.review-rows: VerticalLayout {
-                    if index > 0: Rectangle {
+                    if index > 0 || InstallBridge.system-text != "": Rectangle {
                         height: 1px;
                         background: Theme.rule;
                     }
@@ -167,6 +249,35 @@ export component ReviewList inherits Rectangle {
                                 horizontal-alignment: right;
                             }
                         }
+                    }
+                }
+
+                if InstallBridge.held-title != "": VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    Text {
+                        text: InstallBridge.held-title;
+                        color: Theme.text;
+                        font-size: Theme.size-label;
+                        font-weight: Theme.weight-semibold;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                    }
+
+                    for line in InstallBridge.held-lines: Text {
+                        text: line;
+                        color: Theme.text-2;
+                        font-size: Theme.size-label;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                    }
+
+                    Text {
+                        text: InstallBridge.held-warning;
+                        color: Theme.text-2;
+                        font-size: Theme.size-label;
+                        wrap: word-wrap;
+                        accessible-role: text;
                     }
                 }
             }

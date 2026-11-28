@@ -34,14 +34,13 @@ use tidewise_app::list_scroll::{
     scroll_to_show,
 };
 use tidewise_app::refresh_stop::{RefreshFlag, Refreshes};
-use tidewise_app::update_check::{ListsNote, check_for_updates};
+use tidewise_app::update_check::{ListsNote, check_for_updates, prepare_system};
 use tidewise_helper_protocol::Event;
 use tidewise_pacman::{PackageRef, PacmanError, RefreshWhy};
 
 use crate::apps_window::Apps;
 use crate::job_clock::JobClock;
 use crate::search_window::Search;
-use crate::update_window::Updates;
 use crate::{
     ChoiceOption, CloseBridge, InstallBridge, InstallCardKind, InstallFocus, InstallStageData,
     InstallStageState, InstalledRowData, MainWindow, NavBridge, REFRESH_EXIT_WAIT, ReviewKey,
@@ -79,8 +78,6 @@ struct Screen {
     apps: Apps,
     /// Set once Search exists (it is made after this screen, which it starts installs on).
     search: Option<Search>,
-    /// Set once the update screen exists; the stale card's button opens it.
-    updates: Option<Updates>,
     slow_timer: Timer,
     /// The card, and the number of its last focus move, as last painted: a new card starts its list at the top.
     shown_kind: CardKind,
@@ -116,7 +113,6 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         jobs: mpsc::channel(),
         apps,
         search: None,
-        updates: None,
         slow_timer: Timer::default(),
         shown_kind: CardKind::Closed,
         shown_serial: 0,
@@ -181,6 +177,11 @@ pub fn start(window: &MainWindow, apps: Apps) -> Install {
         repaint(&handle);
     });
     let handle = screen.clone();
+    bridge.on_toggle_system(move || {
+        handle.borrow_mut().model.toggle_system_rows();
+        repaint(&handle);
+    });
+    let handle = screen.clone();
     bridge.on_review_key(move |key, content| {
         if let Some(window) = handle.borrow().window.upgrade() {
             scroll_review(&window, key, content);
@@ -233,14 +234,14 @@ impl Install {
         self.screen.borrow_mut().search = Some(search);
     }
 
-    /// Where "Update system" on the stale card goes.
-    pub fn set_updates(&self, updates: Updates) {
-        self.screen.borrow_mut().updates = Some(updates);
-    }
-
     /// The helper is running for an install.
     pub fn job_running(&self) -> bool {
         self.screen.borrow().model.job_running()
+    }
+
+    /// The running job also updates the system.
+    pub fn updating_job(&self) -> bool {
+        self.screen.borrow().model.updating_job()
     }
 
     /// On the way out of the app: ends a running refresh and gives its pacman time to go.
@@ -313,12 +314,11 @@ fn primary(screen: &Rc<RefCell<Screen>>) {
             return;
         }
         Shown::Stale => {
-            let updates = screen.borrow().updates.clone();
-            screen.borrow_mut().model.cancel();
-            repaint(screen);
-            if let Some(updates) = updates {
-                updates.open();
+            let ticket = screen.borrow_mut().model.update_and_install();
+            if let Some(ticket) = ticket {
+                spawn_worker(screen, ticket);
             }
+            repaint(screen);
             return;
         }
         Shown::Other => {}
@@ -328,7 +328,9 @@ fn primary(screen: &Rc<RefCell<Screen>>) {
         match model.phase() {
             Phase::Asking => model.go_on(),
             Phase::Blocked(_) => model.install_instead(),
-            Phase::Failed { .. } | Phase::InstallFailed(_) => model.try_again(),
+            Phase::Failed { .. } | Phase::InstallFailed(_) | Phase::SystemBlocked(_) => {
+                model.try_again()
+            }
             _ => None,
         }
     };
@@ -388,6 +390,11 @@ fn job_news(screen: &Rc<RefCell<Screen>>) {
             }
         }
     }
+    // The lists changed since the review: look at them again.
+    let follow_up = screen.borrow_mut().model.take_follow_up();
+    if let Some(ticket) = follow_up {
+        spawn_worker(screen, ticket);
+    }
     time_job(screen);
     repaint(screen);
     if changed {
@@ -430,8 +437,9 @@ fn time_job(screen: &Rc<RefCell<Screen>>) {
 fn spawn_worker(screen: &Rc<RefCell<Screen>>, ticket: Ticket) {
     let (sender, window, flag) = {
         let mut state = screen.borrow_mut();
-        // Only a ticket that checks the lists refreshes them.
-        let flag = ticket.check_lists.then(|| state.refreshes.start());
+        // Only a ticket that checks the lists, or reads the system update, refreshes them.
+        let flag = (ticket.check_lists || ticket.refresh_system.is_some())
+            .then(|| state.refreshes.start());
         (state.mailbox.0.clone(), state.window.clone(), flag)
     };
     std::thread::spawn(move || {
@@ -466,6 +474,9 @@ fn work(
 ) -> (Option<Option<ListsNote>>, Result<WorkAnswer, PacmanError>) {
     let mut checked = None;
     if let Some(flag) = flag {
+        if let Some(why) = ticket.refresh_system {
+            return (checked, prepare_update(ticket, why, flag));
+        }
         // Updates waiting: Tidewise only installs on an up-to-date system, so do not even resolve.
         let check = check_for_updates(
             tidewise_pacman::pending_updates_in,
@@ -493,6 +504,32 @@ fn work(
     // Against the real lists: those are what the helper installs from.
     let result = tidewise_pacman::resolve(&ticket.input).map(WorkAnswer::Resolved);
     (checked, result)
+}
+
+/// The first step of "update system and install": refresh the private lists, read the system update, resolve the
+/// install against the same folder. As the user; nothing on the system changes.
+fn prepare_update(
+    ticket: &Ticket,
+    why: RefreshWhy,
+    flag: RefreshFlag,
+) -> Result<WorkAnswer, PacmanError> {
+    prepare_system(
+        // `flag` is dropped when the refresh returns, which is what leaving the app waits for.
+        move || tidewise_pacman::refresh_private_lists(why, flag.cancel()),
+        tidewise_pacman::update_lookup,
+        |dbpath| {
+            let mut input = ticket.input.clone();
+            input.dbpath = dbpath;
+            tidewise_pacman::resolve(&input)
+        },
+        || {
+            tidewise_pacman::sync_lists()
+                .ok()
+                .and_then(|lists| lists.newest)
+        },
+        SystemTime::now(),
+    )
+    .map(|check| WorkAnswer::System(Box::new(check)))
 }
 
 /// A worker has answered: hand every answer in the mailbox to the model.
@@ -670,9 +707,23 @@ fn set_texts(bridge: &InstallBridge, view: &InstallView) {
     bridge.set_tiles(ModelRc::new(VecModel::from(
         view.tiles.iter().map(tile).collect::<Vec<_>>(),
     )));
+    // The "System update" row is drawn apart from the list, so it keeps the keyboard focus while the rows under it
+    // come and go.
+    let system = view.rows.first().filter(|row| row.expander.is_some());
+    bridge.set_system_text(system.map_or("", |row| row.name.as_str()).into());
+    bridge.set_system_size(system.map_or("", |row| row.size.as_str()).into());
+    bridge.set_system_open(system.is_some_and(|row| row.expander == Some(true)));
     bridge.set_review_rows(ModelRc::new(VecModel::from(
-        view.rows.iter().map(review_row).collect::<Vec<_>>(),
+        view.rows
+            .iter()
+            .filter(|row| row.expander.is_none())
+            .map(review_row)
+            .collect::<Vec<_>>(),
     )));
+    bridge.set_notes(strings(&view.notes));
+    bridge.set_held_title(view.held_title.as_str().into());
+    bridge.set_held_lines(strings(&view.held_lines));
+    bridge.set_held_warning(view.held_warning.as_str().into());
     bridge.set_primary_note(view.primary_note.as_str().into());
     bridge.set_stages(ModelRc::new(VecModel::from(
         view.stages.iter().map(stage).collect::<Vec<_>>(),

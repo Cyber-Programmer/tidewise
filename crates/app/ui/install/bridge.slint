@@ -109,6 +109,18 @@ export global InstallBridge {
     in property <[string]> technical;
     in property <[TileData]> tiles;
     in property <[ReviewRowData]> review-rows;
+    // "System update · N packages" above the rows, or "" when this review has none. Open: its rows are the first
+    // ones of `review-rows`.
+    in property <string> system-text;
+    in property <string> system-size;
+    in property <bool> system-open;
+    callback toggle-system();
+    // Lines above the review's list.
+    in property <[string]> notes;
+    // What pacman.conf holds back, under the rows; "" when nothing is held.
+    in property <string> held-title;
+    in property <[string]> held-lines;
+    in property <string> held-warning;
     // The progress card: its stages, how far (0 to 100), and the same as words ("" before the helper says anything).
     in property <[InstallStageData]> stages;
     in property <int> percent;

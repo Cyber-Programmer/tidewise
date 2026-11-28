@@ -27,7 +27,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let search = search_window::start(&window, install.clone());
     install.set_search(search.clone());
     let updates = update_window::start(&window, apps_for_updates, search);
-    install.set_updates(updates.clone());
     ask_before_closing(&window, install.clone(), updates.clone());
     let result = window.run();
     // A refresh left running would have nobody to end it.
@@ -54,7 +53,11 @@ fn ask_before_closing(
     });
     let weak = window.as_weak();
     window.window().on_close_requested(move || {
-        let warning = close_warning(install.job_running(), updates.job_running());
+        // An install that updates the system too is warned about as an update.
+        let warning = close_warning(
+            install.job_running(),
+            updates.job_running() || install.updating_job(),
+        );
         match (weak.upgrade(), warning) {
             (Some(window), Some(warning)) => {
                 let bridge = window.global::<CloseBridge>();

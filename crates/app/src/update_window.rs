@@ -28,9 +28,8 @@ use crate::apps_window::Apps;
 use crate::job_clock::JobClock;
 use crate::search_window::Search;
 use crate::{
-    CloseBridge, InstallFocus, InstallStageData, InstallStageState, MainWindow, NavBridge,
-    REFRESH_EXIT_WAIT, ReviewKey, ReviewRowData, Screen as NavScreen, Theme, TileData,
-    UpdateBridge, UpdateCardKind,
+    CloseBridge, InstallFocus, InstallStageData, InstallStageState, MainWindow, REFRESH_EXIT_WAIT,
+    ReviewKey, ReviewRowData, Theme, TileData, UpdateBridge, UpdateCardKind,
 };
 
 /// What the helper's worker thread has to say about job `.0`.
@@ -113,14 +112,6 @@ impl Updates {
             .borrow_mut()
             .refreshes
             .stop_and_wait(REFRESH_EXIT_WAIT);
-    }
-
-    /// The install screen's "Update system" button: shows the screen and checks.
-    pub fn open(&self) {
-        if let Some(window) = self.state.borrow().window.upgrade() {
-            window.global::<NavBridge>().set_current(NavScreen::Updates);
-        }
-        check(&self.state);
     }
 }
 

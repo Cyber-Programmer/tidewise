@@ -83,7 +83,10 @@ export component InstallCard inherits Rectangle {
     property <length> radio-min: min(root.radio-full, 3 * root.radio-pitch);
 
     property <bool> review: InstallBridge.kind == InstallCardKind.review;
-    property <length> review-full: root.review ? InstallBridge.review-rows.length * (Theme.review-row + 1px) + 1px : 0px;
+    // Rows, the "System update" row, and what is held back (title, warning and one line each).
+    property <int> review-lines: InstallBridge.review-rows.length + (InstallBridge.system-text != "" ? 1 : 0);
+    property <length> held-full: InstallBridge.held-title != "" ? (InstallBridge.held-lines.length + 2) * 22px + 2 * Theme.space-l : 0px;
+    property <length> review-full: root.review ? root.review-lines * (Theme.review-row + 1px) + root.held-full + 1px : 0px;
     property <length> review-min: min(root.review-full, 3 * (Theme.review-row + 1px));
 
     // The layout starts every list at its smallest size, so the card's own preferred height is the smallest one;
@@ -235,12 +238,24 @@ export component InstallCard inherits Rectangle {
             bar-label: "Install progress";
         }
 
-        // The review: three figures, then the list.
-        if root.review: HorizontalLayout {
+        // The review's three figures, or the stale card's two; then the review's notes.
+        if InstallBridge.tiles.length > 0: HorizontalLayout {
             vertical-stretch: 0;
             spacing: Theme.space-m;
             for tile in InstallBridge.tiles: ReviewTile {
                 tile: tile;
+            }
+        }
+
+        if root.review: VerticalLayout {
+            vertical-stretch: 0;
+            spacing: Theme.space-xs;
+            for note in InstallBridge.notes: Text {
+                text: note;
+                color: Theme.text-2;
+                font-size: Theme.size-label;
+                wrap: word-wrap;
+                accessible-role: text;
             }
         }
 
