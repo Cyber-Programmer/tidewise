@@ -2343,11 +2343,19 @@ mod tests {
         }
         let install = the_install(&request);
         let items = transaction_of(&request);
+        // vlc is the chosen provider, so its record must provide the answered name.
+        let si: String = items
+            .iter()
+            .map(|item| match item.name.as_str() {
+                "vlc" => record(item, "a-virtual", "None"),
+                _ => record(item, "None", "None"),
+            })
+            .collect();
         let mut fake = Fake::new(vec![
             ok(SYNC_OUT),
             ok(&print_text(&items)),
             ok(&installed_text(&items)),
-            ok(&plain_si(&items)),
+            ok(&si),
             ok(&print_text(&items)),
             ok("pacman 7.1.0-1\n"),
             ok(REAL_INSTALL_OUT),
@@ -2371,6 +2379,218 @@ mod tests {
                 PacmanCommand::ListInstalled,
             ]
         );
+    }
+
+    // ---- update and install: no unnamed provider (golden rule 10, review 6.5 R-05, threat model 40) ---------------
+
+    /// "Update system and install vlc": `lines` is the confirmed list, `providers` the `(dependency, name)` answers.
+    fn update_and_install(lines: &str, providers: &[(&str, &str)]) -> Request {
+        Request {
+            protocol_version: PROTOCOL_VERSION,
+            action: Action::UpdateSystemAndInstall(Install {
+                targets: vec![pkg("extra", "vlc")],
+                providers: providers
+                    .iter()
+                    .map(|(dependency, name)| ProviderChoice {
+                        dependency: (*dependency).to_string(),
+                        chosen: pkg("extra", name),
+                    })
+                    .collect(),
+                transaction: lines_of(lines),
+            }),
+        }
+    }
+
+    /// glibc is an upgrade, the others are new.
+    const BOTH_LIST: &str = "core/glibc 2.42-2\nextra/jre 25-1\nextra/vlc 3.0.21-9\n";
+    const TWO_JRES: &str =
+        "core/glibc 2.42-2\nextra/jre 25-1\nextra/jre-other 25-1\nextra/vlc 3.0.21-9\n";
+
+    /// `-Si` of the list: `(name, provides, depends)`; a name not given provides and needs nothing.
+    fn si_of(items: &[TransactionItem], records: &[(&str, &str, &str)]) -> String {
+        items
+            .iter()
+            .map(|item| {
+                let found = records.iter().find(|(name, _, _)| *name == item.name);
+                match found {
+                    Some((_, provides, depends)) => record(item, provides, depends),
+                    None => record(item, "None", "None"),
+                }
+            })
+            .collect()
+    }
+
+    /// Runs `request` with glibc installed: the sync, the private dry run, `-Q`, `-Si`, then `more` (the provider
+    /// reads), then everything a job that goes on needs.
+    fn run_both(
+        request: &Request,
+        records: &[(&str, &str, &str)],
+        more: Vec<Result<RunOutput, RunnerError>>,
+    ) -> (JobResult, Fake) {
+        let items = transaction_of(request);
+        let marks = !the_install(request).providers.is_empty();
+        let mut script = vec![
+            ok(SYNC_OUT),
+            ok(&print_text(&items)),
+            ok("pacman 7.1.0-1\nglibc 2.42-1\n"),
+            ok(&si_of(&items, records)),
+        ];
+        script.extend(more);
+        script.extend([
+            ok(&print_text(&items)),
+            ok("pacman 7.1.0-1\nglibc 2.42-1\n"),
+            ok(REAL_INSTALL_OUT),
+        ]);
+        if marks {
+            script.push(ok(""));
+        }
+        script.push(ok(&installed_text(&items)));
+        let mut fake = Fake::new(script);
+        let (result, _) = go_full(request, &mut fake);
+        (result, fake)
+    }
+
+    /// Refused for the provider before anything moved, and no read touched the real package lists.
+    fn assert_refused_with_the_lists_untouched(result: &JobResult, fake: &Fake) {
+        assert_eq!(
+            result.outcome,
+            Outcome::Error(ErrorKind::ProviderNotChosen),
+            "{:?}",
+            fake.ran
+        );
+        assert_eq!(fake.moved_after, None, "the lists were moved in anyway");
+        assert_eq!(result.lists, Some(ListsState::Untouched));
+        assert!(
+            !fake.ran.iter().any(|c| matches!(
+                c,
+                PacmanCommand::RealUpdate(_) | PacmanCommand::MarkAsDeps(_)
+            )),
+            "{:?}",
+            fake.ran
+        );
+        assert_no_real_list_reads(fake);
+    }
+
+    fn assert_no_real_list_reads(fake: &Fake) {
+        let before_the_move = &fake.ran[..fake.moved_after.unwrap_or(fake.ran.len())];
+        assert!(
+            !before_the_move.iter().any(|c| matches!(
+                c,
+                PacmanCommand::PackageDetails(_)
+                    | PacmanCommand::Search(_)
+                    | PacmanCommand::DryRunInstall(_)
+            )),
+            "{before_the_move:?}"
+        );
+    }
+
+    #[test]
+    fn update_and_install_refuses_a_provider_nobody_named() {
+        for needer in ["vlc", "glibc"] {
+            // Needed by the target, or by a package of the system update: both are pacman's pick.
+            let request = update_and_install(BOTH_LIST, &[]);
+            let (result, fake) = run_both(
+                &request,
+                &[
+                    (needer, "None", "java-runtime"),
+                    ("jre", "java-runtime", "None"),
+                ],
+                vec![],
+            );
+            assert_refused_with_the_lists_untouched(&result, &fake);
+        }
+    }
+
+    #[test]
+    fn update_and_install_with_the_provider_named_runs_and_marks_it() {
+        let request = update_and_install(BOTH_LIST, &[("java-runtime", "jre")]);
+        let (result, fake) = run_both(
+            &request,
+            &[
+                ("vlc", "None", "java-runtime"),
+                ("jre", "java-runtime", "None"),
+            ],
+            vec![],
+        );
+        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+        assert!(
+            fake.ran
+                .contains(&PacmanCommand::MarkAsDeps(vec![pkg("extra", "jre")]))
+        );
+        assert_no_real_list_reads(&fake);
+    }
+
+    #[test]
+    fn update_and_install_refuses_an_answer_that_does_not_provide_its_name() {
+        let request = update_and_install(BOTH_LIST, &[("java-runtime", "glibc")]);
+        let (result, fake) = run_both(
+            &request,
+            &[
+                ("vlc", "None", "java-runtime"),
+                ("jre", "java-runtime", "None"),
+            ],
+            vec![],
+        );
+        assert_refused_with_the_lists_untouched(&result, &fake);
+    }
+
+    #[test]
+    fn update_and_install_asks_the_private_copy_what_a_chosen_package_brings() {
+        let records = [
+            ("vlc", "None", "java-runtime"),
+            ("jre", "java-runtime", "None"),
+            ("jre-other", "java-runtime", "None"),
+        ];
+        let request = update_and_install(TWO_JRES, &[("java-runtime", "jre")]);
+        let brought = |lines: &str| vec![ok(lines)];
+        let own = PacmanCommand::PrivateDryRunInstall(vec![pkg("extra", "jre")]);
+
+        // The chosen package does not bring the other provider: pacman took that one by itself.
+        let (result, fake) = run_both(&request, &records, brought("extra/jre 25-1\n"));
+        assert_refused_with_the_lists_untouched(&result, &fake);
+        assert!(fake.ran.contains(&own), "{:?}", fake.ran);
+
+        // It does: no choice was left to pacman.
+        let both = "extra/jre-other 25-1\nextra/jre 25-1\n";
+        let (result, fake) = run_both(&request, &records, brought(both));
+        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+        assert!(fake.ran.contains(&own), "{:?}", fake.ran);
+        assert_no_real_list_reads(&fake);
+    }
+
+    #[test]
+    fn update_and_install_judges_shared_libraries_on_the_private_copy() {
+        let records = [
+            ("vlc", "None", "libeditor.so=1-64"),
+            ("jre", "libeditor.so=1-64", "None"),
+        ];
+        let request = update_and_install(BOTH_LIST, &[]);
+
+        // Two packages could provide it, and neither is installed.
+        let (result, fake) = run_both(
+            &request,
+            &records,
+            vec![
+                ok(&found(&["jre", "other-lib"])),
+                ok(&soname_providers(&["jre", "other-lib"])),
+            ],
+        );
+        assert_refused_with_the_lists_untouched(&result, &fake);
+        assert!(
+            fake.ran
+                .contains(&PacmanCommand::PrivateSearch(vec![SONAME.to_string()])),
+            "{:?}",
+            fake.ran
+        );
+
+        // Only one can: nothing to choose.
+        let (result, fake) = run_both(
+            &request,
+            &records,
+            vec![ok(&found(&["jre"])), ok(&soname_providers(&["jre"]))],
+        );
+        assert_eq!(result.outcome, Outcome::Ok, "{:?}", fake.ran);
+        assert_no_real_list_reads(&fake);
     }
 
     #[test]
