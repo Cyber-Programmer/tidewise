@@ -497,7 +497,16 @@ fn check_providers(runner: &mut dyn Runner, install: &Install) -> Step {
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
     let details = read_details(runner, &install.transaction, PacmanCommand::PackageDetails)?;
+    judge_named_providers(runner, install, &installed, &details)
+}
 
+/// The rule of `check_providers`, on facts already read: the installed packages and `-Si` of the confirmed list.
+fn judge_named_providers(
+    runner: &mut dyn Runner,
+    install: &Install,
+    installed: &HashSet<String>,
+    details: &HashMap<ListedRef, PackageDetails>,
+) -> Step {
     let listed: Vec<ListedRef> = install
         .transaction
         .iter()
