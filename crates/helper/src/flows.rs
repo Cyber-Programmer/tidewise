@@ -84,7 +84,7 @@ pub fn run_job(
 ) -> JobResult {
     let (step, counts) = match &request.action {
         Action::Install(install) => install_job(install, runner, on_event),
-        Action::UpdateSystem(update) => update_job(&update.transaction, &[], &[], runner, on_event),
+        Action::UpdateSystem(update) => update_job(&update.transaction, runner, on_event),
         // Deferred until after v0.1 (decision 0010): refused here, before anything runs, whoever sends it. The app
         // never does; the protocol still knows the action.
         Action::UpdateSystemAndInstall(_) => {
@@ -157,11 +157,9 @@ fn install_job(
     )
 }
 
-/// `names` is empty for a plain system update.
+/// A full system update. It names no packages: the commands that could take targets are given none.
 fn update_job(
     transaction: &[TransactionItem],
-    names: &[PackageRef],
-    providers: &[PackageRef],
     runner: &mut dyn Runner,
     on_event: &mut dyn FnMut(Event),
 ) -> (Step, Counts) {
@@ -194,15 +192,14 @@ fn update_job(
 
     if let Err(kind) = dry_run(
         runner,
-        PacmanCommand::PrivateDryRunUpdate(names.to_vec()),
+        PacmanCommand::PrivateDryRunUpdate(Vec::new()),
         transaction,
     ) {
         return (Err(kind), untouched());
     }
 
-    // No replacement in either update action; and a plain update, which names no providers, must not need any
-    // (6.6 will pass the targets and answers).
-    if let Err(kind) = check_update_list(runner, transaction, names.is_empty()) {
+    // No replacement; and an update, which names no providers, must not need any.
+    if let Err(kind) = check_update_list(runner, transaction) {
         return (Err(kind), untouched());
     }
 
@@ -222,20 +219,16 @@ fn update_job(
     };
 
     // The same check again, on the real lists: another root process may have changed them since (T-09).
-    if let Err(kind) = dry_run(
-        runner,
-        PacmanCommand::DryRunUpdate(names.to_vec()),
-        transaction,
-    ) {
+    if let Err(kind) = dry_run(runner, PacmanCommand::DryRunUpdate(Vec::new()), transaction) {
         return (Err(kind), Counts::lists(after_the_move));
     }
     let (step, mut counts) = real_run_and_after(
         runner,
         on_event,
         &mut tracker,
-        PacmanCommand::RealUpdate(names.to_vec()),
+        PacmanCommand::RealUpdate(Vec::new()),
         transaction,
-        providers,
+        &[],
     );
     counts.lists = Some(after_the_move);
     (step, counts)
@@ -247,13 +240,9 @@ fn update_job(
 /// - No replacement (decision of 27 Nov, reviews 6.5 R-01 and T-01): a listed package, installed or not, that replaces
 ///   an installed one, its own name included. The real run declines it and may then upgrade the replaced package and what that needs, none of
 ///   it listed. Answered as a changed transaction: the app then looks again and shows why.
-/// - Golden rule 10, for a plain update (`judge_providers`; threat model 41): pacman must not pick a provider the
+/// - Golden rule 10 (threat model 41): pacman must not pick a provider the
 ///   request does not name. A pick needs a package that is not installed, so a list of upgrades only has none.
-fn check_update_list(
-    runner: &mut dyn Runner,
-    transaction: &[TransactionItem],
-    judge_providers: bool,
-) -> Step {
+fn check_update_list(runner: &mut dyn Runner, transaction: &[TransactionItem]) -> Step {
     let installed = read_installed_list(runner)
         .ok_or_else(|| failed("pacman's list of installed packages could not be read."))?;
     let installed: HashSet<String> = installed_names(&installed).into_iter().collect();
@@ -281,10 +270,9 @@ fn check_update_list(
     if !replacements.is_empty() {
         return Err(ErrorKind::TransactionChanged);
     }
-    if !judge_providers
-        || transaction
-            .iter()
-            .all(|item| installed.contains(&item.name))
+    if transaction
+        .iter()
+        .all(|item| installed.contains(&item.name))
     {
         return Ok(());
     }
