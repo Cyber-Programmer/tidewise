@@ -583,3 +583,23 @@ fn update_and_install_resolves_across_a_soname_bump() {
     assert!(installed_version(&dummy("rt-full")).is_some());
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
+
+/// Review 6.6 V-01 in the resolver: the app must not offer the candidate the helper would refuse.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_does_not_offer_a_candidate_whose_by_name_dependency_is_already_met() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-rt-shadow", "tidewise-dummy-upd"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-upd-2.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+    let said = resolved(
+        &["rt-need17"],
+        &[("tidewise-jvm", "rt-jvm25")],
+        Some(folder),
+    );
+    assert!(said.starts_with("ask tidewise-jvm "), "{said}");
+    assert!(!said.contains(&dummy("rt-jvm25")), "{said}");
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}

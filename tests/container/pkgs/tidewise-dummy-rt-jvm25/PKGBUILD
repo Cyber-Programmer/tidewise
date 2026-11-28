@@ -1,0 +1,15 @@
+# Dummy package for the Tidewise container tests (WBS 6.6, review V-01). Contains one text file and nothing else.
+pkgname=tidewise-dummy-rt-jvm25
+pkgver=1.0
+pkgrel=1
+pkgdesc="Tidewise test provider of tidewise-jvm 25 that needs rt-jvm17 by name"
+arch=('any')
+url="https://github.com/Cyber-Programmer/tidewise"
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+provides=('tidewise-jvm=25')
+depends=('tidewise-dummy-rt-jvm17')
+package() {
+  install -Dm644 /dev/null "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+  echo "$pkgname $pkgver" > "$pkgdir/usr/share/tidewise-test/$pkgname.txt"
+}

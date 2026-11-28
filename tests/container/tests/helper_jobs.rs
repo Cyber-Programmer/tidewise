@@ -1842,3 +1842,32 @@ fn update_and_install_accepts_a_provider_the_chosen_one_needs_by_name() {
         Some("2.0-1")
     );
 }
+
+// ---- a by-name dependency something else already meets (review 6.6 V-01) ----------------------------------------
+
+/// `rt-jvm25` needs `rt-jvm17` by name, but something else meets that name, so pacman does not pull `rt-jvm17` for
+/// it. It is listed as pacman's own pick for `tidewise-jvm=17`, which nobody named: refused.
+fn jvm17_nobody_named(target: &str) {
+    let items = listed(&[
+        ("rt-jvm17", "1.0-1"),
+        (target, "1.0-1"),
+        ("rt-jvm25", "1.0-1"),
+        ("upd", "2.0-1"),
+    ]);
+    refused_for_the_provider(target, &[("tidewise-jvm", "rt-jvm25")], &items);
+    assert!(installed_version(&dummy("rt-jvm17")).is_none());
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_when_an_installed_package_meets_the_by_name_dependency() {
+    stale_system(&["rt-shadow", "upd"], &["upd"]);
+    jvm17_nobody_named("rt-need17");
+}
+
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_when_another_listed_package_provides_the_by_name_dependency() {
+    stale_system(&["upd"], &["upd"]);
+    jvm17_nobody_named("rt-need17s");
+}
