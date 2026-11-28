@@ -9,7 +9,7 @@ mod update_window;
 use std::time::Duration;
 
 use slint::CloseRequestResponse;
-use tidewise_app::job::{CLOSE_ANYWAY, CLOSE_WARNING, KEEP_OPEN};
+use tidewise_app::job::{CLOSE_ANYWAY, KEEP_OPEN, close_warning};
 
 slint::include_modules!();
 
@@ -43,7 +43,6 @@ fn ask_before_closing(
     updates: update_window::Updates,
 ) {
     let bridge = window.global::<CloseBridge>();
-    bridge.set_warning(CLOSE_WARNING.into());
     bridge.set_keep_text(KEEP_OPEN.into());
     bridge.set_close_text(CLOSE_ANYWAY.into());
     let weak = window.as_weak();
@@ -54,13 +53,16 @@ fn ask_before_closing(
         }
     });
     let weak = window.as_weak();
-    window
-        .window()
-        .on_close_requested(move || match weak.upgrade() {
-            Some(window) if install.job_running() || updates.job_running() => {
-                window.global::<CloseBridge>().set_open(true);
+    window.window().on_close_requested(move || {
+        let warning = close_warning(install.job_running(), updates.job_running());
+        match (weak.upgrade(), warning) {
+            (Some(window), Some(warning)) => {
+                let bridge = window.global::<CloseBridge>();
+                bridge.set_warning(warning.into());
+                bridge.set_open(true);
                 CloseRequestResponse::KeepWindowShown
             }
             _ => CloseRequestResponse::HideWindow,
-        });
+        }
+    });
 }
