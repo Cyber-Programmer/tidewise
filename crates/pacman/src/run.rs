@@ -900,11 +900,16 @@ mod resolver_tests {
         let _ = facts.dry_run(true, &strings(&["extra/zsh"]));
         let _ = facts.details(&[item]);
         let _ = facts.search_exact("cron");
+        let _ = facts.search_any(&strings(&["cron", "sh"]));
+        let _ = facts.satisfied(&Dependency {
+            name: "sh".to_string(),
+            rule: None,
+        });
         let _ = facts.group_members("plasma");
         let _ = facts.installed();
         let _ = facts.pending_updates();
         let recorded = recorded.borrow();
-        assert_eq!(recorded.len(), 7, "{recorded:?}");
+        assert_eq!(recorded.len(), 9, "{recorded:?}");
         for args in recorded.iter() {
             let at = args.iter().position(|a| a == "--dbpath");
             let names_at = args.iter().position(|a| a == "--");

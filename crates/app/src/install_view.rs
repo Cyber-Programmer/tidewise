@@ -908,6 +908,8 @@ fn blocked(view: &mut InstallView, model: &InstallModel, blockers: &[Blocker]) {
                 })
                 .collect();
         }
+        // Stub: worded with the other update-and-install cards.
+        Some(Blocker::Replacement(_)) => {}
         Some(Blocker::NothingToInstall) | None => {
             view.title_before = "Nothing to install".to_string();
             view.body = "Everything you chose stays as it is.".to_string();
@@ -943,6 +945,7 @@ fn technical_line(blocker: &Blocker) -> String {
         Blocker::SonameChoice { dependency, .. } => {
             format!("{dependency}: several packages provide it")
         }
+        Blocker::Replacement(_) => String::new(),
         Blocker::TwoVersionsNeeded { dependency } => {
             format!("{dependency}: needed at two versions")
         }

@@ -17,7 +17,8 @@ use crate::picks::provides_for;
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
-    ProviderPick, SearchResult, install_decision, is_soname, provider_picks, real_choices,
+    ProviderPick, Replacement, SearchResult, install_decision, is_soname, provider_picks,
+    real_choices,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -140,6 +141,9 @@ pub enum Blocker {
     TwoVersionsNeeded {
         dependency: String,
     },
+    /// Update and install only: the list holds a package that replaces an installed one (`listed_replacements`, the
+    /// helper's rule too). Tidewise does no replacements yet (WBS 7.5).
+    Replacement(Vec<Replacement>),
     /// Several packages provide this shared library and pacman would choose one by itself. Tidewise asks no question
     /// about a soname (review 6.5 R-02).
     SonameChoice {

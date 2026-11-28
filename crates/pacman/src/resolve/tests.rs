@@ -20,6 +20,7 @@ struct Pkg {
     provides: Vec<String>,
     depends: Vec<String>,
     groups: Vec<String>,
+    replaces: Vec<String>,
 }
 
 #[derive(Default)]
@@ -42,7 +43,16 @@ impl World {
             provides: provides.iter().map(|s| s.to_string()).collect(),
             depends: depends.iter().map(|s| s.to_string()).collect(),
             groups: Vec::new(),
+            replaces: Vec::new(),
         });
+        self
+    }
+
+    /// The last package added replaces `old`.
+    fn replacing(&mut self, old: &str) -> &mut Self {
+        if let Some(pkg) = self.pkgs.last_mut() {
+            pkg.replaces.push(old.to_string());
+        }
         self
     }
 
@@ -297,7 +307,7 @@ impl Facts for World {
                     depends_on: p.depends.iter().map(|t| to_dependency(t)).collect(),
                     optional_deps: Vec::new(),
                     conflicts_with: Vec::new(),
-                    replaces: Vec::new(),
+                    replaces: p.replaces.iter().map(|t| to_dependency(t)).collect(),
                     download_size: 1000,
                     download_size_text: "1000 B".to_string(),
                     installed_size: 2000,
@@ -1155,4 +1165,75 @@ fn one_version_of_a_name_with_two_providers_is_still_ready() {
     let world = two_versions_world();
     let plan = plan(resolve_with(&want(&["need9"]), &world));
     assert_eq!(plan.providers, [answer("jv", "jv-9")]);
+}
+
+// ---- update and install (WBS 6.6) -------------------------------------------------------------------------------
+
+/// A world where an update is waiting: `lib` is installed at an older version.
+fn stale() -> World {
+    let mut world = World::base();
+    world.install("lib", "0.5-1", &[]).pend("lib", false);
+    world
+}
+
+#[test]
+fn update_and_install_is_blocked_by_a_listed_replacement() {
+    let mut world = stale();
+    world.install("oldfoo", "1.0-1", &[]);
+    world.add("newfoo", &[], &[]).replacing("oldfoo");
+    assert_eq!(
+        blockers(resolve_with(&want(&["newfoo"]), &world)),
+        [Blocker::Replacement(vec![crate::Replacement {
+            new: pr("newfoo"),
+            old: "oldfoo".to_string(),
+        }])]
+    );
+
+    // Nothing installed to replace: nothing to block.
+    let mut world = stale();
+    world.add("newfoo", &[], &[]).replacing("oldfoo");
+    plan(resolve_with(&want(&["newfoo"]), &world));
+}
+
+#[test]
+fn update_and_install_asks_what_a_chosen_package_brings_without_the_update() {
+    // `chain-a` needs `chain-b`, and both provide `chain`: the resolver asks what chain-a brings by itself. That is
+    // an `-S` of it alone, as the helper asks it (`PrivateDryRunInstall`), never an `-Su`.
+    let world = stale();
+    let mut input = want(&["needs-chain"]);
+    input.provider_answers = vec![answer("chain", "chain-a")];
+    plan(resolve_with(&input, &world));
+    let alone = vec!["test/chain-a".to_string()];
+    let runs = world.runs.borrow();
+    assert!(runs.contains(&(false, alone.clone())), "{runs:?}");
+    assert!(!runs.contains(&(true, alone)), "{runs:?}");
+}
+
+#[test]
+fn update_and_install_does_not_ask_what_a_lone_candidate_brings() {
+    // With no other provider in the list there is nothing the answer has to account for, and the helper does not
+    // look either. On a stale system that extra `-S` could fail and wrongly drop the candidate.
+    let world = stale();
+    let mut input = want(&["needs-virt"]);
+    input.provider_answers = vec![answer("virt", "prov-b")];
+    plan(resolve_with(&input, &world));
+    let runs = world.runs.borrow();
+    assert!(
+        !runs.iter().any(|(_, targets)| targets == &["test/prov-b"]),
+        "{runs:?}"
+    );
+}
+
+#[test]
+fn a_provider_the_system_update_brings_is_asked() {
+    // Decision 0009: a plain update sends the user to a terminal; update and install can name it, so it asks.
+    let mut world = stale();
+    world
+        .add("upg", &[], &["virt"])
+        .install("upg", "0.5-1", &[])
+        .pend("upg", false);
+    let questions = questions(resolve_with(&want(&["hello"]), &world));
+    let (dependency, candidates, _) = the_provider_question(&questions);
+    assert_eq!(dependency, "virt");
+    assert_eq!(candidates, ["prov-a", "prov-b"]);
 }
