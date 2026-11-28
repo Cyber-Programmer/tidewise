@@ -692,6 +692,12 @@ impl InstallModel {
         self.is_installing()
     }
 
+    /// The running job also updates the system: the close dialog says "update" then.
+    pub fn updating_job(&self) -> bool {
+        // Stub.
+        false
+    }
+
     /// How many packages the confirmed list of the last run had.
     pub fn listed(&self) -> usize {
         self.listed
@@ -2132,5 +2138,15 @@ mod tests {
         assert!(model.system_rows_open());
         model.toggle_system_rows();
         assert!(!model.system_rows_open());
+    }
+
+    #[test]
+    fn a_running_update_and_install_is_an_update_job() {
+        let mut model = combined_review();
+        assert!(!model.updating_job());
+        model.start_install().unwrap();
+        assert!(model.updating_job());
+        let (model, _) = installing();
+        assert!(!model.updating_job(), "a plain install is not");
     }
 }
