@@ -17,8 +17,8 @@ use crate::picks::provides_for;
 use crate::{
     ChoiceFacts, Dependency, DetailsLookup, GroupMember, InstallDecision, InstalledPackage,
     PackageDetails, PackageRef, PacmanError, PendingUpdate, PrintFailure, PrintedPackage,
-    ProviderPick, Replacement, SearchResult, install_decision, is_soname, provider_picks,
-    real_choices,
+    ProviderPick, Replacement, SearchResult, dependency_text, install_decision, is_soname,
+    listed_replacements, provider_picks, real_choices,
 };
 use tidewise_names::{is_valid_package_name, is_valid_repo_name};
 
@@ -473,6 +473,15 @@ impl<'a> Engine<'a> {
             if let Some(blocked) = self.requested_missing(&asked, &listed) {
                 return Ok(blocked);
             }
+            // Update and install: the helper refuses a replacement before it looks at anything else.
+            if update {
+                let replacements = self.replacements(&listed, &installed)?;
+                if !replacements.is_empty() {
+                    return Ok(Resolution::Blocked(vec![Blocker::Replacement(
+                        replacements,
+                    )]));
+                }
+            }
 
             // Shared libraries are never asked about: judged once the other providers are settled.
             let (sonames, picks): (Vec<ProviderPick>, Vec<ProviderPick>) = self
@@ -493,7 +502,7 @@ impl<'a> Engine<'a> {
                     }]));
                 }
                 if let Some(dependency) =
-                    self.second_provider(update, &providers, &asked, &listed, &installed)?
+                    self.second_provider(&providers, &asked, &listed, &installed)?
                 {
                     return Ok(Resolution::Blocked(vec![Blocker::TwoVersionsNeeded {
                         dependency,
@@ -649,6 +658,27 @@ impl<'a> Engine<'a> {
             .collect())
     }
 
+    /// The replacements the list stands for: `listed_replacements`, the helper's rule too.
+    fn replacements(
+        &self,
+        listed: &[PackageRef],
+        installed: &HashMap<String, InstalledPackage>,
+    ) -> Result<Vec<Replacement>, PacmanError> {
+        let details: Vec<&PackageDetails> = listed
+            .iter()
+            .filter_map(|item| self.details_of(item))
+            .collect();
+        listed_replacements(
+            &details,
+            |name| installed.contains_key(name),
+            // A version that cannot be written as an argument counts as fitting: block rather than guess.
+            |old| match dependency_text(old) {
+                Some(_) => self.facts.satisfied(old),
+                None => Ok(true),
+            },
+        )
+    }
+
     /// Whether naming `candidate` for `dependency` works, with pacman as the judge: in a dry run of everything else
     /// asked plus the candidate, every package that provides `dependency` is the candidate or something the candidate
     /// brings along by itself (its own dry run). Installed packages never count, and are never a fit.
@@ -671,7 +701,22 @@ impl<'a> Engine<'a> {
         let DryRun::Listed(with_all) = self.dry_run(update, &names)? else {
             return Ok(false);
         };
-        let DryRun::Listed(alone) = self.dry_run(update, &[spec(candidate)])? else {
+        // Update and install: like the helper, look at the candidate alone only when the list holds another provider.
+        // On a stale system that dry run can fail by itself, which must not drop a candidate nothing competes with.
+        if update {
+            let refs: Vec<PackageRef> = with_all.iter().map(printed_ref).collect();
+            self.load_details(&refs)?;
+            let another = with_all.iter().any(|p| {
+                p.name != candidate.name
+                    && !installed.contains_key(&p.name)
+                    && self.provides(&printed_ref(p), dependency)
+            });
+            if !another {
+                return Ok(true);
+            }
+        }
+        // The candidate alone is a plain `-S` in both modes: what it brings by itself, not what an update brings.
+        let DryRun::Listed(alone) = self.dry_run(false, &[spec(candidate)])? else {
             return Ok(false);
         };
         let refs: Vec<PackageRef> = with_all.iter().chain(&alone).map(printed_ref).collect();
@@ -695,7 +740,6 @@ impl<'a> Engine<'a> {
     /// request that will be refused. In practice two packages need two versions of one name.
     fn second_provider(
         &mut self,
-        update: bool,
         answers: &[ProviderAnswer],
         asked: &[PackageRef],
         listed: &[PackageRef],
@@ -710,7 +754,7 @@ impl<'a> Engine<'a> {
             if others.is_empty() {
                 continue;
             }
-            let DryRun::Listed(brought) = self.dry_run(update, &[spec(&answer.chosen)])? else {
+            let DryRun::Listed(brought) = self.dry_run(false, &[spec(&answer.chosen)])? else {
                 return Ok(Some(answer.dependency.clone()));
             };
             if others
