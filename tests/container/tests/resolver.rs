@@ -542,3 +542,44 @@ fn update_and_install_with_a_replacement_is_blocked_by_the_resolver() {
     assert!(said.starts_with("blocked Replacement("), "{said}");
     let _ = fs::remove_dir_all("/tmp/lists-private");
 }
+
+/// M1 in the resolver (review U-01): the choice is asked, and naming the provider that needs the new soname ends in a
+/// list the real helper accepts.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_resolves_across_a_soname_bump() {
+    assert_inside_the_test_container();
+    reset_world();
+    install_directly(&["tidewise-dummy-rt-lib", "tidewise-dummy-rt-user"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    change_repository_without_syncing("tidewise-dummy-rt-lib-2.0-1-any.pkg.tar.zst");
+    change_repository_without_syncing("tidewise-dummy-rt-user-2.0-1-any.pkg.tar.zst");
+    let folder = fresh_private_lists();
+
+    let asked = resolved(&["needs-rt"], &[], Some(folder));
+    assert!(asked.starts_with("ask tidewise-runtime "), "{asked}");
+    let ready = resolved(
+        &["needs-rt"],
+        &[("tidewise-runtime", "rt-full")],
+        Some(folder),
+    );
+    let items: Vec<Item> = plan_items(&ready)
+        .into_iter()
+        .map(|(name, version)| Item {
+            repo: REPO.to_string(),
+            name,
+            version,
+        })
+        .collect();
+    let target = dummy("needs-rt");
+    let chosen = dummy("rt-full");
+    let (request, summary) = update_and_install_request(
+        &[(REPO, &target)],
+        &[("tidewise-runtime", REPO, &chosen)],
+        &items,
+    );
+    let ran = run(&summary, request.as_bytes());
+    assert_eq!(ran.status.code(), Some(0), "{}\n{}", ran.stdout, ran.stderr);
+    assert!(installed_version(&dummy("rt-full")).is_some());
+    let _ = fs::remove_dir_all("/tmp/lists-private");
+}

@@ -1768,3 +1768,77 @@ fn update_and_install_refuses_a_replacement() {
     assert_eq!(fingerprint(REAL_SYNC), lists_before);
     assert_eq!(package_list(), packages_before);
 }
+
+// ---- update and install: what a chosen provider brings (WBS 6.6, review U-01) -----------------------------------
+
+/// `installed` at their old versions, then newer versions of `later` that the real lists do not know yet.
+fn stale_system(installed: &[&str], later: &[&str]) {
+    assert_inside_the_test_container();
+    reset_world();
+    let installed: Vec<String> = installed.iter().map(|name| dummy(name)).collect();
+    install_directly(&installed.iter().map(String::as_str).collect::<Vec<_>>());
+    std::thread::sleep(Duration::from_millis(1100));
+    for name in later {
+        change_repository_without_syncing(&format!("tidewise-dummy-{name}-2.0-1-any.pkg.tar.zst"));
+    }
+}
+
+const RUNTIME: &str = "tidewise-runtime";
+
+/// M1, the U-01 reproduction: `rt-full` needs `rt-core` by name (also a `tidewise-runtime`) and the new soname of a
+/// library an installed package still needs in its old form. A dry run of `rt-full` alone fails ("breaks
+/// dependency"); the update and install itself is fine.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_accepts_a_provider_across_a_soname_bump() {
+    stale_system(&["rt-lib", "rt-user"], &["rt-lib", "rt-user"]);
+    let items = listed(&[
+        ("rt-core", "1.0-1"),
+        ("rt-lib", "2.0-1"),
+        ("rt-full", "1.0-1"),
+        ("needs-rt", "1.0-1"),
+        ("rt-user", "2.0-1"),
+    ]);
+    let ran = update_and_install("needs-rt", &[(RUNTIME, "rt-full")], &items);
+    assert_ok(&ran);
+    assert_eq!(
+        installed_version(&dummy("rt-user")).as_deref(),
+        Some("2.0-1")
+    );
+    assert!(installed_version(&dummy("rt-core")).is_some());
+}
+
+/// M3: the update pulls another provider by its name; the chosen one has nothing to do with it.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_refuses_a_second_provider_only_the_update_pulls_in() {
+    stale_system(&["rt-pull"], &["rt-pull"]);
+    let items = listed(&[
+        ("rt-other", "1.0-1"),
+        ("rt-core", "1.0-1"),
+        ("needs-rt", "1.0-1"),
+        ("rt-pull", "2.0-1"),
+    ]);
+    refused_for_the_provider("needs-rt", &[(RUNTIME, "rt-core")], &items);
+}
+
+/// M4: the update needs the name too and pacman would take `rt-core` for it, but the chosen `rt-full` needs
+/// `rt-core` by its name anyway: nobody is choosing anything.
+#[test]
+#[ignore = "runs real pacman as root: only inside the test container (tests/container/run.sh)"]
+fn update_and_install_accepts_a_provider_the_chosen_one_needs_by_name() {
+    stale_system(&["rt-need"], &["rt-need", "rt-lib"]);
+    let items = listed(&[
+        ("rt-core", "1.0-1"),
+        ("rt-lib", "2.0-1"),
+        ("rt-full", "1.0-1"),
+        ("needs-rt", "1.0-1"),
+        ("rt-need", "2.0-1"),
+    ]);
+    let ran = update_and_install("needs-rt", &[(RUNTIME, "rt-full")], &items);
+    assert_ok(&ran);
+    assert_eq!(
+        installed_version(&dummy("rt-need")).as_deref(),
+        Some("2.0-1")
+    );
+}
