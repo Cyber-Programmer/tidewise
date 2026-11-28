@@ -694,8 +694,7 @@ impl InstallModel {
 
     /// The running job also updates the system: the close dialog says "update" then.
     pub fn updating_job(&self) -> bool {
-        // Stub.
-        false
+        self.updating && self.is_installing()
     }
 
     /// How many packages the confirmed list of the last run had.
